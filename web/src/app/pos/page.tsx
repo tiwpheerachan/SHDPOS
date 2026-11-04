@@ -229,15 +229,12 @@ export default function PosLoginPage() {
       />
 
       {/* การ์ดล็อกอิน ทับบนพาเนล */}
-      <div className="absolute inset-0 z-20 flex items-start justify-center px-5 pt-[14vh] sm:pt-[15vh] pointer-events-none">
+      <div className="absolute inset-0 z-20 flex items-center justify-center px-5 py-8 overflow-y-auto pointer-events-none">
         <div className="w-full max-w-md relative pointer-events-auto">
           {/* หัวข้อ */}
           <div className="flex flex-col items-center text-center mb-4">
             <h1 className="text-lg font-semibold tracking-tight text-white drop-shadow-sm">ยินดีต้อนรับ 👋</h1>
             <p className="text-xs text-white/85 mt-1">ยืนยันตัวตนเพื่อเข้าใช้งาน SHDPOS</p>
-            <div className="mt-2">
-              <Badge tone={isLiveMode() ? "ok" : "warn"}>{isLiveMode() ? "เชื่อมต่อฐานข้อมูล" : "โหมดสาธิต"}</Badge>
-            </div>
           </div>
 
         <Card className="p-6">
