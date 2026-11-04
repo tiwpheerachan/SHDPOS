@@ -111,6 +111,19 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen flex bg-bg">
+      {/* กรอบแก้ว (liquid glass) สำหรับเมนูที่เลือก — โทนเดียวกับ navbar ของ POS */}
+      <style>{`
+        .shd-nav-glass{
+          background:linear-gradient(135deg,rgb(var(--c-brand) / .10),rgb(var(--c-brand) / .04));
+          -webkit-backdrop-filter:blur(8px) saturate(1.5);
+          backdrop-filter:blur(8px) saturate(1.5);
+          box-shadow:inset 0 1px 1px rgb(255 255 255 / .55),inset 0 0 0 1px rgb(var(--c-brand) / .18),0 4px 14px -8px rgb(var(--c-brand) / .35);
+        }
+        :root[data-theme="dark"] .shd-nav-glass{
+          background:linear-gradient(135deg,rgb(var(--c-brand) / .16),rgb(var(--c-brand) / .06));
+          box-shadow:inset 0 1px 1px rgb(255 255 255 / .12),inset 0 0 0 1px rgb(var(--c-brand) / .28),0 4px 14px -8px rgb(0 0 0 / .6);
+        }
+      `}</style>
       {/* ============ Sidebar ============ */}
       <aside
         className={clsx(
@@ -146,12 +159,12 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
                       href={n.href}
                       title={collapsed ? label[n.key] : undefined}
                       className={clsx(
-                        "flex items-center gap-3 h-10 rounded-xl text-sm font-medium transition-colors",
+                        "flex items-center gap-3 h-10 rounded-xl text-sm transition-colors",
                         collapsed ? "lg:justify-center lg:px-0 px-3" : "px-3",
-                        active ? "bg-brand text-brandInk" : "text-muted hover:text-ink hover:bg-surface2"
+                        active ? "shd-nav-glass text-ink font-semibold" : "text-muted font-medium hover:text-ink hover:bg-surface2"
                       )}
                     >
-                      <Icon size={18} className="shrink-0" />
+                      <Icon size={18} className={clsx("shrink-0", active && "text-brand")} />
                       {!collapsed && <span className="truncate">{label[n.key]}</span>}
                     </Link>
                   );
@@ -177,12 +190,14 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
             href="/admin/settings"
             title={collapsed ? t.admin.settings : undefined}
             className={clsx(
-              "flex items-center gap-3 h-10 rounded-xl text-sm font-medium text-muted hover:text-ink hover:bg-surface2 transition-colors",
+              "flex items-center gap-3 h-10 rounded-xl text-sm font-medium transition-colors",
               collapsed ? "lg:justify-center lg:px-0 px-3" : "px-3",
-              pathname === "/admin/settings" && "bg-brand text-brandInk hover:text-brandInk"
+              pathname === "/admin/settings"
+                ? "shd-nav-glass text-ink font-semibold"
+                : "text-muted hover:text-ink hover:bg-surface2"
             )}
           >
-            <Settings2 size={18} className="shrink-0" />
+            <Settings2 size={18} className={clsx("shrink-0", pathname === "/admin/settings" && "text-brand")} />
             {!collapsed && t.admin.settings}
           </Link>
           <Link
@@ -267,7 +282,12 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
 
               {employee ? (
                 <div className="flex items-center gap-2 pl-1.5 ml-1 border-l border-line">
-                  <Avatar name={employee.nickname ?? employee.first_name} size={30} />
+                  {employee.photo_url ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={employee.photo_url} alt="" className="w-[30px] h-[30px] rounded-full object-cover ring-1 ring-line" />
+                  ) : (
+                    <Avatar name={employee.nickname ?? employee.first_name} size={30} />
+                  )}
                   <div className="hidden lg:block leading-tight pr-1">
                     <p className="text-xs font-semibold truncate max-w-[110px]">{employee.nickname ?? employee.first_name}</p>
                     <p className="text-[10px] text-muted">{ROLE_LABEL[employee.role][locale]}</p>
