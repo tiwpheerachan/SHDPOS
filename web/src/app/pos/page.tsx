@@ -21,7 +21,7 @@ const StImg = ({ src }: { src: string }) => (
   <img src={src} alt="" style={{ width: "100%", height: "auto", display: "block" }} draggable={false} />
 );
 const LOGIN_STICKERS = [
-  { node: <StImg src="/stickers/shd.png" />, label: "SHD", size: 15 },
+  { node: <StImg src="/stickers/shd.png" />, label: "SHD", size: 20 },
   { node: <StImg src="/stickers/shr-run.png" />, label: "SHR team" },
   { node: <StImg src="/stickers/globe.png" />, label: "analytics" },
   { node: <StImg src="/stickers/sincere.png" />, label: "真诚 sincere" },
