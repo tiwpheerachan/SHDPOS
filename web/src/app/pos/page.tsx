@@ -13,6 +13,7 @@ import { isLiveMode, supabase } from "@/lib/supabase/client";
 import { useToast } from "@/components/toast-host";
 import { useCentral } from "@/lib/sso/use-central";
 import { buildSsoEmployee, matchBranch } from "@/lib/sso/map-employee";
+import StickerSlapFooter from "@/components/ui/sticker-slap-footer";
 
 // แปลง safe profile จาก RPC (pos_login_by_pin) → Employee สำหรับ session
 function profileToEmployee(p: any, branchId: string): Employee {
@@ -205,17 +206,39 @@ export default function PosLoginPage() {
   }
 
   return (
-    <div className="min-h-screen relative flex items-center justify-center p-5 bg-bg overflow-hidden">
-      <div className="w-full max-w-md relative z-10">
-        {/* โลโก้ + หัวข้อ */}
-        <div className="flex flex-col items-center text-center mb-6">
-          <img src="/logo.png" alt="SHD POS" className="w-14 h-14 object-contain mb-3" />
-          <h1 className="text-xl font-semibold tracking-tight">SHD POS</h1>
-          <p className="text-sm text-muted mt-1">ยืนยันตัวตนเพื่อเข้าใช้งานระบบ</p>
-          <div className="mt-2">
-            <Badge tone={isLiveMode() ? "ok" : "warn"}>{isLiveMode() ? "เชื่อมต่อฐานข้อมูล" : "โหมดสาธิต"}</Badge>
+    <div className="relative min-h-screen overflow-hidden bg-[#f1ece4]">
+      {/* พื้นหลัง sticker slap — wordmark "shdpos" + สติ๊กเกอร์ */}
+      <StickerSlapFooter
+        wordmark="shdpos"
+        height="100svh"
+        homeHref="/pos"
+        navLabel=""
+        chatHref=""
+        jobs={[]}
+        address={[]}
+        email=""
+        socials={[]}
+        credits={[]}
+        note=""
+        mapLabel=""
+        paper="#f1ece4"
+        panel="#4a6cf0"
+        ink="#141414"
+        accent="#FF725E"
+        className="absolute inset-0"
+      />
+
+      {/* การ์ดล็อกอิน ทับบนพาเนล */}
+      <div className="absolute inset-0 z-20 flex items-start justify-center px-5 pt-[14vh] sm:pt-[15vh] pointer-events-none">
+        <div className="w-full max-w-md relative pointer-events-auto">
+          {/* หัวข้อ */}
+          <div className="flex flex-col items-center text-center mb-4">
+            <h1 className="text-lg font-semibold tracking-tight text-white drop-shadow-sm">ยินดีต้อนรับ 👋</h1>
+            <p className="text-xs text-white/85 mt-1">ยืนยันตัวตนเพื่อเข้าใช้งาน SHDPOS</p>
+            <div className="mt-2">
+              <Badge tone={isLiveMode() ? "ok" : "warn"}>{isLiveMode() ? "เชื่อมต่อฐานข้อมูล" : "โหมดสาธิต"}</Badge>
+            </div>
           </div>
-        </div>
 
         <Card className="p-6">
           {session.employee ? (
@@ -318,6 +341,7 @@ export default function PosLoginPage() {
             </div>
           )}
         </Card>
+        </div>
       </div>
 
       {/* ── Modal: เข้าด้วย PIN พนักงาน (ใส่ PIN → ระบบรู้เองว่าเป็นใคร) ── */}
