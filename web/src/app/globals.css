@@ -1,0 +1,201 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* =====================================================================
+   Design tokens — Retail Command Center
+   ค่าเริ่มต้นคือโหมดสว่าง (light) · โหมดมืดเปิดด้วย data-theme="dark"
+   ระบบสี: warm neutral 70–80% + accent (coral/lime/lavender/mint/peach)
+   ===================================================================== */
+:root {
+  --c-bg: 243 243 241;          /* #F3F3F1 warm light gray */
+  --c-surface: 255 255 255;     /* #FFFFFF */
+  --c-surface-2: 236 236 234;   /* #ECECEA soft gray */
+  --c-line: 226 226 221;        /* subtle neutral hairline */
+  --c-ink: 22 22 22;            /* #161616 */
+  --c-muted: 119 119 115;       /* #777773 */
+  --c-brand: 21 21 21;          /* #151515 dark accent = primary */
+  --c-brand-ink: 255 255 255;
+
+  /* accent palette — ใช้เน้นข้อมูลสำคัญเท่านั้น */
+  --c-coral: 255 114 94;        /* #FF725E  revenue */
+  --c-lime: 215 243 90;         /* #D7F35A  target / growth */
+  --c-lavender: 168 152 245;    /* #A898F5  analytics / prediction */
+  --c-mint: 189 237 217;        /* #BDEDD9  healthy / completed */
+  --c-peach: 245 213 200;       /* #F5D5C8  soft */
+
+  /* semantic — เลือกโทนที่อ่านออกบนพื้นขาว */
+  --c-ok: 22 145 107;           /* readable green */
+  --c-warn: 194 120 40;         /* soft orange (text-safe) */
+  --c-danger: 214 69 74;        /* soft red */
+  --c-info: 109 93 211;         /* lavender-deep */
+
+  --font-sans: "Inter", "Manrope", "Noto Sans Thai", "IBM Plex Sans Thai",
+    -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", "Helvetica Neue", Arial, sans-serif;
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --c-bg: 17 18 17;             /* #111211 */
+  --c-surface: 25 26 24;        /* #191A18 */
+  --c-surface-2: 32 33 31;      /* #20211F elevated */
+  --c-line: 42 43 40;
+  --c-ink: 236 236 232;
+  --c-muted: 138 138 132;
+  --c-brand: 240 238 233;       /* light primary on dark */
+  --c-brand-ink: 21 21 21;
+
+  --c-coral: 255 126 107;
+  --c-lime: 199 226 79;
+  --c-lavender: 176 162 245;
+  --c-mint: 169 220 198;
+  --c-peach: 226 191 176;
+
+  --c-ok: 52 199 148;
+  --c-warn: 224 160 84;
+  --c-danger: 240 113 118;
+  --c-info: 176 162 245;
+  color-scheme: dark;
+}
+
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: rgb(var(--c-bg));
+  color: rgb(var(--c-ink));
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overscroll-behavior: none;
+  letter-spacing: -0.011em;
+}
+
+/* แถบ scroll บางลงให้ดูสะอาด */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--c-line));
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@layer components {
+  /* การ์ดลอยเบา ๆ จากพื้นหลัง — ขอบบาง เงานุ่ม มุมโค้งกว้าง */
+  .card {
+    @apply bg-surface border border-line/70 rounded-[22px] shadow-card;
+  }
+  /* การ์ดสำคัญโทนเข้ม (net sales / hero) */
+  .card-ink {
+    @apply bg-brand text-brandInk rounded-[22px] shadow-card border border-transparent;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-full px-4 h-11 text-sm font-medium
+           transition-all select-none disabled:opacity-40 disabled:pointer-events-none active:scale-[0.98];
+  }
+  .btn-primary {
+    @apply btn bg-brand text-brandInk hover:brightness-110 active:brightness-95;
+  }
+  .btn-ghost {
+    @apply btn bg-transparent text-ink hover:bg-surface2 border border-line;
+  }
+  .btn-soft {
+    @apply btn bg-surface2 text-ink hover:brightness-95 dark:hover:brightness-110 border border-transparent;
+  }
+  .btn-danger {
+    @apply btn bg-danger text-white hover:brightness-110;
+  }
+  .btn-ok {
+    @apply btn bg-ok text-white hover:brightness-110;
+  }
+  .input {
+    @apply w-full h-11 rounded-xl border border-line bg-surface px-3 text-sm text-ink
+           placeholder:text-muted outline-none focus:ring-2 focus:ring-ink/15 focus:border-ink/30;
+  }
+  .label {
+    @apply block text-xs font-medium text-muted mb-1.5;
+  }
+  .chip {
+    @apply inline-flex items-center gap-1 rounded-full px-2.5 h-7 text-xs font-medium
+           bg-surface2 text-ink border border-line;
+  }
+  .tnum {
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+  }
+  /* label ตัวเล็ก uppercase สไตล์ editorial */
+  .eyebrow {
+    @apply text-[10px] font-semibold uppercase tracking-[0.12em] text-muted;
+  }
+}
+
+/* =====================================================================
+   Motion — เปลี่ยนหน้าให้ลื่น + สถานะโหลด (skeleton)
+   ===================================================================== */
+@keyframes pageIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: none; }
+}
+.page-enter {
+  animation: pageIn 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* เข้าทีละชิ้นแบบไล่ระดับ — ใส่ .stagger ที่ container */
+.stagger > * { animation: pageIn 0.32s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.stagger > *:nth-child(1) { animation-delay: 0.02s; }
+.stagger > *:nth-child(2) { animation-delay: 0.06s; }
+.stagger > *:nth-child(3) { animation-delay: 0.10s; }
+.stagger > *:nth-child(4) { animation-delay: 0.14s; }
+.stagger > *:nth-child(5) { animation-delay: 0.18s; }
+.stagger > *:nth-child(6) { animation-delay: 0.22s; }
+.stagger > *:nth-child(7) { animation-delay: 0.26s; }
+.stagger > *:nth-child(8) { animation-delay: 0.30s; }
+
+@keyframes slideInRight {
+  from { transform: translateX(100%); }
+  to   { transform: none; }
+}
+.drawer-in { animation: slideInRight 0.26s cubic-bezier(0.22, 1, 0.36, 1); }
+
+@keyframes shimmer { 100% { transform: translateX(100%); } }
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: rgb(var(--c-surface-2));
+}
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgb(var(--c-line) / 0.65), transparent);
+  animation: shimmer 1.4s infinite;
+}
+
+/* เคารพผู้ใช้ที่ปิดแอนิเมชัน */
+@media (prefers-reduced-motion: reduce) {
+  .page-enter, .stagger > *, .skeleton::after { animation: none !important; }
+}
+
+/* หน้าจอลูกค้า — ตัวใหญ่ อ่านง่ายจากระยะไกล */
+.customer-display {
+  font-size: clamp(16px, 1.6vw, 22px);
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+}

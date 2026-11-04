@@ -1,0 +1,18 @@
+{
+  "name": "shd-pos-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Print & cash-drawer bridge สำหรับ SHD POS — รันบนเครื่อง POS แต่ละเครื่อง",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "install-service": "node src/install-service.js"
+  },
+  "dependencies": {},
+  "optionalDependencies": {
+    "node-thermal-printer": "^4.4.4",
+    "usb": "^2.13.0"
+  },
+  "engines": { "node": ">=18" }
+}
