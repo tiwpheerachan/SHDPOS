@@ -14,6 +14,26 @@ import { useToast } from "@/components/toast-host";
 import { useCentral } from "@/lib/sso/use-central";
 import { buildSsoEmployee, matchBranch } from "@/lib/sso/map-employee";
 
+// แปลง safe profile จาก RPC (pos_login_by_pin) → Employee สำหรับ session
+function profileToEmployee(p: any, branchId: string): Employee {
+  return {
+    id: p.id,
+    employee_code: p.employee_code,
+    first_name: p.first_name,
+    last_name: p.last_name ?? null,
+    nickname: p.nickname ?? null,
+    role: p.role,
+    data_scope: p.data_scope,
+    home_branch_id: p.home_branch_id ?? branchId,
+    branch_ids: p.branch_ids ?? [branchId],
+    brand_ids: p.brand_ids ?? [],
+    max_discount_percent: p.max_discount_percent ?? 0,
+    can_open_drawer: p.can_open_drawer ?? false,
+    status: p.status ?? "active",
+    photo_url: p.photo_url ?? null,
+  };
+}
+
 export default function PosLoginPage() {
   const { t, locale } = useI18n();
   const router = useRouter();
@@ -23,10 +43,12 @@ export default function PosLoginPage() {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [branchId, setBranchId] = useState<string>("");
-  const [selected, setSelected] = useState<Employee | null>(null);
   const [pin, setPin] = useState("");
   const [error, setError] = useState(false);
   const [showPin, setShowPin] = useState(false);
+  const [pinBusy, setPinBusy] = useState(false);
+  // เมื่อ PIN ตรงกับหลายคน (เช่น default 1234 ซ้ำกัน) → ให้เลือกชื่อ
+  const [pinMatches, setPinMatches] = useState<Employee[] | null>(null);
 
   // ── SSO ระบบกลาง ──
   const central = useCentral();
@@ -60,13 +82,15 @@ export default function PosLoginPage() {
     [employees, branchId]
   );
 
+  // เปลี่ยนสาขา → ล้าง PIN + รายการที่ต้องเลือก
   useEffect(() => {
-    if (selected && !branchEmployees.find((e) => e.id === selected.id)) setSelected(null);
-  }, [branchEmployees, selected]);
+    setPin("");
+    setPinMatches(null);
+  }, [branchId]);
 
-  // พิมพ์ PIN จากคีย์บอร์ดได้: ตัวเลข 0-9, Backspace ลบ, Enter ยืนยัน, Esc ล้าง
+  // พิมพ์ PIN จากคีย์บอร์ดได้ (เมื่อเปิด modal PIN และยังไม่อยู่ขั้นเลือกชื่อ)
   useEffect(() => {
-    if (!selected) return;
+    if (!showPin || pinMatches) return;
     const onKey = (ev: KeyboardEvent) => {
       if (ev.key >= "0" && ev.key <= "9") {
         ev.preventDefault();
@@ -76,7 +100,7 @@ export default function PosLoginPage() {
         setPin((p) => p.slice(0, -1));
       } else if (ev.key === "Enter") {
         ev.preventDefault();
-        void submit();
+        void submitPin();
       } else if (ev.key === "Escape") {
         ev.preventDefault();
         setPin("");
@@ -85,40 +109,54 @@ export default function PosLoginPage() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected, pin, branchId]);
+  }, [showPin, pinMatches, pin, branchId]);
 
-  async function submit() {
-    if (!selected || !branchId) return;
-    // โหมดจริง: ตรวจ PIN ฝั่ง server ด้วย bcrypt (RPC pos_login) | โหมดสาธิต: PIN = 1234
-    let ok: boolean;
-    if (isLiveMode()) {
-      const sb = supabase();
-      const { data } = await sb!.rpc("pos_login", { p_code: selected.employee_code, p_pin: pin });
-      ok = Boolean(data);
-    } else {
-      ok = pin === (selected.pin ?? "1234");
+  function wrongPin() {
+    setError(true);
+    setPin("");
+    setTimeout(() => setError(false), 1200);
+  }
+
+  // เข้าสู่ระบบด้วย PIN อย่างเดียว → ระบบหาว่า PIN นี้เป็นของใครในสาขาที่เลือก
+  async function submitPin() {
+    if (!branchId || pin.length < 4 || pinBusy) return;
+    setPinBusy(true);
+    try {
+      let matches: Employee[] = [];
+      if (isLiveMode()) {
+        const sb = supabase();
+        const { data } = await sb!.rpc("pos_login_by_pin", { p_branch_id: branchId, p_pin: pin });
+        matches = ((data as any[]) ?? []).map((p) => profileToEmployee(p, branchId));
+      } else {
+        // โหมดสาธิต: PIN 1234 ใช้ได้กับพนักงานในสาขา
+        matches = pin === "1234" ? branchEmployees : [];
+      }
+      if (matches.length === 0) { wrongPin(); return; }
+      if (matches.length === 1) { await finishLogin(matches[0]); return; }
+      setPinMatches(matches); // PIN ซ้ำหลายคน → เลือกชื่อ
+    } finally {
+      setPinBusy(false);
     }
-    if (!ok) {
-      setError(true);
-      setPin("");
-      setTimeout(() => setError(false), 1200);
-      return;
-    }
+  }
+
+  async function finishLogin(emp: Employee) {
     const terminal = await getTerminalForBranch(branchId);
-    session.login(selected, branchId, terminal?.id ?? null);
+    session.login(emp, branchId, terminal?.id ?? null);
     const shift = await currentShift(branchId);
     session.setShift(shift ?? null);
-    await writeAudit({
-      action: "login",
-      actor_id: selected.id,
-      branch_id: branchId,
-      ref_table: null,
-      ref_no: null,
-      amount: null,
-      after_data: { terminal: terminal?.code ?? null },
-      is_offline: typeof navigator !== "undefined" ? !navigator.onLine : false,
-    });
-    toast.push({ tone: "ok", title: `${t.login.enter} · ${selected.nickname ?? selected.first_name}` });
+    try {
+      await writeAudit({
+        action: "login",
+        actor_id: emp.id,
+        branch_id: branchId,
+        ref_table: null,
+        ref_no: null,
+        amount: null,
+        after_data: { terminal: terminal?.code ?? null, via: "pin" },
+        is_offline: typeof navigator !== "undefined" ? !navigator.onLine : false,
+      });
+    } catch { /* ไม่บล็อกการเข้าสู่ระบบ */ }
+    toast.push({ tone: "ok", title: `${t.login.enter} · ${emp.nickname ?? emp.first_name}` });
     router.push("/");
   }
 
@@ -282,13 +320,17 @@ export default function PosLoginPage() {
         </Card>
       </div>
 
-      {/* ── Modal: เข้าด้วย PIN พนักงาน (วิธีสำรอง) ── */}
-      <Modal open={showPin} onClose={() => setShowPin(false)} size="lg" title="เข้าด้วยรหัส PIN พนักงาน">
-        <div className="grid sm:grid-cols-2 gap-5">
-          {/* เลือกสาขา + พนักงาน */}
-          <div className="flex flex-col min-h-0">
+      {/* ── Modal: เข้าด้วย PIN พนักงาน (ใส่ PIN → ระบบรู้เองว่าเป็นใคร) ── */}
+      <Modal
+        open={showPin}
+        onClose={() => { setShowPin(false); setPinMatches(null); setPin(""); }}
+        size="sm"
+        title="เข้าด้วยรหัส PIN พนักงาน"
+      >
+        <div className="space-y-4">
+          <div>
             <label className="label">{t.common.branch}</label>
-            <div className="relative mb-3">
+            <div className="relative">
               <Building2 size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
               <Select value={branchId} onChange={(e) => setBranchId(e.target.value)} className="pl-9">
                 {branches.map((b) => (
@@ -296,63 +338,69 @@ export default function PosLoginPage() {
                 ))}
               </Select>
             </div>
-            <label className="label">{t.login.selectEmployee}</label>
-            <div className="grid gap-2 overflow-y-auto max-h-[46vh] pr-1">
-              {branchEmployees.map((e) => (
-                <button
-                  key={e.id}
-                  onClick={() => { setSelected(e); setPin(""); }}
-                  className={`text-left rounded-xl border px-3.5 py-3 transition-colors ${
-                    selected?.id === e.id ? "border-brand bg-brand/5" : "border-line bg-surface hover:bg-surface2"
-                  }`}
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-full bg-surface2 grid place-items-center text-xs font-semibold shrink-0">
-                      {(e.nickname ?? e.first_name).slice(0, 2).toUpperCase()}
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium truncate">{e.nickname ?? e.first_name}</p>
-                      <p className="text-[11px] text-muted truncate">{e.employee_code} · {ROLE_LABEL[e.role][locale]}</p>
-                    </div>
-                    <ChevronRight size={16} className="ml-auto text-muted shrink-0" />
-                  </div>
-                </button>
-              ))}
-              {!branchEmployees.length ? (
-                <p className="text-xs text-muted py-6 text-center">ไม่มีพนักงานในสาขานี้</p>
-              ) : null}
-            </div>
           </div>
 
-          {/* PIN pad */}
-          <div className="flex flex-col">
-            <p className="text-sm font-medium text-center">
-              {selected ? selected.nickname ?? selected.first_name : t.login.selectEmployee}
-            </p>
-            <p className="text-xs text-muted text-center mt-0.5">{t.login.subtitle}</p>
-            <div className={`flex justify-center gap-3 my-5 ${error ? "animate-pop" : ""}`}>
-              {[0, 1, 2, 3, 4, 5].map((i) => (
-                <span key={i} className={`w-3 h-3 rounded-full transition-colors ${error ? "bg-danger" : i < pin.length ? "bg-brand" : "bg-line"}`} />
-              ))}
+          {pinMatches ? (
+            /* PIN ตรงกับหลายคน → ให้เลือกชื่อ */
+            <div>
+              <p className="text-sm font-medium text-center">เลือกชื่อของคุณ</p>
+              <p className="text-[11px] text-muted text-center mb-3">PIN นี้ตรงกับพนักงานหลายคนในสาขานี้ (ควรตั้ง PIN ไม่ให้ซ้ำกัน)</p>
+              <div className="grid gap-2 max-h-[46vh] overflow-y-auto pr-1">
+                {pinMatches.map((e) => (
+                  <button
+                    key={e.id}
+                    onClick={() => void finishLogin(e)}
+                    className="text-left rounded-xl border border-line bg-surface hover:bg-surface2 px-3.5 py-3 transition-colors"
+                  >
+                    <div className="flex items-center gap-3">
+                      {e.photo_url ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={e.photo_url} alt="" className="w-9 h-9 rounded-full object-cover shrink-0" />
+                      ) : (
+                        <div className="w-9 h-9 rounded-full bg-surface2 grid place-items-center text-xs font-semibold shrink-0">
+                          {(e.nickname ?? e.first_name).slice(0, 2).toUpperCase()}
+                        </div>
+                      )}
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium truncate">{e.nickname ?? e.first_name}</p>
+                        <p className="text-[11px] text-muted truncate">{e.employee_code} · {ROLE_LABEL[e.role][locale]}</p>
+                      </div>
+                      <ChevronRight size={16} className="ml-auto text-muted shrink-0" />
+                    </div>
+                  </button>
+                ))}
+              </div>
+              <button onClick={() => { setPinMatches(null); setPin(""); }} className="mt-3 w-full text-xs text-muted hover:text-ink">← ใส่ PIN ใหม่</button>
             </div>
-            {error ? <p className="text-xs text-danger text-center -mt-3 mb-3">{t.login.wrongPin}</p> : null}
-            <Numpad
-              onDigit={(d) => { if (d === ".") return; setPin((p) => (p.length < 6 ? p + d : p)); }}
-              onBackspace={() => setPin((p) => p.slice(0, -1))}
-              onClear={() => setPin("")}
-              onEnter={() => void submit()}
-              enterLabel={t.login.enter}
-              extra={
-                <button onClick={() => setPin("")} className="h-14 rounded-xl bg-surface2 border border-line grid place-items-center text-muted">
-                  <Delete size={18} />
-                </button>
-              }
-            />
-            <Button variant="primary" className="w-full mt-3" disabled={!selected || pin.length < 4} onClick={() => void submit()}>
-              {t.login.enter}
-            </Button>
-            {!isLiveMode() ? <p className="text-[11px] text-muted text-center mt-3">{t.login.demoHint}</p> : null}
-          </div>
+          ) : (
+            /* ใส่ PIN */
+            <div className="flex flex-col">
+              <p className="text-sm font-medium text-center">ใส่รหัส PIN</p>
+              <p className="text-xs text-muted text-center mt-0.5">{t.login.subtitle}</p>
+              <div className={`flex justify-center gap-3 my-5 ${error ? "animate-pop" : ""}`}>
+                {[0, 1, 2, 3, 4, 5].map((i) => (
+                  <span key={i} className={`w-3 h-3 rounded-full transition-colors ${error ? "bg-danger" : i < pin.length ? "bg-brand" : "bg-line"}`} />
+                ))}
+              </div>
+              {error ? <p className="text-xs text-danger text-center -mt-3 mb-3">{t.login.wrongPin}</p> : null}
+              <Numpad
+                onDigit={(d) => { if (d === ".") return; setPin((p) => (p.length < 6 ? p + d : p)); }}
+                onBackspace={() => setPin((p) => p.slice(0, -1))}
+                onClear={() => setPin("")}
+                onEnter={() => void submitPin()}
+                enterLabel={t.login.enter}
+                extra={
+                  <button onClick={() => setPin("")} className="h-14 rounded-xl bg-surface2 border border-line grid place-items-center text-muted">
+                    <Delete size={18} />
+                  </button>
+                }
+              />
+              <Button variant="primary" className="w-full mt-3" disabled={pin.length < 4 || pinBusy} onClick={() => void submitPin()}>
+                {pinBusy ? "กำลังตรวจสอบ…" : t.login.enter}
+              </Button>
+              {!isLiveMode() ? <p className="text-[11px] text-muted text-center mt-3">{t.login.demoHint}</p> : null}
+            </div>
+          )}
         </div>
       </Modal>
     </div>
