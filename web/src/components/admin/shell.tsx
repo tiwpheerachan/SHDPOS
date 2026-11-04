@@ -1,13 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import clsx from "clsx";
 import {
   LayoutDashboard, TrendingUp, Users, Package, Boxes, ArrowLeftRight,
   ShieldCheck, ScrollText, Settings2, Store, Sun, Moon, Languages, Menu, X, Bell,
-  Search, PanelLeftClose, PanelLeftOpen, ChevronDown, Command, Home, Activity, FileText, KeyRound,
+  Search, PanelLeftClose, PanelLeftOpen, ChevronDown, Command, Home, Activity, FileText, KeyRound, LogOut,
 } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { useTheme } from "@/lib/theme";
@@ -61,7 +61,8 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
   const { t, locale, setLocale } = useI18n();
   const { mode, setMode } = useTheme();
   const pathname = usePathname();
-  const { employee } = useSession();
+  const { employee, logout } = useSession();
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
 
@@ -292,6 +293,18 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
                     <p className="text-xs font-semibold truncate max-w-[110px]">{employee.nickname ?? employee.first_name}</p>
                     <p className="text-[10px] text-muted">{ROLE_LABEL[employee.role][locale]}</p>
                   </div>
+                  <button
+                    onClick={() => {
+                      const wasSso = employee?.id?.startsWith("sso:");
+                      logout();
+                      if (wasSso) window.location.href = "/sso/logout";
+                      else router.push("/pos");
+                    }}
+                    className="p-2 rounded-xl hover:bg-surface2 text-muted hover:text-danger transition-colors"
+                    title={t.common.logout}
+                  >
+                    <LogOut size={17} />
+                  </button>
                 </div>
               ) : null}
             </div>
