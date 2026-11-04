@@ -15,6 +15,20 @@ import { useCentral } from "@/lib/sso/use-central";
 import { buildSsoEmployee, matchBranch } from "@/lib/sso/map-employee";
 import StickerSlapFooter from "@/components/ui/sticker-slap-footer";
 
+// สติ๊กเกอร์แบรนด์ของเรา (ตัดจากชุด SHD) สำหรับหน้า login
+const StImg = ({ src }: { src: string }) => (
+  // eslint-disable-next-line @next/next/no-img-element
+  <img src={src} alt="" style={{ width: "100%", height: "auto", display: "block" }} draggable={false} />
+);
+const LOGIN_STICKERS = [
+  { node: <StImg src="/stickers/shd.png" />, label: "SHD", size: 15 },
+  { node: <StImg src="/stickers/shr-run.png" />, label: "SHR team" },
+  { node: <StImg src="/stickers/globe.png" />, label: "analytics" },
+  { node: <StImg src="/stickers/sincere.png" />, label: "真诚 sincere" },
+  { node: <StImg src="/stickers/mutual.png" />, label: "共赢 mutual benefit" },
+  { node: <StImg src="/stickers/target.png" />, label: "target" },
+];
+
 // แปลง safe profile จาก RPC (pos_login_by_pin) → Employee สำหรับ session
 function profileToEmployee(p: any, branchId: string): Employee {
   return {
@@ -221,6 +235,7 @@ export default function PosLoginPage() {
         credits={[]}
         note=""
         mapLabel=""
+        stickers={LOGIN_STICKERS}
         paper="#f1ece4"
         panel="#4a6cf0"
         ink="#141414"
