@@ -20,7 +20,8 @@ export function buildSsoEmployee(profile: SsoSessionProfile, authz: AppAuthz, br
   const branchIds = authz.branch_ids?.length ? authz.branch_ids : branchId ? [branchId] : [];
   const homeBranch = authz.branch_ids?.length ? authz.branch_ids[0] : branchId || null;
   return {
-    id: `sso:${profile.union_id || profile.email}`,
+    // ใช้ uuid จริงของ employees ถ้ามี (ให้บันทึกขาย/audit ได้) ไม่งั้น fallback sso:
+    id: authz.employee_id || `sso:${profile.union_id || profile.email}`,
     employee_code: profile.email || profile.union_id,
     first_name: profile.name,
     last_name: null,
@@ -31,7 +32,7 @@ export function buildSsoEmployee(profile: SsoSessionProfile, authz: AppAuthz, br
     branch_ids: branchIds,
     brand_ids: authz.brand_ids ?? [],
     max_discount_percent: authz.max_discount_percent ?? 0,
-    can_open_drawer: true,
+    can_open_drawer: authz.can_open_drawer ?? true,
     status: "active",
     photo_url: profile.avatar_url ?? null,
     email: profile.email,

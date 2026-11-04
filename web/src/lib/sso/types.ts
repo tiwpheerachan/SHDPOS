@@ -69,15 +69,18 @@ export interface SsoSessionProfile {
   branch?: string;
 }
 
-/** สิทธิ์ระดับแอปที่ resolve แล้ว (จาก app_user_grants หรือ superadmin) */
+/** สิทธิ์ระดับแอปที่ resolve แล้ว (จากตาราง employees หรือ superadmin) */
 export interface AppAuthz {
-  allowed: boolean; // ล็อกอินเข้าแอปได้ไหม (มี grant ที่ active หรือเป็น superadmin)
+  allowed: boolean; // ล็อกอินเข้าแอปได้ไหม (มี employee ที่ active หรือเป็น superadmin)
   isSuperadmin: boolean;
+  /** uuid จริงของ employees (มีไว้ให้บันทึกขาย/audit ได้) */
+  employee_id?: string | null;
   role: string;
   data_scope: string;
   branch_ids: string[];
   brand_ids: string[];
   max_discount_percent: number;
+  can_open_drawer?: boolean;
   permission_overrides: Record<string, string>;
 }
 

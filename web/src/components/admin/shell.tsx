@@ -7,7 +7,7 @@ import clsx from "clsx";
 import {
   LayoutDashboard, TrendingUp, Users, Package, Boxes, ArrowLeftRight,
   ShieldCheck, ScrollText, Settings2, Store, Sun, Moon, Languages, Menu, X, Bell,
-  Search, PanelLeftClose, PanelLeftOpen, ChevronDown, Command, Home, Activity, FileText, KeyRound, LogOut, Lock,
+  Search, PanelLeftClose, PanelLeftOpen, ChevronDown, Command, Home, Activity, FileText, LogOut,
 } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { useTheme } from "@/lib/theme";
@@ -49,8 +49,7 @@ const NAV: NavGroup[] = [
     section: "control",
     items: [
       { href: "/admin/approvals", icon: ShieldCheck, key: "approvals" },
-      { href: "/admin/permissions", icon: KeyRound, key: "permissions", perm: "admin.permission_manage" },
-      { href: "/admin/pins", icon: Lock, key: "pins", perm: "admin.employee_manage" },
+      { href: "/admin/permissions", icon: Users, key: "permissions", perm: "admin.employee_manage" },
       { href: "/admin/audit", icon: ScrollText, key: "audit", perm: "audit.view" },
     ],
   },
@@ -93,8 +92,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
     inventory: t.admin.inventory, transfers: t.admin.transfers, products: t.admin.products,
     approvals: t.admin.approvals, users: t.admin.users, audit: t.admin.audit, settings: t.admin.settings,
     movement: t.cmd.stockMovement, documents: t.cmd.documentCenter,
-    permissions: locale === "en" ? "User Access" : "สิทธิ์ผู้ใช้",
-    pins: locale === "en" ? "Staff PIN" : "รหัส PIN พนักงาน",
+    permissions: locale === "en" ? "Users" : "ผู้ใช้",
   };
   const sectionLabel: Record<string, string> = {
     overview: t.cmd.secOverview, sales: t.cmd.secSales, operations: t.cmd.secOps,

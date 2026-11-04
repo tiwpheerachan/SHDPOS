@@ -59,41 +59,59 @@ export async function deleteGrant(email: string): Promise<void> {
   await supabaseAdmin().from(TABLE).delete().eq("email", email.toLowerCase());
 }
 
-/** รวมสิทธิ์: superadmin > grant ที่ active > ไม่มีสิทธิ์ */
+/** รวมสิทธิ์จากตาราง employees (ผูกด้วย email) — superadmin > employee active > ไม่มีสิทธิ์ */
 export async function resolveAuthz(profile: SsoSessionProfile): Promise<AppAuthz> {
+  const sb = supabaseAdmin();
+  let emp: any = null;
+  if (profile.email) {
+    const { data } = await sb
+      .from("employees")
+      .select("id,role,data_scope,home_branch_id,max_discount_percent,permission_overrides,can_open_drawer,status")
+      .ilike("email", profile.email)
+      .maybeSingle();
+    emp = data;
+  }
+
   if (isSuperadmin(profile.email)) {
     return {
       allowed: true,
       isSuperadmin: true,
+      employee_id: emp?.id ?? null,
       role: "hq",
       data_scope: "company",
       branch_ids: [],
       brand_ids: [],
       max_discount_percent: 100,
+      can_open_drawer: true,
       permission_overrides: {},
     };
   }
-  const grant = await getGrant(profile.email);
-  if (!grant || !grant.is_active) {
+
+  if (!emp || emp.status !== "active") {
     return {
       allowed: false,
       isSuperadmin: false,
-      role: grant?.role ?? "staff",
-      data_scope: grant?.data_scope ?? "branch",
-      branch_ids: grant?.branch_ids ?? [],
-      brand_ids: grant?.brand_ids ?? [],
-      max_discount_percent: grant?.max_discount_percent ?? 0,
-      permission_overrides: grant?.permission_overrides ?? {},
+      employee_id: emp?.id ?? null,
+      role: emp?.role ?? "staff",
+      data_scope: emp?.data_scope ?? "branch",
+      branch_ids: [],
+      brand_ids: [],
+      max_discount_percent: Number(emp?.max_discount_percent ?? 0),
+      permission_overrides: (emp?.permission_overrides ?? {}) as Record<string, string>,
     };
   }
+
+  const { data: ebs } = await sb.from("employee_branches").select("branch_id").eq("employee_id", emp.id);
   return {
     allowed: true,
     isSuperadmin: false,
-    role: grant.role,
-    data_scope: grant.data_scope,
-    branch_ids: grant.branch_ids,
-    brand_ids: grant.brand_ids,
-    max_discount_percent: grant.max_discount_percent,
-    permission_overrides: grant.permission_overrides,
+    employee_id: emp.id,
+    role: emp.role,
+    data_scope: emp.data_scope,
+    branch_ids: (ebs ?? []).map((x: any) => x.branch_id),
+    brand_ids: [],
+    max_discount_percent: Number(emp.max_discount_percent ?? 0),
+    can_open_drawer: !!emp.can_open_drawer,
+    permission_overrides: (emp.permission_overrides ?? {}) as Record<string, string>,
   };
 }

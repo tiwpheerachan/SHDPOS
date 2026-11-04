@@ -1,14 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { KeyRound, Search, Pencil, Trash2, ShieldCheck, UserPlus, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Users, Search, Pencil, Ban, ShieldCheck, UserPlus, Eye, EyeOff } from "lucide-react";
 import { useSession } from "@/lib/store/session";
 import { useToast } from "@/components/toast-host";
-import { listBranches, listBrands } from "@/lib/data/repo";
-import type { AppUserGrant, Branch, Brand, DataScope, EmployeeRole, PermissionEffect } from "@/lib/types";
-import {
-  ROLE_LABEL, ROLE_MATRIX, can, type PermissionKey,
-} from "@/lib/permissions";
+import { listBranches } from "@/lib/data/repo";
+import type { Branch, DataScope, EmployeeRole, PermissionEffect } from "@/lib/types";
+import { ROLE_LABEL, ROLE_MATRIX, can, type PermissionKey } from "@/lib/permissions";
 import { Button, Card, Input, Field, Select, Table, Th, Td, Badge, Modal, EmptyState } from "@/components/ui";
 
 const ROLES: EmployeeRole[] = ["staff", "supervisor", "manager", "brand_admin", "hq", "auditor"];
@@ -32,7 +30,6 @@ const PERM_LABEL: Record<string, string> = {
   "audit.view": "ดู audit log", "customer.manage": "จัดการลูกค้า", "tax.issue_full": "ออกใบกำกับเต็มรูป",
 };
 
-// กลุ่มสิทธิ์สำหรับ UI (ไม่รวม pos.discount — คุมด้วยเพดาน % แยก)
 const PERM_GROUPS: { title: string; keys: PermissionKey[] }[] = [
   { title: "ขายหน้าร้าน", keys: ["pos.sell", "pos.price_override", "pos.void", "pos.reprint", "pos.open_drawer", "pos.quotation"] },
   { title: "คืนสินค้า", keys: ["return.create", "return.approve"] },
@@ -45,353 +42,262 @@ const PERM_GROUPS: { title: string; keys: PermissionKey[] }[] = [
 ];
 
 type FourState = "inherit" | PermissionEffect;
-const STATE_META: Record<FourState, { label: string; cls: string }> = {
-  inherit: { label: "ตาม role", cls: "text-muted" },
-  allow: { label: "อนุญาต", cls: "text-ok" },
-  approval: { label: "อนุมัติก่อน", cls: "text-warn" },
-  deny: { label: "ห้าม", cls: "text-danger" },
+const STATE_META: Record<FourState, { label: string }> = {
+  inherit: { label: "ตาม role" }, allow: { label: "อนุญาต" }, approval: { label: "อนุมัติก่อน" }, deny: { label: "ห้าม" },
 };
-
-interface CentralPersonLite {
-  union_id: string; name: string; email: string; avatar_url?: string; job_title?: string; departments?: string[];
-}
-
 function baseEffect(role: EmployeeRole, key: PermissionKey): PermissionEffect {
   return ROLE_MATRIX[role]?.[key]?.effect ?? "deny";
 }
 
-export default function AdminPermissionsPage() {
+interface UserRow {
+  id: string; employee_code: string; email: string | null; display_name: string; nickname: string | null;
+  role: EmployeeRole; data_scope: DataScope; home_branch_id: string | null; branch_ids: string[];
+  status: string; pin: string | null; permission_overrides: Record<string, PermissionEffect>;
+  photo_url: string | null; max_discount_percent: number;
+}
+interface Draft {
+  id?: string; email: string; display_name: string; avatar_url?: string | null;
+  role: EmployeeRole; data_scope: DataScope; branch_ids: string[]; max_discount_percent: number;
+  permission_overrides: Record<string, PermissionEffect>; pin: string; is_active: boolean;
+}
+interface CentralPersonLite { union_id: string; name: string; email: string; avatar_url?: string }
+
+export default function AdminUsersUnifiedPage() {
   const { employee: me } = useSession();
   const toast = useToast();
-  const allowed = can(me, "admin.permission_manage");
+  const allowed = can(me, "admin.permission_manage") || can(me, "admin.employee_manage");
 
-  const [grants, setGrants] = useState<AppUserGrant[]>([]);
+  const [users, setUsers] = useState<UserRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [forbidden, setForbidden] = useState(false);
   const [branches, setBranches] = useState<Branch[]>([]);
-  const [brands, setBrands] = useState<Brand[]>([]);
+  const [reveal, setReveal] = useState(false);
 
-  // ค้นหาคนจาก directory ระบบกลาง
   const [q, setQ] = useState("");
   const [results, setResults] = useState<CentralPersonLite[]>([]);
   const [searching, setSearching] = useState(false);
-  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // editor
-  const [draft, setDraft] = useState<AppUserGrant | null>(null);
+  const [draft, setDraft] = useState<Draft | null>(null);
   const [saving, setSaving] = useState(false);
 
-  async function loadGrants() {
+  async function load() {
     setLoading(true);
     try {
-      const r = await fetch("/api/admin/grants", { cache: "no-store" });
-      if (r.ok) setGrants((await r.json()).grants ?? []);
-    } finally {
-      setLoading(false);
-    }
+      const r = await fetch("/api/admin/users", { cache: "no-store" });
+      if (r.status === 403) { setForbidden(true); return; }
+      if (r.ok) { setForbidden(false); setUsers((await r.json()).users ?? []); }
+    } finally { setLoading(false); }
   }
 
   useEffect(() => {
     if (!allowed) return;
-    void loadGrants();
-    void (async () => {
-      const [b, br] = await Promise.all([listBranches(), listBrands()]);
-      setBranches(b);
-      setBrands(br);
-    })();
+    void load();
+    void listBranches().then((b) => setBranches(b.filter((x) => x.branch_type !== "warehouse")));
   }, [allowed]);
 
   useEffect(() => {
-    if (searchTimer.current) clearTimeout(searchTimer.current);
-    if (q.trim().length < 2) {
-      setResults([]);
-      return;
-    }
+    if (timer.current) clearTimeout(timer.current);
+    if (q.trim().length < 2) { setResults([]); return; }
     setSearching(true);
-    searchTimer.current = setTimeout(async () => {
+    timer.current = setTimeout(async () => {
       try {
         const r = await fetch(`/api/admin/directory?q=${encodeURIComponent(q.trim())}`, { cache: "no-store" });
-        const data = await r.json();
-        setResults(data.items ?? []);
-      } catch {
-        setResults([]);
-      } finally {
-        setSearching(false);
-      }
+        setResults((await r.json()).items ?? []);
+      } catch { setResults([]); } finally { setSearching(false); }
     }, 350);
   }, [q]);
 
-  if (!allowed) {
-    return (
-      <div className="p-4 sm:p-6 w-full">
-        <EmptyState
-          icon={<ShieldCheck size={28} />}
-          title="ไม่มีสิทธิ์เข้าหน้านี้"
-          body="ต้องมีสิทธิ์ 'กำหนดสิทธิ์ (แอดมิน)' จึงจะจัดการสิทธิ์ผู้ใช้ได้"
-        />
-      </div>
-    );
-  }
+  const branchName = (id: string | null) =>
+    !id ? "—" : branches.find((b) => b.id === id)?.name_th ?? branches.find((b) => b.id === id)?.name ?? "—";
 
-  function openNew(p: CentralPersonLite) {
-    const existing = grants.find((g) => g.email.toLowerCase() === p.email.toLowerCase());
-    if (existing) {
-      setDraft({ ...existing });
-    } else {
-      setDraft({
-        email: p.email,
-        union_id: p.union_id,
-        display_name: p.name,
-        avatar_url: p.avatar_url ?? null,
-        role: "staff",
-        data_scope: "branch",
-        branch_ids: [],
-        brand_ids: [],
-        max_discount_percent: 0,
-        permission_overrides: {},
-        is_active: true,
-      });
-    }
-    setQ("");
-    setResults([]);
+  function openFromCentral(p: CentralPersonLite) {
+    const existing = users.find((u) => (u.email ?? "").toLowerCase() === p.email.toLowerCase());
+    if (existing) { openEdit(existing); setQ(""); setResults([]); return; }
+    setDraft({
+      email: p.email, display_name: p.name, avatar_url: p.avatar_url ?? null,
+      role: "staff", data_scope: "branch", branch_ids: [], max_discount_percent: 5,
+      permission_overrides: {}, pin: "1234", is_active: true,
+    });
+    setQ(""); setResults([]);
+  }
+  function openEdit(u: UserRow) {
+    setDraft({
+      id: u.id, email: u.email ?? "", display_name: u.display_name, avatar_url: u.photo_url,
+      role: u.role, data_scope: u.data_scope, branch_ids: u.branch_ids, max_discount_percent: u.max_discount_percent,
+      permission_overrides: u.permission_overrides ?? {}, pin: "", is_active: u.status === "active",
+    });
   }
 
   async function save() {
     if (!draft) return;
     setSaving(true);
     try {
-      const r = await fetch("/api/admin/grants", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(draft),
+      const r = await fetch("/api/admin/users", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: draft.id, email: draft.email, display_name: draft.display_name, photo_url: draft.avatar_url,
+          role: draft.role, data_scope: draft.data_scope, branch_ids: draft.branch_ids,
+          max_discount_percent: draft.max_discount_percent, permission_overrides: draft.permission_overrides,
+          pin: draft.pin || undefined, is_active: draft.is_active,
+        }),
       });
-      if (!r.ok) {
-        const e = await r.json().catch(() => ({}));
-        toast.push({ tone: "danger", title: "บันทึกไม่สำเร็จ", body: e.error });
-        return;
-      }
-      toast.push({ tone: "ok", title: `บันทึกสิทธิ์ของ ${draft.display_name ?? draft.email} แล้ว` });
-      setDraft(null);
-      await loadGrants();
-    } finally {
-      setSaving(false);
-    }
+      if (!r.ok) { toast.push({ tone: "danger", title: "บันทึกไม่สำเร็จ", body: (await r.json().catch(() => ({}))).error }); return; }
+      toast.push({ tone: "ok", title: `บันทึก ${draft.display_name} แล้ว` });
+      setDraft(null); await load();
+    } finally { setSaving(false); }
   }
 
-  async function remove(email: string) {
-    if (!confirm(`ลบสิทธิ์ของ ${email}?`)) return;
-    const r = await fetch(`/api/admin/grants?email=${encodeURIComponent(email)}`, { method: "DELETE" });
-    if (r.ok) {
-      toast.push({ tone: "ok", title: "ลบแล้ว" });
-      await loadGrants();
-    }
+  async function deactivate(u: UserRow) {
+    if (!confirm(`ปิดใช้งาน ${u.display_name}?`)) return;
+    const r = await fetch(`/api/admin/users?id=${u.id}`, { method: "DELETE" });
+    if (r.ok) { toast.push({ tone: "ok", title: "ปิดใช้งานแล้ว" }); await load(); }
   }
 
-  function setOverride(key: PermissionKey, state: FourState) {
+  function setOverride(key: PermissionKey, s: FourState) {
     if (!draft) return;
     const next = { ...draft.permission_overrides };
-    if (state === "inherit") delete next[key];
-    else next[key] = state;
+    if (s === "inherit") delete next[key]; else next[key] = s;
     setDraft({ ...draft, permission_overrides: next });
   }
-
   function toggleBranch(id: string) {
     if (!draft) return;
     const has = draft.branch_ids.includes(id);
     setDraft({ ...draft, branch_ids: has ? draft.branch_ids.filter((x) => x !== id) : [...draft.branch_ids, id] });
   }
-  function toggleBrand(id: string) {
-    if (!draft) return;
-    const has = draft.brand_ids.includes(id);
-    setDraft({ ...draft, brand_ids: has ? draft.brand_ids.filter((x) => x !== id) : [...draft.brand_ids, id] });
+
+  if (!allowed) {
+    return (
+      <div className="p-4 sm:p-6 w-full">
+        <EmptyState icon={<ShieldCheck size={28} />} title="ไม่มีสิทธิ์เข้าหน้านี้" body="ต้องมีสิทธิ์จัดการผู้ใช้/กำหนดสิทธิ์" />
+      </div>
+    );
   }
 
   return (
     <div className="p-4 sm:p-6 space-y-5 w-full">
       <div>
-        <h1 className="text-lg font-semibold flex items-center gap-2">
-          <KeyRound size={18} className="text-muted" /> สิทธิ์ผู้ใช้
-        </h1>
-        <p className="text-xs text-muted mt-1">
-          ค้นหาพนักงานจากระบบกลาง แล้วกำหนดสิทธิ์รายคนว่าเข้าอะไรได้บ้าง · ผู้ที่ไม่อยู่ในรายการนี้จะเข้าใช้งานไม่ได้
-        </p>
+        <h1 className="text-lg font-semibold flex items-center gap-2"><Users size={18} className="text-muted" /> ผู้ใช้</h1>
+        <p className="text-xs text-muted mt-1">เพิ่มคน · ตั้งบทบาท + สิทธิ์ละเอียด + PIN + สาขา ที่เดียว · เข้าได้ทั้ง SSO และ PIN</p>
       </div>
 
-      {/* ค้นหาเพื่อเพิ่มคน */}
-      <Card className="p-4">
-        <Field label="เพิ่มคน (ค้นหาจากระบบกลาง)" hint="พิมพ์ชื่อหรืออีเมลอย่างน้อย 2 ตัวอักษร">
-          <div className="relative">
-            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
-            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="เช่น Tiw หรือ name@shd-technology.co.th" className="pl-9" />
-            {searching ? <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-muted">กำลังค้นหา…</span> : null}
-          </div>
-        </Field>
-        {results.length ? (
-          <div className="mt-2 border border-line rounded-xl divide-y divide-line overflow-hidden">
-            {results.map((p) => {
-              const already = grants.some((g) => g.email.toLowerCase() === p.email.toLowerCase());
-              return (
-                <button
-                  key={p.union_id || p.email}
-                  onClick={() => openNew(p)}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-surface2 text-left"
-                >
-                  {p.avatar_url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={p.avatar_url} alt="" className="w-8 h-8 rounded-full object-cover shrink-0" />
-                  ) : (
-                    <div className="w-8 h-8 rounded-full bg-surface2 grid place-items-center shrink-0 text-xs">{p.name.slice(0, 2)}</div>
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium truncate">{p.name}</p>
-                    <p className="text-[11px] text-muted truncate">{p.email}</p>
-                  </div>
-                  {already ? <Badge tone="ok">มีสิทธิ์แล้ว</Badge> : <UserPlus size={15} className="text-brand" />}
-                </button>
-              );
-            })}
+      {forbidden ? (
+        <Card className="p-4"><p className="text-sm text-warn flex items-center gap-2"><ShieldCheck size={16} /> ต้องล็อกอินด้วยบัญชีกลาง (SSO) จึงจะจัดการผู้ใช้ได้</p></Card>
+      ) : (
+        <>
+          <Card className="p-4">
+            <Field label="เพิ่มคน (ค้นหาจากระบบกลาง)" hint="พิมพ์ชื่อหรืออีเมลอย่างน้อย 2 ตัวอักษร">
+              <div className="relative">
+                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+                <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="เช่น Tiw หรือ name@shd-technology.co.th" className="pl-9" />
+                {searching ? <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-muted">กำลังค้นหา…</span> : null}
+              </div>
+            </Field>
+            {results.length ? (
+              <div className="mt-2 border border-line rounded-xl divide-y divide-line overflow-hidden">
+                {results.map((p) => {
+                  const already = users.some((u) => (u.email ?? "").toLowerCase() === p.email.toLowerCase());
+                  return (
+                    <button key={p.union_id || p.email} onClick={() => openFromCentral(p)} className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-surface2 text-left">
+                      {p.avatar_url ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={p.avatar_url} alt="" className="w-8 h-8 rounded-full object-cover shrink-0" />
+                      ) : <div className="w-8 h-8 rounded-full bg-surface2 grid place-items-center shrink-0 text-xs">{p.name.slice(0, 2)}</div>}
+                      <div className="min-w-0 flex-1"><p className="text-sm font-medium truncate">{p.name}</p><p className="text-[11px] text-muted truncate">{p.email}</p></div>
+                      {already ? <Badge tone="ok">มีแล้ว</Badge> : <UserPlus size={15} className="text-brand" />}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
+          </Card>
+
+          <Card className="p-0 overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-2.5 border-b border-line">
+              <span className="text-xs text-muted">{users.filter((u) => u.status === "active").length} คนใช้งาน</span>
+              <button onClick={() => setReveal((v) => !v)} className="flex items-center gap-1.5 text-xs text-muted hover:text-ink">
+                {reveal ? <EyeOff size={14} /> : <Eye size={14} />} {reveal ? "ซ่อน PIN" : "แสดง PIN"}
+              </button>
+            </div>
+            {loading ? <p className="text-sm text-muted p-6 text-center">กำลังโหลด…</p> : users.length ? (
+              <Table>
+                <thead><tr>
+                  <Th>ผู้ใช้</Th><Th>บทบาท</Th><Th>ขอบเขต</Th><Th align="center">PIN</Th><Th align="center">สิทธิ์เฉพาะ</Th><Th align="center">สถานะ</Th><Th align="right">จัดการ</Th>
+                </tr></thead>
+                <tbody>
+                  {users.map((u) => (
+                    <tr key={u.id}>
+                      <Td>
+                        <div className="flex items-center gap-2.5">
+                          {u.photo_url ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={u.photo_url} alt="" className="w-8 h-8 rounded-full object-cover shrink-0" />
+                          ) : <div className="w-8 h-8 rounded-full bg-surface2 grid place-items-center text-xs font-semibold shrink-0">{u.display_name.slice(0, 2).toUpperCase()}</div>}
+                          <div className="min-w-0"><p className="text-sm font-medium truncate">{u.display_name}</p><p className="text-[11px] text-muted truncate">{u.email ?? u.employee_code}</p></div>
+                        </div>
+                      </Td>
+                      <Td>{ROLE_LABEL[u.role]?.th ?? u.role}</Td>
+                      <Td>{SCOPES.find((s) => s.v === u.data_scope)?.label ?? u.data_scope}</Td>
+                      <Td align="center"><span className="tnum font-semibold tracking-widest">{u.pin ? (reveal ? u.pin : "••••") : "—"}</span></Td>
+                      <Td align="center">{Object.keys(u.permission_overrides ?? {}).length || "—"}</Td>
+                      <Td align="center">{u.status === "active" ? <Badge tone="ok">ใช้งาน</Badge> : <Badge tone="neutral">ปิด</Badge>}</Td>
+                      <Td align="right">
+                        <div className="flex items-center justify-end gap-1">
+                          <button onClick={() => openEdit(u)} className="p-1.5 rounded-lg hover:bg-surface2 text-muted" title="แก้ไข"><Pencil size={15} /></button>
+                          {u.status === "active" ? <button onClick={() => void deactivate(u)} className="p-1.5 rounded-lg hover:bg-surface2 text-danger" title="ปิดใช้งาน"><Ban size={15} /></button> : null}
+                        </div>
+                      </Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </Table>
+            ) : <EmptyState icon={<Users size={26} />} title="ยังไม่มีผู้ใช้" body="ค้นหาคนด้านบนเพื่อเพิ่มคนแรก" />}
+          </Card>
+        </>
+      )}
+
+      <Modal
+        open={!!draft} onClose={() => setDraft(null)} size="xl"
+        title={draft ? `ผู้ใช้ · ${draft.display_name}` : ""}
+        footer={draft ? (
+          <div className="flex items-center justify-between gap-2 w-full">
+            <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={draft.is_active} onChange={(e) => setDraft({ ...draft, is_active: e.target.checked })} /> เปิดใช้งาน</label>
+            <div className="flex items-center gap-2">
+              <Button variant="ghost" onClick={() => setDraft(null)}>ยกเลิก</Button>
+              <Button variant="primary" disabled={saving} onClick={() => void save()}>{saving ? "กำลังบันทึก…" : "บันทึก"}</Button>
+            </div>
           </div>
         ) : null}
-      </Card>
-
-      {/* รายชื่อที่มีสิทธิ์ */}
-      <Card className="p-0 overflow-hidden">
-        {loading ? (
-          <p className="text-sm text-muted p-6 text-center">กำลังโหลด…</p>
-        ) : grants.length ? (
-          <Table>
-            <thead>
-              <tr>
-                <Th>ผู้ใช้</Th>
-                <Th>บทบาท</Th>
-                <Th>ขอบเขต</Th>
-                <Th align="center">สิทธิ์เฉพาะ</Th>
-                <Th align="center">สถานะ</Th>
-                <Th align="right">จัดการ</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {grants.map((g) => (
-                <tr key={g.email}>
-                  <Td>
-                    <div className="flex items-center gap-2.5">
-                      {g.avatar_url ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={g.avatar_url} alt="" className="w-8 h-8 rounded-full object-cover shrink-0" />
-                      ) : (
-                        <div className="w-8 h-8 rounded-full bg-surface2 grid place-items-center text-xs shrink-0">{(g.display_name ?? g.email).slice(0, 2)}</div>
-                      )}
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium truncate">{g.display_name ?? g.email}</p>
-                        <p className="text-[11px] text-muted truncate">{g.email}</p>
-                      </div>
-                    </div>
-                  </Td>
-                  <Td>{ROLE_LABEL[g.role]?.th ?? g.role}</Td>
-                  <Td>{SCOPES.find((s) => s.v === g.data_scope)?.label ?? g.data_scope}</Td>
-                  <Td align="center">{Object.keys(g.permission_overrides ?? {}).length || "—"}</Td>
-                  <Td align="center">{g.is_active ? <Badge tone="ok">ใช้งาน</Badge> : <Badge tone="neutral">ปิด</Badge>}</Td>
-                  <Td align="right">
-                    <div className="flex items-center justify-end gap-1">
-                      <button onClick={() => setDraft({ ...g })} className="p-1.5 rounded-lg hover:bg-surface2 text-muted" title="แก้ไข">
-                        <Pencil size={15} />
-                      </button>
-                      <button onClick={() => void remove(g.email)} className="p-1.5 rounded-lg hover:bg-surface2 text-danger" title="ลบ">
-                        <Trash2 size={15} />
-                      </button>
-                    </div>
-                  </Td>
-                </tr>
-              ))}
-            </tbody>
-          </Table>
-        ) : (
-          <EmptyState icon={<KeyRound size={26} />} title="ยังไม่มีใครได้รับสิทธิ์" body="ค้นหาพนักงานด้านบนเพื่อเพิ่มสิทธิ์คนแรก" />
-        )}
-      </Card>
-
-      {/* Editor */}
-      <Modal
-        open={!!draft}
-        onClose={() => setDraft(null)}
-        size="xl"
-        title={draft ? `กำหนดสิทธิ์ · ${draft.display_name ?? draft.email}` : ""}
-        footer={
-          draft ? (
-            <div className="flex items-center justify-between gap-2 w-full">
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={draft.is_active} onChange={(e) => setDraft({ ...draft, is_active: e.target.checked })} />
-                เปิดใช้งานบัญชีนี้
-              </label>
-              <div className="flex items-center gap-2">
-                <Button variant="ghost" onClick={() => setDraft(null)}>ยกเลิก</Button>
-                <Button variant="primary" disabled={saving} onClick={() => void save()}>{saving ? "กำลังบันทึก…" : "บันทึกสิทธิ์"}</Button>
-              </div>
-            </div>
-          ) : null
-        }
       >
         {draft ? (
           <div className="space-y-5">
+            <div className="grid sm:grid-cols-2 gap-3">
+              <Field label="ชื่อที่แสดง"><Input value={draft.display_name} onChange={(e) => setDraft({ ...draft, display_name: e.target.value })} /></Field>
+              <Field label="อีเมล (ใช้ล็อกอิน SSO)"><Input value={draft.email} onChange={(e) => setDraft({ ...draft, email: e.target.value })} placeholder="name@shd-technology.co.th" /></Field>
+            </div>
             <div className="grid sm:grid-cols-3 gap-3">
-              <Field label="บทบาทพื้นฐาน (role)">
-                <Select value={draft.role} onChange={(e) => setDraft({ ...draft, role: e.target.value as EmployeeRole })}>
-                  {ROLES.map((r) => <option key={r} value={r}>{ROLE_LABEL[r].th}</option>)}
-                </Select>
-              </Field>
-              <Field label="ขอบเขตข้อมูล">
-                <Select value={draft.data_scope} onChange={(e) => setDraft({ ...draft, data_scope: e.target.value as DataScope })}>
-                  {SCOPES.map((s) => <option key={s.v} value={s.v}>{s.label}</option>)}
-                </Select>
-              </Field>
-              <Field label="เพดานส่วนลด (%)">
-                <Input
-                  type="number" min={0} max={100} value={draft.max_discount_percent}
-                  onChange={(e) => setDraft({ ...draft, max_discount_percent: Number(e.target.value) || 0 })}
-                />
-              </Field>
+              <Field label="บทบาท (role)"><Select value={draft.role} onChange={(e) => setDraft({ ...draft, role: e.target.value as EmployeeRole })}>{ROLES.map((r) => <option key={r} value={r}>{ROLE_LABEL[r].th}</option>)}</Select></Field>
+              <Field label="ขอบเขตข้อมูล"><Select value={draft.data_scope} onChange={(e) => setDraft({ ...draft, data_scope: e.target.value as DataScope })}>{SCOPES.map((s) => <option key={s.v} value={s.v}>{s.label}</option>)}</Select></Field>
+              <Field label="เพดานส่วนลด (%)"><Input type="number" min={0} max={100} value={draft.max_discount_percent} onChange={(e) => setDraft({ ...draft, max_discount_percent: Number(e.target.value) || 0 })} /></Field>
             </div>
 
+            <Field label={draft.id ? "ตั้ง PIN ใหม่ (เว้นว่าง = คงเดิม)" : "PIN สำหรับล็อกอินหน้าขาย"}>
+              <Input inputMode="numeric" maxLength={6} value={draft.pin} onChange={(e) => setDraft({ ...draft, pin: e.target.value.replace(/\D/g, "").slice(0, 6) })} placeholder={draft.id ? "เว้นว่างไว้ถ้าไม่เปลี่ยน" : "เช่น 1234"} className="tracking-widest w-40" />
+            </Field>
+
             {draft.data_scope === "branch" ? (
-              <Field label="สาขาที่เข้าถึงได้" hint="ติ๊กสาขาที่คนนี้ดูแล">
+              <Field label="สาขาที่เข้าถึงได้" hint="ติ๊กสาขาที่คนนี้ดูแล (ใช้กับ PIN login ด้วย)">
                 <div className="flex flex-wrap gap-1.5">
                   {branches.map((b) => {
                     const on = draft.branch_ids.includes(b.id);
-                    return (
-                      <button
-                        key={b.id}
-                        onClick={() => toggleBranch(b.id)}
-                        className={`px-2.5 py-1.5 rounded-lg text-xs border transition-colors ${on ? "border-brand bg-brand/10 text-ink" : "border-line text-muted hover:bg-surface2"}`}
-                      >
-                        {b.name_th ?? b.name}
-                      </button>
-                    );
+                    return <button key={b.id} onClick={() => toggleBranch(b.id)} className={`px-2.5 py-1.5 rounded-lg text-xs border transition-colors ${on ? "border-brand bg-brand/10 text-ink" : "border-line text-muted hover:bg-surface2"}`}>{b.name_th ?? b.name}</button>;
                   })}
                 </div>
               </Field>
             ) : null}
 
-            {draft.data_scope === "brand" ? (
-              <Field label="แบรนด์ที่เข้าถึงได้">
-                <div className="flex flex-wrap gap-1.5">
-                  {brands.map((b) => {
-                    const on = draft.brand_ids.includes(b.id);
-                    return (
-                      <button
-                        key={b.id}
-                        onClick={() => toggleBrand(b.id)}
-                        className={`px-2.5 py-1.5 rounded-lg text-xs border transition-colors ${on ? "border-brand bg-brand/10 text-ink" : "border-line text-muted hover:bg-surface2"}`}
-                      >
-                        {b.name}
-                      </button>
-                    );
-                  })}
-                </div>
-              </Field>
-            ) : null}
-
-            {/* ตารางสิทธิ์รายข้อ */}
             <div>
-              <p className="text-sm font-medium mb-2">สิทธิ์รายข้อ <span className="text-[11px] text-muted font-normal">(ปรับเฉพาะข้อที่ต่างจาก role — ค่าเริ่มต้นคือ “ตาม role”)</span></p>
+              <p className="text-sm font-medium mb-2">สิทธิ์รายข้อ <span className="text-[11px] text-muted font-normal">(ค่าเริ่มต้น “ตาม role” — ปรับเฉพาะข้อที่ต่าง)</span></p>
               <div className="space-y-4">
                 {PERM_GROUPS.map((grp) => (
                   <div key={grp.title}>
@@ -402,21 +308,10 @@ export default function AdminPermissionsPage() {
                         const base = baseEffect(draft.role, key);
                         return (
                           <div key={key} className="flex items-center gap-3 py-1">
-                            <div className="min-w-0 flex-1">
-                              <p className="text-sm truncate">{PERM_LABEL[key] ?? key}</p>
-                              <p className="text-[10px] text-muted">ตาม role: {STATE_META[base].label}</p>
-                            </div>
+                            <div className="min-w-0 flex-1"><p className="text-sm truncate">{PERM_LABEL[key] ?? key}</p><p className="text-[10px] text-muted">ตาม role: {STATE_META[base].label}</p></div>
                             <div className="flex items-center gap-0.5 shrink-0">
                               {(["inherit", "allow", "approval", "deny"] as FourState[]).map((s) => (
-                                <button
-                                  key={s}
-                                  onClick={() => setOverride(key, s)}
-                                  className={`px-2 py-1 rounded-md text-[11px] font-medium transition-colors ${
-                                    state === s ? "bg-brand text-brandInk" : `bg-surface2 ${STATE_META[s].cls} hover:bg-line`
-                                  }`}
-                                >
-                                  {STATE_META[s].label}
-                                </button>
+                                <button key={s} onClick={() => setOverride(key, s)} className={`px-2 py-1 rounded-md text-[11px] font-medium transition-colors ${state === s ? "bg-brand text-brandInk" : "bg-surface2 text-muted hover:bg-line"}`}>{STATE_META[s].label}</button>
                               ))}
                             </div>
                           </div>
