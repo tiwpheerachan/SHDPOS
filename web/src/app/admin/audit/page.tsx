@@ -98,7 +98,7 @@ export default function AdminAuditPage() {
   if (!can(employee, "audit.view")) return <div className="p-8 text-center text-sm text-muted">{L("ไม่มีสิทธิ์ดู audit log", "No permission", "无权限")}</div>;
 
   return (
-    <div className="p-4 sm:p-6 space-y-4 max-w-[1500px] mx-auto w-full">
+    <div className="p-4 sm:p-6 space-y-4 w-full">
       <div className="flex flex-wrap items-center gap-2">
         <h1 className="text-lg font-semibold flex items-center gap-2"><ScrollText size={18} className="text-muted" /> {t.audit.title}</h1>
         <span className="text-[11px] text-muted hidden lg:inline">· {L("append-only แก้/ลบไม่ได้", "append-only, immutable", "只增不可改")}</span>

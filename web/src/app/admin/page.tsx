@@ -379,7 +379,7 @@ export default function CommandCenter() {
   ];
 
   return (
-    <div className="p-3 sm:p-5 space-y-5 max-w-[1700px] mx-auto w-full">
+    <div className="p-3 sm:p-5 space-y-5 w-full">
       {/* ===== page header ===== */}
       <div className="flex flex-wrap items-end justify-between gap-3 px-0.5">
         <div>

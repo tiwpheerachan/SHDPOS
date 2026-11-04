@@ -122,7 +122,7 @@ export default function AdminPermissionsPage() {
 
   if (!allowed) {
     return (
-      <div className="p-4 sm:p-6 max-w-[1500px] mx-auto w-full">
+      <div className="p-4 sm:p-6 w-full">
         <EmptyState
           icon={<ShieldCheck size={28} />}
           title="ไม่มีสิทธิ์เข้าหน้านี้"
@@ -206,7 +206,7 @@ export default function AdminPermissionsPage() {
   }
 
   return (
-    <div className="p-4 sm:p-6 space-y-5 max-w-[1500px] mx-auto w-full">
+    <div className="p-4 sm:p-6 space-y-5 w-full">
       <div>
         <h1 className="text-lg font-semibold flex items-center gap-2">
           <KeyRound size={18} className="text-muted" /> สิทธิ์ผู้ใช้
