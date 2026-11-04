@@ -102,10 +102,12 @@ export async function POST(req: NextRequest) {
     empId = data.id;
   }
 
-  // แทนที่รายการสาขา
-  await sb.from("employee_branches").delete().eq("employee_id", empId);
-  if (branchIds.length) {
-    await sb.from("employee_branches").insert(branchIds.map((bid, i) => ({ employee_id: empId, branch_id: bid, is_primary: i === 0 })));
+  // แทนที่รายการสาขา เฉพาะเมื่อส่ง branch_ids มา (อัปเดตบางส่วน เช่น toggle สถานะ จะไม่ล้างสาขา)
+  if (Array.isArray(b.branch_ids)) {
+    await sb.from("employee_branches").delete().eq("employee_id", empId);
+    if (branchIds.length) {
+      await sb.from("employee_branches").insert(branchIds.map((bid, i) => ({ employee_id: empId, branch_id: bid, is_primary: i === 0 })));
+    }
   }
 
   // ตั้ง PIN (ถ้าส่งมา) — set ทั้งเลขที่ดูได้ + hash

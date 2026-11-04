@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Users, Search, Pencil, Ban, ShieldCheck, UserPlus, Eye, EyeOff } from "lucide-react";
+import { Users, Search, Pencil, Trash2, RotateCcw, ShieldCheck, UserPlus, Eye, EyeOff } from "lucide-react";
 import { useSession } from "@/lib/store/session";
 import { useToast } from "@/components/toast-host";
 import { listBranches } from "@/lib/data/repo";
@@ -80,6 +80,7 @@ export default function AdminUsersUnifiedPage() {
 
   const [draft, setDraft] = useState<Draft | null>(null);
   const [saving, setSaving] = useState(false);
+  const [showInactive, setShowInactive] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -148,10 +149,17 @@ export default function AdminUsersUnifiedPage() {
     } finally { setSaving(false); }
   }
 
-  async function deactivate(u: UserRow) {
-    if (!confirm(`ปิดใช้งาน ${u.display_name}?`)) return;
+  async function removeUser(u: UserRow) {
+    if (!confirm(`ลบ ${u.display_name} ออกจากระบบ?`)) return;
     const r = await fetch(`/api/admin/users?id=${u.id}`, { method: "DELETE" });
-    if (r.ok) { toast.push({ tone: "ok", title: "ปิดใช้งานแล้ว" }); await load(); }
+    if (r.ok) { toast.push({ tone: "ok", title: `ลบ ${u.display_name} แล้ว` }); await load(); }
+  }
+  async function restoreUser(u: UserRow) {
+    const r = await fetch("/api/admin/users", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: u.id, is_active: true }),
+    });
+    if (r.ok) { toast.push({ tone: "ok", title: `กู้คืน ${u.display_name} แล้ว` }); await load(); }
   }
 
   function setOverride(key: PermissionKey, s: FourState) {
@@ -214,19 +222,27 @@ export default function AdminUsersUnifiedPage() {
 
           <Card className="p-0 overflow-hidden">
             <div className="flex items-center justify-between px-4 py-2.5 border-b border-line">
-              <span className="text-xs text-muted">{users.filter((u) => u.status === "active").length} คนใช้งาน</span>
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-muted">{users.filter((u) => u.status === "active").length} คนใช้งาน</span>
+                {users.some((u) => u.status !== "active") ? (
+                  <button onClick={() => setShowInactive((v) => !v)} className="text-xs text-muted hover:text-ink underline-offset-2 hover:underline">
+                    {showInactive ? "ซ่อนที่ลบแล้ว" : `แสดงที่ลบแล้ว (${users.filter((u) => u.status !== "active").length})`}
+                  </button>
+                ) : null}
+              </div>
               <button onClick={() => setReveal((v) => !v)} className="flex items-center gap-1.5 text-xs text-muted hover:text-ink">
                 {reveal ? <EyeOff size={14} /> : <Eye size={14} />} {reveal ? "ซ่อน PIN" : "แสดง PIN"}
               </button>
             </div>
-            {loading ? <p className="text-sm text-muted p-6 text-center">กำลังโหลด…</p> : users.length ? (
+            {(() => { const shown = users.filter((u) => showInactive || u.status === "active"); return (
+            loading ? <p className="text-sm text-muted p-6 text-center">กำลังโหลด…</p> : shown.length ? (
               <Table>
                 <thead><tr>
                   <Th>ผู้ใช้</Th><Th>บทบาท</Th><Th>ขอบเขต</Th><Th align="center">PIN</Th><Th align="center">สิทธิ์เฉพาะ</Th><Th align="center">สถานะ</Th><Th align="right">จัดการ</Th>
                 </tr></thead>
                 <tbody>
-                  {users.map((u) => (
-                    <tr key={u.id}>
+                  {shown.map((u) => (
+                    <tr key={u.id} className={u.status !== "active" ? "opacity-55" : ""}>
                       <Td>
                         <div className="flex items-center gap-2.5">
                           {u.photo_url ? (
@@ -240,18 +256,25 @@ export default function AdminUsersUnifiedPage() {
                       <Td>{SCOPES.find((s) => s.v === u.data_scope)?.label ?? u.data_scope}</Td>
                       <Td align="center"><span className="tnum font-semibold tracking-widest">{u.pin ? (reveal ? u.pin : "••••") : "—"}</span></Td>
                       <Td align="center">{Object.keys(u.permission_overrides ?? {}).length || "—"}</Td>
-                      <Td align="center">{u.status === "active" ? <Badge tone="ok">ใช้งาน</Badge> : <Badge tone="neutral">ปิด</Badge>}</Td>
+                      <Td align="center">{u.status === "active" ? <Badge tone="ok">ใช้งาน</Badge> : <Badge tone="neutral">ลบแล้ว</Badge>}</Td>
                       <Td align="right">
                         <div className="flex items-center justify-end gap-1">
-                          <button onClick={() => openEdit(u)} className="p-1.5 rounded-lg hover:bg-surface2 text-muted" title="แก้ไข"><Pencil size={15} /></button>
-                          {u.status === "active" ? <button onClick={() => void deactivate(u)} className="p-1.5 rounded-lg hover:bg-surface2 text-danger" title="ปิดใช้งาน"><Ban size={15} /></button> : null}
+                          {u.status === "active" ? (
+                            <>
+                              <button onClick={() => openEdit(u)} className="p-1.5 rounded-lg hover:bg-surface2 text-muted" title="แก้ไข"><Pencil size={15} /></button>
+                              <button onClick={() => void removeUser(u)} className="p-1.5 rounded-lg hover:bg-surface2 text-danger" title="ลบ"><Trash2 size={15} /></button>
+                            </>
+                          ) : (
+                            <button onClick={() => void restoreUser(u)} className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg border border-line text-muted hover:text-ink hover:bg-surface2" title="กู้คืน"><RotateCcw size={13} /> กู้คืน</button>
+                          )}
                         </div>
                       </Td>
                     </tr>
                   ))}
                 </tbody>
               </Table>
-            ) : <EmptyState icon={<Users size={26} />} title="ยังไม่มีผู้ใช้" body="ค้นหาคนด้านบนเพื่อเพิ่มคนแรก" />}
+            ) : <EmptyState icon={<Users size={26} />} title={showInactive ? "ไม่มีผู้ใช้" : "ยังไม่มีผู้ใช้ที่ใช้งาน"} body="ค้นหาคนด้านบนเพื่อเพิ่มคน" />
+            ); })()}
           </Card>
         </>
       )}
