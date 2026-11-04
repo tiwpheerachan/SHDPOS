@@ -1,0 +1,26 @@
+# Render Blueprint สำหรับ SHD POS (Next.js อยู่ในโฟลเดอร์ web)
+# วิธีใช้: Render → New → Blueprint → เลือก repo นี้ แล้ว Render จะอ่านไฟล์นี้
+# ค่า sync:false คือ Render จะให้คุณกรอกค่าเองตอน deploy (ไม่เก็บลง repo)
+services:
+  - type: web
+    name: shdpos
+    runtime: node
+    rootDir: web
+    plan: free
+    branch: main
+    buildCommand: npm install && npm run build
+    startCommand: npm run start
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: NEXT_PUBLIC_COMPANY_NAME
+        sync: false
+      - key: NEXT_PUBLIC_COMPANY_TAX_ID
+        sync: false
