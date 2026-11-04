@@ -70,6 +70,27 @@ export interface Employee {
   /** ใช้เฉพาะ demo mode — ระบบจริงเก็บ hash ฝั่ง server */
   pin?: string;
   photo_url?: string | null;
+  /** อีเมล (ผู้ใช้ SSO ใช้เป็นตัวระบุตัวตนหลัก) */
+  email?: string | null;
+  /** สิทธิ์เฉพาะคนที่ override ทับ role matrix — { "pos.void": "allow", "report.cost": "deny" } */
+  permission_overrides?: Record<string, PermissionEffect> | null;
+}
+
+/** สิทธิ์รายคนที่เก็บใน Supabase (ตาราง app_user_grants) — ผู้ใช้ SSO */
+export interface AppUserGrant {
+  email: string;
+  union_id?: string | null;
+  display_name?: string | null;
+  avatar_url?: string | null;
+  role: EmployeeRole;
+  data_scope: DataScope;
+  branch_ids: string[];
+  brand_ids: string[];
+  max_discount_percent: number;
+  permission_overrides: Record<string, PermissionEffect>;
+  is_active: boolean;
+  updated_by?: string | null;
+  updated_at?: string;
 }
 
 export interface Product {

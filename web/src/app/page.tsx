@@ -2,9 +2,11 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Store, LayoutDashboard, Monitor } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { useTheme } from "@/lib/theme";
+import { useSession } from "@/lib/store/session";
 import { BrandReveal } from "@/components/brand-reveal";
 import { GlobeWeather } from "@/components/ui/cobe-globe-weather";
 import { VerticalCutReveal } from "@/components/ui/vertical-cut-reveal";
@@ -14,6 +16,13 @@ import { GLSLHills } from "@/components/ui/glsl-hills";
 export default function Home() {
   const { t } = useI18n();
   const { resolved } = useTheme();
+  const router = useRouter();
+  const { employee } = useSession();
+
+  // ต้องยืนยันตัวตนก่อน — ยังไม่ล็อกอิน เด้งไปหน้าล็อกอิน
+  useEffect(() => {
+    if (!employee) router.replace("/pos");
+  }, [employee, router]);
 
   // รีเฟรชเอฟเฟคโลโก้ + ข้อความทุก 5 วินาที (remount ข้อความให้เล่นใหม่)
   const [tick, setTick] = useState(0);
@@ -21,6 +30,8 @@ export default function Home() {
     const id = setInterval(() => setTick((n) => n + 1), 5000);
     return () => clearInterval(id);
   }, []);
+
+  if (!employee) return null;
 
   return (
     <main className="relative min-h-screen flex flex-col overflow-hidden">
@@ -73,7 +84,7 @@ export default function Home() {
           <p className="text-sm text-muted mt-2">ระบบขายหน้าร้านหลายสาขา · หลายแบรนด์ · ออฟไลน์ได้</p>
 
           <div className="grid sm:grid-cols-3 gap-4 mt-7">
-            <Link href="/pos" className="card p-5 hover:border-brand transition-colors group">
+            <Link href="/pos/sell" className="card p-5 hover:border-brand transition-colors group">
               <Store className="text-brand mb-3" size={22} />
               <p className="font-semibold text-sm">{t.app.pos}</p>
               <p className="text-xs text-muted mt-1">ขายสินค้า เปิดกะ รับคืน พิมพ์สลิป</p>

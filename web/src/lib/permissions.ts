@@ -118,17 +118,39 @@ export const ROLE_MATRIX: Record<EmployeeRole, Partial<Record<PermissionKey, Rul
   },
 };
 
+/** อีเมลผู้ดูแลสูงสุด (เข้าถึงทุกอย่าง + จัดการสิทธิ์ได้เสมอ) — bootstrap กันล็อกตัวเองออก */
+export const SUPERADMIN_EMAILS = (
+  process.env.NEXT_PUBLIC_SUPERADMIN_EMAILS || "tiw.pheerachan@shd-technology.co.th"
+)
+  .split(",")
+  .map((s) => s.trim().toLowerCase())
+  .filter(Boolean);
+
+export function isSuperadmin(email?: string | null): boolean {
+  return !!email && SUPERADMIN_EMAILS.includes(email.toLowerCase());
+}
+
 export function ruleFor(employee: Employee | null, key: PermissionKey): Rule {
   if (!employee) return { effect: "deny" };
-  const r = ROLE_MATRIX[employee.role]?.[key];
-  if (!r) return { effect: "deny" };
+  // ผู้ดูแลสูงสุด = อนุญาตทุกอย่าง (ส่วนลดเต็ม 100%)
+  if (isSuperadmin(employee.email)) {
+    return { effect: "allow", limit: key === "pos.discount" ? 100 : undefined };
+  }
+  const base = ROLE_MATRIX[employee.role]?.[key];
+  const override = employee.permission_overrides?.[key] as PermissionEffect | undefined;
+
   if (key === "pos.discount") {
-    // override รายคนจาก employees.max_discount_percent
-    const limit = employee.max_discount_percent ?? r.limit ?? 0;
+    // ส่วนลด: คุมด้วยเพดาน % รายคน (override role)
+    const limit = employee.max_discount_percent ?? base?.limit ?? 0;
     return { effect: limit > 0 ? "allow" : "deny", limit };
   }
+
+  // override รายคนมาก่อนเสมอ (อนุญาต/ห้าม/อนุมัติ) — ทับ role matrix
+  if (override) {
+    return { effect: override, limit: base?.limit };
+  }
   if (key === "pos.open_drawer" && employee.can_open_drawer) return { effect: "allow" };
-  return r;
+  return base ?? { effect: "deny" };
 }
 
 export function can(employee: Employee | null, key: PermissionKey): boolean {

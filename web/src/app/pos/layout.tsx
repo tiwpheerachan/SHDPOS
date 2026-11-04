@@ -30,6 +30,9 @@ export default function PosLayout({ children }: { children: React.ReactNode }) {
 
   if (isDisplay) return <>{children}</>;
 
+  // ยังไม่ล็อกอิน + ไม่ใช่หน้า login → ไม่ render เนื้อหาเลย (กัน flash ก่อนเด้งไป /pos)
+  if (!isLogin && !employee) return null;
+
   return (
     <div className="min-h-screen flex flex-col">
       {!isLogin && employee ? <PosTopBar branchName={branchName} /> : null}

@@ -89,11 +89,23 @@ export function PosTopBar({ branchName }: { branchName?: string }) {
         </Link>
 
         <div ref={navWrapRef} className="relative flex items-center gap-1 overflow-x-auto flex-1 min-w-0">
-          {/* กรอบเลื่อน ครอบเมนูที่เลือก */}
+          {/* กรอบแก้ว (liquid glass) เลื่อนครอบเมนูที่เลือก — เอาแค่ animation เปลี่ยนแท็บ */}
+          <style>{`
+            .shd-tab-glass{
+              background:linear-gradient(135deg,rgb(var(--c-surface) / .72),rgb(var(--c-surface) / .30));
+              -webkit-backdrop-filter:blur(10px) saturate(1.6);
+              backdrop-filter:blur(10px) saturate(1.6);
+              box-shadow:inset 0 1px 1px rgb(255 255 255 / .6),inset 0 0 0 1px rgb(var(--c-brand) / .14),0 6px 16px -8px rgb(var(--c-brand) / .35);
+            }
+            :root[data-theme="dark"] .shd-tab-glass{
+              background:linear-gradient(135deg,rgb(var(--c-surface) / .65),rgb(var(--c-surface) / .25));
+              box-shadow:inset 0 1px 1px rgb(255 255 255 / .12),inset 0 0 0 1px rgb(var(--c-brand) / .22),0 6px 16px -8px rgb(0 0 0 / .6);
+            }
+          `}</style>
           {pill ? (
             <span
               aria-hidden
-              className="absolute top-1/2 -translate-y-1/2 h-9 rounded-lg bg-brand shadow-sm pointer-events-none transition-all duration-300 ease-[cubic-bezier(.22,1,.36,1)]"
+              className="shd-tab-glass absolute top-1/2 -translate-y-1/2 h-9 rounded-xl pointer-events-none transition-all duration-[380ms] ease-[cubic-bezier(.22,1,.36,1)]"
               style={{ left: pill.left, width: pill.width }}
             />
           ) : null}
@@ -106,8 +118,8 @@ export function PosTopBar({ branchName }: { branchName?: string }) {
                 href={n.href}
                 ref={(el) => { linkRefs.current[i] = el; }}
                 className={clsx(
-                  "relative z-10 flex items-center gap-1.5 px-2.5 h-9 rounded-lg text-xs font-medium whitespace-nowrap transition-colors duration-200",
-                  active ? "text-brandInk" : "text-muted hover:text-ink hover:bg-surface2"
+                  "relative z-10 flex items-center gap-1.5 px-2.5 h-9 rounded-xl text-xs whitespace-nowrap transition-colors duration-200",
+                  active ? "text-ink font-semibold" : "text-muted font-medium hover:text-ink hover:bg-surface2/60"
                 )}
               >
                 <Icon size={15} />
@@ -211,10 +223,16 @@ export function PosTopBar({ branchName }: { branchName?: string }) {
               <p className="text-xs font-medium">{employee?.nickname ?? employee?.first_name}</p>
               <p className="text-[10px] text-muted">{employee?.employee_code}</p>
             </div>
+            {employee?.photo_url ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={employee.photo_url} alt="" className="w-7 h-7 rounded-full object-cover ring-1 ring-line" />
+            ) : null}
             <button
               onClick={() => {
+                const wasSso = employee?.id?.startsWith("sso:");
                 logout();
-                router.push("/pos");
+                if (wasSso) window.location.href = "/sso/logout";
+                else router.push("/pos");
               }}
               className="p-2 rounded-lg hover:bg-surface2 text-muted"
               title={t.common.logout}

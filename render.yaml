@@ -24,3 +24,16 @@ services:
         sync: false
       - key: NEXT_PUBLIC_COMPANY_TAX_ID
         sync: false
+      # ===== Central SSO (sso.shd-technology.co.th) =====
+      - key: CENTRAL_SSO_BASE
+        value: https://sso.shd-technology.co.th
+      - key: SSO_CLIENT_ID
+        value: cli_ded9cc38e97a290c
+      - key: SSO_CLIENT_SECRET      # ลับ — วางใบใหม่หลังหมุน secret
+        sync: false
+      - key: CENTRAL_API_KEY        # ลับ — dv_live_... วางใบใหม่หลังออก key ใหม่
+        sync: false
+      - key: SSO_SESSION_SECRET     # ลับ — สุ่มเอง (openssl rand -hex 32)
+        sync: false
+      - key: NEXT_PUBLIC_SUPERADMIN_EMAILS   # ผู้ดูแลสูงสุด (คั่นด้วย , ได้)
+        value: tiw.pheerachan@shd-technology.co.th
