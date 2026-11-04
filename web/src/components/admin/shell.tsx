@@ -49,7 +49,6 @@ const NAV: NavGroup[] = [
     section: "control",
     items: [
       { href: "/admin/approvals", icon: ShieldCheck, key: "approvals" },
-      { href: "/admin/users", icon: Users, key: "users", perm: "admin.employee_manage" },
       { href: "/admin/permissions", icon: KeyRound, key: "permissions", perm: "admin.permission_manage" },
       { href: "/admin/audit", icon: ScrollText, key: "audit", perm: "audit.view" },
     ],

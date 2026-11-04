@@ -9,7 +9,7 @@ import type { AppUserGrant, Branch, Brand, DataScope, EmployeeRole, PermissionEf
 import {
   ROLE_LABEL, ROLE_MATRIX, can, type PermissionKey,
 } from "@/lib/permissions";
-import { Button, Card, CardHeader, Input, Field, Select, Table, Th, Td, Badge, Modal, EmptyState } from "@/components/ui";
+import { Button, Card, Input, Field, Select, Table, Th, Td, Badge, Modal, EmptyState } from "@/components/ui";
 
 const ROLES: EmployeeRole[] = ["staff", "supervisor", "manager", "brand_admin", "hq", "auditor"];
 const SCOPES: { v: DataScope; label: string }[] = [
@@ -122,11 +122,13 @@ export default function AdminPermissionsPage() {
 
   if (!allowed) {
     return (
-      <EmptyState
-        icon={<ShieldCheck size={28} />}
-        title="ไม่มีสิทธิ์เข้าหน้านี้"
-        body="ต้องมีสิทธิ์ 'กำหนดสิทธิ์ (แอดมิน)' จึงจะจัดการสิทธิ์ผู้ใช้ได้"
-      />
+      <div className="p-4 sm:p-6 max-w-[1500px] mx-auto w-full">
+        <EmptyState
+          icon={<ShieldCheck size={28} />}
+          title="ไม่มีสิทธิ์เข้าหน้านี้"
+          body="ต้องมีสิทธิ์ 'กำหนดสิทธิ์ (แอดมิน)' จึงจะจัดการสิทธิ์ผู้ใช้ได้"
+        />
+      </div>
     );
   }
 
@@ -204,11 +206,15 @@ export default function AdminPermissionsPage() {
   }
 
   return (
-    <div className="space-y-5">
-      <CardHeader
-        title={<span className="flex items-center gap-2"><KeyRound size={18} /> สิทธิ์ผู้ใช้ (SSO)</span>}
-        subtitle="ค้นหาพนักงานจากระบบกลาง แล้วกำหนดสิทธิ์รายคนว่าเข้าอะไรได้บ้าง"
-      />
+    <div className="p-4 sm:p-6 space-y-5 max-w-[1500px] mx-auto w-full">
+      <div>
+        <h1 className="text-lg font-semibold flex items-center gap-2">
+          <KeyRound size={18} className="text-muted" /> สิทธิ์ผู้ใช้
+        </h1>
+        <p className="text-xs text-muted mt-1">
+          ค้นหาพนักงานจากระบบกลาง แล้วกำหนดสิทธิ์รายคนว่าเข้าอะไรได้บ้าง · ผู้ที่ไม่อยู่ในรายการนี้จะเข้าใช้งานไม่ได้
+        </p>
+      </div>
 
       {/* ค้นหาเพื่อเพิ่มคน */}
       <Card className="p-4">
