@@ -36,6 +36,7 @@ const NAV: NavGroup[] = [
   {
     section: "operations",
     items: [
+      { href: "/admin/stores", icon: Store, key: "stores", perm: "admin.employee_manage" },
       { href: "/admin/inventory", icon: Boxes, key: "inventory", perm: "inventory.view" },
       { href: "/admin/movement", icon: Activity, key: "movement" },
       { href: "/admin/transfers", icon: ArrowLeftRight, key: "transfers", perm: "transfer.request" },
@@ -97,6 +98,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
     movement: t.cmd.stockMovement, documents: t.cmd.documentCenter,
     permissions: locale === "en" ? "Users" : "ผู้ใช้",
     customers: locale === "en" ? "Customers" : "ลูกค้า",
+    stores: locale === "en" ? "Stores" : "ร้าน",
     tasks: locale === "en" ? "Follow-ups" : "ติดตามลูกค้า",
     campaigns: locale === "en" ? "Campaigns" : "แคมเปญ",
   };
