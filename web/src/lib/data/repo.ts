@@ -434,6 +434,10 @@ export async function commitSale(draft: OrderDraft): Promise<SaleResult> {
       serials: l.serials,
       salesperson_id: l.salesperson_id ?? draft.salesperson_id,
       returned_qty: 0,
+      is_gift: l.is_gift ?? false,
+      gift_source: l.gift_source,
+      gift_campaign_id: l.gift_campaign_id ?? null,
+      gift_of_sku: l.gift_of_sku ?? null,
     };
   });
 
@@ -524,6 +528,8 @@ export async function commitSale(draft: OrderDraft): Promise<SaleResult> {
       unit_price: i.unit_price, discount_amount: i.discount_amount, line_total: i.line_total,
       unit_cost: i.unit_cost, cost_total: i.cost_total, gross_profit: i.gross_profit,
       salesperson_id: i.salesperson_id, serials: i.serials,
+      is_gift: i.is_gift ?? false, gift_source: i.gift_source ?? null,
+      gift_campaign_id: i.gift_campaign_id ?? null, gift_of_sku: i.gift_of_sku ?? null,
     })),
     payments: draft.payments,
   });

@@ -33,6 +33,8 @@ interface CartState {
   setLinePrice: (lineId: string, price: number) => void;
   setLineSerials: (lineId: string, serials: string[]) => void;
   setLineSalesperson: (lineId: string, employeeId: string | null) => void;
+  /** สลับรายการเป็น/ออกจากของแถม (ราคาเรียกเก็บ 0 แต่คงต้นทุน + ตัดสต๊อก) */
+  toggleGift: (lineId: string) => void;
   setBillDiscount: (percent: number, amount: number) => void;
   setCustomer: (name: string, phone: string) => void;
   /** ผูกลูกค้าจากฐานข้อมูล (มี id + ยอดแต้ม/เครดิต) — ใช้ตอนเลือก/สร้างจาก CustomerPicker */
@@ -148,6 +150,19 @@ export const useCart = create<CartState>((set, get) => ({
   setLineSalesperson: (lineId, employeeId) =>
     set((s) => ({
       lines: s.lines.map((l) => (l.lineId === lineId ? { ...l, salesperson_id: employeeId } : l)),
+    })),
+
+  toggleGift: (lineId) =>
+    set((s) => ({
+      lines: s.lines.map((l) => {
+        if (l.lineId !== lineId) return l;
+        if (l.is_gift) {
+          // คืนค่าเป็นสินค้าขายปกติ
+          return { ...l, is_gift: false, gift_source: undefined, unit_price: l.list_price, discount_amount: 0, discount_percent: 0 };
+        }
+        // ทำเป็นของแถม: ราคาเรียกเก็บ 0, ล้างส่วนลด (คง unit_cost ไว้คิดต้นทุน)
+        return { ...l, is_gift: true, gift_source: "manual", unit_price: 0, discount_amount: 0, discount_percent: 0 };
+      }),
     })),
 
   setBillDiscount: (percent, amount) => set({ billDiscountPercent: percent, billDiscountAmount: amount }),

@@ -151,6 +151,11 @@ export interface CartLine {
   serials: string[];
   salesperson_id: string | null;
   note?: string;
+  /** ของแถม: สินค้าจริง ราคาเรียกเก็บ 0 แต่คิดต้นทุน + ตัดสต๊อก */
+  is_gift?: boolean;
+  gift_source?: "campaign" | "bundle" | "manual";
+  gift_campaign_id?: string | null;
+  gift_of_sku?: string | null;
 }
 
 export interface PaymentEntry {
@@ -254,6 +259,10 @@ export interface OrderItem {
   serials: string[];
   salesperson_id?: string | null;
   returned_qty: number;
+  is_gift?: boolean;
+  gift_source?: "campaign" | "bundle" | "manual";
+  gift_campaign_id?: string | null;
+  gift_of_sku?: string | null;
 }
 
 export interface Shift {

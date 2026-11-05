@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { nanoid } from "nanoid";
 import {
   Search, Plus, Minus, Trash2, Percent, Barcode, Inbox, PauseCircle, PlayCircle,
-  UserRound, AlertTriangle, PackageX, Tag, UserPlus, Phone, ChevronRight, X, Star, Wallet, Ticket,
+  UserRound, AlertTriangle, PackageX, Tag, UserPlus, Phone, ChevronRight, X, Star, Wallet, Ticket, Gift,
 } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { useSession } from "@/lib/store/session";
@@ -598,7 +598,10 @@ export default function SellPage() {
                   <li key={l.lineId} className="px-4 py-3">
                     <div className="flex items-start gap-2">
                       <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium leading-snug line-clamp-2">{l.name}</p>
+                        <p className="text-sm font-medium leading-snug line-clamp-2">
+                          {l.name}
+                          {l.is_gift && <span className="ml-1.5 text-[9px] font-bold px-1.5 py-0.5 rounded bg-ink text-surface align-middle">ของแถม</span>}
+                        </p>
                         <p className="text-[10px] font-mono text-muted mt-0.5">{l.sku}</p>
                       </div>
                       <button onClick={() => cart.removeLine(l.lineId)} className="text-muted hover:text-danger p-1">
@@ -617,16 +620,29 @@ export default function SellPage() {
                         </button>
                       </div>
 
+                      {/* ของแถม: สลับเป็น/ออก (ซ่อนส่วนลดเมื่อเป็นของแถม) */}
                       <button
-                        onClick={() => setLineDiscountId(l.lineId)}
-                        className={`h-8 px-2 rounded-lg border text-[11px] font-medium ${
-                          l.discount_percent || l.discount_amount ? "border-danger/40 text-danger bg-danger/8" : "border-line text-muted"
+                        onClick={() => cart.toggleGift(l.lineId)}
+                        title={l.is_gift ? "ยกเลิกของแถม" : "ทำเป็นของแถม (฿0)"}
+                        className={`h-8 px-2 rounded-lg border text-[11px] font-medium inline-flex items-center gap-1 ${
+                          l.is_gift ? "border-ink bg-ink text-surface" : "border-line text-muted hover:text-ink"
                         }`}
-                        disabled={discLimit <= 0 && !needsApproval(employee, "pos.discount")}
                       >
-                        <Percent size={12} className="inline -mt-0.5" />{" "}
-                        {l.discount_percent ? `${l.discount_percent}%` : l.discount_amount ? formatTHB(l.discount_amount, false) : ""}
+                        <Gift size={12} />
                       </button>
+
+                      {!l.is_gift && (
+                        <button
+                          onClick={() => setLineDiscountId(l.lineId)}
+                          className={`h-8 px-2 rounded-lg border text-[11px] font-medium ${
+                            l.discount_percent || l.discount_amount ? "border-danger/40 text-danger bg-danger/8" : "border-line text-muted"
+                          }`}
+                          disabled={discLimit <= 0 && !needsApproval(employee, "pos.discount")}
+                        >
+                          <Percent size={12} className="inline -mt-0.5" />{" "}
+                          {l.discount_percent ? `${l.discount_percent}%` : l.discount_amount ? formatTHB(l.discount_amount, false) : ""}
+                        </button>
+                      )}
 
                       {l.track_serial ? (
                         <button
