@@ -523,6 +523,7 @@ export async function commitSale(draft: OrderDraft): Promise<SaleResult> {
     is_offline_origin: order.is_offline_origin,
     device_created_at: now,
     discount_approved_by: draft.discount_approved_by ?? null,
+    promo_snapshot: draft.promo_snapshot ?? null,
     items: items.map((i) => ({
       product_id: i.product_id, sku: i.sku, name: i.name, kind: i.kind, qty: i.qty,
       unit_price: i.unit_price, discount_amount: i.discount_amount, line_total: i.line_total,

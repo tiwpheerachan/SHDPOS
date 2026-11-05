@@ -362,6 +362,16 @@ export default function SellPage() {
         coupon_code: cart.couponCode,
         coupon_discount: totals.couponAmount,
         coupon_campaign_id: cart.couponCampaignId,
+        // snapshot กติกาที่ใช้จริง เก็บกับบิล
+        promo_snapshot: {
+          applied_at: new Date().toISOString(),
+          coupon: cart.couponCode ? { code: cart.couponCode, discount: totals.couponAmount, campaign_id: cart.couponCampaignId } : null,
+          redeem_points: cart.redeemPoints || 0,
+          redeem_value: totals.redeemAmount || 0,
+          gifts: cart.lines
+            .filter((l) => l.is_gift)
+            .map((l) => ({ sku: l.sku, name: l.name, qty: l.qty, source: l.gift_source, campaign_id: l.gift_campaign_id ?? null, unit_cost: l.unit_cost })),
+        },
       });
 
       // ถึงตรงนี้ = ขายสำเร็จแล้ว (บิลถูกบันทึก + ตัดสต๊อกแล้ว)

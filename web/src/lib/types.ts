@@ -200,6 +200,8 @@ export interface OrderDraft {
   coupon_code?: string | null;
   coupon_discount?: number;
   coupon_campaign_id?: string | null;
+  /** snapshot กติกาโปรโมชันที่ใช้จริง เก็บกับบิล (แก้แคมเปญทีหลังไม่กระทบประวัติ) */
+  promo_snapshot?: unknown;
 }
 
 export interface TaxInvoiceRequest {
