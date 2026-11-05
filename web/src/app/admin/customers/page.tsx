@@ -10,11 +10,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Search, Phone, Mail, Star, Wallet, Contact, ShoppingBag, CalendarClock,
-  TrendingUp, Clock, Loader2, ChevronRight, MapPin, Combine, ShieldCheck,
+  TrendingUp, Clock, Loader2, MapPin, Combine, ShieldCheck,
 } from "lucide-react";
 import { listBranches } from "@/lib/data/repo";
 import type { Branch } from "@/lib/types";
-import { Drawer, EmptyState, Modal } from "@/components/ui";
+import { Drawer, EmptyState, Modal, Table, Th, Td } from "@/components/ui";
 import { formatTHB } from "@/lib/money";
 
 type Segment = "new" | "returning" | "vip" | "lost";
@@ -77,11 +77,12 @@ const CONSENT_CHANNELS: { v: string; label: string }[] = [
   { v: "line", label: "LINE" }, { v: "call", label: "โทรศัพท์" },
 ];
 
+// โทนเข้าธีม (ขาว-ดำ-brand) ไม่ใช้สีเหลือง/รุ้ง — แยกด้วยน้ำหนัก/การกลับสี
 const SEG: Record<Segment, { label: string; cls: string }> = {
-  new: { label: "ลูกค้าใหม่", cls: "bg-sky-500/15 text-sky-600 dark:text-sky-300" },
-  returning: { label: "ซื้อซ้ำ", cls: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-300" },
-  vip: { label: "VIP", cls: "bg-amber-500/18 text-amber-700 dark:text-amber-300" },
-  lost: { label: "หายไป", cls: "bg-rose-500/15 text-rose-600 dark:text-rose-300" },
+  new: { label: "ลูกค้าใหม่", cls: "bg-surface2 text-muted" },
+  returning: { label: "ซื้อซ้ำ", cls: "bg-surface2 text-ink" },
+  vip: { label: "VIP", cls: "bg-ink text-surface" },
+  lost: { label: "หายไป", cls: "border border-line text-muted" },
 };
 
 const FILTERS: { v: "all" | Segment; label: string }[] = [
@@ -310,8 +311,8 @@ export default function AdminCustomersPage() {
         </div>
         <div className="flex gap-2">
           <Kpi label="ลูกค้าทั้งหมด" value={String(kpi.total)} icon={<Contact size={15} />} />
-          <Kpi label="VIP" value={String(kpi.vip)} icon={<Star size={15} />} tone="amber" />
-          <Kpi label="หายไป" value={String(kpi.lost)} icon={<Clock size={15} />} tone="rose" />
+          <Kpi label="VIP" value={String(kpi.vip)} icon={<Star size={15} />} />
+          <Kpi label="หายไป" value={String(kpi.lost)} icon={<Clock size={15} />} />
         </div>
       </div>
 
@@ -356,40 +357,57 @@ export default function AdminCustomersPage() {
         ))}
       </div>
 
-      {/* รายชื่อ */}
+      {/* รายชื่อ (ตาราง) */}
       {loading ? (
         <div className="py-20 text-center text-muted"><Loader2 className="inline animate-spin" size={20} /> กำลังโหลด…</div>
       ) : filtered.length === 0 ? (
-        <EmptyState icon={<Contact size={26} />} title="ยังไม่มีลูกค้า" body="ลูกค้าจะปรากฏที่นี่เมื่อผูกกับบิลในหน้าขาย" />
+        q.trim() || seg !== "all" ? (
+          <div className="flex flex-col items-center">
+            <EmptyState icon={<Search size={26} />} title="ไม่พบผลลัพธ์" body="ลองเปลี่ยนคำค้นหรือกลุ่มลูกค้า" />
+            <button onClick={() => { setQ(""); setSeg("all"); }} className="-mt-6 text-sm text-brand font-semibold hover:underline">ล้างตัวกรอง</button>
+          </div>
+        ) : (
+          <EmptyState icon={<Contact size={26} />} title="ยังไม่มีลูกค้าในระบบ" body="ลูกค้าจะปรากฏที่นี่เมื่อผูกกับบิลในหน้าขาย" />
+        )
       ) : (
-        <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
-          {filtered.map((c) => (
-            <button
-              key={c.id}
-              onClick={() => setOpenId(c.id)}
-              className="group text-left flex items-center gap-3 p-3 rounded-2xl border border-line bg-surface hover:bg-surface2/60 hover:shadow-sm transition-all"
-            >
-              <span className="grid place-items-center w-11 h-11 rounded-full text-white text-sm font-bold shrink-0"
-                style={{ background: "linear-gradient(145deg,#0a84ff,#5e5ce6)" }}>
-                {initials(c.name)}
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="flex items-center gap-2">
-                  <span className="font-semibold text-sm truncate">{c.name}</span>
-                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${SEG[c.segment].cls}`}>{SEG[c.segment].label}</span>
-                </span>
-                <span className="flex items-center gap-3 text-[11.5px] text-muted mt-0.5">
-                  {c.phone && <span className="inline-flex items-center gap-1 truncate"><Phone size={11} />{c.phone}</span>}
-                  <span className="inline-flex items-center gap-1"><ShoppingBag size={11} />{c.orders} บิล</span>
-                </span>
-                <span className="flex items-center gap-3 text-[11.5px] mt-1">
-                  <span className="font-semibold tnum">{formatTHB(c.spend, false)}</span>
-                  <span className="text-muted">· ซื้อล่าสุด {recencyLabel(c.recencyDays)}</span>
-                </span>
-              </span>
-              <ChevronRight size={16} className="text-muted opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
-            </button>
-          ))}
+        <div className="rounded-2xl border border-line overflow-hidden bg-surface">
+          <div className="px-3.5 py-2 text-xs text-muted border-b border-line">พบ {filtered.length} ราย</div>
+          <Table>
+            <thead>
+              <tr>
+                <Th>ลูกค้า</Th>
+                <Th>เบอร์โทร</Th>
+                <Th>กลุ่ม</Th>
+                <Th align="right">บิล</Th>
+                <Th align="right">ยอดซื้อรวม</Th>
+                <Th>ซื้อล่าสุด</Th>
+                <Th align="right">แต้ม</Th>
+                <Th align="right">เครดิต</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((c) => (
+                <tr key={c.id} onClick={() => setOpenId(c.id)} className="cursor-pointer hover:bg-surface2/50 transition-colors">
+                  <Td>
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <span className="grid place-items-center w-8 h-8 rounded-full bg-surface2 text-ink text-[11px] font-bold shrink-0">{initials(c.name)}</span>
+                      <div className="min-w-0">
+                        <div className="font-semibold text-sm truncate max-w-[200px]">{c.name}</div>
+                        {c.member_code && <div className="text-[11px] text-muted font-mono">{c.member_code}</div>}
+                      </div>
+                    </div>
+                  </Td>
+                  <Td className="text-xs text-muted whitespace-nowrap">{c.phone || "—"}</Td>
+                  <Td><span className={`text-[10px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap ${SEG[c.segment].cls}`}>{SEG[c.segment].label}</span></Td>
+                  <Td align="right" className="text-sm">{c.orders}</Td>
+                  <Td align="right" className="text-sm font-semibold">{formatTHB(c.spend, false)}</Td>
+                  <Td className="text-xs text-muted whitespace-nowrap">{recencyLabel(c.recencyDays)}</Td>
+                  <Td align="right" className="text-sm">{c.points.toLocaleString()}</Td>
+                  <Td align="right" className="text-sm">{c.store_credit ? formatTHB(c.store_credit, false) : "—"}</Td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
         </div>
       )}
 
@@ -414,19 +432,19 @@ export default function AdminCustomersPage() {
               </div>
             )}
 
-            {/* กระเป๋าเงิน — แต้ม + เครดิต พร้อมปุ่มจัดการ */}
+            {/* กระเป๋าเงิน — แต้ม + เครดิต พร้อมปุ่มจัดการ (เข้าธีม) */}
             <div className="grid grid-cols-2 gap-2.5">
-              <div className="p-3.5 rounded-2xl border border-amber-500/25 bg-amber-500/5">
-                <div className="flex items-center gap-1.5 text-[11.5px] text-amber-700 dark:text-amber-300 font-medium"><Star size={13} /> แต้มสะสม</div>
-                <div className="text-2xl font-bold tnum mt-0.5">{Number(detail.customer.points ?? 0).toLocaleString()}</div>
+              <div className="p-3.5 rounded-2xl border border-line bg-surface2/50">
+                <div className="flex items-center gap-1.5 text-[11.5px] text-muted font-medium"><Star size={13} /> แต้มสะสม</div>
+                <div className="text-2xl font-bold tnum mt-0.5 text-ink">{Number(detail.customer.points ?? 0).toLocaleString()}</div>
                 <button onClick={() => { setAdjustMode("points"); setAdjustAmt(""); setAdjustNote(""); }}
-                  className="mt-2 text-xs font-semibold text-amber-700 dark:text-amber-300 hover:underline">ปรับแต้ม →</button>
+                  className="mt-2 text-xs font-semibold text-brand hover:underline">ปรับแต้ม →</button>
               </div>
-              <div className="p-3.5 rounded-2xl border border-emerald-500/25 bg-emerald-500/5">
-                <div className="flex items-center gap-1.5 text-[11.5px] text-emerald-700 dark:text-emerald-300 font-medium"><Wallet size={13} /> เครดิตร้าน</div>
-                <div className="text-2xl font-bold tnum mt-0.5">{formatTHB(Number(detail.customer.store_credit ?? 0), false)}</div>
+              <div className="p-3.5 rounded-2xl border border-line bg-surface2/50">
+                <div className="flex items-center gap-1.5 text-[11.5px] text-muted font-medium"><Wallet size={13} /> เครดิตร้าน</div>
+                <div className="text-2xl font-bold tnum mt-0.5 text-ink">{formatTHB(Number(detail.customer.store_credit ?? 0), false)}</div>
                 <button onClick={() => { setAdjustMode("credit"); setAdjustAmt(""); setAdjustNote(""); }}
-                  className="mt-2 text-xs font-semibold text-emerald-700 dark:text-emerald-300 hover:underline">เติม / ปรับ →</button>
+                  className="mt-2 text-xs font-semibold text-brand hover:underline">เติม / ปรับ →</button>
               </div>
             </div>
 
@@ -477,7 +495,7 @@ export default function AdminCustomersPage() {
                     <li key={o.id} className="rounded-xl border border-line overflow-hidden">
                       <div className="flex items-center gap-2 px-3 py-2 bg-surface2/50">
                         <span className="font-mono text-xs font-semibold">{o.order_no}</span>
-                        {o.status === "voided" && <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-600">ยกเลิก</span>}
+                        {o.status === "voided" && <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface2 text-danger border border-line">ยกเลิก</span>}
                         <span className="text-[11px] text-muted inline-flex items-center gap-1"><MapPin size={10} />{branchName(o.branch_id)}</span>
                         <span className="ml-auto text-[11px] text-muted">{fmtDate(o.created_at)}</span>
                         <span className="font-semibold text-sm tnum tabular-nums">{formatTHB(Number(o.grand_total), false)}</span>
@@ -514,12 +532,12 @@ export default function AdminCustomersPage() {
                       </span>
                       <span className="text-right shrink-0">
                         {l.points_delta !== 0 && (
-                          <span className={`block text-xs font-bold tnum ${l.points_delta > 0 ? "text-amber-600 dark:text-amber-300" : "text-rose-600 dark:text-rose-300"}`}>
+                          <span className={`block text-xs font-bold tnum ${l.points_delta > 0 ? "text-ink" : "text-muted"}`}>
                             {l.points_delta > 0 ? "+" : ""}{l.points_delta} แต้ม
                           </span>
                         )}
                         {Number(l.credit_delta) !== 0 && (
-                          <span className={`block text-xs font-bold tnum ${Number(l.credit_delta) > 0 ? "text-emerald-600 dark:text-emerald-300" : "text-rose-600 dark:text-rose-300"}`}>
+                          <span className={`block text-xs font-bold tnum ${Number(l.credit_delta) > 0 ? "text-ink" : "text-muted"}`}>
                             {Number(l.credit_delta) > 0 ? "+" : ""}{formatTHB(Number(l.credit_delta), false)}
                           </span>
                         )}
@@ -566,7 +584,7 @@ export default function AdminCustomersPage() {
                       <li key={tk.id} className="flex items-center gap-2 px-3 py-2 rounded-xl border border-line">
                         {!done && (
                           <button onClick={() => void completeTask(tk.id)} title="ทำเสร็จ"
-                            className="w-5 h-5 rounded-full border-2 border-emerald-500/50 hover:bg-emerald-500/20 shrink-0" />
+                            className="w-5 h-5 rounded-full border-2 border-ink/30 hover:bg-surface2 shrink-0" />
                         )}
                         <span className="min-w-0 flex-1">
                           <span className={`text-sm ${done ? "line-through text-muted" : "font-medium"}`}>{tk.title}</span>
@@ -576,8 +594,8 @@ export default function AdminCustomersPage() {
                             {tk.result && ` · ผล: ${tk.result}`}
                           </span>
                         </span>
-                        {overdue && <span className="text-[10px] font-bold text-rose-600">เกินกำหนด</span>}
-                        {done && <span className="text-[10px] font-bold text-emerald-600">เสร็จ</span>}
+                        {overdue && <span className="text-[10px] font-bold text-danger">เกินกำหนด</span>}
+                        {done && <span className="text-[10px] font-bold text-muted">เสร็จ</span>}
                       </li>
                     );
                   })}
@@ -692,12 +710,11 @@ export default function AdminCustomersPage() {
   );
 }
 
-function Kpi({ label, value, icon, tone }: { label: string; value: string; icon: React.ReactNode; tone?: "amber" | "rose" }) {
-  const toneCls = tone === "amber" ? "text-amber-600 dark:text-amber-300" : tone === "rose" ? "text-rose-600 dark:text-rose-300" : "text-ink";
+function Kpi({ label, value, icon }: { label: string; value: string; icon: React.ReactNode }) {
   return (
     <div className="px-3.5 py-2 rounded-2xl border border-line bg-surface min-w-[96px]">
       <div className="text-[11px] text-muted flex items-center gap-1">{icon}{label}</div>
-      <div className={`text-lg font-bold leading-tight ${toneCls}`}>{value}</div>
+      <div className="text-lg font-bold leading-tight text-ink">{value}</div>
     </div>
   );
 }
