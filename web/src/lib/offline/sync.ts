@@ -72,7 +72,7 @@ export async function enqueue(op: PendingOp["op"], client_uuid: string, payload:
 
 const OP_RPC: Partial<Record<PendingOp["op"], string>> = {
   create_order: "create_order",
-  void_order: "void_order",
+  void_order: "pos_void_order",
   close_shift: "close_shift",
   // ผ่าน SECURITY DEFINER RPC (ต้อง apply migration 0010_sync_rpcs.sql ก่อน)
   audit: "sync_audit",
@@ -172,8 +172,8 @@ function rpcArgs(item: PendingOp): Record<string, unknown> {
       return { p_code: p.code, p_customer_id: p.customer_id, p_client_uuid: p.client_uuid, p_discount: p.discount };
     }
     case "void_order": {
-      const p = item.payload as { order_id: string; employee_id: string; reason: string };
-      return { p_order_id: p.order_id, p_employee_id: p.employee_id, p_reason: p.reason };
+      const p = item.payload as { order_client_uuid: string; employee_id: string; reason: string };
+      return { p_client_uuid: p.order_client_uuid, p_employee_id: p.employee_id, p_reason: p.reason };
     }
     case "close_shift": {
       const p = item.payload as { shift_id: string; counted_cash: number; employee_id: string; note?: string };

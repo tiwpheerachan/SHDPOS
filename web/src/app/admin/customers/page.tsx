@@ -76,7 +76,7 @@ const TASK_KIND_LABEL: Record<string, string> = {
 const LEDGER_LABEL: Record<string, string> = {
   earn: "ได้แต้ม", redeem: "ใช้แต้ม", reverse: "คืน (ยกเลิกบิล)",
   topup: "เติมเครดิต", spend: "ใช้เครดิต", adjust: "ปรับโดยแอดมิน", refund: "คืนเงิน",
-  expire: "แต้มหมดอายุ",
+  expire: "แต้มหมดอายุ", return: "คืนแต้ม (คืนสินค้า)",
 };
 
 const CONSENT_CHANNELS: { v: string; label: string }[] = [

@@ -588,7 +588,7 @@ export async function voidOrder(orderId: string, employeeId: string, reason: str
     },
     is_offline: false,
   });
-  await enqueue("void_order", nanoid(), { order_id: orderId, employee_id: employeeId, reason });
+  await enqueue("void_order", nanoid(), { order_client_uuid: order.client_uuid ?? null, order_no: order.order_no, employee_id: employeeId, reason });
 }
 
 // ---------------------------------------------------------------------
