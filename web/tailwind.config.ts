@@ -13,6 +13,7 @@ const config: Config = {
         ink: "rgb(var(--c-ink) / <alpha-value>)",
         muted: "rgb(var(--c-muted) / <alpha-value>)",
         brand: "rgb(var(--c-brand) / <alpha-value>)",
+        brandHover: "rgb(var(--c-brand-hover) / <alpha-value>)",
         brandInk: "rgb(var(--c-brand-ink) / <alpha-value>)",
         ok: "rgb(var(--c-ok) / <alpha-value>)",
         warn: "rgb(var(--c-warn) / <alpha-value>)",
@@ -22,6 +23,8 @@ const config: Config = {
         lime: "rgb(var(--c-lime) / <alpha-value>)",
         lavender: "rgb(var(--c-lavender) / <alpha-value>)",
         mint: "rgb(var(--c-mint) / <alpha-value>)",
+        aqua: "rgb(var(--c-aqua) / <alpha-value>)",
+        yellow: "rgb(var(--c-yellow) / <alpha-value>)",
         peach: "rgb(var(--c-peach) / <alpha-value>)",
       },
       borderRadius: {

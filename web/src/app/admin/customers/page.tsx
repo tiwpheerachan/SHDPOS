@@ -84,11 +84,11 @@ const CONSENT_CHANNELS: { v: string; label: string }[] = [
   { v: "line", label: "LINE" }, { v: "call", label: "โทรศัพท์" },
 ];
 
-// โทนเข้าธีม (ขาว-ดำ-brand) ไม่ใช้สีเหลือง/รุ้ง — แยกด้วยน้ำหนัก/การกลับสี
+// โทนพาเลต iOS — accent tints (ไม่ใช้เหลืองแทนสถานะ)
 const SEG: Record<Segment, { label: string; cls: string }> = {
-  new: { label: "ลูกค้าใหม่", cls: "bg-surface2 text-muted" },
-  returning: { label: "ซื้อซ้ำ", cls: "bg-surface2 text-ink" },
-  vip: { label: "VIP", cls: "bg-ink text-surface" },
+  new: { label: "ลูกค้าใหม่", cls: "bg-aqua text-ink" },
+  returning: { label: "ซื้อซ้ำ", cls: "bg-mint text-ink" },
+  vip: { label: "VIP", cls: "bg-brand text-brandInk" },
   lost: { label: "หายไป", cls: "border border-line text-muted" },
 };
 
@@ -398,7 +398,7 @@ export default function AdminCustomersPage() {
                 <tr key={c.id} onClick={() => setOpenId(c.id)} className="cursor-pointer hover:bg-surface2/50 transition-colors">
                   <Td>
                     <div className="flex items-center gap-2.5 min-w-0">
-                      <span className="grid place-items-center w-8 h-8 rounded-full bg-surface2 text-ink text-[11px] font-bold shrink-0">{initials(c.name)}</span>
+                      <span className="grid place-items-center w-8 h-8 rounded-full bg-lavender text-brand text-[11px] font-bold shrink-0">{initials(c.name)}</span>
                       <div className="min-w-0">
                         <div className="font-semibold text-sm truncate max-w-[200px]">{c.name}</div>
                         {c.member_code && <div className="text-[11px] text-muted font-mono">{c.member_code}</div>}

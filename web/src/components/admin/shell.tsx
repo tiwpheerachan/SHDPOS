@@ -123,14 +123,12 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
       {/* กรอบแก้ว (liquid glass) สำหรับเมนูที่เลือก — โทนเดียวกับ navbar ของ POS */}
       <style>{`
         .shd-nav-glass{
-          background:linear-gradient(135deg,rgb(var(--c-brand) / .10),rgb(var(--c-brand) / .04));
-          -webkit-backdrop-filter:blur(8px) saturate(1.5);
-          backdrop-filter:blur(8px) saturate(1.5);
-          box-shadow:inset 0 1px 1px rgb(255 255 255 / .55),inset 0 0 0 1px rgb(var(--c-brand) / .18),0 4px 14px -8px rgb(var(--c-brand) / .35);
+          background:rgb(var(--c-lavender));
+          box-shadow:inset 0 0 0 1px rgb(var(--c-brand) / .14);
         }
         :root[data-theme="dark"] .shd-nav-glass{
-          background:linear-gradient(135deg,rgb(var(--c-brand) / .16),rgb(var(--c-brand) / .06));
-          box-shadow:inset 0 1px 1px rgb(255 255 255 / .12),inset 0 0 0 1px rgb(var(--c-brand) / .28),0 4px 14px -8px rgb(0 0 0 / .6);
+          background:rgb(var(--c-lavender));
+          box-shadow:inset 0 0 0 1px rgb(var(--c-brand) / .35);
         }
       `}</style>
       {/* ============ Sidebar ============ */}
@@ -170,7 +168,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
                       className={clsx(
                         "flex items-center gap-3 h-10 rounded-xl text-sm transition-colors",
                         collapsed ? "lg:justify-center lg:px-0 px-3" : "px-3",
-                        active ? "shd-nav-glass text-ink font-semibold" : "text-muted font-medium hover:text-ink hover:bg-surface2"
+                        active ? "shd-nav-glass text-brand font-semibold" : "text-muted font-medium hover:text-ink hover:bg-surface2"
                       )}
                     >
                       <Icon size={18} className={clsx("shrink-0", active && "text-brand")} />
@@ -202,7 +200,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
               "flex items-center gap-3 h-10 rounded-xl text-sm font-medium transition-colors",
               collapsed ? "lg:justify-center lg:px-0 px-3" : "px-3",
               pathname === "/admin/settings"
-                ? "shd-nav-glass text-ink font-semibold"
+                ? "shd-nav-glass text-brand font-semibold"
                 : "text-muted hover:text-ink hover:bg-surface2"
             )}
           >
@@ -235,7 +233,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
       <div className="flex-1 min-w-0 flex flex-col">
         {/* floating top header */}
         <header className="sticky top-0 z-30 px-3 sm:px-5 pt-3">
-          <div className="h-14 rounded-2xl bg-surface/85 backdrop-blur-xl border border-line/70 shadow-card flex items-center gap-2 px-3">
+          <div className="glass h-14 rounded-2xl flex items-center gap-2 px-3">
             <button onClick={() => setOpen(true)} className="lg:hidden text-muted p-1.5" aria-label="menu">
               <Menu size={18} />
             </button>

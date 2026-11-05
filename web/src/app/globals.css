@@ -8,54 +8,81 @@
    ระบบสี: warm neutral 70–80% + accent (coral/lime/lavender/mint/peach)
    ===================================================================== */
 :root {
-  --c-bg: 243 243 241;          /* #F3F3F1 warm light gray */
+  --c-bg: 243 245 247;          /* #F3F5F7 cool light gray */
   --c-surface: 255 255 255;     /* #FFFFFF */
-  --c-surface-2: 236 236 234;   /* #ECECEA soft gray */
-  --c-line: 226 226 221;        /* subtle neutral hairline */
-  --c-ink: 22 22 22;            /* #161616 */
-  --c-muted: 119 119 115;       /* #777773 */
-  --c-brand: 21 21 21;          /* #151515 dark accent = primary */
+  --c-surface-2: 237 241 244;   /* #EDF1F4 */
+  --c-line: 227 231 237;        /* #E3E7ED hairline */
+  --c-ink: 29 29 36;            /* #1D1D24 */
+  --c-muted: 98 103 115;        /* #626773 */
+  --c-brand: 121 80 216;        /* #7950D8 primary purple */
+  --c-brand-hover: 104 64 196;  /* #6840C4 */
   --c-brand-ink: 255 255 255;
 
-  /* accent palette — ใช้เน้นข้อมูลสำคัญเท่านั้น */
-  --c-coral: 255 114 94;        /* #FF725E  revenue */
-  --c-lime: 215 243 90;         /* #D7F35A  target / growth */
-  --c-lavender: 168 152 245;    /* #A898F5  analytics / prediction */
-  --c-mint: 189 237 217;        /* #BDEDD9  healthy / completed */
-  --c-peach: 245 213 200;       /* #F5D5C8  soft */
+  /* accent palette — ใช้เน้นข้อมูลสำคัญ (ห้ามใช้เหลืองแทนสถานะเตือน) */
+  --c-lavender: 233 222 255;    /* #E9DEFF */
+  --c-mint: 188 238 219;        /* #BCEEDB */
+  --c-aqua: 189 236 240;        /* #BDECF0 */
+  --c-yellow: 244 237 86;       /* #F4ED56 highlight only */
+  --c-coral: 255 114 94;
+  --c-lime: 215 243 90;
+  --c-peach: 245 213 200;
 
-  /* semantic — เลือกโทนที่อ่านออกบนพื้นขาว */
-  --c-ok: 22 145 107;           /* readable green */
-  --c-warn: 194 120 40;         /* soft orange (text-safe) */
-  --c-danger: 214 69 74;        /* soft red */
-  --c-info: 109 93 211;         /* lavender-deep */
+  /* semantic — อ่านออกบนพื้นขาว */
+  --c-ok: 36 116 82;            /* #247452 success */
+  --c-warn: 145 98 13;          /* #91620D warning */
+  --c-danger: 181 59 76;        /* #B53B4C danger */
+  --c-info: 121 80 216;         /* purple */
 
-  --font-sans: "Inter", "Manrope", "Noto Sans Thai", "IBM Plex Sans Thai",
+  --font-sans: "Noto Sans Thai", "IBM Plex Sans Thai", "Inter", "Manrope",
     -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", "Helvetica Neue", Arial, sans-serif;
   color-scheme: light;
 }
 
 :root[data-theme="dark"] {
-  --c-bg: 17 18 17;             /* #111211 */
-  --c-surface: 25 26 24;        /* #191A18 */
-  --c-surface-2: 32 33 31;      /* #20211F elevated */
-  --c-line: 42 43 40;
-  --c-ink: 236 236 232;
-  --c-muted: 138 138 132;
-  --c-brand: 240 238 233;       /* light primary on dark */
-  --c-brand-ink: 21 21 21;
+  --c-bg: 18 18 22;             /* #121216 */
+  --c-surface: 26 26 32;        /* #1A1A20 */
+  --c-surface-2: 34 35 42;      /* #22232A */
+  --c-line: 44 46 54;
+  --c-ink: 236 236 242;
+  --c-muted: 150 154 165;
+  --c-brand: 157 128 240;       /* lighter purple on dark */
+  --c-brand-hover: 139 110 228;
+  --c-brand-ink: 255 255 255;
 
+  --c-lavender: 70 54 112;
+  --c-mint: 38 92 70;
+  --c-aqua: 36 86 96;
+  --c-yellow: 120 114 48;
   --c-coral: 255 126 107;
   --c-lime: 199 226 79;
-  --c-lavender: 176 162 245;
-  --c-mint: 169 220 198;
   --c-peach: 226 191 176;
 
   --c-ok: 52 199 148;
   --c-warn: 224 160 84;
-  --c-danger: 240 113 118;
-  --c-info: 176 162 245;
+  --c-danger: 236 113 124;
+  --c-info: 157 128 240;
   color-scheme: dark;
+}
+
+/* กระจกฝ้า (frosted glass) — ใช้กับ topbar / nav / แผงลอย เท่านั้น */
+.glass {
+  background: rgb(255 255 255 / 0.82);
+  backdrop-filter: blur(16px) saturate(130%);
+  -webkit-backdrop-filter: blur(16px) saturate(130%);
+  border: 1px solid rgb(255 255 255 / 0.55);
+  box-shadow: 0 1px 0 rgb(255 255 255 / 0.55) inset, 0 8px 28px rgb(29 29 36 / 0.06);
+}
+:root[data-theme="dark"] .glass {
+  background: rgb(26 26 32 / 0.72);
+  border-color: rgb(255 255 255 / 0.08);
+  box-shadow: 0 1px 0 rgb(255 255 255 / 0.06) inset, 0 8px 28px rgb(0 0 0 / 0.4);
+}
+/* พื้นทึบสำรองเมื่อผู้ใช้ลดความโปร่งใส */
+@media (prefers-reduced-transparency: reduce) {
+  .glass { background: rgb(var(--c-surface)); backdrop-filter: none; -webkit-backdrop-filter: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
 
 * {
@@ -102,27 +129,28 @@ body {
     @apply bg-brand text-brandInk rounded-[22px] shadow-card border border-transparent;
   }
   .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-full px-4 h-11 text-sm font-medium
-           transition-all select-none disabled:opacity-40 disabled:pointer-events-none active:scale-[0.98];
+    @apply inline-flex items-center justify-center gap-2 rounded-[14px] px-4 h-11 text-sm font-semibold
+           transition-all select-none disabled:opacity-45 disabled:pointer-events-none active:scale-[0.98]
+           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 focus-visible:ring-offset-1 focus-visible:ring-offset-surface;
   }
   .btn-primary {
-    @apply btn bg-brand text-brandInk hover:brightness-110 active:brightness-95;
+    @apply btn bg-brand text-brandInk shadow-sm hover:bg-brandHover;
   }
   .btn-ghost {
-    @apply btn bg-transparent text-ink hover:bg-surface2 border border-line;
+    @apply btn bg-surface text-ink hover:bg-surface2 border border-line;
   }
   .btn-soft {
-    @apply btn bg-surface2 text-ink hover:brightness-95 dark:hover:brightness-110 border border-transparent;
+    @apply btn bg-surface2 text-ink hover:brightness-[0.97] dark:hover:brightness-110 border border-transparent;
   }
   .btn-danger {
-    @apply btn bg-danger text-white hover:brightness-110;
+    @apply btn bg-danger text-white hover:brightness-105;
   }
   .btn-ok {
-    @apply btn bg-ok text-white hover:brightness-110;
+    @apply btn bg-ok text-white hover:brightness-105;
   }
   .input {
     @apply w-full h-11 rounded-xl border border-line bg-surface px-3 text-sm text-ink
-           placeholder:text-muted outline-none focus:ring-2 focus:ring-ink/15 focus:border-ink/30;
+           placeholder:text-muted outline-none transition-colors focus:ring-2 focus:ring-brand/25 focus:border-brand/50;
   }
   .label {
     @apply block text-xs font-medium text-muted mb-1.5;
