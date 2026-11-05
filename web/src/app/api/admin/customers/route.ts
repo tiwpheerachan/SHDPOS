@@ -41,7 +41,7 @@ export async function GET(req: NextRequest) {
 
   // ---------- โปรไฟล์ลูกค้าคนเดียว + ประวัติทุกสาขา ----------
   if (id) {
-    const [{ data: customer, error: cErr }, { data: orders, error: oErr }] = await Promise.all([
+    const [{ data: customer, error: cErr }, { data: orders, error: oErr }, { data: ledger }] = await Promise.all([
       sb.from("customers").select("*").eq("id", id).maybeSingle(),
       sb
         .from("orders")
@@ -49,6 +49,12 @@ export async function GET(req: NextRequest) {
         .eq("customer_id", id)
         .order("created_at", { ascending: false })
         .limit(300),
+      sb
+        .from("loyalty_ledger")
+        .select("id,kind,points_delta,credit_delta,balance_points,balance_credit,note,created_at")
+        .eq("customer_id", id)
+        .order("created_at", { ascending: false })
+        .limit(100),
     ]);
     if (cErr) return NextResponse.json({ error: cErr.message }, { status: 500 });
     if (oErr) return NextResponse.json({ error: oErr.message }, { status: 500 });
@@ -70,6 +76,7 @@ export async function GET(req: NextRequest) {
         segment: segmentOf(stat.count, spend, recencyDays),
       },
       orders: orders ?? [],
+      ledger: ledger ?? [],
     });
   }
 
@@ -123,4 +130,35 @@ export async function GET(req: NextRequest) {
   });
 
   return NextResponse.json({ customers: rows });
+}
+
+// ---------------------------------------------------------------------
+// POST — เติมเครดิต / ปรับแต้ม (บันทึกลง ledger แบบ atomic)
+//   body: { customer_id, points?, credit?, kind?, note? }
+// ---------------------------------------------------------------------
+export async function POST(req: NextRequest) {
+  const ctx = await requireAdmin(req);
+  if (!ctx) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  const b = (await req.json().catch(() => null)) as
+    | { customer_id?: string; points?: number; credit?: number; kind?: string; note?: string }
+    | null;
+  if (!b?.customer_id) return NextResponse.json({ error: "customer_id required" }, { status: 400 });
+
+  const points = Math.trunc(Number(b.points ?? 0));
+  const credit = Number(b.credit ?? 0);
+  if (!points && !credit) return NextResponse.json({ error: "no change" }, { status: 400 });
+
+  const kind = b.kind ?? (credit ? "topup" : "adjust");
+  const actor = ctx.authz.employee_id;
+  const actorId = typeof actor === "string" && /^[0-9a-f-]{36}$/i.test(actor) ? actor : null;
+  const { data, error } = await supabaseAdmin().rpc("admin_loyalty_adjust", {
+    p_customer_id: b.customer_id,
+    p_points: points,
+    p_credit: credit,
+    p_kind: kind,
+    p_note: b.note ?? null,
+    p_actor: actorId,
+  });
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ ok: true, balance: data });
 }

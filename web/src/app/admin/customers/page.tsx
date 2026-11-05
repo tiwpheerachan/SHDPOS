@@ -40,11 +40,21 @@ interface OrderRow {
   id: string; order_no: string; created_at: string; branch_id: string;
   grand_total: number; status: string; channel: string; order_items: OrderItemRow[];
 }
+interface LedgerRow {
+  id: string; kind: string; points_delta: number; credit_delta: number;
+  balance_points: number | null; balance_credit: number | null; note: string | null; created_at: string;
+}
 interface Detail {
   customer: Record<string, unknown> & { id: string; name: string; phone?: string | null; email?: string | null; points?: number; store_credit?: number; tax_id?: string | null; note?: string | null };
   stat: { count: number; spend: number; avg: number; last: string | null; first: string | null; recencyDays: number | null; segment: Segment };
   orders: OrderRow[];
+  ledger: LedgerRow[];
 }
+
+const LEDGER_LABEL: Record<string, string> = {
+  earn: "ได้แต้ม", redeem: "ใช้แต้ม", reverse: "คืน (ยกเลิกบิล)",
+  topup: "เติมเครดิต", spend: "ใช้เครดิต", adjust: "ปรับโดยแอดมิน", refund: "คืนเงิน",
+};
 
 const SEG: Record<Segment, { label: string; cls: string }> = {
   new: { label: "ลูกค้าใหม่", cls: "bg-sky-500/15 text-sky-600 dark:text-sky-300" },
@@ -87,6 +97,36 @@ export default function AdminCustomersPage() {
   const [openId, setOpenId] = useState<string | null>(null);
   const [detail, setDetail] = useState<Detail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [adjustMode, setAdjustMode] = useState<null | "credit" | "points">(null);
+  const [adjustAmt, setAdjustAmt] = useState("");
+  const [adjustNote, setAdjustNote] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const loadDetail = useCallback(async (cid: string) => {
+    const j = await fetch(`/api/admin/customers?id=${cid}`).then((r) => r.json());
+    if (!j.error) setDetail(j);
+  }, []);
+
+  async function submitAdjust() {
+    if (!openId || !adjustMode) return;
+    const n = Number(adjustAmt);
+    if (!n || Number.isNaN(n)) return;
+    setSaving(true);
+    try {
+      const body = adjustMode === "credit"
+        ? { customer_id: openId, credit: n, kind: n > 0 ? "topup" : "adjust", note: adjustNote.trim() || undefined }
+        : { customer_id: openId, points: Math.trunc(n), kind: "adjust", note: adjustNote.trim() || undefined };
+      const res = await fetch("/api/admin/customers", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+      });
+      if (res.ok) {
+        setAdjustMode(null); setAdjustAmt(""); setAdjustNote("");
+        await loadDetail(openId);
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
 
   useEffect(() => { void listBranches().then(setBranches); }, []);
   const branchName = useCallback(
@@ -116,12 +156,10 @@ export default function AdminCustomersPage() {
     let alive = true;
     setDetailLoading(true);
     setDetail(null);
-    void fetch(`/api/admin/customers?id=${openId}`)
-      .then((r) => r.json())
-      .then((j) => { if (alive && !j.error) setDetail(j); })
-      .finally(() => { if (alive) setDetailLoading(false); });
+    setAdjustMode(null); setAdjustAmt(""); setAdjustNote("");
+    void loadDetail(openId).finally(() => { if (alive) setDetailLoading(false); });
     return () => { alive = false; };
-  }, [openId]);
+  }, [openId, loadDetail]);
 
   const filtered = useMemo(
     () => (seg === "all" ? rows : rows.filter((r) => r.segment === seg)),
@@ -227,13 +265,57 @@ export default function AdminCustomersPage() {
           <div className="py-20 text-center text-muted"><Loader2 className="inline animate-spin" size={20} /> กำลังโหลดประวัติ…</div>
         ) : (
           <div className="space-y-5">
-            {/* ติดต่อ + กระเป๋า */}
-            <div className="flex flex-wrap gap-2 text-xs">
-              {detail.customer.email ? <Pill icon={<Mail size={13} />}>{String(detail.customer.email)}</Pill> : null}
-              {detail.customer.tax_id ? <Pill icon={<span className="font-bold">#</span>}>{String(detail.customer.tax_id)}</Pill> : null}
-              <Pill icon={<Star size={13} className="text-amber-500" />}>{Number(detail.customer.points ?? 0)} แต้ม</Pill>
-              <Pill icon={<Wallet size={13} className="text-emerald-500" />}>เครดิต {formatTHB(Number(detail.customer.store_credit ?? 0), false)}</Pill>
+            {/* ติดต่อ */}
+            {(detail.customer.email || detail.customer.tax_id) && (
+              <div className="flex flex-wrap gap-2 text-xs">
+                {detail.customer.email ? <Pill icon={<Mail size={13} />}>{String(detail.customer.email)}</Pill> : null}
+                {detail.customer.tax_id ? <Pill icon={<span className="font-bold">#</span>}>{String(detail.customer.tax_id)}</Pill> : null}
+              </div>
+            )}
+
+            {/* กระเป๋าเงิน — แต้ม + เครดิต พร้อมปุ่มจัดการ */}
+            <div className="grid grid-cols-2 gap-2.5">
+              <div className="p-3.5 rounded-2xl border border-amber-500/25 bg-amber-500/5">
+                <div className="flex items-center gap-1.5 text-[11.5px] text-amber-700 dark:text-amber-300 font-medium"><Star size={13} /> แต้มสะสม</div>
+                <div className="text-2xl font-bold tnum mt-0.5">{Number(detail.customer.points ?? 0).toLocaleString()}</div>
+                <button onClick={() => { setAdjustMode("points"); setAdjustAmt(""); setAdjustNote(""); }}
+                  className="mt-2 text-xs font-semibold text-amber-700 dark:text-amber-300 hover:underline">ปรับแต้ม →</button>
+              </div>
+              <div className="p-3.5 rounded-2xl border border-emerald-500/25 bg-emerald-500/5">
+                <div className="flex items-center gap-1.5 text-[11.5px] text-emerald-700 dark:text-emerald-300 font-medium"><Wallet size={13} /> เครดิตร้าน</div>
+                <div className="text-2xl font-bold tnum mt-0.5">{formatTHB(Number(detail.customer.store_credit ?? 0), false)}</div>
+                <button onClick={() => { setAdjustMode("credit"); setAdjustAmt(""); setAdjustNote(""); }}
+                  className="mt-2 text-xs font-semibold text-emerald-700 dark:text-emerald-300 hover:underline">เติม / ปรับ →</button>
+              </div>
             </div>
+
+            {/* ฟอร์มปรับแต้ม/เครดิต */}
+            {adjustMode && (
+              <div className="p-3.5 rounded-2xl border border-line bg-surface2/50 space-y-2.5">
+                <div className="text-sm font-semibold">
+                  {adjustMode === "credit" ? "เติม / ปรับเครดิตร้าน" : "ปรับแต้มสะสม"}
+                  <span className="text-muted font-normal"> — ใส่ค่าบวกเพื่อเพิ่ม, ลบเพื่อลด</span>
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    type="number" autoFocus value={adjustAmt} onChange={(e) => setAdjustAmt(e.target.value)}
+                    placeholder={adjustMode === "credit" ? "จำนวนเงิน (บาท) เช่น 500 หรือ -100" : "จำนวนแต้ม เช่น 50 หรือ -10"}
+                    className="flex-1 h-10 px-3 rounded-xl bg-surface border border-line outline-none text-sm focus:border-brand/40"
+                  />
+                </div>
+                <input
+                  value={adjustNote} onChange={(e) => setAdjustNote(e.target.value)} placeholder="หมายเหตุ (ไม่บังคับ)"
+                  className="w-full h-10 px-3 rounded-xl bg-surface border border-line outline-none text-sm focus:border-brand/40"
+                />
+                <div className="flex gap-2">
+                  <button onClick={() => setAdjustMode(null)} className="flex-1 h-10 rounded-xl bg-surface2 text-sm font-semibold text-muted hover:text-ink">ยกเลิก</button>
+                  <button onClick={() => void submitAdjust()} disabled={saving || !Number(adjustAmt)}
+                    className="flex-1 h-10 rounded-xl bg-brand text-brand-ink text-sm font-bold disabled:opacity-50 inline-flex items-center justify-center gap-1.5">
+                    {saving ? <Loader2 size={15} className="animate-spin" /> : null} บันทึก
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* RFM */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
@@ -270,6 +352,38 @@ export default function AdminCustomersPage() {
                           ))}
                         </ul>
                       ) : null}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            {/* ประวัติแต้ม/เครดิต (ledger) */}
+            <div>
+              <h3 className="text-sm font-semibold mb-2 flex items-center gap-2"><Star size={15} /> ประวัติแต้ม &amp; เครดิต ({detail.ledger.length})</h3>
+              {detail.ledger.length === 0 ? (
+                <p className="text-sm text-muted py-6 text-center">ยังไม่มีการเคลื่อนไหว</p>
+              ) : (
+                <ul className="divide-y divide-line/60 rounded-xl border border-line overflow-hidden">
+                  {detail.ledger.map((l) => (
+                    <li key={l.id} className="flex items-center gap-3 px-3 py-2">
+                      <span className="min-w-0 flex-1">
+                        <span className="text-sm font-medium">{LEDGER_LABEL[l.kind] ?? l.kind}</span>
+                        {l.note && <span className="block text-[11px] text-muted truncate">{l.note}</span>}
+                      </span>
+                      <span className="text-right shrink-0">
+                        {l.points_delta !== 0 && (
+                          <span className={`block text-xs font-bold tnum ${l.points_delta > 0 ? "text-amber-600 dark:text-amber-300" : "text-rose-600 dark:text-rose-300"}`}>
+                            {l.points_delta > 0 ? "+" : ""}{l.points_delta} แต้ม
+                          </span>
+                        )}
+                        {Number(l.credit_delta) !== 0 && (
+                          <span className={`block text-xs font-bold tnum ${Number(l.credit_delta) > 0 ? "text-emerald-600 dark:text-emerald-300" : "text-rose-600 dark:text-rose-300"}`}>
+                            {Number(l.credit_delta) > 0 ? "+" : ""}{formatTHB(Number(l.credit_delta), false)}
+                          </span>
+                        )}
+                      </span>
+                      <span className="text-[10.5px] text-muted w-16 text-right shrink-0">{fmtDate(l.created_at)}</span>
                     </li>
                   ))}
                 </ul>
