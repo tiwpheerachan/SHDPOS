@@ -80,6 +80,7 @@ const OP_RPC: Partial<Record<PendingOp["op"], string>> = {
   open_shift: "sync_open_shift",
   create_customer: "pos_customer_upsert",
   redeem_points: "pos_redeem_points",
+  redeem_coupon: "pos_redeem_coupon",
 };
 
 const OP_TABLE: Partial<Record<PendingOp["op"], string>> = {
@@ -156,6 +157,10 @@ function rpcArgs(item: PendingOp): Record<string, unknown> {
     case "redeem_points": {
       const p = item.payload as { customer_id: string; points: number; client_uuid: string; note?: string };
       return { p_customer_id: p.customer_id, p_points: p.points, p_client_uuid: p.client_uuid, p_note: p.note ?? null };
+    }
+    case "redeem_coupon": {
+      const p = item.payload as { code: string; customer_id: string | null; client_uuid: string; discount: number };
+      return { p_code: p.code, p_customer_id: p.customer_id, p_client_uuid: p.client_uuid, p_discount: p.discount };
     }
     case "void_order": {
       const p = item.payload as { order_id: string; employee_id: string; reason: string };

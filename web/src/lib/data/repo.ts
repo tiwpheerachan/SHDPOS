@@ -503,6 +503,16 @@ export async function commitSale(draft: OrderDraft): Promise<SaleResult> {
     });
   }
 
+  // 6) ใช้คูปอง → บันทึกการใช้ (วัดผลแคมเปญ)
+  if (draft.coupon_code && (draft.coupon_discount ?? 0) > 0) {
+    await enqueue("redeem_coupon", `${draft.client_uuid}:coupon`, {
+      code: draft.coupon_code,
+      customer_id: draft.customer_id ?? null,
+      client_uuid: draft.client_uuid,
+      discount: draft.coupon_discount,
+    });
+  }
+
   return { order, offline: order.is_offline_origin };
 }
 
@@ -785,6 +795,31 @@ export async function searchCustomers(q: string): Promise<Customer[]> {
         (c.member_code ?? "").toLowerCase().includes(lower)
     )
     .slice(0, 20);
+}
+
+export interface CouponResult {
+  valid: boolean;
+  reason?: string;
+  discount?: number;
+  campaign_id?: string;
+  name?: string;
+}
+
+/** ตรวจคูปองก่อนใช้ — live: RPC, demo/offline: ใช้ไม่ได้ */
+export async function validateCoupon(code: string, customerId: string | null, subtotal: number): Promise<CouponResult> {
+  if (!code.trim()) return { valid: false, reason: "กรอกรหัสคูปอง" };
+  if (!isLiveMode() || (typeof navigator !== "undefined" && !navigator.onLine)) {
+    return { valid: false, reason: "ใช้คูปองได้เมื่อออนไลน์" };
+  }
+  const sb = supabase();
+  if (!sb) return { valid: false, reason: "ใช้คูปองได้เมื่อออนไลน์" };
+  const { data, error } = await sb.rpc("pos_validate_coupon", {
+    p_code: code.trim(),
+    p_customer_id: customerId,
+    p_subtotal: subtotal,
+  });
+  if (error) return { valid: false, reason: error.message };
+  return (data ?? { valid: false, reason: "ไม่พบคูปอง" }) as CouponResult;
 }
 
 export interface NewCustomerInput {

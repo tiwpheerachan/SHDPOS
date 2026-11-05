@@ -188,9 +188,39 @@ export async function POST(req: NextRequest) {
   const ctx = await requireAdmin(req);
   if (!ctx) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   const b = (await req.json().catch(() => null)) as
-    | { customer_id?: string; points?: number; credit?: number; kind?: string; note?: string }
+    | {
+        action?: string; customer_id?: string; points?: number; credit?: number; kind?: string; note?: string;
+        consent?: { contact_consent?: boolean; consent_channels?: string[]; consent_note?: string };
+      }
     | null;
-  if (!b?.customer_id) return NextResponse.json({ error: "customer_id required" }, { status: 400 });
+  if (!b) return NextResponse.json({ error: "bad body" }, { status: 400 });
+
+  // รันแต้มหมดอายุทั้งระบบ
+  if (b.action === "expire_points") {
+    const { data, error } = await supabaseAdmin().rpc("expire_points", { p_customer_id: null });
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ ok: true, expired: data ?? 0 });
+  }
+
+  if (!b.customer_id) return NextResponse.json({ error: "customer_id required" }, { status: 400 });
+
+  // อัปเดตความยินยอมติดต่อ (PDPA)
+  if (b.consent) {
+    const CH = ["sms", "email", "line", "call"];
+    const channels = (b.consent.consent_channels ?? []).filter((c) => CH.includes(c));
+    const { error } = await supabaseAdmin()
+      .from("customers")
+      .update({
+        contact_consent: !!b.consent.contact_consent,
+        consent_channels: channels,
+        consent_note: b.consent.consent_note ?? null,
+        consent_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", b.customer_id);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ ok: true });
+  }
 
   const points = Math.trunc(Number(b.points ?? 0));
   const credit = Number(b.credit ?? 0);

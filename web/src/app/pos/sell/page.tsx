@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { nanoid } from "nanoid";
 import {
   Search, Plus, Minus, Trash2, Percent, Barcode, Inbox, PauseCircle, PlayCircle,
-  UserRound, AlertTriangle, PackageX, Tag, UserPlus, Phone, ChevronRight, X, Star, Wallet,
+  UserRound, AlertTriangle, PackageX, Tag, UserPlus, Phone, ChevronRight, X, Star, Wallet, Ticket,
 } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { useSession } from "@/lib/store/session";
@@ -13,7 +13,7 @@ import { useCart } from "@/lib/store/cart";
 import { useToast } from "@/components/toast-host";
 import {
   listProducts, listCategories, stockForBranch, employeesAtBranch, commitSale,
-  getBranch, holdBill, listHolds, removeHold, currentShift,
+  getBranch, holdBill, listHolds, removeHold, currentShift, validateCoupon,
 } from "@/lib/data/repo";
 import type { Branch, CartLine, Category, Employee, Order, Product, StockLevel, PaymentEntry } from "@/lib/types";
 import { formatTHB, lineTotal, round2 } from "@/lib/money";
@@ -66,6 +66,9 @@ export default function SellPage() {
   const [holds, setHolds] = useState<HeldBill[]>([]);
   const [holdOpen, setHoldOpen] = useState(false);
   const [customerOpen, setCustomerOpen] = useState(false);
+  const [couponInput, setCouponInput] = useState("");
+  const [couponMsg, setCouponMsg] = useState<string | null>(null);
+  const [couponChecking, setCouponChecking] = useState(false);
 
   const employee = session.employee;
   const branchId = session.branchId;
@@ -251,6 +254,29 @@ export default function SellPage() {
   }
 
   // ------------------------------------------------------------------
+  // คูปอง
+  // ------------------------------------------------------------------
+  async function applyCoupon() {
+    const code = couponInput.trim();
+    if (!code) return;
+    setCouponChecking(true);
+    setCouponMsg(null);
+    try {
+      const r = await validateCoupon(code, cart.customerId, totals.subtotal);
+      if (r.valid && r.campaign_id) {
+        cart.setCoupon(code.toUpperCase(), r.discount ?? 0, r.campaign_id);
+        setCouponInput("");
+        setCouponMsg(null);
+        toast.push({ tone: "ok", title: "ใช้คูปองแล้ว", body: `${r.name ?? code} · ลด ${formatTHB(r.discount ?? 0, false)}` });
+      } else {
+        setCouponMsg(r.reason ?? "ใช้คูปองไม่ได้");
+      }
+    } finally {
+      setCouponChecking(false);
+    }
+  }
+
+  // ------------------------------------------------------------------
   // จบการขาย — ลำดับสำคัญ: บันทึกบิล → ตัดสต๊อก → ค่อยพิมพ์
   // ------------------------------------------------------------------
   async function confirmSale(payments: PaymentEntry[], paid: number, change: number) {
@@ -279,8 +305,8 @@ export default function SellPage() {
         items: cart.lines,
         payments,
         subtotal: totals.subtotal,
-        // ส่วนลดที่บันทึก = ส่วนลดพนักงาน + มูลค่าแต้มที่ใช้ (เพื่อให้ยอดตรงกัน)
-        discount_total: round2(totals.discountTotal + totals.redeemAmount),
+        // ส่วนลดที่บันทึก = ส่วนลดพนักงาน + คูปอง + มูลค่าแต้มที่ใช้ (เพื่อให้ยอดตรงกัน)
+        discount_total: round2(totals.discountTotal + totals.redeemAmount + totals.couponAmount),
         discount_percent: 0,
         vat_amount: totals.vatAmount,
         grand_total: totals.grandTotal,
@@ -292,6 +318,9 @@ export default function SellPage() {
         discount_approved_by: cart.discountApprovedBy,
         // หักแต้มตามส่วนลดจริงที่ใช้ (clamp แล้ว) เพื่อไม่ให้หักเกินส่วนลดที่ได้
         redeem_points: Math.round(totals.redeemAmount / POINT_VALUE_THB),
+        coupon_code: cart.couponCode,
+        coupon_discount: totals.couponAmount,
+        coupon_campaign_id: cart.couponCampaignId,
       });
 
       // ถึงตรงนี้ = ขายสำเร็จแล้ว (บิลถูกบันทึก + ตัดสต๊อกแล้ว)
@@ -524,6 +553,38 @@ export default function SellPage() {
               )}
             </div>
           )}
+
+          {/* คูปอง */}
+          {cart.couponCode ? (
+            <div className="flex items-center gap-2 rounded-xl bg-violet-500/10 border border-violet-500/25 px-2.5 py-1.5">
+              <Ticket size={13} className="text-violet-600 dark:text-violet-300 shrink-0" />
+              <span className="font-mono text-xs font-bold text-violet-700 dark:text-violet-300">{cart.couponCode}</span>
+              <span className="text-[11px] text-muted">ลด {formatTHB(cart.couponDiscount, false)}</span>
+              <button onClick={() => cart.clearCoupon()} className="ml-auto text-muted hover:text-danger"><X size={13} /></button>
+            </div>
+          ) : (
+            <div className="space-y-1">
+              <div className="flex gap-1.5">
+                <div className="relative flex-1">
+                  <Ticket size={13} className="absolute left-2.5 top-2.5 text-muted" />
+                  <input
+                    value={couponInput}
+                    onChange={(e) => { setCouponInput(e.target.value.toUpperCase()); setCouponMsg(null); }}
+                    onKeyDown={(e) => { if (e.key === "Enter") void applyCoupon(); }}
+                    placeholder="รหัสคูปอง"
+                    className="w-full h-8 pl-7 pr-2 rounded-lg bg-surface2/60 border border-line outline-none text-xs font-mono uppercase focus:border-brand/40"
+                  />
+                </div>
+                <button
+                  onClick={() => void applyCoupon()} disabled={!couponInput.trim() || couponChecking}
+                  className="h-8 px-3 rounded-lg bg-surface2 text-xs font-semibold text-ink hover:bg-surface2/70 disabled:opacity-40"
+                >
+                  {couponChecking ? "…" : "ใช้"}
+                </button>
+              </div>
+              {couponMsg && <p className="text-[11px] text-danger px-1">{couponMsg}</p>}
+            </div>
+          )}
         </div>
 
         <div className="flex-1 overflow-y-auto">
@@ -607,6 +668,12 @@ export default function SellPage() {
             </span>
             <span className="tnum text-danger">{totals.discountTotal > 0 ? `-${formatTHB(totals.discountTotal)}` : "—"}</span>
           </button>
+          {totals.couponAmount > 0 && (
+            <div className="flex justify-between text-xs">
+              <span className="text-muted flex items-center gap-1"><Ticket size={11} className="text-violet-500" /> คูปอง {cart.couponCode}</span>
+              <span className="tnum text-danger">-{formatTHB(totals.couponAmount)}</span>
+            </div>
+          )}
           {totals.redeemAmount > 0 && (
             <div className="flex justify-between text-xs">
               <span className="text-muted flex items-center gap-1"><Star size={11} className="text-amber-500" /> ใช้แต้ม ({cart.redeemPoints})</span>

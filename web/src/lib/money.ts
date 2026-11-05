@@ -63,6 +63,8 @@ export interface CartTotals {
   discountTotal: number;
   /** ส่วนลดจากการใช้แต้มลูกค้า (แยกจากส่วนลดพนักงาน ไม่ต้องขออนุมัติ) */
   redeemAmount: number;
+  /** ส่วนลดจากคูปอง/แคมเปญ */
+  couponAmount: number;
   /** ยอดสุทธิที่ต้องจ่าย (รวม VAT) */
   grandTotal: number;
   /** ฐานภาษี (ไม่รวม VAT) */
@@ -75,7 +77,7 @@ export interface CartTotals {
   unitCount: number;
 }
 
-export function computeTotals(lines: CartLine[], billDiscount = 0, billDiscountPercent = 0, redeemAmount = 0): CartTotals {
+export function computeTotals(lines: CartLine[], billDiscount = 0, billDiscountPercent = 0, redeemAmount = 0, couponAmount = 0): CartTotals {
   let subtotal = 0;
   let lineDiscounts = 0;
   let costTotal = 0;
@@ -95,9 +97,11 @@ export function computeTotals(lines: CartLine[], billDiscount = 0, billDiscountP
     ? round2(billDiscount)
     : round2(afterLines * (billDiscountPercent / 100));
 
-  // ส่วนลดจากแต้ม — ไม่เกินยอดหลังหักส่วนลดพนักงาน
-  const redeem = round2(Math.min(Math.max(redeemAmount, 0), Math.max(afterLines - billDisc, 0)));
-  const grandTotal = round2(Math.max(afterLines - billDisc - redeem, 0));
+  // ส่วนลดจากคูปอง + แต้ม — รวมกันไม่เกินยอดหลังหักส่วนลดพนักงาน
+  const afterBill = Math.max(afterLines - billDisc, 0);
+  const coupon = round2(Math.min(Math.max(couponAmount, 0), afterBill));
+  const redeem = round2(Math.min(Math.max(redeemAmount, 0), Math.max(afterBill - coupon, 0)));
+  const grandTotal = round2(Math.max(afterBill - coupon - redeem, 0));
   const baseAmount = round2((grandTotal * 100) / (100 + VAT_RATE));
   const vatAmount = round2(grandTotal - baseAmount);
 
@@ -105,6 +109,7 @@ export function computeTotals(lines: CartLine[], billDiscount = 0, billDiscountP
     subtotal,
     discountTotal: round2(lineDiscounts + billDisc),
     redeemAmount: redeem,
+    couponAmount: coupon,
     grandTotal,
     baseAmount,
     vatAmount,

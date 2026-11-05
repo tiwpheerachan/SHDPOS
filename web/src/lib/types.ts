@@ -191,6 +191,10 @@ export interface OrderDraft {
   tax_invoice?: TaxInvoiceRequest | null;
   /** จำนวนแต้มที่ลูกค้าใช้เป็นส่วนลดกับบิลนี้ (หักที่ server) */
   redeem_points?: number;
+  /** คูปองที่ใช้ (บันทึกการใช้ที่ server เพื่อวัดผล) */
+  coupon_code?: string | null;
+  coupon_discount?: number;
+  coupon_campaign_id?: string | null;
 }
 
 export interface TaxInvoiceRequest {

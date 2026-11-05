@@ -17,6 +17,9 @@ interface CartState {
   customerCredit: number;
   /** จำนวนแต้มที่เลือกใช้เป็นส่วนลดกับบิลนี้ */
   redeemPoints: number;
+  couponCode: string | null;
+  couponDiscount: number;
+  couponCampaignId: string | null;
   defaultSalespersonId: string | null;
   note: string;
   /** id ของ approval ที่ใช้อนุมัติส่วนลดเกินสิทธิ์ */
@@ -37,6 +40,9 @@ interface CartState {
   clearCustomer: () => void;
   /** ตั้งจำนวนแต้มที่จะใช้เป็นส่วนลด */
   setRedeem: (points: number) => void;
+  /** ใส่/ล้างคูปองที่ตรวจแล้วว่าใช้ได้ */
+  setCoupon: (code: string, discount: number, campaignId: string) => void;
+  clearCoupon: () => void;
   setDefaultSalesperson: (id: string | null) => void;
   setDiscountApprover: (id: string | null) => void;
   setNote: (n: string) => void;
@@ -55,6 +61,9 @@ export const useCart = create<CartState>((set, get) => ({
   customerPoints: 0,
   customerCredit: 0,
   redeemPoints: 0,
+  couponCode: null,
+  couponDiscount: 0,
+  couponCampaignId: null,
   defaultSalespersonId: null,
   note: "",
   discountApprovedBy: null,
@@ -157,6 +166,8 @@ export const useCart = create<CartState>((set, get) => ({
   clearCustomer: () =>
     set({ customerId: null, customerName: "", customerPhone: "", customerPoints: 0, customerCredit: 0, redeemPoints: 0 }),
   setRedeem: (points) => set((s) => ({ redeemPoints: Math.max(0, Math.min(Math.floor(points), s.customerPoints)) })),
+  setCoupon: (couponCode, couponDiscount, couponCampaignId) => set({ couponCode, couponDiscount, couponCampaignId }),
+  clearCoupon: () => set({ couponCode: null, couponDiscount: 0, couponCampaignId: null }),
   setDefaultSalesperson: (defaultSalespersonId) =>
     set((s) => ({
       defaultSalespersonId,
@@ -177,12 +188,15 @@ export const useCart = create<CartState>((set, get) => ({
       customerPoints: 0,
       customerCredit: 0,
       redeemPoints: 0,
+      couponCode: null,
+      couponDiscount: 0,
+      couponCampaignId: null,
       note: "",
       discountApprovedBy: null,
     }),
 
   totals: () => {
     const s = get();
-    return computeTotals(s.lines, s.billDiscountAmount, s.billDiscountPercent, pointsToBaht(s.redeemPoints));
+    return computeTotals(s.lines, s.billDiscountAmount, s.billDiscountPercent, pointsToBaht(s.redeemPoints), s.couponDiscount);
   },
 }));

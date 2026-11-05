@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Search, Phone, Mail, Star, Wallet, Contact, ShoppingBag, CalendarClock,
-  TrendingUp, Clock, Loader2, ChevronRight, MapPin, Combine,
+  TrendingUp, Clock, Loader2, ChevronRight, MapPin, Combine, ShieldCheck,
 } from "lucide-react";
 import { listBranches } from "@/lib/data/repo";
 import type { Branch } from "@/lib/types";
@@ -55,7 +55,7 @@ interface TaskLite {
   status: string; result: string | null; created_at: string;
 }
 interface Detail {
-  customer: Record<string, unknown> & { id: string; name: string; phone?: string | null; email?: string | null; points?: number; store_credit?: number; tax_id?: string | null; note?: string | null };
+  customer: Record<string, unknown> & { id: string; name: string; phone?: string | null; email?: string | null; points?: number; store_credit?: number; tax_id?: string | null; note?: string | null; contact_consent?: boolean; consent_channels?: string[]; consent_at?: string | null };
   stat: { count: number; spend: number; avg: number; last: string | null; first: string | null; recencyDays: number | null; segment: Segment };
   orders: OrderRow[];
   ledger: LedgerRow[];
@@ -69,7 +69,13 @@ const TASK_KIND_LABEL: Record<string, string> = {
 const LEDGER_LABEL: Record<string, string> = {
   earn: "ได้แต้ม", redeem: "ใช้แต้ม", reverse: "คืน (ยกเลิกบิล)",
   topup: "เติมเครดิต", spend: "ใช้เครดิต", adjust: "ปรับโดยแอดมิน", refund: "คืนเงิน",
+  expire: "แต้มหมดอายุ",
 };
+
+const CONSENT_CHANNELS: { v: string; label: string }[] = [
+  { v: "sms", label: "SMS" }, { v: "email", label: "อีเมล" },
+  { v: "line", label: "LINE" }, { v: "call", label: "โทรศัพท์" },
+];
 
 const SEG: Record<Segment, { label: string; cls: string }> = {
   new: { label: "ลูกค้าใหม่", cls: "bg-sky-500/15 text-sky-600 dark:text-sky-300" },
@@ -148,6 +154,39 @@ export default function AdminCustomersPage() {
       body: JSON.stringify({ id, status: "done" }),
     });
     if (res.ok && openId) await loadDetail(openId);
+  }
+
+  // PDPA consent
+  const [consentDraft, setConsentDraft] = useState<{ on: boolean; channels: string[] } | null>(null);
+  const [consentSaving, setConsentSaving] = useState(false);
+  async function saveConsent() {
+    if (!openId || !consentDraft) return;
+    setConsentSaving(true);
+    try {
+      const res = await fetch("/api/admin/customers", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customer_id: openId, consent: { contact_consent: consentDraft.on, consent_channels: consentDraft.channels } }),
+      });
+      if (res.ok) { setConsentDraft(null); await loadDetail(openId); }
+    } finally {
+      setConsentSaving(false);
+    }
+  }
+
+  // แต้มหมดอายุ (maintenance)
+  const [expiring, setExpiring] = useState(false);
+  async function runExpire() {
+    setExpiring(true);
+    try {
+      const j = await fetch("/api/admin/customers", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "expire_points" }),
+      }).then((r) => r.json());
+      alert(j.error ? `ผิดพลาด: ${j.error}` : `หมดอายุไปทั้งหมด ${j.expired ?? 0} แต้ม`);
+      await loadList();
+    } finally {
+      setExpiring(false);
+    }
   }
 
   const loadDetail = useCallback(async (cid: string) => {
@@ -242,6 +281,7 @@ export default function AdminCustomersPage() {
     setDetailLoading(true);
     setDetail(null);
     setAdjustMode(null); setAdjustAmt(""); setAdjustNote("");
+    setConsentDraft(null); setTaskTitle(""); setTaskDue("");
     void loadDetail(openId).finally(() => { if (alive) setDetailLoading(false); });
     return () => { alive = false; };
   }, [openId, loadDetail]);
@@ -290,6 +330,13 @@ export default function AdminCustomersPage() {
           className="h-11 px-4 rounded-2xl border border-line bg-surface hover:bg-surface2 text-sm font-semibold inline-flex items-center gap-2 shrink-0"
         >
           <Combine size={16} /> <span className="hidden sm:inline">ตรวจลูกค้าซ้ำ</span>
+        </button>
+        <button
+          onClick={() => void runExpire()} disabled={expiring}
+          title="หักแต้มที่หมดอายุทั้งระบบ"
+          className="h-11 px-4 rounded-2xl border border-line bg-surface hover:bg-surface2 text-sm font-semibold inline-flex items-center gap-2 shrink-0 disabled:opacity-50"
+        >
+          {expiring ? <Loader2 size={16} className="animate-spin" /> : <Clock size={16} />} <span className="hidden sm:inline">แต้มหมดอายุ</span>
         </button>
       </div>
 
@@ -526,6 +573,48 @@ export default function AdminCustomersPage() {
                 </ul>
               )}
             </div>
+
+            {/* ความยินยอมติดต่อ (PDPA) */}
+            {(() => {
+              const cOn = consentDraft ? consentDraft.on : !!detail.customer.contact_consent;
+              const cCh = consentDraft ? consentDraft.channels : (detail.customer.consent_channels ?? []);
+              const toggle = (on: boolean, ch: string[]) => setConsentDraft({ on, channels: ch });
+              return (
+                <div>
+                  <h3 className="text-sm font-semibold mb-2 flex items-center gap-2"><ShieldCheck size={15} /> การยินยอมติดต่อ (PDPA)</h3>
+                  <div className="p-3.5 rounded-2xl border border-line bg-surface2/40 space-y-3">
+                    <label className="flex items-center gap-2.5 cursor-pointer">
+                      <input type="checkbox" checked={cOn} onChange={(e) => toggle(e.target.checked, cCh)} className="w-4 h-4 accent-current" />
+                      <span className="text-sm font-medium">ยินยอมรับข่าวสาร/โปรโมชัน</span>
+                    </label>
+                    <div className="flex flex-wrap gap-2">
+                      {CONSENT_CHANNELS.map((ch) => {
+                        const on = cCh.includes(ch.v);
+                        return (
+                          <button key={ch.v} disabled={!cOn}
+                            onClick={() => toggle(cOn, on ? cCh.filter((x) => x !== ch.v) : [...cCh, ch.v])}
+                            className={`px-3 h-8 rounded-full text-xs font-semibold transition-colors disabled:opacity-40 ${on ? "bg-brand text-brand-ink" : "bg-surface border border-line text-muted"}`}>
+                            {ch.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {detail.customer.consent_at && (
+                      <p className="text-[11px] text-muted">อัปเดตล่าสุด {fmtDate(String(detail.customer.consent_at))}</p>
+                    )}
+                    {consentDraft && (
+                      <div className="flex gap-2">
+                        <button onClick={() => setConsentDraft(null)} className="flex-1 h-9 rounded-xl bg-surface2 text-sm font-semibold text-muted">ยกเลิก</button>
+                        <button onClick={() => void saveConsent()} disabled={consentSaving}
+                          className="flex-1 h-9 rounded-xl bg-brand text-brand-ink text-sm font-bold disabled:opacity-50 inline-flex items-center justify-center gap-1.5">
+                          {consentSaving ? <Loader2 size={14} className="animate-spin" /> : null} บันทึก
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         )}
       </Drawer>
