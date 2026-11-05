@@ -10,13 +10,18 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
-  Ticket, Plus, Trash2, Loader2, Pencil, TrendingUp, Users, Tag, Power, Gift, Search, X, Store, Layers,
+  Ticket, Plus, Trash2, Loader2, Pencil, TrendingUp, Users, Tag, Power, Gift, Search, X, Store, Layers, BarChart3, MapPin,
 } from "lucide-react";
-import { Modal, EmptyState } from "@/components/ui";
+import { Modal, EmptyState, Drawer } from "@/components/ui";
 import { useAdminScope } from "@/components/admin/filters";
 import { formatTHB } from "@/lib/money";
 
 interface ProdRef { product_id: string | null; sku: string; name: string | null; gift_qty?: number }
+interface CampaignReport {
+  campaign: { name: string; promo_type: string };
+  summary: { uses: number; customers: number; discountTotal: number; revenue: number; giftQty: number; giftCost: number };
+  byBranch: { name: string; gift_qty: number; gift_cost: number }[];
+}
 interface Campaign {
   id: string; name: string; description: string | null; code: string | null;
   discount_type: string; discount_value: number; max_discount: number | null; min_spend: number;
@@ -61,6 +66,16 @@ export default function AdminCampaignsPage() {
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<FormState>(EMPTY);
   const [err, setErr] = useState("");
+  const [reportId, setReportId] = useState<string | null>(null);
+  const [report, setReport] = useState<CampaignReport | null>(null);
+  const [reportLoading, setReportLoading] = useState(false);
+
+  useEffect(() => {
+    if (!reportId) { setReport(null); return; }
+    let alive = true; setReportLoading(true); setReport(null);
+    void fetch(`/api/admin/campaigns?id=${reportId}`).then((r) => r.json()).then((j) => { if (alive && !j.error) setReport(j); }).finally(() => { if (alive) setReportLoading(false); });
+    return () => { alive = false; };
+  }, [reportId]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -187,6 +202,7 @@ export default function AdminCampaignsPage() {
                   </div>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
+                  <button onClick={() => setReportId(c.id)} title="รายงาน" className="h-8 w-8 grid place-items-center rounded-lg text-muted hover:bg-surface2"><BarChart3 size={15} /></button>
                   <button onClick={() => void toggleActive(c)} title={c.active ? "ปิด" : "เปิด"} className={`h-8 w-8 grid place-items-center rounded-lg hover:bg-surface2 ${c.active ? "text-ink" : "text-muted"}`}><Power size={15} /></button>
                   <button onClick={() => openEdit(c)} className="h-8 w-8 grid place-items-center rounded-lg text-muted hover:bg-surface2"><Pencil size={15} /></button>
                   <button onClick={() => void remove(c)} className="h-8 w-8 grid place-items-center rounded-lg text-muted hover:text-danger hover:bg-surface2"><Trash2 size={15} /></button>
@@ -316,6 +332,61 @@ export default function AdminCampaignsPage() {
           </Section>
         </div>
       </Modal>
+
+      {/* รายงานแคมเปญ */}
+      <Drawer open={Boolean(reportId)} onClose={() => setReportId(null)} width="md" title={report?.campaign.name ?? "รายงานแคมเปญ"} subtitle="ผลการใช้งาน">
+        {reportLoading || !report ? (
+          <div className="py-16 text-center text-muted"><Loader2 className="inline animate-spin" size={20} /> กำลังโหลด…</div>
+        ) : (
+          <div className="p-4 sm:p-5 space-y-5">
+            <div className="grid grid-cols-2 gap-2.5">
+              <RTile label="จำนวนครั้งที่ใช้" value={String(report.summary.uses)} icon={<Tag size={14} />} />
+              <RTile label="ลูกค้า" value={String(report.summary.customers)} icon={<Users size={14} />} />
+              <RTile label="ส่วนลดรวม" value={formatTHB(report.summary.discountTotal, false)} />
+              <RTile label="ยอดขายที่เกิด" value={formatTHB(report.summary.revenue, false)} icon={<TrendingUp size={14} />} />
+            </div>
+
+            {report.summary.giftQty > 0 && (
+              <div className="rounded-2xl border border-line bg-surface2/40 p-3.5">
+                <div className="text-sm font-bold mb-2 flex items-center gap-1.5"><Gift size={14} /> ของแถมที่จ่ายไป</div>
+                <div className="grid grid-cols-2 gap-2.5">
+                  <RTile label="จำนวนของแถม" value={`${report.summary.giftQty} ชิ้น`} />
+                  <RTile label="ต้นทุนของแถมรวม" value={formatTHB(report.summary.giftCost, false)} />
+                </div>
+                <p className="text-[11px] text-muted mt-2">กำไรหลังหักส่วนลด+ต้นทุนของแถม = ยอดขาย − ส่วนลด − ต้นทุนของแถม (ต้นทุนสินค้าหลักแยกในรายงานกำไร)</p>
+              </div>
+            )}
+
+            {report.byBranch.length > 0 && (
+              <div>
+                <div className="text-sm font-semibold mb-2 flex items-center gap-1.5"><MapPin size={14} /> ของแถมแยกสาขา</div>
+                <ul className="space-y-1.5">
+                  {report.byBranch.map((b) => (
+                    <li key={b.name} className="flex items-center gap-2 px-3 py-2 rounded-xl border border-line text-sm">
+                      <span className="flex-1 truncate">{b.name}</span>
+                      <span className="text-muted text-xs">{b.gift_qty} ชิ้น</span>
+                      <span className="tnum font-semibold">{formatTHB(b.gift_cost, false)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {report.summary.uses === 0 && report.summary.giftQty === 0 && (
+              <p className="text-sm text-muted text-center py-6">ยังไม่มีการใช้งานแคมเปญนี้</p>
+            )}
+          </div>
+        )}
+      </Drawer>
+    </div>
+  );
+}
+
+function RTile({ label, value, icon }: { label: string; value: string; icon?: React.ReactNode }) {
+  return (
+    <div className="p-3 rounded-2xl border border-line bg-surface">
+      <div className="text-[11px] text-muted flex items-center gap-1">{icon}{label}</div>
+      <div className="text-lg font-bold tnum text-ink mt-0.5">{value}</div>
     </div>
   );
 }

@@ -14,6 +14,51 @@ export async function GET(req: NextRequest) {
   const ctx = await requireAdmin(req);
   if (!ctx) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   const sb = supabaseAdmin();
+  const id = req.nextUrl.searchParams.get("id");
+
+  // ---------- รายงานแคมเปญรายตัว ----------
+  if (id) {
+    const [{ data: camp }, { data: reds }, { data: gifts }, { data: branches }] = await Promise.all([
+      sb.from("campaigns").select("*").eq("id", id).maybeSingle(),
+      sb.from("coupon_redemptions").select("customer_id,order_id,discount_amount,order_total,created_at").eq("campaign_id", id).order("created_at", { ascending: false }).limit(500),
+      sb.from("order_items").select("qty,cost_total,order_id").eq("gift_campaign_id", id).limit(2000),
+      sb.from("branches").select("id,name,name_th"),
+    ]);
+    if (!camp) return NextResponse.json({ error: "not found" }, { status: 404 });
+
+    const brName: Record<string, string> = {};
+    for (const b of branches ?? []) brName[b.id] = (b.name_th as string) || (b.name as string);
+
+    // map order_id → branch_id สำหรับบรรทัดของแถม
+    const giftOrderIds = [...new Set((gifts ?? []).map((g) => g.order_id).filter(Boolean))] as string[];
+    const orderBranch: Record<string, string> = {};
+    if (giftOrderIds.length) {
+      const { data: ords } = await sb.from("orders").select("id,branch_id").in("id", giftOrderIds);
+      for (const o of ords ?? []) orderBranch[o.id] = o.branch_id as string;
+    }
+
+    const uses = (reds ?? []).length;
+    const customers = new Set((reds ?? []).map((r) => r.customer_id).filter(Boolean)).size;
+    const discountTotal = (reds ?? []).reduce((s, r) => s + Number(r.discount_amount ?? 0), 0);
+    const revenue = (reds ?? []).reduce((s, r) => s + Number(r.order_total ?? 0), 0);
+
+    // ของแถม: จำนวน + ต้นทุน
+    let giftQty = 0, giftCost = 0;
+    const byBranch: Record<string, { name: string; gift_qty: number; gift_cost: number }> = {};
+    for (const g of gifts ?? []) {
+      const q = Number(g.qty ?? 0), c = Number(g.cost_total ?? 0);
+      giftQty += q; giftCost += c;
+      const bid = orderBranch[g.order_id as string];
+      if (bid) { const bb = (byBranch[bid] ??= { name: brName[bid] ?? "—", gift_qty: 0, gift_cost: 0 }); bb.gift_qty += q; bb.gift_cost += c; }
+    }
+
+    return NextResponse.json({
+      campaign: camp,
+      summary: { uses, customers, discountTotal, revenue, giftQty, giftCost },
+      redemptions: (reds ?? []).slice(0, 100),
+      byBranch: Object.values(byBranch).sort((a, b) => b.gift_cost - a.gift_cost),
+    });
+  }
 
   const [{ data: camps, error }, { data: reds }, { data: cprods }] = await Promise.all([
     sb.from("campaigns").select("*").order("created_at", { ascending: false }),
