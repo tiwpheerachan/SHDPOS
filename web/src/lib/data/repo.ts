@@ -36,7 +36,16 @@ export function bootstrap(): Promise<void> {
 async function doBootstrap(): Promise<void> {
   const version = await kvGet<string>("catalog_version", "");
   const productCount = await db().products.count();
-  if (version === CATALOG_VERSION && productCount > 0) return;
+  const cached = version === CATALOG_VERSION && productCount > 0;
+
+  if (cached) {
+    // แคตตาล็อกมีในเครื่องแล้ว แต่พนักงาน/สาขาเปลี่ยนบ่อย (เพิ่มผู้ใช้ใหม่ ฯลฯ)
+    // → รีเฟรชตารางเล็กเหล่านี้ทุกครั้งที่เปิดแอป เพื่อให้ชื่อในรายงานตรงเสมอ
+    if (isLiveMode()) {
+      try { await refreshDirectory(); } catch { /* ออฟไลน์: ใช้ของเดิมในเครื่องได้ */ }
+    }
+    return;
+  }
 
   if (isLiveMode()) {
     await loadCatalogFromSupabase();
@@ -44,6 +53,33 @@ async function doBootstrap(): Promise<void> {
     await seedDemo();
   }
   await kvSet("catalog_version", CATALOG_VERSION);
+}
+
+/** ดึงเฉพาะ master data ที่เปลี่ยนบ่อย (brands/branches/terminals/employees) ใหม่ */
+async function refreshDirectory(): Promise<void> {
+  const sb = supabase();
+  if (!sb) return;
+  const d = db();
+  const [brands, branches, terminals, employees] = await Promise.all([
+    sb.from("brands").select("*"),
+    sb.from("branches").select("*"),
+    sb.from("terminals").select("*"),
+    sb.from("pos_employees").select("*"),
+  ]);
+  await d.transaction("rw", [d.brands, d.branches, d.terminals, d.employees], async () => {
+    if (brands.data) await d.brands.bulkPut(brands.data as Brand[]);
+    if (branches.data) await d.branches.bulkPut(branches.data as Branch[]);
+    if (terminals.data) await d.terminals.bulkPut(terminals.data as Terminal[]);
+    if (employees.data) {
+      await d.employees.bulkPut(
+        (employees.data as Record<string, unknown>[]).map((e) => ({
+          ...(e as unknown as Employee),
+          branch_ids: (e.branch_ids as string[]) ?? [],
+          brand_ids: (e.brand_ids as string[]) ?? [],
+        }))
+      );
+    }
+  });
 }
 
 async function seedDemo(): Promise<void> {
