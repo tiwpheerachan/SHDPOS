@@ -39,13 +39,13 @@ export async function GET(req: NextRequest) {
   const sb = supabaseAdmin();
   const id = req.nextUrl.searchParams.get("id");
 
-  // ---------- โปรไฟล์ลูกค้าคนเดียว + ประวัติทุกสาขา ----------
+  // ---------- โปรไฟล์ลูกค้าคนเดียว + ประวัติทุกสาขา/แบรนด์ ----------
   if (id) {
-    const [{ data: customer, error: cErr }, { data: orders, error: oErr }, { data: ledger }, { data: tasks }] = await Promise.all([
+    const [{ data: customer, error: cErr }, { data: orders, error: oErr }, { data: ledger }, { data: tasks }, { data: branches }, { data: brands }] = await Promise.all([
       sb.from("customers").select("*").eq("id", id).maybeSingle(),
       sb
         .from("orders")
-        .select("id,order_no,created_at,branch_id,grand_total,status,channel,order_items(sku,name,qty,unit_price,line_total)")
+        .select("id,order_no,created_at,branch_id,grand_total,status,channel,order_items(sku,name,qty,unit_price,line_total,product_id,products(brand_id))")
         .eq("customer_id", id)
         .order("created_at", { ascending: false })
         .limit(300),
@@ -62,17 +62,53 @@ export async function GET(req: NextRequest) {
         .order("status", { ascending: true })
         .order("due_date", { ascending: true, nullsFirst: false })
         .limit(50),
+      sb.from("branches").select("id,name,name_th,brand_id,branch_type"),
+      sb.from("brands").select("id,name,name_th"),
     ]);
     if (cErr) return NextResponse.json({ error: cErr.message }, { status: 500 });
     if (oErr) return NextResponse.json({ error: oErr.message }, { status: 500 });
     if (!customer) return NextResponse.json({ error: "not found" }, { status: 404 });
 
-    const valid = (orders ?? []).filter((o) => o.status !== "voided");
+    const brMap: Record<string, { name: string }> = {};
+    for (const b of branches ?? []) brMap[b.id] = { name: (b.name_th as string) || (b.name as string) };
+    const bdMap: Record<string, { name: string }> = {};
+    for (const b of brands ?? []) bdMap[b.id] = { name: (b.name_th as string) || (b.name as string) };
+
+    // ผูกแบรนด์/สาขาเข้าแต่ละบิล + สรุปแยกแบรนด์/สาขา
+    const byBrand: Record<string, { name: string; spend: number; orders: number }> = {};
+    const byBranch: Record<string, { name: string; spend: number; orders: number }> = {};
+    const enrichedOrders = (orders ?? []).map((o) => {
+      const items = (o.order_items ?? []) as Array<{ line_total?: number; product_id?: string; products?: { brand_id?: string } | null }>;
+      const brandIds = new Set<string>();
+      for (const it of items) {
+        const bid = it.products?.brand_id;
+        if (bid) brandIds.add(bid);
+      }
+      const brandNames = [...brandIds].map((bid) => bdMap[bid]?.name ?? "—");
+      if (o.status !== "voided") {
+        const bn = brMap[o.branch_id]?.name ?? "—";
+        const bb = (byBranch[o.branch_id] ??= { name: bn, spend: 0, orders: 0 });
+        bb.spend += Number(o.grand_total ?? 0); bb.orders += 1;
+        for (const it of items) {
+          const bid = it.products?.brand_id; if (!bid) continue;
+          const g = (byBrand[bid] ??= { name: bdMap[bid]?.name ?? "—", spend: 0, orders: 0 });
+          g.spend += Number(it.line_total ?? 0);
+        }
+      }
+      return { ...o, branch_name: brMap[o.branch_id]?.name ?? "—", brand_names: brandNames };
+    });
+
+    const valid = enrichedOrders.filter((o) => o.status !== "voided");
     const spend = valid.reduce((s, o) => s + Number(o.grand_total ?? 0), 0);
     const last = valid[0]?.created_at ?? null;
     const first = valid.length ? valid[valid.length - 1].created_at : null;
     const stat = { count: valid.length, spend, last, first };
     const recencyDays = daysSince(last);
+
+    const originBranchId = customer.first_branch_id as string | null;
+    const origin = originBranchId
+      ? { branch: brMap[originBranchId]?.name ?? null, brand: null as string | null }
+      : null;
 
     return NextResponse.json({
       customer,
@@ -82,7 +118,10 @@ export async function GET(req: NextRequest) {
         recencyDays,
         segment: segmentOf(stat.count, spend, recencyDays),
       },
-      orders: orders ?? [],
+      origin,
+      byBrand: Object.values(byBrand).sort((a, b) => b.spend - a.spend),
+      byBranch: Object.values(byBranch).sort((a, b) => b.spend - a.spend),
+      orders: enrichedOrders,
       ledger: ledger ?? [],
       tasks: tasks ?? [],
     });

@@ -45,7 +45,9 @@ interface OrderItemRow { sku: string; name: string; qty: number; unit_price: num
 interface OrderRow {
   id: string; order_no: string; created_at: string; branch_id: string;
   grand_total: number; status: string; channel: string; order_items: OrderItemRow[];
+  branch_name?: string; brand_names?: string[];
 }
+interface ScopeStat { name: string; spend: number; orders: number }
 interface LedgerRow {
   id: string; kind: string; points_delta: number; credit_delta: number;
   balance_points: number | null; balance_credit: number | null; note: string | null; created_at: string;
@@ -60,6 +62,9 @@ interface Detail {
   orders: OrderRow[];
   ledger: LedgerRow[];
   tasks: TaskLite[];
+  origin?: { branch: string | null; brand: string | null } | null;
+  byBrand?: ScopeStat[];
+  byBranch?: ScopeStat[];
 }
 
 const TASK_KIND_LABEL: Record<string, string> = {
@@ -484,6 +489,43 @@ export default function AdminCustomersPage() {
               <Rfm icon={<Wallet size={16} />} label="เฉลี่ย/บิล" value={formatTHB(detail.stat.avg, false)} />
             </div>
 
+            {/* แหล่งลงทะเบียน + ยอดซื้อแยกแบรนด์/สาขา */}
+            {(detail.origin?.branch || (detail.byBrand?.length ?? 0) > 0 || (detail.byBranch?.length ?? 0) > 0) && (
+              <div className="rounded-2xl border border-line bg-surface2/40 p-3.5 space-y-3">
+                {detail.origin?.branch && (
+                  <div className="text-xs text-muted">
+                    <MapPin size={12} className="inline mb-0.5" /> ลงทะเบียนครั้งแรกที่ <span className="text-ink font-medium">{detail.origin.branch}</span>
+                  </div>
+                )}
+                {(detail.byBrand?.length ?? 0) > 0 && (
+                  <div>
+                    <div className="text-[11px] text-muted mb-1.5">ยอดซื้อแยกแบรนด์</div>
+                    <div className="space-y-1">
+                      {detail.byBrand!.slice(0, 6).map((b) => (
+                        <div key={b.name} className="flex items-center gap-2 text-xs">
+                          <span className="px-1.5 py-0.5 rounded bg-surface2 text-ink border border-line">{b.name}</span>
+                          <span className="ml-auto tnum font-semibold">{formatTHB(b.spend, false)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {(detail.byBranch?.length ?? 0) > 0 && (
+                  <div>
+                    <div className="text-[11px] text-muted mb-1.5">ยอดซื้อแยกสาขา</div>
+                    <div className="space-y-1">
+                      {detail.byBranch!.slice(0, 6).map((b) => (
+                        <div key={b.name} className="flex items-center gap-2 text-xs">
+                          <span className="inline-flex items-center gap-1 text-muted"><MapPin size={11} />{b.name}</span>
+                          <span className="ml-auto tnum font-semibold">{formatTHB(b.spend, false)} · {b.orders} บิล</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* ประวัติการซื้อ */}
             <div>
               <h3 className="text-sm font-semibold mb-2 flex items-center gap-2"><Clock size={15} /> ประวัติการซื้อ ({detail.orders.length})</h3>
@@ -493,10 +535,13 @@ export default function AdminCustomersPage() {
                 <ul className="space-y-2">
                   {detail.orders.map((o) => (
                     <li key={o.id} className="rounded-xl border border-line overflow-hidden">
-                      <div className="flex items-center gap-2 px-3 py-2 bg-surface2/50">
+                      <div className="flex items-center gap-2 px-3 py-2 bg-surface2/50 flex-wrap">
                         <span className="font-mono text-xs font-semibold">{o.order_no}</span>
                         {o.status === "voided" && <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface2 text-danger border border-line">ยกเลิก</span>}
-                        <span className="text-[11px] text-muted inline-flex items-center gap-1"><MapPin size={10} />{branchName(o.branch_id)}</span>
+                        <span className="text-[11px] text-muted inline-flex items-center gap-1"><MapPin size={10} />{o.branch_name ?? branchName(o.branch_id)}</span>
+                        {(o.brand_names ?? []).map((bn) => (
+                          <span key={bn} className="text-[10px] px-1.5 py-0.5 rounded bg-surface2 text-ink border border-line">{bn}</span>
+                        ))}
                         <span className="ml-auto text-[11px] text-muted">{fmtDate(o.created_at)}</span>
                         <span className="font-semibold text-sm tnum tabular-nums">{formatTHB(Number(o.grand_total), false)}</span>
                       </div>
