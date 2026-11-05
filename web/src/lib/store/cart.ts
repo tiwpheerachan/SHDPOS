@@ -4,6 +4,7 @@ import { create } from "zustand";
 import { nanoid } from "nanoid";
 import type { CartLine, Product } from "../types";
 import { computeTotals, round2, type CartTotals } from "../money";
+import { pointsToBaht } from "../loyalty";
 
 interface CartState {
   lines: CartLine[];
@@ -12,6 +13,10 @@ interface CartState {
   customerId: string | null;
   customerName: string;
   customerPhone: string;
+  customerPoints: number;
+  customerCredit: number;
+  /** จำนวนแต้มที่เลือกใช้เป็นส่วนลดกับบิลนี้ */
+  redeemPoints: number;
   defaultSalespersonId: string | null;
   note: string;
   /** id ของ approval ที่ใช้อนุมัติส่วนลดเกินสิทธิ์ */
@@ -27,9 +32,11 @@ interface CartState {
   setLineSalesperson: (lineId: string, employeeId: string | null) => void;
   setBillDiscount: (percent: number, amount: number) => void;
   setCustomer: (name: string, phone: string) => void;
-  /** ผูกลูกค้าจากฐานข้อมูล (มี id) — ใช้ตอนเลือก/สร้างจาก CustomerPicker */
-  setCustomerRef: (id: string | null, name: string, phone: string) => void;
+  /** ผูกลูกค้าจากฐานข้อมูล (มี id + ยอดแต้ม/เครดิต) — ใช้ตอนเลือก/สร้างจาก CustomerPicker */
+  setCustomerRef: (c: { id: string; name: string; phone?: string | null; points?: number; store_credit?: number }) => void;
   clearCustomer: () => void;
+  /** ตั้งจำนวนแต้มที่จะใช้เป็นส่วนลด */
+  setRedeem: (points: number) => void;
   setDefaultSalesperson: (id: string | null) => void;
   setDiscountApprover: (id: string | null) => void;
   setNote: (n: string) => void;
@@ -45,6 +52,9 @@ export const useCart = create<CartState>((set, get) => ({
   customerId: null,
   customerName: "",
   customerPhone: "",
+  customerPoints: 0,
+  customerCredit: 0,
+  redeemPoints: 0,
   defaultSalespersonId: null,
   note: "",
   discountApprovedBy: null,
@@ -132,10 +142,21 @@ export const useCart = create<CartState>((set, get) => ({
     })),
 
   setBillDiscount: (percent, amount) => set({ billDiscountPercent: percent, billDiscountAmount: amount }),
-  // พิมพ์ชื่อ/เบอร์เองในช่อง = ลูกค้าไม่ผูกกับ record → ล้าง customerId
-  setCustomer: (customerName, customerPhone) => set({ customerName, customerPhone, customerId: null }),
-  setCustomerRef: (customerId, customerName, customerPhone) => set({ customerId, customerName, customerPhone }),
-  clearCustomer: () => set({ customerId: null, customerName: "", customerPhone: "" }),
+  // พิมพ์ชื่อ/เบอร์เองในช่อง = ลูกค้าไม่ผูกกับ record → ล้าง customerId + แต้ม
+  setCustomer: (customerName, customerPhone) =>
+    set({ customerName, customerPhone, customerId: null, customerPoints: 0, customerCredit: 0, redeemPoints: 0 }),
+  setCustomerRef: (c) =>
+    set({
+      customerId: c.id,
+      customerName: c.name,
+      customerPhone: c.phone ?? "",
+      customerPoints: Math.max(0, Math.floor(Number(c.points ?? 0))),
+      customerCredit: Number(c.store_credit ?? 0),
+      redeemPoints: 0,
+    }),
+  clearCustomer: () =>
+    set({ customerId: null, customerName: "", customerPhone: "", customerPoints: 0, customerCredit: 0, redeemPoints: 0 }),
+  setRedeem: (points) => set((s) => ({ redeemPoints: Math.max(0, Math.min(Math.floor(points), s.customerPoints)) })),
   setDefaultSalesperson: (defaultSalespersonId) =>
     set((s) => ({
       defaultSalespersonId,
@@ -153,12 +174,15 @@ export const useCart = create<CartState>((set, get) => ({
       customerId: null,
       customerName: "",
       customerPhone: "",
+      customerPoints: 0,
+      customerCredit: 0,
+      redeemPoints: 0,
       note: "",
       discountApprovedBy: null,
     }),
 
   totals: () => {
     const s = get();
-    return computeTotals(s.lines, s.billDiscountAmount, s.billDiscountPercent);
+    return computeTotals(s.lines, s.billDiscountAmount, s.billDiscountPercent, pointsToBaht(s.redeemPoints));
   },
 }));

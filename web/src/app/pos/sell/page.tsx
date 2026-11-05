@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { nanoid } from "nanoid";
 import {
   Search, Plus, Minus, Trash2, Percent, Barcode, Inbox, PauseCircle, PlayCircle,
-  UserRound, AlertTriangle, PackageX, Tag, UserPlus, Phone, ChevronRight, X,
+  UserRound, AlertTriangle, PackageX, Tag, UserPlus, Phone, ChevronRight, X, Star, Wallet,
 } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { useSession } from "@/lib/store/session";
@@ -24,6 +24,7 @@ import { DiscountModal, SerialModal, ReceiptModal, type PrintStatus } from "@/co
 import { ApprovalModal, type ApprovalRequestInput } from "@/components/pos/approval-modal";
 import { pushDisplay } from "@/lib/customer-display";
 import { CustomerPicker } from "@/components/pos/customer-picker";
+import { maxRedeemablePoints, POINT_VALUE_THB } from "@/lib/loyalty";
 import { buildReceipt } from "@/lib/printing/receipt";
 import { printEscPos, openCashDrawer } from "@/lib/printing/bridge";
 import type { HeldBill } from "@/lib/offline/db";
@@ -278,7 +279,8 @@ export default function SellPage() {
         items: cart.lines,
         payments,
         subtotal: totals.subtotal,
-        discount_total: totals.discountTotal,
+        // ส่วนลดที่บันทึก = ส่วนลดพนักงาน + มูลค่าแต้มที่ใช้ (เพื่อให้ยอดตรงกัน)
+        discount_total: round2(totals.discountTotal + totals.redeemAmount),
         discount_percent: 0,
         vat_amount: totals.vatAmount,
         grand_total: totals.grandTotal,
@@ -288,6 +290,8 @@ export default function SellPage() {
         is_offline_origin: false,
         device_created_at: new Date().toISOString(),
         discount_approved_by: cart.discountApprovedBy,
+        // หักแต้มตามส่วนลดจริงที่ใช้ (clamp แล้ว) เพื่อไม่ให้หักเกินส่วนลดที่ได้
+        redeem_points: Math.round(totals.redeemAmount / POINT_VALUE_THB),
       });
 
       // ถึงตรงนี้ = ขายสำเร็จแล้ว (บิลถูกบันทึก + ตัดสต๊อกแล้ว)
@@ -491,6 +495,35 @@ export default function SellPage() {
               <ChevronRight size={15} />
             </button>
           )}
+
+          {/* แต้ม/เครดิต + ใช้แต้มเป็นส่วนลด */}
+          {cart.customerId && (cart.customerPoints > 0 || cart.customerCredit > 0) && (
+            <div className="flex items-center gap-2 rounded-xl bg-surface2/60 border border-line px-2.5 py-1.5">
+              <span className="flex items-center gap-1 text-[11px] text-amber-600 dark:text-amber-300 font-semibold">
+                <Star size={12} /> {cart.customerPoints.toLocaleString()} แต้ม
+              </span>
+              {cart.customerCredit > 0 && (
+                <span className="flex items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-300 font-semibold">
+                  <Wallet size={12} /> {formatTHB(cart.customerCredit, false)}
+                </span>
+              )}
+              {cart.customerPoints > 0 && (
+                cart.redeemPoints > 0 ? (
+                  <button onClick={() => cart.setRedeem(0)} className="ml-auto text-[11px] font-semibold text-danger hover:underline">
+                    ยกเลิกใช้แต้ม
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => cart.setRedeem(maxRedeemablePoints(cart.customerPoints, totals.grandTotal))}
+                    disabled={!cart.lines.length}
+                    className="ml-auto text-[11px] font-semibold text-brand hover:underline disabled:opacity-40"
+                  >
+                    ใช้แต้ม
+                  </button>
+                )
+              )}
+            </div>
+          )}
         </div>
 
         <div className="flex-1 overflow-y-auto">
@@ -574,6 +607,12 @@ export default function SellPage() {
             </span>
             <span className="tnum text-danger">{totals.discountTotal > 0 ? `-${formatTHB(totals.discountTotal)}` : "—"}</span>
           </button>
+          {totals.redeemAmount > 0 && (
+            <div className="flex justify-between text-xs">
+              <span className="text-muted flex items-center gap-1"><Star size={11} className="text-amber-500" /> ใช้แต้ม ({cart.redeemPoints})</span>
+              <span className="tnum text-danger">-{formatTHB(totals.redeemAmount)}</span>
+            </div>
+          )}
           <div className="flex justify-between text-xs">
             <span className="text-muted">{t.pos.vat}</span>
             <span className="tnum text-muted">{formatTHB(totals.vatAmount)}</span>
@@ -710,7 +749,7 @@ export default function SellPage() {
         onClose={() => setCustomerOpen(false)}
         branchId={branchId}
         initialQuery={cart.customerId ? "" : cart.customerName}
-        onPick={(c) => cart.setCustomerRef(c.id, c.name, c.phone ?? "")}
+        onPick={(c) => cart.setCustomerRef(c)}
       />
     </div>
   );

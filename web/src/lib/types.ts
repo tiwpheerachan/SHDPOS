@@ -189,6 +189,8 @@ export interface OrderDraft {
   device_created_at: string;
   discount_approved_by?: string | null;
   tax_invoice?: TaxInvoiceRequest | null;
+  /** จำนวนแต้มที่ลูกค้าใช้เป็นส่วนลดกับบิลนี้ (หักที่ server) */
+  redeem_points?: number;
 }
 
 export interface TaxInvoiceRequest {

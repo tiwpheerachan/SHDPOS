@@ -14,7 +14,7 @@ import {
   DEMO_BRANDS, DEMO_BRANCHES, DEMO_TERMINALS, DEMO_EMPLOYEES, DEMO_PRODUCTS,
   DEMO_CATEGORIES, DEMO_CUSTOMERS, buildDemoStock, buildDemoOrders, buildDemoAudit,
 } from "../demo-data";
-import { computeTotals, lineTotal, lineDiscount, lineCost, round2 } from "../money";
+import { computeTotals, lineTotal, lineDiscount, lineCost, round2, VAT_RATE } from "../money";
 import type {
   Branch, Brand, Category, Employee, Order, OrderDraft, OrderItem, Product,
   Shift, StockLevel, Terminal, AuditEntry, Customer, ReturnDoc, ApprovalRequest,
@@ -356,7 +356,19 @@ export interface SaleResult {
 }
 
 export async function commitSale(draft: OrderDraft): Promise<SaleResult> {
-  const totals = computeTotals(draft.items);
+  // ยอดเงินเชื่อถือจาก draft (หน้าขายคำนวณรวมส่วนลดท้ายบิล + ส่วนลดจากแต้มแล้ว)
+  // computeTotals ใช้แค่คิดต้นทุน/กำไรระดับบรรทัด
+  const lineAgg = computeTotals(draft.items);
+  const grandTotal = round2(draft.grand_total);
+  const baseAmount = round2((grandTotal * 100) / (100 + VAT_RATE));
+  const totals = {
+    subtotal: round2(draft.subtotal),
+    discountTotal: round2(draft.discount_total),
+    grandTotal,
+    vatAmount: round2(grandTotal - baseAmount),
+    costTotal: lineAgg.costTotal,
+    grossProfit: round2(baseAmount - lineAgg.costTotal),
+  };
   const now = new Date().toISOString();
   const branch = await getBranch(draft.branch_id);
   const terminal = draft.terminal_id ? await db().terminals.get(draft.terminal_id) : undefined;
@@ -478,6 +490,18 @@ export async function commitSale(draft: OrderDraft): Promise<SaleResult> {
     })),
     payments: draft.payments,
   });
+
+  // 5) ใช้แต้มเป็นส่วนลด → หักแต้มลูกค้า (หลัง create_order เพื่อให้หาเลขบิลจาก client_uuid ได้)
+  if (draft.customer_id && (draft.redeem_points ?? 0) > 0) {
+    // อัปเดตแคชแต้มในเครื่องทันที
+    const c = await db().customers.get(draft.customer_id);
+    if (c) await db().customers.put({ ...c, points: Math.max(0, (c.points ?? 0) - draft.redeem_points!) });
+    await enqueue("redeem_points", `${draft.client_uuid}:redeem`, {
+      customer_id: draft.customer_id,
+      points: draft.redeem_points,
+      client_uuid: draft.client_uuid,
+    });
+  }
 
   return { order, offline: order.is_offline_origin };
 }
