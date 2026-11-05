@@ -15,7 +15,7 @@ export interface PendingOp {
   id?: number;
   /** ชนิดงานที่ต้องส่งขึ้น server */
   op: "create_order" | "void_order" | "create_return" | "open_shift" | "close_shift"
-    | "cash_movement" | "audit" | "stock_count" | "create_quotation";
+    | "cash_movement" | "audit" | "stock_count" | "create_quotation" | "create_customer";
   /** uuid ที่ client สร้าง — ใช้กันบิลซ้ำฝั่ง server */
   client_uuid: string;
   payload: unknown;

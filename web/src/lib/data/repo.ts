@@ -397,6 +397,7 @@ export async function commitSale(draft: OrderDraft): Promise<SaleResult> {
     shift_id: draft.shift_id,
     cashier_id: draft.cashier_id,
     salesperson_id: draft.salesperson_id,
+    customer_id: draft.customer_id ?? null,
     customer_name: draft.customer_name ?? null,
     customer_phone: draft.customer_phone ?? null,
     status: "completed",
@@ -713,11 +714,101 @@ export async function listAudit(opts: { branchIds?: string[]; limit?: number; ac
 export async function upsertCustomer(c: Customer): Promise<void> {
   await db().customers.put(c);
 }
+
+function normalizeCustomer(r: Record<string, unknown>): Customer {
+  return {
+    id: String(r.id),
+    member_code: (r.member_code as string) ?? null,
+    name: String(r.name ?? ""),
+    phone: (r.phone as string) ?? null,
+    email: (r.email as string) ?? null,
+    tax_id: (r.tax_id as string) ?? null,
+    tax_name: (r.tax_name as string) ?? null,
+    tax_address: (r.tax_address as string) ?? null,
+    points: Number(r.points ?? 0),
+    store_credit: Number(r.store_credit ?? 0),
+    tier: (r.tier as string) ?? null,
+    source: (r.source as string) ?? null,
+    note: (r.note as string) ?? null,
+  };
+}
+
+/** ค้นหาลูกค้าด้วยชื่อ/เบอร์โทร/รหัสสมาชิก — live: RPC, demo/offline: เครื่อง */
 export async function searchCustomers(q: string): Promise<Customer[]> {
-  const term = q.trim().toLowerCase();
+  const term = q.trim();
   if (!term) return [];
+
+  if (isLiveMode() && typeof navigator !== "undefined" && navigator.onLine) {
+    const sb = supabase();
+    if (sb) {
+      const { data, error } = await sb.rpc("pos_customer_search", { p_q: term });
+      if (!error && Array.isArray(data)) {
+        const rows = data.map((r) => normalizeCustomer(r as Record<string, unknown>));
+        // แคชลงเครื่องไว้ค้นตอนออฟไลน์
+        if (rows.length) await db().customers.bulkPut(rows);
+        return rows;
+      }
+    }
+  }
+
+  const lower = term.toLowerCase();
   const all = await db().customers.toArray();
-  return all.filter(
-    (c) => c.name.toLowerCase().includes(term) || (c.phone ?? "").includes(term) || (c.member_code ?? "").toLowerCase().includes(term)
-  ).slice(0, 20);
+  return all
+    .filter(
+      (c) =>
+        c.name.toLowerCase().includes(lower) ||
+        (c.phone ?? "").includes(term) ||
+        (c.member_code ?? "").toLowerCase().includes(lower)
+    )
+    .slice(0, 20);
+}
+
+export interface NewCustomerInput {
+  name: string;
+  phone?: string;
+  email?: string;
+  tax_id?: string;
+  tax_name?: string;
+  tax_address?: string;
+  source?: string;
+  first_branch_id?: string | null;
+  note?: string;
+}
+
+/** สร้างลูกค้าใหม่ — เขียนลงเครื่องทันที + ซิงก์ขึ้น server (idempotent ด้วย id) */
+export async function createCustomer(input: NewCustomerInput): Promise<Customer> {
+  const id =
+    typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : nanoid();
+  const customer: Customer = {
+    id,
+    member_code: null,
+    name: input.name.trim(),
+    phone: input.phone?.trim() || null,
+    email: input.email?.trim() || null,
+    tax_id: input.tax_id?.trim() || null,
+    tax_name: input.tax_name?.trim() || null,
+    tax_address: input.tax_address?.trim() || null,
+    points: 0,
+    store_credit: 0,
+    tier: "normal",
+    source: input.source ?? "walk_in",
+    note: input.note?.trim() || null,
+  };
+  await db().customers.put(customer);
+
+  if (isLiveMode()) {
+    await enqueue("create_customer", id, {
+      id,
+      name: customer.name,
+      phone: customer.phone,
+      email: customer.email,
+      tax_id: customer.tax_id,
+      tax_name: customer.tax_name,
+      tax_address: customer.tax_address,
+      source: customer.source,
+      first_branch_id: input.first_branch_id ?? null,
+      note: customer.note,
+    });
+  }
+  return customer;
 }

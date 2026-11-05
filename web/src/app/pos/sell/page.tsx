@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { nanoid } from "nanoid";
 import {
   Search, Plus, Minus, Trash2, Percent, Barcode, Inbox, PauseCircle, PlayCircle,
-  UserRound, AlertTriangle, PackageX, Tag,
+  UserRound, AlertTriangle, PackageX, Tag, UserPlus, Phone, ChevronRight, X,
 } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { useSession } from "@/lib/store/session";
@@ -23,6 +23,7 @@ import { PaymentModal } from "@/components/pos/payment-modal";
 import { DiscountModal, SerialModal, ReceiptModal, type PrintStatus } from "@/components/pos/sale-modals";
 import { ApprovalModal, type ApprovalRequestInput } from "@/components/pos/approval-modal";
 import { pushDisplay } from "@/lib/customer-display";
+import { CustomerPicker } from "@/components/pos/customer-picker";
 import { buildReceipt } from "@/lib/printing/receipt";
 import { printEscPos, openCashDrawer } from "@/lib/printing/bridge";
 import type { HeldBill } from "@/lib/offline/db";
@@ -63,6 +64,7 @@ export default function SellPage() {
   const [printError, setPrintError] = useState<string | null>(null);
   const [holds, setHolds] = useState<HeldBill[]>([]);
   const [holdOpen, setHoldOpen] = useState(false);
+  const [customerOpen, setCustomerOpen] = useState(false);
 
   const employee = session.employee;
   const branchId = session.branchId;
@@ -269,6 +271,7 @@ export default function SellPage() {
         shift_id: session.shift?.id ?? null,
         cashier_id: employee.id,
         salesperson_id: cart.defaultSalespersonId ?? employee.id,
+        customer_id: cart.customerId,
         customer_name: cart.customerName,
         customer_phone: cart.customerPhone,
         channel: session.channel,
@@ -460,12 +463,34 @@ export default function SellPage() {
               ))}
             </Select>
           </div>
-          <Input
-            value={cart.customerName}
-            onChange={(e) => cart.setCustomer(e.target.value, cart.customerPhone)}
-            placeholder={`${t.common.customer} (${t.common.optional})`}
-            className="h-9 text-xs"
-          />
+          {cart.customerName ? (
+            <div className="flex items-center gap-2.5 rounded-xl border border-line bg-surface2/60 pl-2.5 pr-1.5 py-1.5">
+              <span className="grid place-items-center w-8 h-8 rounded-full text-white text-xs font-bold shrink-0"
+                style={{ background: "linear-gradient(145deg,#0a84ff,#5e5ce6)" }}>
+                {cart.customerName.trim().slice(0, 2).toUpperCase()}
+              </span>
+              <button onClick={() => setCustomerOpen(true)} className="min-w-0 flex-1 text-left">
+                <span className="block text-sm font-semibold leading-tight truncate">{cart.customerName}</span>
+                <span className="block text-[11px] text-muted leading-tight truncate">
+                  {cart.customerPhone ? (
+                    <span className="inline-flex items-center gap-1"><Phone size={10} />{cart.customerPhone}</span>
+                  ) : cart.customerId ? "สมาชิก" : "แตะเพื่อเปลี่ยน / ค้นหา"}
+                </span>
+              </button>
+              <button onClick={() => cart.clearCustomer()} className="p-1.5 rounded-lg text-muted hover:text-danger shrink-0" aria-label="ล้างลูกค้า">
+                <X size={14} />
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setCustomerOpen(true)}
+              className="flex items-center gap-2 w-full h-10 px-3 rounded-xl border border-dashed border-line text-muted hover:text-ink hover:border-ink/30 transition-colors text-xs"
+            >
+              <UserPlus size={15} className="shrink-0" />
+              <span className="flex-1 text-left">เลือก / สร้างลูกค้า</span>
+              <ChevronRight size={15} />
+            </button>
+          )}
         </div>
 
         <div className="flex-1 overflow-y-auto">
@@ -679,6 +704,14 @@ export default function SellPage() {
           <EmptyState title={t.common.empty} />
         )}
       </Modal>
+
+      <CustomerPicker
+        open={customerOpen}
+        onClose={() => setCustomerOpen(false)}
+        branchId={branchId}
+        initialQuery={cart.customerId ? "" : cart.customerName}
+        onPick={(c) => cart.setCustomerRef(c.id, c.name, c.phone ?? "")}
+      />
     </div>
   );
 }

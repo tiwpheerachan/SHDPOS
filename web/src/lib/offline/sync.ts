@@ -78,6 +78,7 @@ const OP_RPC: Partial<Record<PendingOp["op"], string>> = {
   audit: "sync_audit",
   create_return: "sync_return",
   open_shift: "sync_open_shift",
+  create_customer: "pos_customer_upsert",
 };
 
 const OP_TABLE: Partial<Record<PendingOp["op"], string>> = {
@@ -148,6 +149,8 @@ function rpcArgs(item: PendingOp): Record<string, unknown> {
     case "audit":
     case "create_return":
     case "open_shift":
+      return { p_payload: item.payload };
+    case "create_customer":
       return { p_payload: item.payload };
     case "void_order": {
       const p = item.payload as { order_id: string; employee_id: string; reason: string };

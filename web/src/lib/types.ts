@@ -209,6 +209,7 @@ export interface Order {
   shift_id?: string | null;
   cashier_id?: string | null;
   salesperson_id?: string | null;
+  customer_id?: string | null;
   customer_name?: string | null;
   customer_phone?: string | null;
   status: OrderStatus;
@@ -358,6 +359,9 @@ export interface Customer {
   tax_address?: string | null;
   points: number;
   store_credit: number;
+  tier?: string | null;
+  source?: string | null;
+  note?: string | null;
 }
 
 // =====================================================================

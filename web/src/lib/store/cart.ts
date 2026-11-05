@@ -9,6 +9,7 @@ interface CartState {
   lines: CartLine[];
   billDiscountAmount: number;
   billDiscountPercent: number;
+  customerId: string | null;
   customerName: string;
   customerPhone: string;
   defaultSalespersonId: string | null;
@@ -26,6 +27,9 @@ interface CartState {
   setLineSalesperson: (lineId: string, employeeId: string | null) => void;
   setBillDiscount: (percent: number, amount: number) => void;
   setCustomer: (name: string, phone: string) => void;
+  /** ผูกลูกค้าจากฐานข้อมูล (มี id) — ใช้ตอนเลือก/สร้างจาก CustomerPicker */
+  setCustomerRef: (id: string | null, name: string, phone: string) => void;
+  clearCustomer: () => void;
   setDefaultSalesperson: (id: string | null) => void;
   setDiscountApprover: (id: string | null) => void;
   setNote: (n: string) => void;
@@ -38,6 +42,7 @@ export const useCart = create<CartState>((set, get) => ({
   lines: [],
   billDiscountAmount: 0,
   billDiscountPercent: 0,
+  customerId: null,
   customerName: "",
   customerPhone: "",
   defaultSalespersonId: null,
@@ -127,7 +132,10 @@ export const useCart = create<CartState>((set, get) => ({
     })),
 
   setBillDiscount: (percent, amount) => set({ billDiscountPercent: percent, billDiscountAmount: amount }),
-  setCustomer: (customerName, customerPhone) => set({ customerName, customerPhone }),
+  // พิมพ์ชื่อ/เบอร์เองในช่อง = ลูกค้าไม่ผูกกับ record → ล้าง customerId
+  setCustomer: (customerName, customerPhone) => set({ customerName, customerPhone, customerId: null }),
+  setCustomerRef: (customerId, customerName, customerPhone) => set({ customerId, customerName, customerPhone }),
+  clearCustomer: () => set({ customerId: null, customerName: "", customerPhone: "" }),
   setDefaultSalesperson: (defaultSalespersonId) =>
     set((s) => ({
       defaultSalespersonId,
@@ -142,6 +150,7 @@ export const useCart = create<CartState>((set, get) => ({
       lines: [],
       billDiscountAmount: 0,
       billDiscountPercent: 0,
+      customerId: null,
       customerName: "",
       customerPhone: "",
       note: "",
