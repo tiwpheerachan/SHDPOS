@@ -7,7 +7,7 @@ import clsx from "clsx";
 import {
   LayoutDashboard, TrendingUp, Users, Package, Boxes, ArrowLeftRight,
   ShieldCheck, ScrollText, Settings2, Store, Sun, Moon, Languages, Menu, X, Bell,
-  Search, PanelLeftClose, PanelLeftOpen, ChevronDown, Command, Home, Activity, FileText, LogOut,
+  Search, PanelLeftClose, PanelLeftOpen, ChevronDown, Command, Home, Activity, FileText, LogOut, Contact,
 } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { useTheme } from "@/lib/theme";
@@ -27,6 +27,7 @@ const NAV: NavGroup[] = [
     section: "sales",
     items: [
       { href: "/admin/sales", icon: TrendingUp, key: "sales" },
+      { href: "/admin/customers", icon: Contact, key: "customers" },
       { href: "/admin/employees", icon: Users, key: "employees", perm: "report.employee_perf" },
     ],
   },
@@ -93,6 +94,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
     approvals: t.admin.approvals, users: t.admin.users, audit: t.admin.audit, settings: t.admin.settings,
     movement: t.cmd.stockMovement, documents: t.cmd.documentCenter,
     permissions: locale === "en" ? "Users" : "ผู้ใช้",
+    customers: locale === "en" ? "Customers" : "ลูกค้า",
   };
   const sectionLabel: Record<string, string> = {
     overview: t.cmd.secOverview, sales: t.cmd.secSales, operations: t.cmd.secOps,
