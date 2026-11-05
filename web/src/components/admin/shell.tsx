@@ -293,7 +293,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={employee.photo_url} alt="" className="w-[30px] h-[30px] rounded-full object-cover ring-1 ring-line" />
                   ) : (
-                    <Avatar name={employee.nickname ?? employee.first_name} size={30} />
+                    <Avatar name={employee.nickname ?? employee.first_name} src={employee.photo_url} size={30} />
                   )}
                   <div className="hidden lg:block leading-tight pr-1">
                     <p className="text-xs font-semibold truncate max-w-[110px]">{employee.nickname ?? employee.first_name}</p>

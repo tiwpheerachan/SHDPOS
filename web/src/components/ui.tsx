@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import clsx from "clsx";
 import { X, Check, AlertTriangle, Info, Loader2 } from "lucide-react";
+import { micahDataUri } from "@/lib/avatar";
 
 // ---------------------------------------------------------------------
 // Card
@@ -469,11 +470,25 @@ const AVA_TONES = [
   "bg-lime/45 text-[rgb(var(--c-ink))]",
 ];
 
-export function Avatar({ name, size = 32, className }: { name: string; size?: number; className?: string }) {
-  const initials = name.trim().slice(0, 2).toUpperCase();
+export function Avatar({ name, src, size = 32, className }: { name: string; src?: string | null; size?: number; className?: string }) {
+  const initials = (name || "?").trim().slice(0, 2).toUpperCase();
   let h = 0;
   for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
   const tone = AVA_TONES[h % AVA_TONES.length];
+  // รูปจริง (photo_url) → การ์ตูน micah สร้างในเครื่อง (ไม่ส่งข้อมูลออกนอก) → ตัวอักษร
+  const dice = micahDataUri(name);
+  const [stage, setStage] = useState<0 | 1 | 2>(src ? 0 : 1);
+  const url = stage === 0 ? src : stage === 1 ? dice : null;
+  if (url) {
+    return (
+      <img
+        src={url} alt={name} width={size} height={size} loading="lazy"
+        onError={() => setStage((s) => (s + 1) as 0 | 1 | 2)}
+        className={clsx("rounded-full object-cover shrink-0 bg-surface2", className)}
+        style={{ width: size, height: size }}
+      />
+    );
+  }
   return (
     <span
       className={clsx("rounded-full grid place-items-center font-semibold shrink-0", tone, className)}

@@ -20,7 +20,7 @@ import { computeCampaignGifts, giftSig } from "@/lib/promo/gifts";
 import type { Branch, CartLine, Category, Employee, Order, Product, StockLevel, PaymentEntry } from "@/lib/types";
 import { formatTHB, lineTotal, round2 } from "@/lib/money";
 import { can, discountLimit, discountApprovalLevel, needsApproval } from "@/lib/permissions";
-import { Button, Card, EmptyState, Input, Select, Badge, Modal, Segmented } from "@/components/ui";
+import { Button, Card, EmptyState, Input, Select, Badge, Modal, Segmented, Avatar } from "@/components/ui";
 import { PaymentModal } from "@/components/pos/payment-modal";
 import { DiscountModal, SerialModal, ReceiptModal, type PrintStatus } from "@/components/pos/sale-modals";
 import { ApprovalModal, type ApprovalRequestInput } from "@/components/pos/approval-modal";
@@ -559,10 +559,7 @@ export default function SellPage() {
           </div>
           {cart.customerName ? (
             <div className="flex items-center gap-2.5 rounded-xl border border-line bg-surface2/60 pl-2.5 pr-1.5 py-1.5">
-              <span className="grid place-items-center w-8 h-8 rounded-full text-white text-xs font-bold shrink-0"
-                style={{ background: "linear-gradient(145deg,#0a84ff,#5e5ce6)" }}>
-                {cart.customerName.trim().slice(0, 2).toUpperCase()}
-              </span>
+              <Avatar name={cart.customerName} size={32} />
               <button onClick={() => setCustomerOpen(true)} className="min-w-0 flex-1 text-left">
                 <span className="block text-sm font-semibold leading-tight truncate">{cart.customerName}</span>
                 <span className="block text-[11px] text-muted leading-tight truncate">

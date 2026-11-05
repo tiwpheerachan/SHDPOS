@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { listBranches } from "@/lib/data/repo";
 import type { Branch } from "@/lib/types";
-import { Drawer, EmptyState, Modal, Table, Th, Td } from "@/components/ui";
+import { Drawer, EmptyState, Modal, Table, Th, Td, Avatar } from "@/components/ui";
 import { formatTHB } from "@/lib/money";
 
 type Segment = "new" | "returning" | "vip" | "lost";
@@ -398,7 +398,7 @@ export default function AdminCustomersPage() {
                 <tr key={c.id} onClick={() => setOpenId(c.id)} className="cursor-pointer hover:bg-surface2/50 transition-colors">
                   <Td>
                     <div className="flex items-center gap-2.5 min-w-0">
-                      <span className="grid place-items-center w-8 h-8 rounded-full bg-lavender text-brand text-[11px] font-bold shrink-0">{initials(c.name)}</span>
+                      <Avatar name={c.name} size={32} />
                       <div className="min-w-0">
                         <div className="font-semibold text-sm truncate max-w-[200px]">{c.name}</div>
                         {c.member_code && <div className="text-[11px] text-muted font-mono">{c.member_code}</div>}

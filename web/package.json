@@ -12,6 +12,8 @@
     "sso:sync": "node scripts/sso-schema-sync.mjs"
   },
   "dependencies": {
+    "@dicebear/collection": "^9.4.2",
+    "@dicebear/core": "^9.4.3",
     "@paper-design/shaders": "^0.0.82",
     "@supabase/supabase-js": "^2.45.4",
     "clsx": "^2.1.1",
