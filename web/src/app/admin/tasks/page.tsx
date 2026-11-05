@@ -34,10 +34,10 @@ interface Task {
 interface CustHit { id: string; name: string; phone: string | null }
 
 const KIND: Record<string, { label: string; icon: typeof FileText; cls: string }> = {
-  follow_up: { label: "ติดตาม", icon: ClipboardList, cls: "bg-sky-500/15 text-sky-600 dark:text-sky-300" },
-  quotation: { label: "ใบเสนอราคา", icon: FileText, cls: "bg-violet-500/15 text-violet-600 dark:text-violet-300" },
-  warranty: { label: "ประกัน", icon: ShieldCheck, cls: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-300" },
-  callback: { label: "โทรกลับ", icon: PhoneCall, cls: "bg-amber-500/18 text-amber-700 dark:text-amber-300" },
+  follow_up: { label: "ติดตาม", icon: ClipboardList, cls: "bg-aqua text-ink" },
+  quotation: { label: "ใบเสนอราคา", icon: FileText, cls: "bg-lavender text-brand" },
+  warranty: { label: "ประกัน", icon: ShieldCheck, cls: "bg-mint text-ink" },
+  callback: { label: "โทรกลับ", icon: PhoneCall, cls: "bg-yellow/70 text-ink" },
   other: { label: "อื่นๆ", icon: ClipboardList, cls: "bg-surface2 text-muted" },
 };
 const KIND_OPTS = Object.entries(KIND).map(([v, k]) => ({ v, label: k.label }));
@@ -178,7 +178,7 @@ export default function AdminTasksPage() {
           >
             {f.label}
             {f.v === "overdue" && counts.overdue > 0 && (
-              <span className="px-1.5 rounded-full bg-rose-500 text-white text-[10px]">{counts.overdue}</span>
+              <span className="px-1.5 rounded-full bg-danger text-white text-[10px]">{counts.overdue}</span>
             )}
           </button>
         ))}
@@ -196,28 +196,28 @@ export default function AdminTasksPage() {
             const overdue = isOverdue(t);
             const done = t.status === "done";
             return (
-              <li key={t.id} className={`flex items-start gap-3 p-3.5 rounded-2xl border bg-surface ${overdue ? "border-rose-500/40" : "border-line"}`}>
+              <li key={t.id} className={`flex items-start gap-3 p-3.5 rounded-2xl border bg-surface ${overdue ? "border-danger/40" : "border-line"}`}>
                 <span className={`grid place-items-center w-10 h-10 rounded-xl shrink-0 ${k.cls}`}><Icon size={18} /></span>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className={`text-sm font-semibold ${done ? "line-through text-muted" : ""}`}>{t.title}</span>
                     <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${k.cls}`}>{k.label}</span>
-                    {overdue && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/15 text-rose-600 inline-flex items-center gap-1"><AlertTriangle size={10} />เกินกำหนด</span>}
-                    {done && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600">เสร็จแล้ว</span>}
+                    {overdue && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-danger/15 text-danger inline-flex items-center gap-1"><AlertTriangle size={10} />เกินกำหนด</span>}
+                    {done && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-ok/15 text-ok">เสร็จแล้ว</span>}
                   </div>
                   <div className="flex items-center gap-3 text-[12px] text-muted mt-1 flex-wrap">
                     <span className="inline-flex items-center gap-1 font-medium text-ink/80"><User size={12} />{t.customer_name}</span>
                     {t.customer_phone && <span className="inline-flex items-center gap-1"><Phone size={11} />{t.customer_phone}</span>}
-                    <span className={`inline-flex items-center gap-1 ${overdue ? "text-rose-600 font-semibold" : ""}`}><CalendarClock size={11} />{fmtDate(t.due_date)}</span>
+                    <span className={`inline-flex items-center gap-1 ${overdue ? "text-danger font-semibold" : ""}`}><CalendarClock size={11} />{fmtDate(t.due_date)}</span>
                     {t.assignee_name && <span className="inline-flex items-center gap-1">มอบ: {t.assignee_name}</span>}
                   </div>
                   {t.note && <p className="text-xs text-muted mt-1">{t.note}</p>}
-                  {t.result && <p className="text-xs mt-1 text-emerald-700 dark:text-emerald-300">ผล: {t.result}</p>}
+                  {t.result && <p className="text-xs mt-1 text-ok">ผล: {t.result}</p>}
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
                   {!done && (
                     <button onClick={() => { setDoneTask(t); setDoneResult(""); }}
-                      className="h-8 px-3 rounded-lg bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 text-xs font-semibold inline-flex items-center gap-1 hover:bg-emerald-500/25">
+                      className="h-8 px-3 rounded-lg bg-ok/12 text-ok text-xs font-semibold inline-flex items-center gap-1 hover:bg-ok/20">
                       <Check size={14} /> เสร็จ
                     </button>
                   )}
@@ -311,7 +311,7 @@ export default function AdminTasksPage() {
           <>
             <button onClick={() => setDoneTask(null)} className="h-10 px-4 rounded-xl bg-surface2 text-sm font-semibold text-muted">ยกเลิก</button>
             <button onClick={() => void markDone()} disabled={saving}
-              className="h-10 px-5 rounded-xl bg-emerald-600 text-white text-sm font-bold disabled:opacity-50 inline-flex items-center gap-1.5">
+              className="h-10 px-5 rounded-xl bg-ok text-white text-sm font-bold disabled:opacity-50 inline-flex items-center gap-1.5">
               {saving ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />} ทำเสร็จ
             </button>
           </>
