@@ -14,7 +14,7 @@ import { useToast } from "@/components/toast-host";
 import {
   listProducts, listCategories, stockForBranch, employeesAtBranch, commitSale,
   getBranch, holdBill, listHolds, removeHold, currentShift, validateCoupon,
-  fetchActiveGiftCampaigns, type GiftCampaign,
+  fetchActiveGiftCampaigns, fetchBrandWallet, type GiftCampaign,
 } from "@/lib/data/repo";
 import { computeCampaignGifts, giftSig } from "@/lib/promo/gifts";
 import type { Branch, CartLine, Category, Employee, Order, Product, StockLevel, PaymentEntry } from "@/lib/types";
@@ -125,6 +125,16 @@ export default function SellPage() {
     for (const p of products) m.set(p.sku, p);
     return m;
   }, [products]);
+
+  // โหลดยอดกระเป๋าแบรนด์ของสาขา เมื่อผูกลูกค้า (แต้ม/เครดิตแยกตามแบรนด์)
+  useEffect(() => {
+    const brandId = branch?.brand_id;
+    if (!cart.customerId || !brandId) return;
+    let alive = true;
+    void fetchBrandWallet(cart.customerId, brandId).then((w) => { if (alive) cart.setWallet(w.points, w.store_credit); });
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cart.customerId, branch?.brand_id]);
 
   // ดึงแคมเปญของแถมที่ใช้ได้กับสาขา/ช่องทางนี้
   useEffect(() => {

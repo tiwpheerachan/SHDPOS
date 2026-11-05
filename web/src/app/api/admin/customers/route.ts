@@ -41,7 +41,7 @@ export async function GET(req: NextRequest) {
 
   // ---------- โปรไฟล์ลูกค้าคนเดียว + ประวัติทุกสาขา/แบรนด์ ----------
   if (id) {
-    const [{ data: customer, error: cErr }, { data: orders, error: oErr }, { data: ledger }, { data: tasks }, { data: branches }, { data: brands }] = await Promise.all([
+    const [{ data: customer, error: cErr }, { data: orders, error: oErr }, { data: ledger }, { data: tasks }, { data: branches }, { data: brands }, { data: wallets }] = await Promise.all([
       sb.from("customers").select("*").eq("id", id).maybeSingle(),
       sb
         .from("orders")
@@ -64,6 +64,7 @@ export async function GET(req: NextRequest) {
         .limit(50),
       sb.from("branches").select("id,name,name_th,brand_id,branch_type"),
       sb.from("brands").select("id,name,name_th"),
+      sb.from("brand_wallets").select("brand_id,points,store_credit,tier").eq("customer_id", id),
     ]);
     if (cErr) return NextResponse.json({ error: cErr.message }, { status: 500 });
     if (oErr) return NextResponse.json({ error: oErr.message }, { status: 500 });
@@ -119,6 +120,14 @@ export async function GET(req: NextRequest) {
         segment: segmentOf(stat.count, spend, recencyDays),
       },
       origin,
+      brand_wallets: (wallets ?? []).map((w) => ({
+        brand_id: w.brand_id,
+        brand_name: bdMap[w.brand_id as string]?.name ?? "—",
+        points: Number(w.points ?? 0),
+        store_credit: Number(w.store_credit ?? 0),
+        tier: w.tier,
+      })).sort((a, b) => b.points - a.points),
+      all_brands: (brands ?? []).map((b) => ({ id: b.id, name: (b.name_th as string) || (b.name as string) })),
       byBrand: Object.values(byBrand).sort((a, b) => b.spend - a.spend),
       byBranch: Object.values(byBranch).sort((a, b) => b.spend - a.spend),
       orders: enrichedOrders,
@@ -228,7 +237,7 @@ export async function POST(req: NextRequest) {
   if (!ctx) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   const b = (await req.json().catch(() => null)) as
     | {
-        action?: string; customer_id?: string; points?: number; credit?: number; kind?: string; note?: string;
+        action?: string; customer_id?: string; points?: number; credit?: number; kind?: string; note?: string; brand_id?: string;
         consent?: { contact_consent?: boolean; consent_channels?: string[]; consent_note?: string };
       }
     | null;
@@ -268,6 +277,7 @@ export async function POST(req: NextRequest) {
   const kind = b.kind ?? (credit ? "topup" : "adjust");
   const actor = ctx.authz.employee_id;
   const actorId = typeof actor === "string" && /^[0-9a-f-]{36}$/i.test(actor) ? actor : null;
+  const brandId = typeof b.brand_id === "string" && /^[0-9a-f-]{36}$/i.test(b.brand_id) ? b.brand_id : null;
   const { data, error } = await supabaseAdmin().rpc("admin_loyalty_adjust", {
     p_customer_id: b.customer_id,
     p_points: points,
@@ -275,6 +285,7 @@ export async function POST(req: NextRequest) {
     p_kind: kind,
     p_note: b.note ?? null,
     p_actor: actorId,
+    p_brand_id: brandId,
   });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true, balance: data });

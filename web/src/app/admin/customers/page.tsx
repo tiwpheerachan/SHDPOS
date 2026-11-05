@@ -65,6 +65,8 @@ interface Detail {
   origin?: { branch: string | null; brand: string | null } | null;
   byBrand?: ScopeStat[];
   byBranch?: ScopeStat[];
+  brand_wallets?: { brand_id: string; brand_name: string; points: number; store_credit: number; tier: string }[];
+  all_brands?: { id: string; name: string }[];
 }
 
 const TASK_KIND_LABEL: Record<string, string> = {
@@ -127,6 +129,7 @@ export default function AdminCustomersPage() {
   const [adjustMode, setAdjustMode] = useState<null | "credit" | "points">(null);
   const [adjustAmt, setAdjustAmt] = useState("");
   const [adjustNote, setAdjustNote] = useState("");
+  const [adjustBrand, setAdjustBrand] = useState("");
   const [saving, setSaving] = useState(false);
 
   // รวมลูกค้าซ้ำ
@@ -208,8 +211,8 @@ export default function AdminCustomersPage() {
     setSaving(true);
     try {
       const body = adjustMode === "credit"
-        ? { customer_id: openId, credit: n, kind: n > 0 ? "topup" : "adjust", note: adjustNote.trim() || undefined }
-        : { customer_id: openId, points: Math.trunc(n), kind: "adjust", note: adjustNote.trim() || undefined };
+        ? { customer_id: openId, credit: n, kind: n > 0 ? "topup" : "adjust", note: adjustNote.trim() || undefined, brand_id: adjustBrand || undefined }
+        : { customer_id: openId, points: Math.trunc(n), kind: "adjust", note: adjustNote.trim() || undefined, brand_id: adjustBrand || undefined };
       const res = await fetch("/api/admin/customers", {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
       });
@@ -437,43 +440,50 @@ export default function AdminCustomersPage() {
               </div>
             )}
 
-            {/* กระเป๋าเงิน — แต้ม + เครดิต พร้อมปุ่มจัดการ (เข้าธีม) */}
-            <div className="grid grid-cols-2 gap-2.5">
-              <div className="p-3.5 rounded-2xl border border-line bg-surface2/50">
-                <div className="flex items-center gap-1.5 text-[11.5px] text-muted font-medium"><Star size={13} /> แต้มสะสม</div>
-                <div className="text-2xl font-bold tnum mt-0.5 text-ink">{Number(detail.customer.points ?? 0).toLocaleString()}</div>
-                <button onClick={() => { setAdjustMode("points"); setAdjustAmt(""); setAdjustNote(""); }}
-                  className="mt-2 text-xs font-semibold text-brand hover:underline">ปรับแต้ม →</button>
+            {/* กระเป๋าสิทธิ์แยกตามแบรนด์ */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-sm font-semibold flex items-center gap-2"><Wallet size={15} /> กระเป๋าสิทธิ์ (แยกแบรนด์)</h3>
+                <button onClick={() => { setAdjustMode("points"); setAdjustAmt(""); setAdjustNote(""); setAdjustBrand(detail.brand_wallets?.[0]?.brand_id ?? detail.all_brands?.[0]?.id ?? ""); }}
+                  className="text-xs font-semibold text-brand hover:underline">+ เติม/ปรับ</button>
               </div>
-              <div className="p-3.5 rounded-2xl border border-line bg-surface2/50">
-                <div className="flex items-center gap-1.5 text-[11.5px] text-muted font-medium"><Wallet size={13} /> เครดิตร้าน</div>
-                <div className="text-2xl font-bold tnum mt-0.5 text-ink">{formatTHB(Number(detail.customer.store_credit ?? 0), false)}</div>
-                <button onClick={() => { setAdjustMode("credit"); setAdjustAmt(""); setAdjustNote(""); }}
-                  className="mt-2 text-xs font-semibold text-brand hover:underline">เติม / ปรับ →</button>
-              </div>
+              {(detail.brand_wallets?.length ?? 0) === 0 ? (
+                <p className="text-xs text-muted">ยังไม่มีแต้ม/เครดิตในแบรนด์ใด — รวมทุกแบรนด์: {Number(detail.customer.points ?? 0).toLocaleString()} แต้ม · {formatTHB(Number(detail.customer.store_credit ?? 0), false)}</p>
+              ) : (
+                <div className="space-y-1.5">
+                  {detail.brand_wallets!.map((w) => (
+                    <div key={w.brand_id} className="flex items-center gap-2 px-3 py-2.5 rounded-xl border border-line bg-surface2/40">
+                      <span className="text-sm font-semibold flex-1 truncate">{w.brand_name}</span>
+                      <span className="inline-flex items-center gap-1 text-xs"><Star size={12} className="text-muted" />{w.points.toLocaleString()}</span>
+                      <span className="inline-flex items-center gap-1 text-xs"><Wallet size={12} className="text-muted" />{formatTHB(w.store_credit, false)}</span>
+                      <button onClick={() => { setAdjustMode("points"); setAdjustAmt(""); setAdjustNote(""); setAdjustBrand(w.brand_id); }}
+                        className="text-[11px] font-semibold text-brand hover:underline shrink-0">ปรับ</button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
-            {/* ฟอร์มปรับแต้ม/เครดิต */}
+            {/* ฟอร์มปรับแต้ม/เครดิต (รายแบรนด์) */}
             {adjustMode && (
               <div className="p-3.5 rounded-2xl border border-line bg-surface2/50 space-y-2.5">
-                <div className="text-sm font-semibold">
-                  {adjustMode === "credit" ? "เติม / ปรับเครดิตร้าน" : "ปรับแต้มสะสม"}
-                  <span className="text-muted font-normal"> — ใส่ค่าบวกเพื่อเพิ่ม, ลบเพื่อลด</span>
-                </div>
                 <div className="flex gap-2">
-                  <input
-                    type="number" autoFocus value={adjustAmt} onChange={(e) => setAdjustAmt(e.target.value)}
-                    placeholder={adjustMode === "credit" ? "จำนวนเงิน (บาท) เช่น 500 หรือ -100" : "จำนวนแต้ม เช่น 50 หรือ -10"}
-                    className="flex-1 h-10 px-3 rounded-xl bg-surface border border-line outline-none text-sm focus:border-brand/40"
-                  />
+                  <button onClick={() => setAdjustMode("points")} className={`flex-1 h-9 rounded-lg text-sm font-semibold ${adjustMode === "points" ? "bg-brand text-brandInk" : "bg-surface2 text-muted"}`}>แต้ม</button>
+                  <button onClick={() => setAdjustMode("credit")} className={`flex-1 h-9 rounded-lg text-sm font-semibold ${adjustMode === "credit" ? "bg-brand text-brandInk" : "bg-surface2 text-muted"}`}>เครดิต</button>
                 </div>
-                <input
-                  value={adjustNote} onChange={(e) => setAdjustNote(e.target.value)} placeholder="หมายเหตุ (ไม่บังคับ)"
-                  className="w-full h-10 px-3 rounded-xl bg-surface border border-line outline-none text-sm focus:border-brand/40"
-                />
+                <select value={adjustBrand} onChange={(e) => setAdjustBrand(e.target.value)}
+                  className="w-full h-10 px-3 rounded-xl bg-surface border border-line text-sm text-ink">
+                  <option value="">— เลือกแบรนด์ —</option>
+                  {(detail.all_brands ?? []).map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                </select>
+                <input type="number" value={adjustAmt} onChange={(e) => setAdjustAmt(e.target.value)}
+                  placeholder={adjustMode === "credit" ? "จำนวนเงิน เช่น 500 หรือ -100" : "จำนวนแต้ม เช่น 50 หรือ -10"}
+                  className="w-full h-10 px-3 rounded-xl bg-surface border border-line outline-none text-sm focus:border-brand/40" />
+                <input value={adjustNote} onChange={(e) => setAdjustNote(e.target.value)} placeholder="หมายเหตุ (ไม่บังคับ)"
+                  className="w-full h-10 px-3 rounded-xl bg-surface border border-line outline-none text-sm focus:border-brand/40" />
                 <div className="flex gap-2">
                   <button onClick={() => setAdjustMode(null)} className="flex-1 h-10 rounded-xl bg-surface2 text-sm font-semibold text-muted hover:text-ink">ยกเลิก</button>
-                  <button onClick={() => void submitAdjust()} disabled={saving || !Number(adjustAmt)}
+                  <button onClick={() => void submitAdjust()} disabled={saving || !Number(adjustAmt) || !adjustBrand}
                     className="flex-1 h-10 rounded-xl bg-brand text-brandInk text-sm font-bold disabled:opacity-50 inline-flex items-center justify-center gap-1.5">
                     {saving ? <Loader2 size={15} className="animate-spin" /> : null} บันทึก
                   </button>

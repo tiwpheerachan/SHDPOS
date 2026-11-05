@@ -843,6 +843,18 @@ export async function searchCustomers(q: string): Promise<Customer[]> {
 
 export const getProductBySku = (sku: string) => db().products.where("sku").equals(sku).first();
 
+/** ยอดกระเป๋าแบรนด์ของลูกค้า (แต้ม/เครดิตของแบรนด์นั้น) — live เท่านั้น */
+export async function fetchBrandWallet(customerId: string, brandId: string): Promise<{ points: number; store_credit: number; tier: string }> {
+  const empty = { points: 0, store_credit: 0, tier: "normal" };
+  if (!isLiveMode() || (typeof navigator !== "undefined" && !navigator.onLine)) return empty;
+  const sb = supabase();
+  if (!sb) return empty;
+  const { data, error } = await sb.rpc("pos_brand_wallet", { p_customer_id: customerId, p_brand_id: brandId });
+  if (error || !data) return empty;
+  const d = data as { points?: number; store_credit?: number; tier?: string };
+  return { points: Number(d.points ?? 0), store_credit: Number(d.store_credit ?? 0), tier: d.tier ?? "normal" };
+}
+
 export interface GiftCampaign {
   id: string; name: string;
   brand_ids: string[]; eligible_scope: string; eligible_min_qty: number | null;

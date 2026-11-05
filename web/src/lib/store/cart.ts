@@ -44,6 +44,8 @@ interface CartState {
   clearCustomer: () => void;
   /** ตั้งจำนวนแต้มที่จะใช้เป็นส่วนลด */
   setRedeem: (points: number) => void;
+  /** อัปเดตยอดกระเป๋า (แต้ม/เครดิต) ของแบรนด์สาขาปัจจุบัน */
+  setWallet: (points: number, credit: number) => void;
   /** ใส่/ล้างคูปองที่ตรวจแล้วว่าใช้ได้ */
   setCoupon: (code: string, discount: number, campaignId: string) => void;
   clearCoupon: () => void;
@@ -186,6 +188,8 @@ export const useCart = create<CartState>((set, get) => ({
     }),
   clearCustomer: () =>
     set({ customerId: null, customerName: "", customerPhone: "", customerPoints: 0, customerCredit: 0, redeemPoints: 0, couponCode: null, couponDiscount: 0, couponCampaignId: null }),
+  // อัปเดตยอดกระเป๋าตามแบรนด์ของสาขา (เรียกหลังผูกลูกค้า)
+  setWallet: (points, credit) => set({ customerPoints: Math.max(0, Math.floor(points)), customerCredit: credit }),
   setRedeem: (points) => set((s) => ({ redeemPoints: Math.max(0, Math.min(Math.floor(points), s.customerPoints)) })),
   setCoupon: (couponCode, couponDiscount, couponCampaignId) => set({ couponCode, couponDiscount, couponCampaignId }),
   clearCoupon: () => set({ couponCode: null, couponDiscount: 0, couponCampaignId: null }),
