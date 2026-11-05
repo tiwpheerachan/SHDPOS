@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/sso/guard";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { visibleBranchIds } from "@/lib/sso/scope";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -38,6 +39,7 @@ export async function GET(req: NextRequest) {
   if (!ctx) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   const sb = supabaseAdmin();
   const id = req.nextUrl.searchParams.get("id");
+  const vBranch = await visibleBranchIds(ctx.authz); // null = เห็นทุกสาขา
 
   // ---------- โปรไฟล์ลูกค้าคนเดียว + ประวัติทุกสาขา/แบรนด์ ----------
   if (id) {
@@ -51,7 +53,7 @@ export async function GET(req: NextRequest) {
         .limit(300),
       sb
         .from("loyalty_ledger")
-        .select("id,kind,points_delta,credit_delta,balance_points,balance_credit,note,created_at")
+        .select("id,kind,points_delta,credit_delta,balance_points,balance_credit,note,created_at,branch_id")
         .eq("customer_id", id)
         .order("created_at", { ascending: false })
         .limit(100),
@@ -75,10 +77,16 @@ export async function GET(req: NextRequest) {
     const bdMap: Record<string, { name: string }> = {};
     for (const b of brands ?? []) bdMap[b.id] = { name: (b.name_th as string) || (b.name as string) };
 
+    // ขอบเขตพนักงาน: จำกัดประวัติ/ยอดเฉพาะสาขาที่ดูแล
+    const scopedOrders = vBranch ? (orders ?? []).filter((o) => vBranch.includes(o.branch_id as string)) : (orders ?? []);
+    const scopedLedger = vBranch
+      ? (ledger ?? []).filter((l) => !(l as { branch_id?: string }).branch_id || vBranch.includes((l as { branch_id?: string }).branch_id as string))
+      : (ledger ?? []);
+
     // ผูกแบรนด์/สาขาเข้าแต่ละบิล + สรุปแยกแบรนด์/สาขา
     const byBrand: Record<string, { name: string; spend: number; orders: number }> = {};
     const byBranch: Record<string, { name: string; spend: number; orders: number }> = {};
-    const enrichedOrders = (orders ?? []).map((o) => {
+    const enrichedOrders = scopedOrders.map((o) => {
       const items = (o.order_items ?? []) as Array<{ line_total?: number; product_id?: string; products?: { brand_id?: string } | null }>;
       const brandIds = new Set<string>();
       for (const it of items) {
@@ -131,7 +139,7 @@ export async function GET(req: NextRequest) {
       byBrand: Object.values(byBrand).sort((a, b) => b.spend - a.spend),
       byBranch: Object.values(byBranch).sort((a, b) => b.spend - a.spend),
       orders: enrichedOrders,
-      ledger: ledger ?? [],
+      ledger: scopedLedger,
       tasks: tasks ?? [],
     });
   }
@@ -178,11 +186,28 @@ export async function GET(req: NextRequest) {
 
   // ---------- รายชื่อ (ค้น หรือ ล่าสุด) ----------
   const q = (req.nextUrl.searchParams.get("q") ?? "").trim();
+
+  // ขอบเขตพนักงาน: เห็นเฉพาะลูกค้าที่เคยซื้อในสาขาที่ดูแล (หรือลงทะเบียนที่สาขานั้น)
+  let allowedIds: string[] | null = null;
+  if (vBranch !== null) {
+    if (vBranch.length === 0) return NextResponse.json({ customers: [] });
+    const [{ data: ords }, { data: regs }] = await Promise.all([
+      sb.from("orders").select("customer_id").in("branch_id", vBranch).not("customer_id", "is", null).limit(10000),
+      sb.from("customers").select("id").in("first_branch_id", vBranch),
+    ]);
+    const set = new Set<string>();
+    for (const o of ords ?? []) if (o.customer_id) set.add(o.customer_id as string);
+    for (const r of regs ?? []) set.add(r.id as string);
+    allowedIds = [...set];
+    if (allowedIds.length === 0) return NextResponse.json({ customers: [] });
+  }
+
   let cq = sb.from("customers").select("*");
   if (q) {
     const safe = q.replace(/[%,]/g, " ");
     cq = cq.or(`name.ilike.%${safe}%,phone.ilike.%${safe}%,member_code.ilike.%${safe}%,email.ilike.%${safe}%`);
   }
+  if (allowedIds) cq = cq.in("id", allowedIds);
   const { data: customers, error } = await cq.order("created_at", { ascending: false }).limit(80);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 

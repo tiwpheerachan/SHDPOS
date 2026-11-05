@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/sso/guard";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { visibleBranchIds } from "@/lib/sso/scope";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,6 +31,14 @@ export async function GET(req: NextRequest) {
   if (customerId) q = q.eq("customer_id", customerId);
   const assignee = sp.get("assigned_to");
   if (assignee) q = q.eq("assigned_to", assignee);
+
+  // ขอบเขตพนักงาน: เห็นเฉพาะงานของสาขาที่ดูแล (หรืองานที่ไม่ผูกสาขา)
+  const branchIds = await visibleBranchIds(ctx.authz);
+  if (branchIds && !customerId) {
+    q = branchIds.length
+      ? q.or(`branch_id.in.(${branchIds.join(",")}),branch_id.is.null`)
+      : q.is("branch_id", null);
+  }
 
   const { data: tasks, error } = await q;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

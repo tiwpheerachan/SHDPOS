@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/sso/guard";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { visibleBranchIds, visibleBrandIds } from "@/lib/sso/scope";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -83,7 +84,19 @@ export async function GET(req: NextRequest) {
     if (r.customer_id) s.customers.add(r.customer_id as string);
   }
 
-  const campaigns = (camps ?? []).map((c) => {
+  // ขอบเขตพนักงาน: เห็นแคมเปญส่วนกลาง (ไม่จำกัดแบรนด์/สาขา) หรือที่ตรงแบรนด์/สาขาตน
+  const vBranch = await visibleBranchIds(ctx.authz);
+  const vBrand = visibleBrandIds(ctx.authz);
+  const overlaps = (a: string[] = [], b: string[] | null) => !!b && a.some((x) => b.includes(x));
+  const scoped = (camps ?? []).filter((c) => {
+    if (vBranch === null) return true; // company/superadmin
+    const brs = (c.brand_ids as string[]) ?? [];
+    const bchs = (c.branch_ids as string[]) ?? [];
+    if (brs.length === 0 && bchs.length === 0) return true; // แคมเปญส่วนกลาง
+    return overlaps(bchs, vBranch) || overlaps(brs, vBrand);
+  });
+
+  const campaigns = scoped.map((c) => {
     const s = stats[c.id];
     return {
       ...c,

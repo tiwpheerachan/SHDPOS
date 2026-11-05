@@ -101,15 +101,20 @@ export async function resolveAuthz(profile: SsoSessionProfile): Promise<AppAuthz
     };
   }
 
-  const { data: ebs } = await sb.from("employee_branches").select("branch_id").eq("employee_id", emp.id);
+  const [{ data: ebs }, { data: ebrs }] = await Promise.all([
+    sb.from("employee_branches").select("branch_id").eq("employee_id", emp.id),
+    sb.from("employee_brands").select("brand_id").eq("employee_id", emp.id),
+  ]);
+  const branchSet = new Set<string>((ebs ?? []).map((x: any) => x.branch_id));
+  if (emp.home_branch_id) branchSet.add(emp.home_branch_id);
   return {
     allowed: true,
     isSuperadmin: false,
     employee_id: emp.id,
     role: emp.role,
     data_scope: emp.data_scope,
-    branch_ids: (ebs ?? []).map((x: any) => x.branch_id),
-    brand_ids: [],
+    branch_ids: [...branchSet],
+    brand_ids: (ebrs ?? []).map((x: any) => x.brand_id),
     max_discount_percent: Number(emp.max_discount_percent ?? 0),
     can_open_drawer: !!emp.can_open_drawer,
     permission_overrides: (emp.permission_overrides ?? {}) as Record<string, string>,
