@@ -50,12 +50,21 @@ interface LedgerRow {
   id: string; kind: string; points_delta: number; credit_delta: number;
   balance_points: number | null; balance_credit: number | null; note: string | null; created_at: string;
 }
+interface TaskLite {
+  id: string; kind: string; title: string; note: string | null; due_date: string | null;
+  status: string; result: string | null; created_at: string;
+}
 interface Detail {
   customer: Record<string, unknown> & { id: string; name: string; phone?: string | null; email?: string | null; points?: number; store_credit?: number; tax_id?: string | null; note?: string | null };
   stat: { count: number; spend: number; avg: number; last: string | null; first: string | null; recencyDays: number | null; segment: Segment };
   orders: OrderRow[];
   ledger: LedgerRow[];
+  tasks: TaskLite[];
 }
+
+const TASK_KIND_LABEL: Record<string, string> = {
+  follow_up: "ติดตาม", quotation: "ใบเสนอราคา", warranty: "ประกัน", callback: "โทรกลับ", other: "อื่นๆ",
+};
 
 const LEDGER_LABEL: Record<string, string> = {
   earn: "ได้แต้ม", redeem: "ใช้แต้ม", reverse: "คืน (ยกเลิกบิล)",
@@ -114,6 +123,32 @@ export default function AdminCustomersPage() {
   const [dupeGroups, setDupeGroups] = useState<DupeGroup[]>([]);
   const [primaryChoice, setPrimaryChoice] = useState<Record<string, string>>({});
   const [merging, setMerging] = useState<string | null>(null);
+
+  // quick-add งานติดตามในโปรไฟล์
+  const [taskTitle, setTaskTitle] = useState("");
+  const [taskDue, setTaskDue] = useState("");
+  const [taskSaving, setTaskSaving] = useState(false);
+
+  async function addTask() {
+    if (!openId || !taskTitle.trim()) return;
+    setTaskSaving(true);
+    try {
+      const res = await fetch("/api/admin/tasks", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customer_id: openId, title: taskTitle.trim(), due_date: taskDue || null, kind: "follow_up" }),
+      });
+      if (res.ok) { setTaskTitle(""); setTaskDue(""); await loadDetail(openId); }
+    } finally {
+      setTaskSaving(false);
+    }
+  }
+  async function completeTask(id: string) {
+    const res = await fetch("/api/admin/tasks", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, status: "done" }),
+    });
+    if (res.ok && openId) await loadDetail(openId);
+  }
 
   const loadDetail = useCallback(async (cid: string) => {
     const j = await fetch(`/api/admin/customers?id=${cid}`).then((r) => r.json());
@@ -444,6 +479,50 @@ export default function AdminCustomersPage() {
                       <span className="text-[10.5px] text-muted w-16 text-right shrink-0">{fmtDate(l.created_at)}</span>
                     </li>
                   ))}
+                </ul>
+              )}
+            </div>
+
+            {/* งานติดตาม / นัดหมาย */}
+            <div>
+              <h3 className="text-sm font-semibold mb-2 flex items-center gap-2"><CalendarClock size={15} /> งานติดตาม</h3>
+              <div className="flex gap-2 mb-2">
+                <input
+                  value={taskTitle} onChange={(e) => setTaskTitle(e.target.value)} placeholder="เพิ่มงานติดตาม เช่น โทรเช็คความพอใจ"
+                  onKeyDown={(e) => { if (e.key === "Enter") void addTask(); }}
+                  className="flex-1 h-9 px-3 rounded-xl bg-surface2/60 border border-line outline-none text-sm focus:border-brand/40"
+                />
+                <input type="date" value={taskDue} onChange={(e) => setTaskDue(e.target.value)}
+                  className="h-9 px-2 rounded-xl bg-surface2/60 border border-line text-sm text-ink" />
+                <button onClick={() => void addTask()} disabled={!taskTitle.trim() || taskSaving}
+                  className="h-9 px-3 rounded-xl bg-brand text-brand-ink text-sm font-bold disabled:opacity-50">เพิ่ม</button>
+              </div>
+              {detail.tasks.length === 0 ? (
+                <p className="text-xs text-muted py-2">ยังไม่มีงานติดตาม</p>
+              ) : (
+                <ul className="space-y-1.5">
+                  {detail.tasks.map((tk) => {
+                    const done = tk.status === "done";
+                    const overdue = !done && !!tk.due_date && tk.due_date < new Date().toISOString().slice(0, 10);
+                    return (
+                      <li key={tk.id} className="flex items-center gap-2 px-3 py-2 rounded-xl border border-line">
+                        {!done && (
+                          <button onClick={() => void completeTask(tk.id)} title="ทำเสร็จ"
+                            className="w-5 h-5 rounded-full border-2 border-emerald-500/50 hover:bg-emerald-500/20 shrink-0" />
+                        )}
+                        <span className="min-w-0 flex-1">
+                          <span className={`text-sm ${done ? "line-through text-muted" : "font-medium"}`}>{tk.title}</span>
+                          <span className="block text-[11px] text-muted">
+                            {TASK_KIND_LABEL[tk.kind] ?? tk.kind}
+                            {tk.due_date && ` · ${fmtDate(tk.due_date)}`}
+                            {tk.result && ` · ผล: ${tk.result}`}
+                          </span>
+                        </span>
+                        {overdue && <span className="text-[10px] font-bold text-rose-600">เกินกำหนด</span>}
+                        {done && <span className="text-[10px] font-bold text-emerald-600">เสร็จ</span>}
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </div>

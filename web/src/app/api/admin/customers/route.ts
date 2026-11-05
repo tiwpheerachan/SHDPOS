@@ -41,7 +41,7 @@ export async function GET(req: NextRequest) {
 
   // ---------- โปรไฟล์ลูกค้าคนเดียว + ประวัติทุกสาขา ----------
   if (id) {
-    const [{ data: customer, error: cErr }, { data: orders, error: oErr }, { data: ledger }] = await Promise.all([
+    const [{ data: customer, error: cErr }, { data: orders, error: oErr }, { data: ledger }, { data: tasks }] = await Promise.all([
       sb.from("customers").select("*").eq("id", id).maybeSingle(),
       sb
         .from("orders")
@@ -55,6 +55,13 @@ export async function GET(req: NextRequest) {
         .eq("customer_id", id)
         .order("created_at", { ascending: false })
         .limit(100),
+      sb
+        .from("customer_tasks")
+        .select("id,kind,title,note,due_date,status,assigned_to,result,created_at,completed_at")
+        .eq("customer_id", id)
+        .order("status", { ascending: true })
+        .order("due_date", { ascending: true, nullsFirst: false })
+        .limit(50),
     ]);
     if (cErr) return NextResponse.json({ error: cErr.message }, { status: 500 });
     if (oErr) return NextResponse.json({ error: oErr.message }, { status: 500 });
@@ -77,6 +84,7 @@ export async function GET(req: NextRequest) {
       },
       orders: orders ?? [],
       ledger: ledger ?? [],
+      tasks: tasks ?? [],
     });
   }
 
