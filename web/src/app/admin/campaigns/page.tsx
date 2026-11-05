@@ -14,7 +14,9 @@ import {
 } from "lucide-react";
 import { Modal, EmptyState, Drawer } from "@/components/ui";
 import { useAdminScope } from "@/components/admin/filters";
+import { SearchSelect } from "@/components/admin/search-select";
 import { formatTHB } from "@/lib/money";
+import { Maximize2, Minimize2, ImagePlus } from "lucide-react";
 
 interface ProdRef { product_id: string | null; sku: string; name: string | null; gift_qty?: number }
 interface CampaignReport {
@@ -30,7 +32,7 @@ interface Campaign {
   brand_ids: string[]; branch_ids: string[]; channels: string[]; is_automatic: boolean;
   promo_type: string; eligible_scope: string; eligible_min_qty: number | null; eligible_across_sku: boolean;
   gift_mode: string | null; gift_per_qty: number | null; gift_cap: number | null;
-  eligible_products: ProdRef[]; gift_products: ProdRef[];
+  eligible_products: ProdRef[]; gift_products: ProdRef[]; cover_url: string | null;
   uses: number; discount_total: number; revenue: number; customers: number;
 }
 
@@ -50,6 +52,7 @@ const EMPTY = {
   promo_type: "discount", eligible_scope: "all", eligible_min_qty: "", eligible_across_sku: true,
   gift_mode: "per_bill", gift_per_qty: "1", gift_cap: "",
   eligible: [] as ProdRef[], gifts: [] as ProdRef[],
+  cover_url: "",
 };
 type FormState = typeof EMPTY;
 
@@ -66,6 +69,8 @@ export default function AdminCampaignsPage() {
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<FormState>(EMPTY);
   const [err, setErr] = useState("");
+  const [expanded, setExpanded] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [reportId, setReportId] = useState<string | null>(null);
   const [report, setReport] = useState<CampaignReport | null>(null);
   const [reportLoading, setReportLoading] = useState(false);
@@ -86,8 +91,9 @@ export default function AdminCampaignsPage() {
   }, []);
   useEffect(() => { void load(); }, [load]);
 
-  function openNew() { setForm(EMPTY); setErr(""); setOpen(true); }
+  function openNew() { setForm(EMPTY); setErr(""); setExpanded(false); setOpen(true); }
   function openEdit(c: Campaign) {
+    setExpanded(false);
     setForm({
       id: c.id, name: c.name, description: c.description ?? "", code: c.code ?? "",
       discount_type: c.discount_type, discount_value: String(c.discount_value ?? ""),
@@ -105,8 +111,17 @@ export default function AdminCampaignsPage() {
       gift_mode: c.gift_mode ?? "per_bill", gift_per_qty: String(c.gift_per_qty ?? 1),
       gift_cap: c.gift_cap != null ? String(c.gift_cap) : "",
       eligible: c.eligible_products ?? [], gifts: c.gift_products ?? [],
+      cover_url: c.cover_url ?? "",
     });
     setErr(""); setOpen(true);
+  }
+
+  async function onPickCover(file: File | undefined) {
+    if (!file) return;
+    if (file.size > 3 * 1024 * 1024) { setErr("รูปใหญ่เกิน 3MB"); return; }
+    const reader = new FileReader();
+    reader.onload = () => setForm((f) => ({ ...f, cover_url: String(reader.result) }));
+    reader.readAsDataURL(file);
   }
 
   async function save() {
@@ -114,6 +129,14 @@ export default function AdminCampaignsPage() {
     if (form.promo_type === "gift" && form.gifts.length === 0) { setErr("แคมเปญของแถม ต้องเลือกสินค้าของแถมอย่างน้อย 1 รายการ"); return; }
     setSaving(true); setErr("");
     try {
+      // อัปโหลดรูปปกก่อน ถ้าเป็นรูปใหม่ (data URL)
+      let coverUrl = form.cover_url;
+      if (coverUrl.startsWith("data:")) {
+        setUploading(true);
+        const up = await fetch("/api/admin/upload", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ data: coverUrl }) }).then((r) => r.json());
+        setUploading(false);
+        if (up.url) coverUrl = up.url; else { setErr(up.error ?? "อัปโหลดรูปไม่สำเร็จ"); setSaving(false); return; }
+      }
       const body = {
         ...(form.id ? { id: form.id } : {}),
         name: form.name, description: form.description, code: form.code,
@@ -126,6 +149,7 @@ export default function AdminCampaignsPage() {
         eligible_min_qty: form.eligible_min_qty, eligible_across_sku: form.eligible_across_sku,
         gift_mode: form.gift_mode, gift_per_qty: form.gift_per_qty, gift_cap: form.gift_cap,
         eligible_products: form.eligible, gift_products: form.gifts,
+        cover_url: coverUrl || null,
       };
       const res = await fetch("/api/admin/campaigns", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const j = await res.json();
@@ -181,10 +205,13 @@ export default function AdminCampaignsPage() {
           {items.map((c) => (
             <div key={c.id} className={`p-4 rounded-2xl border bg-surface ${c.active ? "border-line" : "border-line opacity-60"}`}>
               <div className="flex items-start gap-3">
+                {c.cover_url && (
+                  <img src={c.cover_url} alt={c.name} className="w-16 h-16 rounded-xl object-cover border border-line shrink-0" />
+                )}
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-bold text-sm">{c.name}</span>
-                    {c.promo_type === "gift" && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-ink text-surface inline-flex items-center gap-1"><Gift size={10} />ของแถม</span>}
+                    {c.promo_type === "gift" && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-brand text-brandInk inline-flex items-center gap-1"><Gift size={10} />ของแถม</span>}
                     {c.is_automatic ? <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-surface2 text-muted">อัตโนมัติ</span>
                       : c.code ? <span className="font-mono text-[11px] px-2 py-0.5 rounded-md bg-brand/10 text-brand">{c.code}</span> : null}
                     {!c.active && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-surface2 text-danger border border-line">ปิดอยู่</span>}
@@ -219,12 +246,21 @@ export default function AdminCampaignsPage() {
         </div>
       )}
 
-      <Modal open={open} onClose={() => setOpen(false)} title={form.id ? "แก้ไขแคมเปญ" : "สร้างแคมเปญ"} size="lg"
+      <Modal open={open} onClose={() => setOpen(false)} size={expanded ? "xl" : "lg"}
+        title={
+          <span className="flex items-center gap-2">
+            {form.id ? "แก้ไขแคมเปญ" : "สร้างแคมเปญ"}
+            <button type="button" onClick={() => setExpanded((e) => !e)} title={expanded ? "ย่อ" : "ขยาย"}
+              className="h-7 w-7 grid place-items-center rounded-lg text-muted hover:bg-surface2">
+              {expanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+            </button>
+          </span>
+        }
         footer={
           <>
             <button onClick={() => setOpen(false)} className="h-10 px-4 rounded-xl bg-surface2 text-sm font-semibold text-muted">ยกเลิก</button>
             <button onClick={() => void save()} disabled={saving || !form.name.trim()} className="h-10 px-5 rounded-xl bg-brand text-brandInk text-sm font-bold disabled:opacity-50 inline-flex items-center gap-1.5">
-              {saving ? <Loader2 size={15} className="animate-spin" /> : null} บันทึก
+              {saving ? <Loader2 size={15} className="animate-spin" /> : null} {uploading ? "กำลังอัปโหลด…" : "บันทึก"}
             </button>
           </>
         }
@@ -234,6 +270,26 @@ export default function AdminCampaignsPage() {
 
           {/* ข้อมูลหลัก */}
           <Section title="ข้อมูลหลัก">
+            {/* รูปปกแคมเปญ */}
+            <div>
+              <div className="text-xs text-muted mb-1.5">รูปปกแคมเปญ (พนักงานหน้าร้านเห็นตอนเลือก)</div>
+              <div className="flex items-center gap-3">
+                <div className="w-28 h-20 rounded-xl border border-line bg-surface2/60 overflow-hidden grid place-items-center shrink-0">
+                  {form.cover_url
+                    ? <img src={form.cover_url} alt="ปก" className="w-full h-full object-cover" />
+                    : <ImagePlus size={22} className="text-muted" />}
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label className="h-9 px-3 rounded-lg bg-surface2 text-sm font-semibold text-ink inline-flex items-center gap-1.5 cursor-pointer hover:brightness-95 w-fit">
+                    <ImagePlus size={14} /> {form.cover_url ? "เปลี่ยนรูป" : "เลือกรูป"}
+                    <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" className="hidden"
+                      onChange={(e) => void onPickCover(e.target.files?.[0])} />
+                  </label>
+                  {form.cover_url && <button type="button" onClick={() => setForm({ ...form, cover_url: "" })} className="text-xs text-danger hover:underline w-fit">ลบรูป</button>}
+                  <span className="text-[11px] text-muted">PNG/JPG/WEBP ≤ 3MB</span>
+                </div>
+              </div>
+            </div>
             <Field label="ชื่อแคมเปญ *"><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={inp} placeholder="เช่น ซื้อกล้อง 70mai แถมเมม" /></Field>
             <div className="grid grid-cols-2 gap-2.5">
               <label className="flex items-center gap-2 text-sm cursor-pointer pt-5">
@@ -246,8 +302,20 @@ export default function AdminCampaignsPage() {
 
           {/* ขอบเขต */}
           <Section title="ขอบเขต">
-            <MultiChips label="แบรนด์ (ว่าง = ทุกแบรนด์)" opts={brands.map((b) => ({ v: b.id, label: b.name }))} sel={form.brand_ids} onToggle={(v) => toggleArr("brand_ids", v)} />
-            <MultiChips label="สาขา (ว่าง = ทุกสาขา)" opts={branches.map((b) => ({ v: b.id, label: b.name_th ?? b.name }))} sel={form.branch_ids} onToggle={(v) => toggleArr("branch_ids", v)} />
+            <div className="grid sm:grid-cols-2 gap-2.5">
+              <div>
+                <div className="text-xs text-muted mb-1.5">แบรนด์</div>
+                <SearchSelect allLabel="ทุกแบรนด์" placeholder="ค้นหาแบรนด์…"
+                  options={brands.map((b) => ({ v: b.id, label: b.name }))}
+                  selected={form.brand_ids} onChange={(next) => setForm((f) => ({ ...f, brand_ids: next }))} />
+              </div>
+              <div>
+                <div className="text-xs text-muted mb-1.5">สาขา</div>
+                <SearchSelect allLabel="ทุกสาขา" placeholder="ค้นหาสาขา…"
+                  options={branches.map((b) => ({ v: b.id, label: b.name_th ?? b.name, sub: b.code }))}
+                  selected={form.branch_ids} onChange={(next) => setForm((f) => ({ ...f, branch_ids: next }))} />
+              </div>
+            </div>
             <MultiChips label="ช่องทาง (ว่าง = ทุกช่องทาง)" opts={CHANNELS} sel={form.channels} onToggle={(v) => toggleArr("channels", v)} />
             <div className="grid grid-cols-2 gap-2.5">
               <Field label="เริ่ม"><input type="date" value={form.starts_at} onChange={(e) => setForm({ ...form, starts_at: e.target.value })} className={inp} /></Field>

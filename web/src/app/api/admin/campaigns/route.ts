@@ -152,6 +152,7 @@ export async function POST(req: NextRequest) {
     gift_mode: promo === "gift" ? (b.gift_mode === "per_item" ? "per_item" : "per_bill") : null,
     gift_per_qty: b.gift_per_qty != null && b.gift_per_qty !== "" ? Math.trunc(Number(b.gift_per_qty)) : 1,
     gift_cap: b.gift_cap != null && b.gift_cap !== "" ? Math.trunc(Number(b.gift_cap)) : null,
+    cover_url: typeof b.cover_url === "string" ? b.cover_url.trim() || null : undefined,
     updated_at: new Date().toISOString(),
   };
 
