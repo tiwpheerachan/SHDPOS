@@ -161,7 +161,7 @@ export default function AdminTasksPage() {
           <h1 className="text-xl font-bold flex items-center gap-2"><CalendarClock size={22} /> ติดตามลูกค้า</h1>
           <p className="text-sm text-muted mt-0.5">งานติดตาม นัดหมาย และบันทึกผลการติดต่อ</p>
         </div>
-        <button onClick={openCreate} className="h-10 px-4 rounded-2xl bg-brand text-brand-ink text-sm font-bold inline-flex items-center gap-2">
+        <button onClick={openCreate} className="h-10 px-4 rounded-2xl bg-brand text-brandInk text-sm font-bold inline-flex items-center gap-2">
           <Plus size={16} /> เพิ่มงานติดตาม
         </button>
       </div>
@@ -173,7 +173,7 @@ export default function AdminTasksPage() {
             key={f.v}
             onClick={() => setFilter(f.v)}
             className={`px-3.5 h-8 rounded-full text-xs font-semibold transition-colors inline-flex items-center gap-1.5 ${
-              filter === f.v ? "bg-brand text-brand-ink" : "bg-surface2 text-muted hover:text-ink"
+              filter === f.v ? "bg-brand text-brandInk" : "bg-surface2 text-muted hover:text-ink"
             }`}
           >
             {f.label}
@@ -237,7 +237,7 @@ export default function AdminTasksPage() {
           <>
             <button onClick={() => setCreateOpen(false)} className="h-10 px-4 rounded-xl bg-surface2 text-sm font-semibold text-muted">ยกเลิก</button>
             <button onClick={() => void submitCreate()} disabled={!form.customer_id || !form.title.trim() || saving}
-              className="h-10 px-5 rounded-xl bg-brand text-brand-ink text-sm font-bold disabled:opacity-50 inline-flex items-center gap-1.5">
+              className="h-10 px-5 rounded-xl bg-brand text-brandInk text-sm font-bold disabled:opacity-50 inline-flex items-center gap-1.5">
               {saving ? <Loader2 size={15} className="animate-spin" /> : null} บันทึก
             </button>
           </>

@@ -116,7 +116,7 @@ export default function AdminCampaignsPage() {
           <h1 className="text-xl font-bold flex items-center gap-2"><Ticket size={22} /> แคมเปญ / คูปอง</h1>
           <p className="text-sm text-muted mt-0.5">สร้างคูปองเฉพาะกลุ่ม แล้ววัดผลว่าใช้แล้วกลับมาซื้อเท่าไร</p>
         </div>
-        <button onClick={openNew} className="h-10 px-4 rounded-2xl bg-brand text-brand-ink text-sm font-bold inline-flex items-center gap-2">
+        <button onClick={openNew} className="h-10 px-4 rounded-2xl bg-brand text-brandInk text-sm font-bold inline-flex items-center gap-2">
           <Plus size={16} /> สร้างคูปอง
         </button>
       </div>
@@ -169,7 +169,7 @@ export default function AdminCampaignsPage() {
           <>
             <button onClick={() => setOpen(false)} className="h-10 px-4 rounded-xl bg-surface2 text-sm font-semibold text-muted">ยกเลิก</button>
             <button onClick={() => void save()} disabled={saving || !form.name.trim()}
-              className="h-10 px-5 rounded-xl bg-brand text-brand-ink text-sm font-bold disabled:opacity-50 inline-flex items-center gap-1.5">
+              className="h-10 px-5 rounded-xl bg-brand text-brandInk text-sm font-bold disabled:opacity-50 inline-flex items-center gap-1.5">
               {saving ? <Loader2 size={15} className="animate-spin" /> : null} บันทึก
             </button>
           </>

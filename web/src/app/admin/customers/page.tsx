@@ -176,6 +176,7 @@ export default function AdminCustomersPage() {
   // แต้มหมดอายุ (maintenance)
   const [expiring, setExpiring] = useState(false);
   async function runExpire() {
+    if (!confirm("ดำเนินการตัดแต้มที่หมดอายุทั้งระบบ?\nแต้มที่เลยกำหนด 12 เดือนจะถูกหักออกจากลูกค้าทุกคน (ย้อนกลับไม่ได้)")) return;
     setExpiring(true);
     try {
       const j = await fetch("/api/admin/customers", {
@@ -336,7 +337,7 @@ export default function AdminCustomersPage() {
           title="หักแต้มที่หมดอายุทั้งระบบ"
           className="h-11 px-4 rounded-2xl border border-line bg-surface hover:bg-surface2 text-sm font-semibold inline-flex items-center gap-2 shrink-0 disabled:opacity-50"
         >
-          {expiring ? <Loader2 size={16} className="animate-spin" /> : <Clock size={16} />} <span className="hidden sm:inline">แต้มหมดอายุ</span>
+          {expiring ? <Loader2 size={16} className="animate-spin" /> : <Clock size={16} />} <span className="hidden sm:inline">ตัดแต้มหมดอายุ</span>
         </button>
       </div>
 
@@ -347,7 +348,7 @@ export default function AdminCustomersPage() {
             key={f.v}
             onClick={() => setSeg(f.v)}
             className={`px-3.5 h-8 rounded-full text-xs font-semibold transition-colors ${
-              seg === f.v ? "bg-brand text-brand-ink" : "bg-surface2 text-muted hover:text-ink"
+              seg === f.v ? "bg-brand text-brandInk" : "bg-surface2 text-muted hover:text-ink"
             }`}
           >
             {f.label}
@@ -404,7 +405,7 @@ export default function AdminCustomersPage() {
         {detailLoading || !detail ? (
           <div className="py-20 text-center text-muted"><Loader2 className="inline animate-spin" size={20} /> กำลังโหลดประวัติ…</div>
         ) : (
-          <div className="space-y-5">
+          <div className="p-4 sm:p-5 space-y-6">
             {/* ติดต่อ */}
             {(detail.customer.email || detail.customer.tax_id) && (
               <div className="flex flex-wrap gap-2 text-xs">
@@ -450,7 +451,7 @@ export default function AdminCustomersPage() {
                 <div className="flex gap-2">
                   <button onClick={() => setAdjustMode(null)} className="flex-1 h-10 rounded-xl bg-surface2 text-sm font-semibold text-muted hover:text-ink">ยกเลิก</button>
                   <button onClick={() => void submitAdjust()} disabled={saving || !Number(adjustAmt)}
-                    className="flex-1 h-10 rounded-xl bg-brand text-brand-ink text-sm font-bold disabled:opacity-50 inline-flex items-center justify-center gap-1.5">
+                    className="flex-1 h-10 rounded-xl bg-brand text-brandInk text-sm font-bold disabled:opacity-50 inline-flex items-center justify-center gap-1.5">
                     {saving ? <Loader2 size={15} className="animate-spin" /> : null} บันทึก
                   </button>
                 </div>
@@ -458,9 +459,9 @@ export default function AdminCustomersPage() {
             )}
 
             {/* RFM */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-              <Rfm icon={<CalendarClock size={16} />} label="ซื้อล่าสุด" value={recencyLabel(detail.stat.recencyDays)} sub={fmtDate(detail.stat.last)} />
-              <Rfm icon={<ShoppingBag size={16} />} label="จำนวนครั้ง" value={`${detail.stat.count} บิล`} sub={`ตั้งแต่ ${fmtDate(detail.stat.first)}`} />
+            <div className="grid grid-cols-2 gap-2.5">
+              <Rfm icon={<CalendarClock size={16} />} label="ซื้อล่าสุด" value={recencyLabel(detail.stat.recencyDays)} sub={detail.stat.last ? fmtDate(detail.stat.last) : undefined} />
+              <Rfm icon={<ShoppingBag size={16} />} label="จำนวนครั้ง" value={`${detail.stat.count} บิล`} sub={detail.stat.first ? `ตั้งแต่ ${fmtDate(detail.stat.first)}` : undefined} />
               <Rfm icon={<TrendingUp size={16} />} label="ยอดซื้อรวม" value={formatTHB(detail.stat.spend, false)} />
               <Rfm icon={<Wallet size={16} />} label="เฉลี่ย/บิล" value={formatTHB(detail.stat.avg, false)} />
             </div>
@@ -533,16 +534,26 @@ export default function AdminCustomersPage() {
             {/* งานติดตาม / นัดหมาย */}
             <div>
               <h3 className="text-sm font-semibold mb-2 flex items-center gap-2"><CalendarClock size={15} /> งานติดตาม</h3>
-              <div className="flex gap-2 mb-2">
-                <input
-                  value={taskTitle} onChange={(e) => setTaskTitle(e.target.value)} placeholder="เพิ่มงานติดตาม เช่น โทรเช็คความพอใจ"
-                  onKeyDown={(e) => { if (e.key === "Enter") void addTask(); }}
-                  className="flex-1 h-9 px-3 rounded-xl bg-surface2/60 border border-line outline-none text-sm focus:border-brand/40"
-                />
-                <input type="date" value={taskDue} onChange={(e) => setTaskDue(e.target.value)}
-                  className="h-9 px-2 rounded-xl bg-surface2/60 border border-line text-sm text-ink" />
-                <button onClick={() => void addTask()} disabled={!taskTitle.trim() || taskSaving}
-                  className="h-9 px-3 rounded-xl bg-brand text-brand-ink text-sm font-bold disabled:opacity-50">เพิ่ม</button>
+              <div className="space-y-2 mb-3">
+                <div>
+                  <label className="text-[11px] text-muted">รายละเอียดงาน</label>
+                  <input
+                    value={taskTitle} onChange={(e) => setTaskTitle(e.target.value)} placeholder="เช่น โทรเช็คความพอใจ"
+                    onKeyDown={(e) => { if (e.key === "Enter") void addTask(); }}
+                    className="mt-1 w-full h-9 px-3 rounded-xl bg-surface2/60 border border-line outline-none text-sm focus:border-brand/40"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <div className="flex-1 min-w-0">
+                    <label className="text-[11px] text-muted">วันนัดหมาย</label>
+                    <input type="date" value={taskDue} onChange={(e) => setTaskDue(e.target.value)}
+                      className="mt-1 w-full h-9 px-2 rounded-xl bg-surface2/60 border border-line text-sm text-ink" />
+                  </div>
+                  <button onClick={() => void addTask()} disabled={!taskTitle.trim() || taskSaving}
+                    className="self-end h-9 px-4 rounded-xl bg-brand text-brandInk text-sm font-bold disabled:opacity-50 shrink-0 whitespace-nowrap inline-flex items-center gap-1.5">
+                    {taskSaving ? <><Loader2 size={13} className="animate-spin" /> กำลังเพิ่ม…</> : "เพิ่มงาน"}
+                  </button>
+                </div>
               </div>
               {detail.tasks.length === 0 ? (
                 <p className="text-xs text-muted py-2">ยังไม่มีงานติดตาม</p>
@@ -593,7 +604,7 @@ export default function AdminCustomersPage() {
                         return (
                           <button key={ch.v} disabled={!cOn}
                             onClick={() => toggle(cOn, on ? cCh.filter((x) => x !== ch.v) : [...cCh, ch.v])}
-                            className={`px-3 h-8 rounded-full text-xs font-semibold transition-colors disabled:opacity-40 ${on ? "bg-brand text-brand-ink" : "bg-surface border border-line text-muted"}`}>
+                            className={`px-3 h-8 rounded-full text-xs font-semibold transition-colors disabled:opacity-40 ${on ? "bg-brand text-brandInk" : "bg-surface border border-line text-muted"}`}>
                             {ch.label}
                           </button>
                         );
@@ -606,7 +617,7 @@ export default function AdminCustomersPage() {
                       <div className="flex gap-2">
                         <button onClick={() => setConsentDraft(null)} className="flex-1 h-9 rounded-xl bg-surface2 text-sm font-semibold text-muted">ยกเลิก</button>
                         <button onClick={() => void saveConsent()} disabled={consentSaving}
-                          className="flex-1 h-9 rounded-xl bg-brand text-brand-ink text-sm font-bold disabled:opacity-50 inline-flex items-center justify-center gap-1.5">
+                          className="flex-1 h-9 rounded-xl bg-brand text-brandInk text-sm font-bold disabled:opacity-50 inline-flex items-center justify-center gap-1.5">
                           {consentSaving ? <Loader2 size={14} className="animate-spin" /> : null} บันทึก
                         </button>
                       </div>
@@ -650,7 +661,7 @@ export default function AdminCustomersPage() {
                         <span className="min-w-0 flex-1">
                           <span className="text-sm font-semibold truncate flex items-center gap-2">
                             {m.name}
-                            {primary === m.id && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-brand text-brand-ink">เก็บไว้</span>}
+                            {primary === m.id && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-brand text-brandInk">เก็บไว้</span>}
                           </span>
                           <span className="flex items-center gap-3 text-[11px] text-muted mt-0.5">
                             <span className="inline-flex items-center gap-1"><ShoppingBag size={10} />{m.orders} บิล</span>
@@ -666,7 +677,7 @@ export default function AdminCustomersPage() {
                     <span className="text-[11px] text-muted">รวมอีก {g.members.length - 1} รายเข้าคนที่เลือก</span>
                     <button
                       onClick={() => void doMerge(g)} disabled={isMerging || !primary}
-                      className="h-9 px-4 rounded-xl bg-brand text-brand-ink text-sm font-bold inline-flex items-center gap-1.5 disabled:opacity-50"
+                      className="h-9 px-4 rounded-xl bg-brand text-brandInk text-sm font-bold inline-flex items-center gap-1.5 disabled:opacity-50"
                     >
                       {isMerging ? <Loader2 size={15} className="animate-spin" /> : <Combine size={15} />} รวมเป็นคนเดียว
                     </button>
