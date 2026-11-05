@@ -80,6 +80,46 @@ export async function GET(req: NextRequest) {
     });
   }
 
+  // ---------- ตรวจลูกค้าซ้ำ (เบอร์โทรเดียวกัน) ----------
+  if (req.nextUrl.searchParams.get("duplicates")) {
+    const { data: all, error: dErr } = await sb
+      .from("customers")
+      .select("id,name,phone,email,member_code,points,store_credit,created_at")
+      .not("phone", "is", null)
+      .limit(5000);
+    if (dErr) return NextResponse.json({ error: dErr.message }, { status: 500 });
+
+    const norm = (p: string | null) => (p ?? "").replace(/\D/g, "");
+    const byPhone: Record<string, typeof all> = {};
+    for (const c of all ?? []) {
+      const k = norm(c.phone);
+      if (k.length < 6) continue; // เบอร์สั้นเกินไป ข้าม
+      (byPhone[k] ??= []).push(c);
+    }
+    const dupIds: string[] = [];
+    const rawGroups = Object.entries(byPhone).filter(([, m]) => (m?.length ?? 0) > 1);
+    for (const [, m] of rawGroups) for (const c of m ?? []) dupIds.push(c.id);
+
+    // นับจำนวนบิลของแต่ละคนในกลุ่มซ้ำ (ไว้เลือก primary)
+    const cnt: Record<string, number> = {};
+    if (dupIds.length) {
+      const { data: orows } = await sb.from("orders").select("customer_id").in("customer_id", dupIds).neq("status", "voided");
+      for (const o of orows ?? []) cnt[o.customer_id as string] = (cnt[o.customer_id as string] ?? 0) + 1;
+    }
+
+    const groups = rawGroups
+      .map(([phone, m]) => ({
+        phone,
+        members: (m ?? [])
+          .map((c) => ({ ...c, orders: cnt[c.id] ?? 0, points: Number(c.points ?? 0), store_credit: Number(c.store_credit ?? 0) }))
+          .sort((a, b) => b.orders - a.orders || (a.created_at < b.created_at ? -1 : 1)),
+      }))
+      .sort((a, b) => b.members.length - a.members.length)
+      .slice(0, 100);
+
+    return NextResponse.json({ groups });
+  }
+
   // ---------- รายชื่อ (ค้น หรือ ล่าสุด) ----------
   const q = (req.nextUrl.searchParams.get("q") ?? "").trim();
   let cq = sb.from("customers").select("*");

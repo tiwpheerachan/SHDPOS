@@ -10,11 +10,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Search, Phone, Mail, Star, Wallet, Contact, ShoppingBag, CalendarClock,
-  TrendingUp, Clock, Loader2, ChevronRight, MapPin,
+  TrendingUp, Clock, Loader2, ChevronRight, MapPin, Combine,
 } from "lucide-react";
 import { listBranches } from "@/lib/data/repo";
 import type { Branch } from "@/lib/types";
-import { Drawer, EmptyState } from "@/components/ui";
+import { Drawer, EmptyState, Modal } from "@/components/ui";
 import { formatTHB } from "@/lib/money";
 
 type Segment = "new" | "returning" | "vip" | "lost";
@@ -34,6 +34,12 @@ interface Row {
   recencyDays: number | null;
   segment: Segment;
 }
+
+interface DupeMember {
+  id: string; name: string; phone: string | null; email: string | null;
+  member_code: string | null; orders: number; points: number; store_credit: number; created_at: string;
+}
+interface DupeGroup { phone: string; members: DupeMember[] }
 
 interface OrderItemRow { sku: string; name: string; qty: number; unit_price: number; line_total: number }
 interface OrderRow {
@@ -102,6 +108,13 @@ export default function AdminCustomersPage() {
   const [adjustNote, setAdjustNote] = useState("");
   const [saving, setSaving] = useState(false);
 
+  // รวมลูกค้าซ้ำ
+  const [dupeOpen, setDupeOpen] = useState(false);
+  const [dupeLoading, setDupeLoading] = useState(false);
+  const [dupeGroups, setDupeGroups] = useState<DupeGroup[]>([]);
+  const [primaryChoice, setPrimaryChoice] = useState<Record<string, string>>({});
+  const [merging, setMerging] = useState<string | null>(null);
+
   const loadDetail = useCallback(async (cid: string) => {
     const j = await fetch(`/api/admin/customers?id=${cid}`).then((r) => r.json());
     if (!j.error) setDetail(j);
@@ -128,27 +141,64 @@ export default function AdminCustomersPage() {
     }
   }
 
+  async function openDupes() {
+    setDupeOpen(true);
+    setDupeLoading(true);
+    try {
+      const j = await fetch("/api/admin/customers?duplicates=1").then((r) => r.json());
+      const groups: DupeGroup[] = Array.isArray(j.groups) ? j.groups : [];
+      setDupeGroups(groups);
+      const choice: Record<string, string> = {};
+      for (const g of groups) choice[g.phone] = g.members[0]?.id;
+      setPrimaryChoice(choice);
+    } finally {
+      setDupeLoading(false);
+    }
+  }
+
+  async function doMerge(g: DupeGroup) {
+    const primary = primaryChoice[g.phone];
+    if (!primary) return;
+    const losers = g.members.filter((m) => m.id !== primary).map((m) => m.id);
+    if (!losers.length) return;
+    setMerging(g.phone);
+    try {
+      const res = await fetch("/api/admin/customers/merge", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ primary_id: primary, merge_ids: losers }),
+      });
+      if (res.ok) {
+        setDupeGroups((prev) => prev.filter((x) => x.phone !== g.phone));
+        void loadList();
+      }
+    } finally {
+      setMerging(null);
+    }
+  }
+
   useEffect(() => { void listBranches().then(setBranches); }, []);
   const branchName = useCallback(
     (id: string) => branches.find((b) => b.id === id)?.name ?? "—",
     [branches]
   );
 
+  const loadList = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/admin/customers?q=${encodeURIComponent(q.trim())}`);
+      const json = await res.json();
+      setRows(Array.isArray(json.customers) ? json.customers : []);
+    } finally {
+      setLoading(false);
+    }
+  }, [q]);
+
   // โหลดรายชื่อ (debounce ตามคำค้น)
   useEffect(() => {
     let alive = true;
-    setLoading(true);
-    const id = setTimeout(async () => {
-      try {
-        const res = await fetch(`/api/admin/customers?q=${encodeURIComponent(q.trim())}`);
-        const json = await res.json();
-        if (alive) setRows(Array.isArray(json.customers) ? json.customers : []);
-      } finally {
-        if (alive) setLoading(false);
-      }
-    }, q ? 300 : 0);
+    const id = setTimeout(() => { if (alive) void loadList(); }, q ? 300 : 0);
     return () => { alive = false; clearTimeout(id); };
-  }, [q]);
+  }, [q, loadList]);
 
   // โหลดโปรไฟล์
   useEffect(() => {
@@ -189,15 +239,23 @@ export default function AdminCustomersPage() {
         </div>
       </div>
 
-      {/* ค้นหา */}
-      <div className="relative">
-        <Search size={17} className="absolute left-3.5 top-3 text-muted pointer-events-none" />
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="ค้นหาชื่อ เบอร์โทร อีเมล หรือรหัสสมาชิก…"
-          className="w-full h-11 pl-11 pr-4 rounded-2xl bg-surface2/70 border border-line focus:border-brand/40 focus:bg-surface outline-none text-sm transition-colors"
-        />
+      {/* ค้นหา + ตรวจซ้ำ */}
+      <div className="flex gap-2">
+        <div className="relative flex-1">
+          <Search size={17} className="absolute left-3.5 top-3 text-muted pointer-events-none" />
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="ค้นหาชื่อ เบอร์โทร อีเมล หรือรหัสสมาชิก…"
+            className="w-full h-11 pl-11 pr-4 rounded-2xl bg-surface2/70 border border-line focus:border-brand/40 focus:bg-surface outline-none text-sm transition-colors"
+          />
+        </div>
+        <button
+          onClick={() => void openDupes()}
+          className="h-11 px-4 rounded-2xl border border-line bg-surface hover:bg-surface2 text-sm font-semibold inline-flex items-center gap-2 shrink-0"
+        >
+          <Combine size={16} /> <span className="hidden sm:inline">ตรวจลูกค้าซ้ำ</span>
+        </button>
       </div>
 
       {/* ตัวกรองกลุ่ม */}
@@ -392,6 +450,65 @@ export default function AdminCustomersPage() {
           </div>
         )}
       </Drawer>
+
+      {/* รวมลูกค้าซ้ำ */}
+      <Modal open={dupeOpen} onClose={() => setDupeOpen(false)} title="ตรวจ & รวมลูกค้าซ้ำ" size="lg">
+        {dupeLoading ? (
+          <div className="py-16 text-center text-muted"><Loader2 className="inline animate-spin" size={20} /> กำลังตรวจหาเบอร์โทรซ้ำ…</div>
+        ) : dupeGroups.length === 0 ? (
+          <EmptyState icon={<Combine size={26} />} title="ไม่พบลูกค้าซ้ำ" body="ไม่มีเบอร์โทรที่ซ้ำกันในระบบ" />
+        ) : (
+          <div className="space-y-4">
+            <p className="text-xs text-muted">
+              พบ {dupeGroups.length} กลุ่มที่มีเบอร์โทรเดียวกัน — เลือกคนที่จะเก็บไว้ (หลัก) แล้วกดรวม ระบบจะย้ายบิล แต้ม เครดิต มารวมที่คนนั้น
+            </p>
+            {dupeGroups.map((g) => {
+              const primary = primaryChoice[g.phone];
+              const isMerging = merging === g.phone;
+              return (
+                <div key={g.phone} className="rounded-2xl border border-line overflow-hidden">
+                  <div className="px-3 py-2 bg-surface2/50 flex items-center gap-2 text-xs">
+                    <Phone size={12} /> <span className="font-mono font-semibold">{g.phone}</span>
+                    <span className="text-muted">· {g.members.length} รายการ</span>
+                  </div>
+                  <div className="divide-y divide-line/60">
+                    {g.members.map((m) => (
+                      <label key={m.id} className={`flex items-center gap-3 px-3 py-2.5 cursor-pointer ${primary === m.id ? "bg-brand/5" : ""}`}>
+                        <input
+                          type="radio" name={`p-${g.phone}`} checked={primary === m.id}
+                          onChange={() => setPrimaryChoice((c) => ({ ...c, [g.phone]: m.id }))}
+                          className="accent-current"
+                        />
+                        <span className="min-w-0 flex-1">
+                          <span className="text-sm font-semibold truncate flex items-center gap-2">
+                            {m.name}
+                            {primary === m.id && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-brand text-brand-ink">เก็บไว้</span>}
+                          </span>
+                          <span className="flex items-center gap-3 text-[11px] text-muted mt-0.5">
+                            <span className="inline-flex items-center gap-1"><ShoppingBag size={10} />{m.orders} บิล</span>
+                            {!!m.points && <span className="inline-flex items-center gap-1"><Star size={10} />{m.points}</span>}
+                            {!!m.store_credit && <span className="inline-flex items-center gap-1"><Wallet size={10} />{formatTHB(m.store_credit, false)}</span>}
+                            {m.email && <span className="truncate">{m.email}</span>}
+                          </span>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                  <div className="px-3 py-2.5 flex items-center justify-between gap-2 border-t border-line">
+                    <span className="text-[11px] text-muted">รวมอีก {g.members.length - 1} รายเข้าคนที่เลือก</span>
+                    <button
+                      onClick={() => void doMerge(g)} disabled={isMerging || !primary}
+                      className="h-9 px-4 rounded-xl bg-brand text-brand-ink text-sm font-bold inline-flex items-center gap-1.5 disabled:opacity-50"
+                    >
+                      {isMerging ? <Loader2 size={15} className="animate-spin" /> : <Combine size={15} />} รวมเป็นคนเดียว
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }
