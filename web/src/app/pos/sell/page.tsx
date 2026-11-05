@@ -508,7 +508,7 @@ export default function SellPage() {
 
         <div className="flex-1 overflow-y-auto p-3 sm:p-4">
           {visible.length ? (
-            <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-2.5">
+            <div className="grid grid-cols-3 sm:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-2.5">
               {visible.map((p) => {
                 const sl = stock.get(p.id);
                 const qty = sl?.qty_on_hand ?? 0;
@@ -521,52 +521,32 @@ export default function SellPage() {
                   <button
                     key={p.id}
                     onClick={() => addProduct(p)}
-                    className="group relative text-left rounded-2xl overflow-hidden border border-line bg-surface hover:shadow-card hover:border-brand/40 transition-all aspect-[5/6] active:scale-[0.985]"
+                    className="group text-left rounded-2xl border border-line bg-surface p-2 hover:shadow-card hover:border-brand/30 transition-all active:scale-[0.985] flex flex-col"
                   >
-                    {/* รูปสินค้า หรือ พื้นสำรอง */}
-                    {hasImg ? (
-                      <img src={p.image_url!} alt={name} loading="lazy"
-                        className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" />
-                    ) : (
-                      <div className="absolute inset-0 bg-surface2 grid place-items-center">
-                        <Package size={30} className="text-muted/40" />
-                      </div>
-                    )}
-
-                    {/* ป้ายบน: โปร (ซ้าย) + สต๊อก (ขวา) */}
-                    <div className="absolute top-2 inset-x-2 flex items-start justify-between gap-1 z-10">
-                      {promo ? (
-                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-brand text-brandInk inline-flex items-center gap-0.5 shadow-sm"><Tag size={8} />โปร</span>
-                      ) : <span />}
+                    {/* รูปสินค้าบนพื้นอ่อน */}
+                    <div className="relative rounded-xl bg-surface2/70 aspect-square overflow-hidden grid place-items-center">
+                      {hasImg ? (
+                        <img src={p.image_url!} alt={name} loading="lazy"
+                          className="w-full h-full object-contain p-2 transition-transform duration-500 group-hover:scale-[1.05]" />
+                      ) : (
+                        <Package size={26} className="text-muted/35" />
+                      )}
+                      {promo && (
+                        <span className="absolute top-1.5 left-1.5 text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-brand text-brandInk inline-flex items-center gap-0.5 shadow-sm"><Tag size={8} />โปร</span>
+                      )}
                       {out ? (
-                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-danger text-white inline-flex items-center gap-0.5 shadow-sm tnum">{qty < 0 ? qty : "หมด"}</span>
+                        <span className="absolute top-1.5 right-1.5 text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-danger text-white tnum shadow-sm">{qty < 0 ? qty : "หมด"}</span>
                       ) : low ? (
-                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-warn text-white inline-flex items-center gap-0.5 shadow-sm tnum"><AlertTriangle size={8} />{qty}</span>
-                      ) : p.is_stocked ? (
-                        <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-md tnum shadow-sm ${hasImg ? "bg-black/45 text-white" : "bg-surface2 text-muted"}`}>{qty}</span>
+                        <span className="absolute top-1.5 right-1.5 text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-warn text-white tnum shadow-sm inline-flex items-center gap-0.5"><AlertTriangle size={8} />{qty}</span>
                       ) : null}
                     </div>
 
-                    {/* ข้อมูลล่าง — progressive blur เมื่อมีรูป */}
-                    {hasImg ? (
-                      <>
-                        <div className="pointer-events-none absolute bottom-0 inset-x-0 h-[58%]"
-                          style={{ backdropFilter: "blur(5px)", WebkitBackdropFilter: "blur(5px)",
-                            maskImage: "linear-gradient(to top, black 40%, transparent 100%)",
-                            WebkitMaskImage: "linear-gradient(to top, black 40%, transparent 100%)" }} />
-                        <div className="absolute bottom-0 inset-x-0 h-[55%] bg-gradient-to-t from-black/75 via-black/30 to-transparent" />
-                        <div className="absolute bottom-0 inset-x-0 p-2.5 text-white z-10">
-                          <p className="text-[11px] font-medium leading-snug line-clamp-2">{name}</p>
-                          <p className="text-sm font-bold tnum mt-0.5">{formatTHB(p.price, false)}</p>
-                        </div>
-                      </>
-                    ) : (
-                      <div className="absolute bottom-0 inset-x-0 p-2.5">
-                        <p className="text-[11px] font-medium leading-snug line-clamp-2 text-ink">{name}</p>
-                        <p className="text-sm font-bold tnum mt-0.5 text-ink">{formatTHB(p.price, false)}</p>
-                        <p className="text-[9px] font-mono text-muted truncate mt-0.5">{p.sku}</p>
-                      </div>
-                    )}
+                    {/* ชื่อ + ราคา + สต๊อกปกติ */}
+                    <p className="text-[11.5px] font-medium leading-snug line-clamp-2 mt-1.5 flex-1">{name}</p>
+                    <div className="flex items-center justify-between gap-1 mt-1">
+                      <p className="text-sm font-bold tnum">{formatTHB(p.price, false)}</p>
+                      {p.is_stocked && !out && !low && <span className="text-[10px] text-muted tnum">เหลือ {qty}</span>}
+                    </div>
                   </button>
                 );
               })}
