@@ -115,6 +115,7 @@ export interface Product {
   reorder_point: number;
   barcodes: string[];
   is_active: boolean;
+  image_url?: string | null;
 }
 
 export interface Category {

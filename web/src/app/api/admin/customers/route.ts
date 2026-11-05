@@ -263,6 +263,7 @@ export async function POST(req: NextRequest) {
   const b = (await req.json().catch(() => null)) as
     | {
         action?: string; customer_id?: string; points?: number; credit?: number; kind?: string; note?: string; brand_id?: string;
+        name?: string; phone?: string; email?: string; tax_id?: string;
         consent?: { contact_consent?: boolean; consent_channels?: string[]; consent_note?: string };
       }
     | null;
@@ -273,6 +274,21 @@ export async function POST(req: NextRequest) {
     const { data, error } = await supabaseAdmin().rpc("expire_points", { p_customer_id: null });
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ ok: true, expired: data ?? 0 });
+  }
+
+  // สร้างลูกค้าใหม่ (จากหลังบ้าน — ไม่ต้องมีการซื้อ)
+  if (b.action === "create_customer") {
+    const name = (b.name ?? "").trim();
+    if (!name) return NextResponse.json({ error: "ต้องใส่ชื่อลูกค้า" }, { status: 400 });
+    const { data, error } = await supabaseAdmin().from("customers").insert({
+      name,
+      phone: b.phone?.trim() || null,
+      email: b.email?.trim() || null,
+      tax_id: b.tax_id?.trim() || null,
+      source: "admin",
+    }).select("id").single();
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ ok: true, id: data.id });
   }
 
   if (!b.customer_id) return NextResponse.json({ error: "customer_id required" }, { status: 400 });

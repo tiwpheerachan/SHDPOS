@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Search, Phone, Mail, Star, Wallet, Contact, ShoppingBag, CalendarClock,
-  TrendingUp, Clock, Loader2, MapPin, Combine, ShieldCheck,
+  TrendingUp, Clock, Loader2, MapPin, Combine, ShieldCheck, UserPlus,
 } from "lucide-react";
 import { listBranches } from "@/lib/data/repo";
 import type { Branch } from "@/lib/types";
@@ -182,6 +182,23 @@ export default function AdminCustomersPage() {
     }
   }
 
+  // สร้างลูกค้าใหม่ (ไม่ต้องมีการซื้อ)
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createForm, setCreateForm] = useState({ name: "", phone: "", email: "", tax_id: "" });
+  const [creating, setCreating] = useState(false);
+  async function submitCreate() {
+    if (!createForm.name.trim()) return;
+    setCreating(true);
+    try {
+      const res = await fetch("/api/admin/customers", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "create_customer", ...createForm }),
+      });
+      const j = await res.json();
+      if (res.ok) { setCreateOpen(false); setCreateForm({ name: "", phone: "", email: "", tax_id: "" }); await loadList(); if (j.id) setOpenId(j.id); }
+    } finally { setCreating(false); }
+  }
+
   // แต้มหมดอายุ (maintenance)
   const [expiring, setExpiring] = useState(false);
   async function runExpire() {
@@ -317,7 +334,10 @@ export default function AdminCustomersPage() {
           <h1 className="text-xl font-bold flex items-center gap-2"><Contact size={22} /> ลูกค้า</h1>
           <p className="text-sm text-muted mt-0.5">ฐานข้อมูลลูกค้า + ประวัติการซื้อรวมทุกสาขา</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-stretch">
+          <button onClick={() => setCreateOpen(true)} className="h-full px-4 rounded-2xl bg-brand text-brandInk text-sm font-bold inline-flex items-center gap-2 self-stretch">
+            <UserPlus size={16} /> ลูกค้าใหม่
+          </button>
           <Kpi label="ลูกค้าทั้งหมด" value={String(kpi.total)} icon={<Contact size={15} />} />
           <Kpi label="VIP" value={String(kpi.vip)} icon={<Star size={15} />} />
           <Kpi label="หายไป" value={String(kpi.lost)} icon={<Clock size={15} />} />
@@ -702,6 +722,30 @@ export default function AdminCustomersPage() {
           </div>
         )}
       </Drawer>
+
+      {/* สร้างลูกค้าใหม่ */}
+      <Modal open={createOpen} onClose={() => setCreateOpen(false)} title="สร้างลูกค้าใหม่" size="sm"
+        footer={
+          <>
+            <button onClick={() => setCreateOpen(false)} className="h-10 px-4 rounded-xl bg-surface2 text-sm font-semibold text-muted">ยกเลิก</button>
+            <button onClick={() => void submitCreate()} disabled={creating || !createForm.name.trim()}
+              className="h-10 px-5 rounded-xl bg-brand text-brandInk text-sm font-bold disabled:opacity-50 inline-flex items-center gap-1.5">
+              {creating ? <Loader2 size={15} className="animate-spin" /> : null} บันทึก
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-2.5">
+          <input autoFocus value={createForm.name} onChange={(e) => setCreateForm({ ...createForm, name: e.target.value })} placeholder="ชื่อลูกค้า *"
+            className="w-full h-10 px-3 rounded-xl bg-surface border border-line outline-none text-sm focus:border-brand/40" />
+          <input value={createForm.phone} onChange={(e) => setCreateForm({ ...createForm, phone: e.target.value })} placeholder="เบอร์โทร" inputMode="tel"
+            className="w-full h-10 px-3 rounded-xl bg-surface border border-line outline-none text-sm focus:border-brand/40" />
+          <input value={createForm.email} onChange={(e) => setCreateForm({ ...createForm, email: e.target.value })} placeholder="อีเมล (ไม่บังคับ)" inputMode="email"
+            className="w-full h-10 px-3 rounded-xl bg-surface border border-line outline-none text-sm focus:border-brand/40" />
+          <input value={createForm.tax_id} onChange={(e) => setCreateForm({ ...createForm, tax_id: e.target.value })} placeholder="เลขผู้เสียภาษี (ไม่บังคับ)" inputMode="numeric"
+            className="w-full h-10 px-3 rounded-xl bg-surface border border-line outline-none text-sm focus:border-brand/40" />
+        </div>
+      </Modal>
 
       {/* รวมลูกค้าซ้ำ */}
       <Modal open={dupeOpen} onClose={() => setDupeOpen(false)} title="ตรวจ & รวมลูกค้าซ้ำ" size="lg">

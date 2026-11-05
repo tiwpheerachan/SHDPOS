@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { nanoid } from "nanoid";
 import {
   Search, Plus, Minus, Trash2, Percent, Barcode, Inbox, PauseCircle, PlayCircle,
-  UserRound, AlertTriangle, PackageX, Tag, UserPlus, Phone, ChevronRight, X, Star, Wallet, Ticket, Gift,
+  UserRound, AlertTriangle, PackageX, Tag, UserPlus, Phone, ChevronRight, X, Star, Wallet, Ticket, Gift, Package, Maximize2, Minimize2,
 } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { useSession } from "@/lib/store/session";
@@ -69,6 +69,7 @@ export default function SellPage() {
   const [holds, setHolds] = useState<HeldBill[]>([]);
   const [holdOpen, setHoldOpen] = useState(false);
   const [customerOpen, setCustomerOpen] = useState(false);
+  const [cartExpanded, setCartExpanded] = useState(false);
   const [couponInput, setCouponInput] = useState("");
   const [couponMsg, setCouponMsg] = useState<string | null>(null);
   const [couponChecking, setCouponChecking] = useState(false);
@@ -191,6 +192,16 @@ export default function SellPage() {
       })
       .slice(0, 120);
   }, [branchProducts, query, categoryId]);
+
+  // SKU ที่อยู่ในแคมเปญของแถม (ร่วมรายการ/ของแถม) → แสดงป้าย "โปร"
+  const promoSkus = useMemo(() => {
+    const s = new Set<string>();
+    for (const c of giftCampaigns) {
+      for (const sku of c.eligible_skus) s.add(sku);
+      for (const g of c.gift_skus) s.add(g.sku);
+    }
+    return s;
+  }, [giftCampaigns]);
 
   // ------------------------------------------------------------------
   // เพิ่มสินค้า
@@ -455,7 +466,7 @@ export default function SellPage() {
   const activeLine = cart.lines.find((l) => l.lineId === (lineDiscountId ?? serialLineId));
 
   return (
-    <div className="grid lg:grid-cols-[1fr_400px] xl:grid-cols-[1fr_440px] h-[calc(100vh-3.5rem)] page-enter">
+    <div className={`grid h-[calc(100vh-3.5rem)] page-enter transition-[grid-template-columns] duration-300 ${cartExpanded ? "lg:grid-cols-[1fr_600px] xl:grid-cols-[1fr_720px]" : "lg:grid-cols-[1fr_400px] xl:grid-cols-[1fr_440px]"}`}>
       {/* ================= ฝั่งสินค้า ================= */}
       <section className="flex flex-col min-h-0 border-r border-line">
         <div className="p-3 sm:p-4 border-b border-line flex gap-2">
@@ -503,32 +514,59 @@ export default function SellPage() {
                 const qty = sl?.qty_on_hand ?? 0;
                 const low = p.is_stocked && qty > 0 && qty <= (sl?.reorder_point ?? p.reorder_point);
                 const out = p.is_stocked && qty <= 0;
+                const name = pick({ th: p.name_th, en: p.name_en, zh: p.name_zh });
+                const hasImg = !!p.image_url;
+                const promo = promoSkus.has(p.sku);
                 return (
                   <button
                     key={p.id}
                     onClick={() => addProduct(p)}
-                    className="text-left rounded-xl border border-line bg-surface hover:border-brand hover:shadow-card transition-all p-3 flex flex-col min-h-[116px] active:scale-[0.985]"
+                    className="group relative text-left rounded-2xl overflow-hidden border border-line bg-surface hover:shadow-card hover:border-brand/40 transition-all aspect-[5/6] active:scale-[0.985]"
                   >
-                    <div className="flex items-start justify-between gap-1.5">
-                      <span className="text-[10px] font-mono text-muted truncate">{p.sku}</span>
+                    {/* รูปสินค้า หรือ พื้นสำรอง */}
+                    {hasImg ? (
+                      <img src={p.image_url!} alt={name} loading="lazy"
+                        className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" />
+                    ) : (
+                      <div className="absolute inset-0 bg-surface2 grid place-items-center">
+                        <Package size={30} className="text-muted/40" />
+                      </div>
+                    )}
+
+                    {/* ป้ายบน: โปร (ซ้าย) + สต๊อก (ขวา) */}
+                    <div className="absolute top-2 inset-x-2 flex items-start justify-between gap-1 z-10">
+                      {promo ? (
+                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-brand text-brandInk inline-flex items-center gap-0.5 shadow-sm"><Tag size={8} />โปร</span>
+                      ) : <span />}
                       {out ? (
-                        <Badge tone="danger" className="shrink-0">
-                          <PackageX size={9} />
-                        </Badge>
+                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-danger text-white inline-flex items-center gap-0.5 shadow-sm tnum">{qty < 0 ? qty : "หมด"}</span>
                       ) : low ? (
-                        <Badge tone="warn" className="shrink-0 tnum">
-                          {qty}
-                        </Badge>
+                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-warn text-white inline-flex items-center gap-0.5 shadow-sm tnum"><AlertTriangle size={8} />{qty}</span>
                       ) : p.is_stocked ? (
-                        <span className="text-[10px] text-muted tnum shrink-0">{qty}</span>
-                      ) : (
-                        <Tag size={11} className="text-muted shrink-0" />
-                      )}
+                        <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-md tnum shadow-sm ${hasImg ? "bg-black/45 text-white" : "bg-surface2 text-muted"}`}>{qty}</span>
+                      ) : null}
                     </div>
-                    <p className="text-xs font-medium mt-1.5 line-clamp-2 leading-snug flex-1">
-                      {pick({ th: p.name_th, en: p.name_en, zh: p.name_zh })}
-                    </p>
-                    <p className="text-sm font-semibold tnum mt-1.5">{formatTHB(p.price, false)}</p>
+
+                    {/* ข้อมูลล่าง — progressive blur เมื่อมีรูป */}
+                    {hasImg ? (
+                      <>
+                        <div className="pointer-events-none absolute bottom-0 inset-x-0 h-[58%]"
+                          style={{ backdropFilter: "blur(5px)", WebkitBackdropFilter: "blur(5px)",
+                            maskImage: "linear-gradient(to top, black 40%, transparent 100%)",
+                            WebkitMaskImage: "linear-gradient(to top, black 40%, transparent 100%)" }} />
+                        <div className="absolute bottom-0 inset-x-0 h-[55%] bg-gradient-to-t from-black/75 via-black/30 to-transparent" />
+                        <div className="absolute bottom-0 inset-x-0 p-2.5 text-white z-10">
+                          <p className="text-[11px] font-medium leading-snug line-clamp-2">{name}</p>
+                          <p className="text-sm font-bold tnum mt-0.5">{formatTHB(p.price, false)}</p>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="absolute bottom-0 inset-x-0 p-2.5">
+                        <p className="text-[11px] font-medium leading-snug line-clamp-2 text-ink">{name}</p>
+                        <p className="text-sm font-bold tnum mt-0.5 text-ink">{formatTHB(p.price, false)}</p>
+                        <p className="text-[9px] font-mono text-muted truncate mt-0.5">{p.sku}</p>
+                      </div>
+                    )}
                   </button>
                 );
               })}
@@ -540,8 +578,15 @@ export default function SellPage() {
       </section>
 
       {/* ================= ตะกร้า ================= */}
-      <aside className="flex flex-col min-h-0 bg-surface">
-        <div className="px-4 py-3 border-b border-line space-y-2">
+      <aside className="flex flex-col min-h-0 bg-surface border-l border-line">
+        <div className="px-4 pt-3 pb-1 flex items-center justify-between">
+          <span className="text-sm font-bold flex items-center gap-1.5"><Package size={15} /> ตะกร้า {cart.lines.length > 0 && <span className="text-xs font-normal text-muted">({cart.lines.length})</span>}</span>
+          <button onClick={() => setCartExpanded((v) => !v)} title={cartExpanded ? "ย่อตะกร้า" : "ขยายตะกร้า"}
+            className="hidden lg:grid h-7 w-7 place-items-center rounded-lg text-muted hover:bg-surface2">
+            {cartExpanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+          </button>
+        </div>
+        <div className="px-4 py-2 border-b border-line space-y-2">
           <div className="flex items-center gap-2">
             <UserRound size={15} className="text-muted shrink-0" />
             <Select
