@@ -840,6 +840,41 @@ export async function searchCustomers(q: string): Promise<Customer[]> {
     .slice(0, 20);
 }
 
+export const getProductBySku = (sku: string) => db().products.where("sku").equals(sku).first();
+
+export interface GiftCampaign {
+  id: string; name: string;
+  brand_ids: string[]; eligible_scope: string; eligible_min_qty: number | null;
+  eligible_across_sku: boolean; min_spend: number;
+  gift_mode: string; gift_per_qty: number; gift_cap: number | null;
+  eligible_skus: string[]; gift_skus: { sku: string; gift_qty: number }[];
+}
+
+/** แคมเปญของแถมอัตโนมัติที่ใช้ได้กับสาขา/ช่องทางนี้ (live เท่านั้น) */
+export async function fetchActiveGiftCampaigns(branchId: string, channel: string): Promise<GiftCampaign[]> {
+  if (!isLiveMode() || (typeof navigator !== "undefined" && !navigator.onLine)) return [];
+  const sb = supabase();
+  if (!sb) return [];
+  const { data, error } = await sb.rpc("pos_active_gift_campaigns", { p_branch_id: branchId, p_channel: channel });
+  if (error || !Array.isArray(data)) return [];
+  return data.map((r) => {
+    const c = r as Record<string, unknown>;
+    return {
+      id: String(c.id), name: String(c.name ?? ""),
+      brand_ids: (c.brand_ids as string[]) ?? [],
+      eligible_scope: String(c.eligible_scope ?? "all"),
+      eligible_min_qty: c.eligible_min_qty == null ? null : Number(c.eligible_min_qty),
+      eligible_across_sku: c.eligible_across_sku !== false,
+      min_spend: Number(c.min_spend ?? 0),
+      gift_mode: String(c.gift_mode ?? "per_bill"),
+      gift_per_qty: Number(c.gift_per_qty ?? 1),
+      gift_cap: c.gift_cap == null ? null : Number(c.gift_cap),
+      eligible_skus: (c.eligible_skus as string[]) ?? [],
+      gift_skus: ((c.gift_skus as { sku: string; gift_qty: number }[]) ?? []).map((g) => ({ sku: g.sku, gift_qty: Number(g.gift_qty ?? 1) })),
+    };
+  });
+}
+
 export interface CouponResult {
   valid: boolean;
   reason?: string;

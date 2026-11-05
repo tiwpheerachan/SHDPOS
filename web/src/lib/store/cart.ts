@@ -35,6 +35,8 @@ interface CartState {
   setLineSalesperson: (lineId: string, employeeId: string | null) => void;
   /** สลับรายการเป็น/ออกจากของแถม (ราคาเรียกเก็บ 0 แต่คงต้นทุน + ตัดสต๊อก) */
   toggleGift: (lineId: string) => void;
+  /** แทนที่ของแถมจากแคมเปญทั้งหมด (engine เรียกเมื่อตะกร้าเปลี่ยน) */
+  setCampaignGifts: (giftLines: CartLine[]) => void;
   setBillDiscount: (percent: number, amount: number) => void;
   setCustomer: (name: string, phone: string) => void;
   /** ผูกลูกค้าจากฐานข้อมูล (มี id + ยอดแต้ม/เครดิต) — ใช้ตอนเลือก/สร้างจาก CustomerPicker */
@@ -164,6 +166,9 @@ export const useCart = create<CartState>((set, get) => ({
         return { ...l, is_gift: true, gift_source: "manual", unit_price: 0, discount_amount: 0, discount_percent: 0 };
       }),
     })),
+
+  setCampaignGifts: (giftLines) =>
+    set((s) => ({ lines: [...s.lines.filter((l) => l.gift_source !== "campaign"), ...giftLines] })),
 
   setBillDiscount: (percent, amount) => set({ billDiscountPercent: percent, billDiscountAmount: amount }),
   // เปลี่ยนลูกค้า = ล้างทั้งแต้มที่เลือก และคูปอง (สิทธิ์ขึ้นกับลูกค้า/กลุ่ม ต้องตรวจใหม่)

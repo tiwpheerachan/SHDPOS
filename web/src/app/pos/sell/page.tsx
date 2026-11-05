@@ -14,7 +14,9 @@ import { useToast } from "@/components/toast-host";
 import {
   listProducts, listCategories, stockForBranch, employeesAtBranch, commitSale,
   getBranch, holdBill, listHolds, removeHold, currentShift, validateCoupon,
+  fetchActiveGiftCampaigns, type GiftCampaign,
 } from "@/lib/data/repo";
+import { computeCampaignGifts, giftSig } from "@/lib/promo/gifts";
 import type { Branch, CartLine, Category, Employee, Order, Product, StockLevel, PaymentEntry } from "@/lib/types";
 import { formatTHB, lineTotal, round2 } from "@/lib/money";
 import { can, discountLimit, discountApprovalLevel, needsApproval } from "@/lib/permissions";
@@ -70,6 +72,8 @@ export default function SellPage() {
   const [couponInput, setCouponInput] = useState("");
   const [couponMsg, setCouponMsg] = useState<string | null>(null);
   const [couponChecking, setCouponChecking] = useState(false);
+  const [giftCampaigns, setGiftCampaigns] = useState<GiftCampaign[]>([]);
+  const [giftWarns, setGiftWarns] = useState<string[]>([]);
 
   const employee = session.employee;
   const branchId = session.branchId;
@@ -112,6 +116,42 @@ export default function SellPage() {
       grandTotal: totals.grandTotal,
     });
   }, [cart.lines, totals.subtotal, totals.discountTotal, totals.grandTotal, branch, pick]);
+
+  // ------------------------------------------------------------------
+  // ของแถมอัตโนมัติจากแคมเปญ
+  // ------------------------------------------------------------------
+  const productBySku = useMemo(() => {
+    const m = new Map<string, Product>();
+    for (const p of products) m.set(p.sku, p);
+    return m;
+  }, [products]);
+
+  // ดึงแคมเปญของแถมที่ใช้ได้กับสาขา/ช่องทางนี้
+  useEffect(() => {
+    if (!branchId) { setGiftCampaigns([]); return; }
+    let alive = true;
+    void fetchActiveGiftCampaigns(branchId, session.channel).then((c) => { if (alive) setGiftCampaigns(c); });
+    return () => { alive = false; };
+  }, [branchId, session.channel]);
+
+  // ประเมินตะกร้า → เติม/ปรับของแถมอัตโนมัติ (บรรทัดของแถม = gift_source 'campaign')
+  useEffect(() => {
+    if (!giftCampaigns.length) {
+      if (cart.lines.some((l) => l.gift_source === "campaign")) cart.setCampaignGifts([]);
+      if (giftWarns.length) setGiftWarns([]);
+      return;
+    }
+    const saleLines = cart.lines.filter((l) => l.gift_source !== "campaign");
+    const { gifts, warnings } = computeCampaignGifts(
+      saleLines,
+      giftCampaigns,
+      (sku) => productBySku.get(sku),
+      (pid) => stock.get(pid)?.qty_on_hand ?? 0,
+    );
+    if (giftSig(gifts) !== giftSig(cart.lines)) cart.setCampaignGifts(gifts);
+    setGiftWarns((prev) => (prev.join("|") === warnings.join("|") ? prev : warnings));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cart.lines, giftCampaigns, productBySku, stock]);
 
   // ------------------------------------------------------------------
   // สินค้าที่แสดง — เฉพาะแบรนด์ของสาขา + ค้นหา
@@ -588,48 +628,65 @@ export default function SellPage() {
           )}
         </div>
 
+        {giftWarns.length > 0 && (
+          <div className="mx-4 mt-2 px-3 py-2 rounded-lg bg-danger/8 border border-danger/30 text-[11px] text-danger space-y-0.5">
+            {giftWarns.map((w, i) => (
+              <div key={i} className="flex items-center gap-1.5"><AlertTriangle size={11} className="shrink-0" />{w}</div>
+            ))}
+          </div>
+        )}
+
         <div className="flex-1 overflow-y-auto">
           {cart.lines.length ? (
             <ul className="divide-y divide-line">
               {cart.lines.map((l) => {
                 const total = lineTotal(l);
                 const serialMissing = l.track_serial && l.serials.length < l.qty;
+                const isCampaignGift = l.gift_source === "campaign";
                 return (
                   <li key={l.lineId} className="px-4 py-3">
                     <div className="flex items-start gap-2">
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium leading-snug line-clamp-2">
                           {l.name}
-                          {l.is_gift && <span className="ml-1.5 text-[9px] font-bold px-1.5 py-0.5 rounded bg-ink text-surface align-middle">ของแถม</span>}
+                          {l.is_gift && <span className="ml-1.5 text-[9px] font-bold px-1.5 py-0.5 rounded bg-ink text-surface align-middle inline-flex items-center gap-0.5"><Gift size={9} />{l.gift_source === "campaign" ? "ของแถมแคมเปญ" : "ของแถม"}</span>}
                         </p>
                         <p className="text-[10px] font-mono text-muted mt-0.5">{l.sku}</p>
                       </div>
-                      <button onClick={() => cart.removeLine(l.lineId)} className="text-muted hover:text-danger p-1">
-                        <Trash2 size={14} />
-                      </button>
+                      {!isCampaignGift && (
+                        <button onClick={() => cart.removeLine(l.lineId)} className="text-muted hover:text-danger p-1">
+                          <Trash2 size={14} />
+                        </button>
+                      )}
                     </div>
 
                     <div className="flex items-center gap-2 mt-2">
-                      <div className="flex items-center rounded-lg border border-line">
-                        <button onClick={() => cart.setQty(l.lineId, l.qty - 1)} className="w-8 h-8 grid place-items-center text-muted hover:text-ink">
-                          <Minus size={13} />
-                        </button>
-                        <span className="w-9 text-center text-sm font-medium tnum">{l.qty}</span>
-                        <button onClick={() => cart.setQty(l.lineId, l.qty + 1)} className="w-8 h-8 grid place-items-center text-muted hover:text-ink">
-                          <Plus size={13} />
-                        </button>
-                      </div>
+                      {isCampaignGift ? (
+                        <div className="h-8 px-3 flex items-center rounded-lg border border-line bg-surface2/50 text-sm font-medium tnum">×{l.qty}</div>
+                      ) : (
+                        <div className="flex items-center rounded-lg border border-line">
+                          <button onClick={() => cart.setQty(l.lineId, l.qty - 1)} className="w-8 h-8 grid place-items-center text-muted hover:text-ink">
+                            <Minus size={13} />
+                          </button>
+                          <span className="w-9 text-center text-sm font-medium tnum">{l.qty}</span>
+                          <button onClick={() => cart.setQty(l.lineId, l.qty + 1)} className="w-8 h-8 grid place-items-center text-muted hover:text-ink">
+                            <Plus size={13} />
+                          </button>
+                        </div>
+                      )}
 
-                      {/* ของแถม: สลับเป็น/ออก (ซ่อนส่วนลดเมื่อเป็นของแถม) */}
-                      <button
-                        onClick={() => cart.toggleGift(l.lineId)}
-                        title={l.is_gift ? "ยกเลิกของแถม" : "ทำเป็นของแถม (฿0)"}
-                        className={`h-8 px-2 rounded-lg border text-[11px] font-medium inline-flex items-center gap-1 ${
-                          l.is_gift ? "border-ink bg-ink text-surface" : "border-line text-muted hover:text-ink"
-                        }`}
-                      >
-                        <Gift size={12} />
-                      </button>
+                      {/* ของแถม: สลับเป็น/ออก (เฉพาะของแถมที่พนักงานทำเอง ไม่ใช่ของแคมเปญ) */}
+                      {!isCampaignGift && (
+                        <button
+                          onClick={() => cart.toggleGift(l.lineId)}
+                          title={l.is_gift ? "ยกเลิกของแถม" : "ทำเป็นของแถม (฿0)"}
+                          className={`h-8 px-2 rounded-lg border text-[11px] font-medium inline-flex items-center gap-1 ${
+                            l.is_gift ? "border-ink bg-ink text-surface" : "border-line text-muted hover:text-ink"
+                          }`}
+                        >
+                          <Gift size={12} />
+                        </button>
+                      )}
 
                       {!l.is_gift && (
                         <button
