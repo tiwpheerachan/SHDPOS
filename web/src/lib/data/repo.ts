@@ -7,6 +7,7 @@
 // =====================================================================
 
 import { nanoid } from "nanoid";
+import { uuidv4 } from "../uuid";
 import { db, kvGet, kvSet, stockKey, type HeldBill } from "../offline/db";
 import { enqueue } from "../offline/sync";
 import { supabase, isLiveMode } from "../supabase/client";
@@ -872,8 +873,7 @@ export interface NewCustomerInput {
 
 /** สร้างลูกค้าใหม่ — เขียนลงเครื่องทันที + ซิงก์ขึ้น server (idempotent ด้วย id) */
 export async function createCustomer(input: NewCustomerInput): Promise<Customer> {
-  const id =
-    typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : nanoid();
+  const id = uuidv4();
   const customer: Customer = {
     id,
     member_code: null,

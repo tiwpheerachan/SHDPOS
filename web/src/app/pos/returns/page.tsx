@@ -69,9 +69,18 @@ export default function ReturnsPage() {
     setOrder(o); setSelected({}); setType("refund"); setRepl([]);
   }
 
+  // อัตราส่วนลดท้ายบิล (bill discount + แต้ม + คูปอง) ที่เฉลี่ยลงแต่ละรายการ
+  // เพื่อไม่ให้คืนเงินเกินที่ลูกค้าจ่ายจริง
+  const billRatio = useMemo(() => {
+    if (!order) return 1;
+    const afterLines = order.items.reduce((s, it) => s + it.line_total, 0);
+    return afterLines > 0 ? order.grand_total / afterLines : 1;
+  }, [order]);
+  const refundPerItem = (it: { line_total: number; qty: number }, qty: number) =>
+    round2((it.line_total / it.qty) * qty * billRatio);
   const refundAmount = round2(Object.entries(selected).reduce((sum, [itemId, sel]) => {
     const it = order?.items.find((i) => i.id === itemId); if (!it) return sum;
-    return sum + (it.line_total / it.qty) * sel.qty;
+    return sum + refundPerItem(it, sel.qty);
   }, 0));
   const replTotal = useMemo(() => round2(repl.reduce((s, l) => s + l.qty * l.unit_price, 0)), [repl]);
   const diff = round2(replTotal - refundAmount); // >0 = เก็บเพิ่ม, <0 = ทอน
@@ -88,7 +97,7 @@ export default function ReturnsPage() {
     if (!order || !employee) return;
     const items = Object.entries(selected).map(([itemId, sel]) => {
       const it = order.items.find((i) => i.id === itemId)!;
-      return { sku: it.sku, name: it.name, qty: sel.qty, unit_price: it.unit_price, line_total: round2((it.line_total / it.qty) * sel.qty), condition: sel.condition };
+      return { sku: it.sku, name: it.name, qty: sel.qty, unit_price: it.unit_price, line_total: refundPerItem(it, sel.qty), condition: sel.condition };
     });
     if (!items.length) return;
     setBusy(true);
@@ -175,7 +184,7 @@ export default function ReturnsPage() {
                       <Td>{sel ? <Select value={sel.condition} onChange={(e) => setSelected((s) => ({ ...s, [it.id]: { ...s[it.id], condition: e.target.value } }))} className="h-8 text-xs">
                         <option value="sellable">{t.returns.sellable}</option><option value="opened_box">{t.returns.opened_box}</option><option value="defective">{t.returns.defective}</option><option value="scrap">{t.returns.scrap}</option>
                       </Select> : null}</Td>
-                      <Td align="right" className="text-xs">{formatTHB(sel ? (it.line_total / it.qty) * sel.qty : it.line_total, false)}</Td>
+                      <Td align="right" className="text-xs">{formatTHB(sel ? refundPerItem(it, sel.qty) : round2(it.line_total * billRatio), false)}</Td>
                     </tr>
                   );
                 })}

@@ -113,8 +113,17 @@ export async function flush(): Promise<void> {
       try {
         const rpc = OP_RPC[item.op];
         if (rpc) {
-          const { error } = await sb.rpc(rpc, rpcArgs(item));
+          const { data, error } = await sb.rpc(rpc, rpcArgs(item));
           if (error) throw error;
+          // เขียนเลขบิลที่ server ออกให้ กลับเข้าบิลในเครื่อง (อ้างอิงข้ามเครื่องได้)
+          if (item.op === "create_order" && data) {
+            const res = data as { order_no?: string } | null;
+            const cu = (item.payload as { client_uuid?: string })?.client_uuid;
+            if (res?.order_no && cu) {
+              const local = await db().orders.where("client_uuid").equals(cu).first();
+              if (local) await db().orders.update(local.id, { synced: true, server_order_no: res.order_no });
+            }
+          }
         } else {
           const table = OP_TABLE[item.op];
           if (!table) throw new Error(`unknown op ${item.op}`);

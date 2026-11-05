@@ -233,6 +233,9 @@ export interface Order {
   is_offline_origin: boolean;
   created_at: string;
   void_reason?: string | null;
+  /** ซิงก์ขึ้น server แล้วหรือยัง + เลขบิลที่ server ออกให้ (อ้างอิงข้ามเครื่อง) */
+  synced?: boolean;
+  server_order_no?: string | null;
 }
 
 export interface OrderItem {

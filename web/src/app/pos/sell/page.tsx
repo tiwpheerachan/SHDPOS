@@ -25,6 +25,7 @@ import { ApprovalModal, type ApprovalRequestInput } from "@/components/pos/appro
 import { pushDisplay } from "@/lib/customer-display";
 import { CustomerPicker } from "@/components/pos/customer-picker";
 import { maxRedeemablePoints, POINT_VALUE_THB } from "@/lib/loyalty";
+import { uuidv4 } from "@/lib/uuid";
 import { buildReceipt } from "@/lib/printing/receipt";
 import { printEscPos, openCashDrawer } from "@/lib/printing/bridge";
 import type { HeldBill } from "@/lib/offline/db";
@@ -292,7 +293,7 @@ export default function SellPage() {
     setBusy(true);
     try {
       const { order } = await commitSale({
-        client_uuid: nanoid(),
+        client_uuid: uuidv4(),
         branch_id: branchId,
         terminal_id: session.terminalId,
         shift_id: session.shift?.id ?? null,

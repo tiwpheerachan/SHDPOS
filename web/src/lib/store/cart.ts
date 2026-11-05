@@ -151,9 +151,9 @@ export const useCart = create<CartState>((set, get) => ({
     })),
 
   setBillDiscount: (percent, amount) => set({ billDiscountPercent: percent, billDiscountAmount: amount }),
-  // พิมพ์ชื่อ/เบอร์เองในช่อง = ลูกค้าไม่ผูกกับ record → ล้าง customerId + แต้ม
+  // เปลี่ยนลูกค้า = ล้างทั้งแต้มที่เลือก และคูปอง (สิทธิ์ขึ้นกับลูกค้า/กลุ่ม ต้องตรวจใหม่)
   setCustomer: (customerName, customerPhone) =>
-    set({ customerName, customerPhone, customerId: null, customerPoints: 0, customerCredit: 0, redeemPoints: 0 }),
+    set({ customerName, customerPhone, customerId: null, customerPoints: 0, customerCredit: 0, redeemPoints: 0, couponCode: null, couponDiscount: 0, couponCampaignId: null }),
   setCustomerRef: (c) =>
     set({
       customerId: c.id,
@@ -162,9 +162,10 @@ export const useCart = create<CartState>((set, get) => ({
       customerPoints: Math.max(0, Math.floor(Number(c.points ?? 0))),
       customerCredit: Number(c.store_credit ?? 0),
       redeemPoints: 0,
+      couponCode: null, couponDiscount: 0, couponCampaignId: null,
     }),
   clearCustomer: () =>
-    set({ customerId: null, customerName: "", customerPhone: "", customerPoints: 0, customerCredit: 0, redeemPoints: 0 }),
+    set({ customerId: null, customerName: "", customerPhone: "", customerPoints: 0, customerCredit: 0, redeemPoints: 0, couponCode: null, couponDiscount: 0, couponCampaignId: null }),
   setRedeem: (points) => set((s) => ({ redeemPoints: Math.max(0, Math.min(Math.floor(points), s.customerPoints)) })),
   setCoupon: (couponCode, couponDiscount, couponCampaignId) => set({ couponCode, couponDiscount, couponCampaignId }),
   clearCoupon: () => set({ couponCode: null, couponDiscount: 0, couponCampaignId: null }),
