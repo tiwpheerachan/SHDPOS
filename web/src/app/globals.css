@@ -85,6 +85,14 @@
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
 
+/* พิมพ์เบราว์เซอร์: แสดงเฉพาะบิล */
+@media print {
+  body * { visibility: hidden !important; }
+  #shd-receipt, #shd-receipt * { visibility: visible !important; }
+  #shd-receipt { position: absolute !important; left: 0; top: 0; width: 80mm; max-width: 80mm; box-shadow: none !important; border-radius: 0 !important; }
+  @page { margin: 4mm; }
+}
+
 * {
   -webkit-tap-highlight-color: transparent;
 }

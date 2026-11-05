@@ -30,6 +30,7 @@ export interface Brand {
   name_th?: string | null;
   name_zh?: string | null;
   color?: string | null;
+  logo_url?: string | null;
 }
 
 export interface Branch {

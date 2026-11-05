@@ -14,7 +14,7 @@ import { useToast } from "@/components/toast-host";
 import {
   listProducts, listCategories, stockForBranch, employeesAtBranch, commitSale,
   getBranch, holdBill, listHolds, removeHold, currentShift, validateCoupon,
-  fetchActiveGiftCampaigns, fetchBrandWallet, type GiftCampaign,
+  fetchActiveGiftCampaigns, fetchBrandWallet, listBrands, type GiftCampaign,
 } from "@/lib/data/repo";
 import { computeCampaignGifts, giftSig } from "@/lib/promo/gifts";
 import type { Branch, CartLine, Category, Employee, Order, Product, StockLevel, PaymentEntry } from "@/lib/types";
@@ -22,7 +22,8 @@ import { formatTHB, lineTotal, round2 } from "@/lib/money";
 import { can, discountLimit, discountApprovalLevel, needsApproval } from "@/lib/permissions";
 import { Button, Card, EmptyState, Input, Select, Badge, Modal, Segmented, Avatar } from "@/components/ui";
 import { PaymentModal } from "@/components/pos/payment-modal";
-import { DiscountModal, SerialModal, ReceiptModal, type PrintStatus } from "@/components/pos/sale-modals";
+import { DiscountModal, SerialModal, type PrintStatus } from "@/components/pos/sale-modals";
+import { ReceiptPreview } from "@/components/pos/receipt-preview";
 import { ApprovalModal, type ApprovalRequestInput } from "@/components/pos/approval-modal";
 import { pushDisplay } from "@/lib/customer-display";
 import { CustomerPicker } from "@/components/pos/customer-picker";
@@ -70,6 +71,7 @@ export default function SellPage() {
   const [holdOpen, setHoldOpen] = useState(false);
   const [customerOpen, setCustomerOpen] = useState(false);
   const [cartExpanded, setCartExpanded] = useState(false);
+  const [brandLogo, setBrandLogo] = useState<string | null>(null);
   const [couponInput, setCouponInput] = useState("");
   const [couponMsg, setCouponMsg] = useState<string | null>(null);
   const [couponChecking, setCouponChecking] = useState(false);
@@ -126,6 +128,14 @@ export default function SellPage() {
     for (const p of products) m.set(p.sku, p);
     return m;
   }, [products]);
+
+  // โลโก้แบรนด์ของสาขา (ขึ้นบนบิล)
+  useEffect(() => {
+    if (!branch?.brand_id) { setBrandLogo(null); return; }
+    let alive = true;
+    void listBrands().then((bs) => { if (alive) setBrandLogo(bs.find((b) => b.id === branch.brand_id)?.logo_url ?? null); });
+    return () => { alive = false; };
+  }, [branch?.brand_id]);
 
   // โหลดยอดกระเป๋าแบรนด์ของสาขา เมื่อผูกลูกค้า (แต้ม/เครดิตแยกตามแบรนด์)
   useEffect(() => {
@@ -889,15 +899,18 @@ export default function SellPage() {
         }}
       />
 
-      <ReceiptModal
-        open={Boolean(lastOrder)}
+      <ReceiptPreview
         order={lastOrder}
         branch={branch}
         cashier={employee}
+        company={COMPANY}
+        logoUrl={brandLogo}
+        pointsEarned={lastOrder?.customer_id ? Math.floor(lastOrder.grand_total / 20) : 0}
         printStatus={printStatus}
         printError={printError}
         canOpenDrawer={can(employee, "pos.open_drawer")}
-        onRetryPrint={() => lastOrder && void doPrint(lastOrder)}
+        onPrint={() => lastOrder && void doPrint(lastOrder)}
+        onBrowserPrint={() => window.print()}
         onOpenDrawer={() => void openCashDrawer(session.printer)}
         onNewSale={() => {
           setLastOrder(null);
