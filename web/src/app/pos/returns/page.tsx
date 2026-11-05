@@ -7,7 +7,9 @@ import { RotateCcw, Search, Check, Plus, Trash2, Download, ArrowRight, RefreshCc
 import { useI18n } from "@/lib/i18n/provider";
 import { useSession } from "@/lib/store/session";
 import { useToast } from "@/components/toast-host";
-import { findOrderByNo, createReturn, listReturns, listOrders, listProducts } from "@/lib/data/repo";
+import { findOrderForReturn, createReturn, listReturns, listOrders, listProducts } from "@/lib/data/repo";
+import { uuidv4 } from "@/lib/uuid";
+import { Gift } from "lucide-react";
 import { useCart } from "@/lib/store/cart";
 import type { Order, PaymentMethod, Product, ReturnDoc, ReturnType } from "@/lib/types";
 import { Button, Card, CardHeader, Input, Field, Select, Segmented, Badge, EmptyState, Table, Th, Td, Drawer, DetailRow } from "@/components/ui";
@@ -64,10 +66,25 @@ export default function ReturnsPage() {
   useEffect(() => { void loadHistory(); /* eslint-disable-next-line */ }, [branchId]);
 
   async function search() {
-    const o = await findOrderByNo(orderNo);
+    const o = await findOrderForReturn(orderNo);
     if (!o) { toast.push({ tone: "warn", title: t.common.empty, body: orderNo }); return; }
     setOrder(o); setSelected({}); setType("refund"); setRepl([]);
   }
+
+  // ยอดคืนแล้วรายสินค้า (กันคืนเกิน) — จาก returned_qty ของ server + ประวัติในเครื่อง
+  const returnedBySku = useMemo(() => {
+    const m: Record<string, number> = {};
+    if (!order) return m;
+    for (const it of order.items) if (it.returned_qty) m[it.sku] = Math.max(m[it.sku] ?? 0, it.returned_qty);
+    const fromHistory: Record<string, number> = {};
+    for (const r of history) {
+      if (r.order_no !== order.order_no) continue;
+      for (const ri of r.items) fromHistory[ri.sku] = (fromHistory[ri.sku] ?? 0) + ri.qty;
+    }
+    for (const sku of Object.keys(fromHistory)) m[sku] = Math.max(m[sku] ?? 0, fromHistory[sku]);
+    return m;
+  }, [order, history]);
+  const remainingQty = (it: { sku: string; qty: number }) => Math.max(0, it.qty - (returnedBySku[it.sku] ?? 0));
 
   // อัตราส่วนลดท้ายบิล (bill discount + แต้ม + คูปอง) ที่เฉลี่ยลงแต่ละรายการ
   // เพื่อไม่ให้คืนเงินเกินที่ลูกค้าจ่ายจริง
@@ -105,9 +122,10 @@ export default function ReturnsPage() {
       const isExchange = type === "exchange";
       const exNote = isExchange && repl.length ? ` | ${L("เปลี่ยนเป็น", "Exchange to", "换为")}: ${repl.map((r) => `${r.name}×${r.qty}`).join(", ")} (${diff >= 0 ? L("เก็บเพิ่ม", "collect", "补收") : L("ทอน", "refund", "找零")} ${formatTHB(Math.abs(diff), false)})` : "";
       await createReturn({
-        id: nanoid(),
+        id: uuidv4(),
+        client_uuid: uuidv4(),
         return_no: `RT-${new Date().toISOString().slice(2, 10).replace(/-/g, "")}-${nanoid(4).toUpperCase()}`,
-        order_id: order.id, order_no: order.order_no, branch_id: order.branch_id,
+        order_id: order.id, order_no: order.order_no, order_client_uuid: order.client_uuid ?? null, branch_id: order.branch_id,
         type, status: "completed", reason_code: reason, reason_note: note + exNote,
         refund_method: type === "refund" ? refundMethod : null,
         refund_amount: type === "refund" ? refundAmount : isExchange && diff < 0 ? round2(-diff) : 0,
@@ -176,11 +194,16 @@ export default function ReturnsPage() {
               <tbody>
                 {order.items.map((it) => {
                   const sel = selected[it.id];
+                  const remain = remainingQty(it);
+                  const returned = (returnedBySku[it.sku] ?? 0);
                   return (
-                    <tr key={it.id} className={sel ? "bg-brand/5" : ""}>
-                      <Td align="center"><button onClick={() => toggle(it.id, it.qty)} className={`w-5 h-5 rounded border grid place-items-center ${sel ? "bg-brand border-brand text-brandInk" : "border-line"}`}>{sel ? <Check size={13} /> : null}</button></Td>
-                      <Td><p className="text-xs font-medium">{it.name}</p><p className="text-[10px] font-mono text-muted">{it.sku}{it.serials.length ? ` · SN ${it.serials.join(",")}` : ""}</p></Td>
-                      <Td align="center">{sel ? <Input value={sel.qty} inputMode="numeric" onChange={(e) => { const q = Math.min(Number(e.target.value.replace(/\D/g, "") || 0), it.qty); setSelected((s) => ({ ...s, [it.id]: { ...s[it.id], qty: q } })); }} className="h-8 w-16 text-center tnum" /> : <span className="text-xs text-muted tnum">{it.qty}</span>}</Td>
+                    <tr key={it.id} className={sel ? "bg-brand/5" : remain === 0 ? "opacity-50" : ""}>
+                      <Td align="center"><button disabled={remain === 0} onClick={() => toggle(it.id, remain)} className={`w-5 h-5 rounded border grid place-items-center disabled:opacity-40 ${sel ? "bg-brand border-brand text-brandInk" : "border-line"}`}>{sel ? <Check size={13} /> : null}</button></Td>
+                      <Td>
+                        <p className="text-xs font-medium flex items-center gap-1.5">{it.name}{it.is_gift && <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-ink text-surface inline-flex items-center gap-0.5"><Gift size={8} />ของแถม</span>}</p>
+                        <p className="text-[10px] font-mono text-muted">{it.sku}{it.serials.length ? ` · SN ${it.serials.join(",")}` : ""}{returned > 0 ? ` · คืนแล้ว ${returned}/${it.qty}` : ""}</p>
+                      </Td>
+                      <Td align="center">{sel ? <Input value={sel.qty} inputMode="numeric" onChange={(e) => { const q = Math.min(Number(e.target.value.replace(/\D/g, "") || 0), remain); setSelected((s) => ({ ...s, [it.id]: { ...s[it.id], qty: q } })); }} className="h-8 w-16 text-center tnum" /> : <span className="text-xs text-muted tnum">{remain}/{it.qty}</span>}</Td>
                       <Td>{sel ? <Select value={sel.condition} onChange={(e) => setSelected((s) => ({ ...s, [it.id]: { ...s[it.id], condition: e.target.value } }))} className="h-8 text-xs">
                         <option value="sellable">{t.returns.sellable}</option><option value="opened_box">{t.returns.opened_box}</option><option value="defective">{t.returns.defective}</option><option value="scrap">{t.returns.scrap}</option>
                       </Select> : null}</Td>

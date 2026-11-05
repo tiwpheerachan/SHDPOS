@@ -624,6 +624,59 @@ export async function findOrderByNo(orderNo: string): Promise<Order | undefined>
   return db().orders.where("order_no").equalsIgnoreCase(orderNo.trim()).first();
 }
 
+/** หาบิลเพื่อคืนสินค้า — ลองในเครื่องก่อน, ถ้าไม่เจอหาจาก server (ข้ามเครื่อง) */
+export async function findOrderForReturn(orderNo: string): Promise<Order | undefined> {
+  const local = await findOrderByNo(orderNo);
+  if (local) return local;
+  if (!isLiveMode() || (typeof navigator !== "undefined" && !navigator.onLine)) return undefined;
+  const sb = supabase();
+  if (!sb) return undefined;
+  const { data, error } = await sb.rpc("pos_lookup_order", { p_order_no: orderNo.trim() });
+  if (error || !data) return undefined;
+  const o = data as Record<string, unknown>;
+  const items = ((o.items as Record<string, unknown>[]) ?? []).map((it) => ({
+    id: String(it.id),
+    product_id: (it.product_id as string) ?? null,
+    sku: String(it.sku ?? ""),
+    name: String(it.name ?? ""),
+    kind: (it.kind as OrderItem["kind"]) ?? "goods",
+    qty: Number(it.qty ?? 0),
+    unit_price: Number(it.unit_price ?? 0),
+    discount_amount: 0,
+    line_total: Number(it.line_total ?? 0),
+    unit_cost: Number(it.unit_cost ?? 0),
+    cost_total: 0,
+    gross_profit: 0,
+    serials: (it.serials as string[]) ?? [],
+    returned_qty: Number(it.returned_qty ?? 0),
+    is_gift: !!it.is_gift,
+    gift_campaign_id: (it.gift_campaign_id as string) ?? null,
+  })) as OrderItem[];
+  return {
+    id: String(o.id),
+    order_no: String(o.order_no),
+    client_uuid: (o.client_uuid as string) ?? null,
+    branch_id: String(o.branch_id),
+    status: (o.status as Order["status"]) ?? "completed",
+    channel: (o.channel as Order["channel"]) ?? "offline",
+    subtotal: Number(o.subtotal ?? 0),
+    discount_total: Number(o.discount_total ?? 0),
+    vat_amount: 0,
+    grand_total: Number(o.grand_total ?? 0),
+    paid_total: Number(o.grand_total ?? 0),
+    change_amount: 0,
+    cost_total: 0,
+    gross_profit: 0,
+    customer_id: (o.customer_id as string) ?? null,
+    customer_name: (o.customer_name as string) ?? null,
+    customer_phone: (o.customer_phone as string) ?? null,
+    items,
+    payments: [],
+    is_offline_origin: false,
+    created_at: String(o.created_at ?? new Date().toISOString()),
+  } as Order;
+}
+
 // ---------------------------------------------------------------------
 // SHIFTS
 // ---------------------------------------------------------------------

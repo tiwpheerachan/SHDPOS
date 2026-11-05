@@ -299,9 +299,13 @@ export interface Transfer {
 
 export interface ReturnDoc {
   id: string;
+  /** uuid กันซ้ำ + อ้างอิงข้ามเครื่อง */
+  client_uuid?: string;
   return_no: string;
   order_id?: string | null;
   order_no?: string | null;
+  /** client_uuid ของบิลต้นทาง — ให้ server resolve order ข้ามเครื่องได้ */
+  order_client_uuid?: string | null;
   branch_id: string;
   type: ReturnType;
   status: ReturnStatus;
