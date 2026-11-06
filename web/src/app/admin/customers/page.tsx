@@ -13,6 +13,7 @@ import {
   TrendingUp, Clock, Loader2, MapPin, Combine, ShieldCheck, UserPlus,
 } from "lucide-react";
 import { listBranches } from "@/lib/data/repo";
+import { useScopeFilter } from "@/lib/store/scope-filter";
 import type { Branch } from "@/lib/types";
 import { Drawer, EmptyState, Modal, Table, Th, Td, Avatar } from "@/components/ui";
 import { formatTHB } from "@/lib/money";
@@ -283,16 +284,20 @@ export default function AdminCustomersPage() {
     [branches]
   );
 
+  const { brandId: fBrand, branchId: fBranch } = useScopeFilter();
   const loadList = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/admin/customers?q=${encodeURIComponent(q.trim())}`);
+      const params = new URLSearchParams({ q: q.trim() });
+      if (fBrand) params.set("brand_id", fBrand);
+      if (fBranch) params.set("branch_id", fBranch);
+      const res = await fetch(`/api/admin/customers?${params.toString()}`);
       const json = await res.json();
       setRows(Array.isArray(json.customers) ? json.customers : []);
     } finally {
       setLoading(false);
     }
-  }, [q]);
+  }, [q, fBrand, fBranch]);
 
   // โหลดรายชื่อ (debounce ตามคำค้น)
   useEffect(() => {

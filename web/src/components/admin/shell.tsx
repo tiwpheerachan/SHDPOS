@@ -16,6 +16,7 @@ import { LOCALES, LOCALE_LABEL } from "@/lib/i18n/dict";
 import { ROLE_LABEL, can, type PermissionKey } from "@/lib/permissions";
 import { Avatar, LiveDot } from "@/components/ui";
 import { Clock } from "@/components/clock";
+import { ScopeTopbar } from "@/components/admin/scope-topbar";
 import { BrandReveal } from "@/components/brand-reveal";
 
 type NavItem = { href: string; icon: typeof LayoutDashboard; key: string; perm?: PermissionKey };
@@ -254,13 +255,8 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
             </button>
 
             <div className="ml-auto flex items-center gap-1">
-              {/* brand / branch selectors (demo static) */}
-              <button className="hidden xl:flex items-center gap-1.5 h-9 px-3 rounded-xl hover:bg-surface2 text-xs font-medium text-ink">
-                {t.cmd.allBrands} <ChevronDown size={13} className="text-muted" />
-              </button>
-              <button className="hidden xl:flex items-center gap-1.5 h-9 px-3 rounded-xl hover:bg-surface2 text-xs font-medium text-ink">
-                {t.cmd.allBranches} <ChevronDown size={13} className="text-muted" />
-              </button>
+              {/* ตัวกรองแบรนด์/สาขา (ใช้งานจริง) */}
+              <ScopeTopbar />
 
               <Clock />
 

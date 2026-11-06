@@ -202,6 +202,32 @@ export async function GET(req: NextRequest) {
     if (allowedIds.length === 0) return NextResponse.json({ customers: [] });
   }
 
+  // ตัวกรองจาก topbar: สาขา / แบรนด์ (narrow allowedIds)
+  const intersect = (a: string[] | null, b: string[]) => (a === null ? b : a.filter((x) => b.includes(x)));
+  const fBranch = req.nextUrl.searchParams.get("branch_id");
+  if (fBranch) {
+    const [{ data: ords }, { data: regs }] = await Promise.all([
+      sb.from("orders").select("customer_id").eq("branch_id", fBranch).not("customer_id", "is", null).limit(10000),
+      sb.from("customers").select("id").eq("first_branch_id", fBranch),
+    ]);
+    const set = new Set<string>();
+    for (const o of ords ?? []) if (o.customer_id) set.add(o.customer_id as string);
+    for (const r of regs ?? []) set.add(r.id as string);
+    allowedIds = intersect(allowedIds, [...set]);
+  }
+  const fBrand = req.nextUrl.searchParams.get("brand_id");
+  if (fBrand) {
+    const { data: its } = await sb.from("order_items").select("order_id, products!inner(brand_id)").eq("products.brand_id", fBrand).limit(20000);
+    const orderIds = [...new Set((its ?? []).map((i) => i.order_id as string).filter(Boolean))];
+    const set = new Set<string>();
+    if (orderIds.length) {
+      const { data: os } = await sb.from("orders").select("customer_id").in("id", orderIds).not("customer_id", "is", null);
+      for (const o of os ?? []) if (o.customer_id) set.add(o.customer_id as string);
+    }
+    allowedIds = intersect(allowedIds, [...set]);
+  }
+  if (allowedIds && allowedIds.length === 0) return NextResponse.json({ customers: [] });
+
   let cq = sb.from("customers").select("*");
   if (q) {
     const safe = q.replace(/[%,]/g, " ");

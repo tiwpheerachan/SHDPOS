@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { Modal, EmptyState, Drawer } from "@/components/ui";
 import { useAdminScope } from "@/components/admin/filters";
+import { useScopeFilter } from "@/lib/store/scope-filter";
 import { SearchSelect } from "@/components/admin/search-select";
 import { formatTHB } from "@/lib/money";
 import { Maximize2, Minimize2, ImagePlus } from "lucide-react";
@@ -63,6 +64,7 @@ function fmtDate(iso: string | null): string {
 
 export default function AdminCampaignsPage() {
   const { brands, branches } = useAdminScope();
+  const { brandId: fBrand, branchId: fBranch } = useScopeFilter();
   const [items, setItems] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
@@ -174,6 +176,14 @@ export default function AdminCampaignsPage() {
   const brandName = (id: string) => brands.find((b) => b.id === id)?.name ?? id;
   const branchName = (id: string) => { const b = branches.find((x) => x.id === id); return b ? (b.name_th ?? b.name) : id; };
 
+  // กรองตามตัวกรองแบรนด์/สาขาบน topbar (แคมเปญส่วนกลาง = array ว่าง แสดงเสมอ)
+  const shownItems = items.filter((c) => {
+    const brs = c.brand_ids ?? []; const bchs = c.branch_ids ?? [];
+    if (fBrand && brs.length > 0 && !brs.includes(fBrand)) return false;
+    if (fBranch && bchs.length > 0 && !bchs.includes(fBranch)) return false;
+    return true;
+  });
+
   function toggleArr(key: "brand_ids" | "branch_ids" | "channels", v: string) {
     setForm((f) => ({ ...f, [key]: f[key].includes(v) ? f[key].filter((x) => x !== v) : [...f[key], v] }));
   }
@@ -198,11 +208,11 @@ export default function AdminCampaignsPage() {
 
       {loading ? (
         <div className="py-20 text-center text-muted"><Loader2 className="inline animate-spin" size={20} /> กำลังโหลด…</div>
-      ) : items.length === 0 ? (
-        <EmptyState icon={<Ticket size={26} />} title="ยังไม่มีแคมเปญ" body="กด “สร้างแคมเปญ” เพื่อเริ่ม" />
+      ) : shownItems.length === 0 ? (
+        <EmptyState icon={<Ticket size={26} />} title={items.length ? "ไม่ตรงกับตัวกรอง" : "ยังไม่มีแคมเปญ"} body={items.length ? "ลองเปลี่ยนแบรนด์/สาขาบนแถบบน" : "กด “สร้างแคมเปญ” เพื่อเริ่ม"} />
       ) : (
         <div className="grid gap-3 lg:grid-cols-2">
-          {items.map((c) => (
+          {shownItems.map((c) => (
             <div key={c.id} className={`p-4 rounded-2xl border bg-surface ${c.active ? "border-line" : "border-line opacity-60"}`}>
               <div className="flex items-start gap-3">
                 {c.cover_url && (

@@ -12,6 +12,7 @@ import {
   AlertTriangle, ClipboardList, FileText, ShieldCheck, PhoneCall, X,
 } from "lucide-react";
 import { listEmployees } from "@/lib/data/repo";
+import { useScopeFilter } from "@/lib/store/scope-filter";
 import type { Employee } from "@/lib/types";
 import { Modal, EmptyState } from "@/components/ui";
 
@@ -30,6 +31,7 @@ interface Task {
   customer_name: string;
   customer_phone: string | null;
   assignee_name: string | null;
+  branch_id?: string | null;
 }
 interface CustHit { id: string; name: string; phone: string | null }
 
@@ -102,11 +104,14 @@ export default function AdminTasksPage() {
     return () => { alive = false; clearTimeout(id); };
   }, [cq, createOpen]);
 
+  const { branchId: fBranch } = useScopeFilter();
   const shown = useMemo(() => {
-    if (filter === "overdue") return tasks.filter(isOverdue);
-    if (filter === "today") return tasks.filter((t) => t.status === "open" && t.due_date === todayStr());
-    return tasks;
-  }, [tasks, filter]);
+    let list = tasks;
+    if (filter === "overdue") list = tasks.filter(isOverdue);
+    else if (filter === "today") list = tasks.filter((t) => t.status === "open" && t.due_date === todayStr());
+    if (fBranch) list = list.filter((t) => t.branch_id === fBranch);
+    return list;
+  }, [tasks, filter, fBranch]);
 
   const counts = useMemo(() => ({
     open: tasks.filter((t) => t.status === "open").length,
