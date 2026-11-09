@@ -13,6 +13,7 @@ import { visibleBranchIds } from "@/lib/permissions";
 
 export default function AdminApprovalsPage() {
   const { t, locale } = useI18n();
+  const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
   const toast = useToast();
   const { employee } = useSession();
   const [rows, setRows] = useState<ApprovalRequest[]>([]);
@@ -54,7 +55,11 @@ export default function AdminApprovalsPage() {
       <Card>
         <CardHeader
           title={t.admin.approvals}
-          subtitle="ส่วนลดเกินสิทธิ์ · ยกเลิกบิล · คืนสินค้า · ปรับสต๊อก · โอนย้าย"
+          subtitle={L(
+            "ส่วนลดเกินสิทธิ์ · ยกเลิกบิล · คืนสินค้า · ปรับสต๊อก · โอนย้าย",
+            "Over-limit discount · Void order · Return · Stock adjust · Transfer",
+            "超权限折扣 · 作废订单 · 退货 · 库存调整 · 调拨"
+          )}
           right={
             <Segmented
               size="sm"
@@ -72,9 +77,9 @@ export default function AdminApprovalsPage() {
             <thead>
               <tr>
                 <Th>{t.common.date}</Th>
-                <Th>ประเภท</Th>
+                <Th>{L("ประเภท", "Type", "类型")}</Th>
                 <Th>{t.common.branch}</Th>
-                <Th>ผู้ขอ</Th>
+                <Th>{L("ผู้ขอ", "Requested by", "申请人")}</Th>
                 <Th>{t.approval.approvedBy}</Th>
                 <Th align="right">{t.common.amount}</Th>
                 <Th align="center">{t.common.status}</Th>
@@ -120,7 +125,7 @@ export default function AdminApprovalsPage() {
             </tbody>
           </Table>
         ) : (
-          <EmptyState icon={<ShieldCheck size={26} />} title={t.common.empty} body="คำขออนุมัติจากหน้าร้านจะมาแสดงที่นี่" />
+          <EmptyState icon={<ShieldCheck size={26} />} title={t.common.empty} body={L("คำขออนุมัติจากหน้าร้านจะมาแสดงที่นี่", "Approval requests from the store will appear here", "门店的审批请求将显示在此处")} />
         )}
       </Card>
     </div>

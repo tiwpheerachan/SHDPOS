@@ -39,6 +39,7 @@ export function ApprovalModal({
   onApproved: (approver: Employee) => void;
 }) {
   const { t, locale } = useI18n();
+  const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
   const [candidates, setCandidates] = useState<Employee[]>([]);
   const [approverId, setApproverId] = useState("");
   const [pin, setPin] = useState("");
@@ -103,7 +104,7 @@ export function ApprovalModal({
               <p className="font-medium text-ink">{t.approval.required}</p>
               {request.reason ? <p className="text-muted mt-0.5">{request.reason}</p> : null}
               <p className="text-muted mt-0.5">
-                ต้องเป็นระดับ {ROLE_LABEL[request.minRole][locale]} ขึ้นไป
+                {L("ต้องเป็นระดับ", "Requires role", "需要级别")} {ROLE_LABEL[request.minRole][locale]} {L("ขึ้นไป", "or higher", "及以上")}
               </p>
             </div>
           </div>
@@ -119,7 +120,7 @@ export function ApprovalModal({
           </Field>
 
           {!candidates.length ? (
-            <p className="text-xs text-danger">ไม่มีผู้มีสิทธิ์อนุมัติอยู่ในสาขานี้ — ต้องติดต่อ HQ</p>
+            <p className="text-xs text-danger">{L("ไม่มีผู้มีสิทธิ์อนุมัติอยู่ในสาขานี้ — ต้องติดต่อ HQ", "No eligible approver at this branch — contact HQ", "本店无有权审批人员 — 请联系总部")}</p>
           ) : (
             <>
               <div className="flex justify-center gap-2.5 py-1">

@@ -25,6 +25,7 @@ const TONE: Record<string, "neutral" | "info" | "warn" | "ok" | "danger"> = {
 
 export default function AdminTransfersPage() {
   const { t, locale, pick } = useI18n();
+  const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
   const toast = useToast();
   const { employee } = useSession();
 
@@ -163,7 +164,7 @@ export default function AdminTransfersPage() {
             </tbody>
           </Table>
         ) : (
-          <EmptyState icon={<ArrowLeftRight size={26} />} title={t.common.empty} body="สร้างใบโอนย้ายเพื่อย้ายสินค้าระหว่างสาขา" />
+          <EmptyState icon={<ArrowLeftRight size={26} />} title={t.common.empty} body={L("สร้างใบโอนย้ายเพื่อย้ายสินค้าระหว่างสาขา", "Create a transfer to move stock between branches", "创建调货单以在门店间调拨商品")} />
         )}
       </Card>
 
@@ -199,7 +200,7 @@ export default function AdminTransfersPage() {
               </Select>
             </Field>
           </div>
-          {from === to ? <p className="text-xs text-danger">ต้นทางและปลายทางต้องไม่ใช่สาขาเดียวกัน</p> : null}
+          {from === to ? <p className="text-xs text-danger">{L("ต้นทางและปลายทางต้องไม่ใช่สาขาเดียวกัน", "Source and destination must not be the same branch", "调出和调入不能是同一门店")}</p> : null}
 
           <div className="flex gap-2">
             <Select value={pickId} onChange={(e) => setPickId(e.target.value)} className="flex-1">

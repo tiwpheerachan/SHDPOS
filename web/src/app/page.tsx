@@ -14,7 +14,8 @@ import DotGrid from "@/components/ui/dot-grid";
 import { GLSLHills } from "@/components/ui/glsl-hills";
 
 export default function Home() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
+  const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
   const { resolved } = useTheme();
   const router = useRouter();
   const { employee } = useSession();
@@ -77,27 +78,27 @@ export default function Home() {
               staggerFrom="first"
               transition={{ type: "spring", stiffness: 200, damping: 21 }}
             >
-              ยินดีต้อนรับ
+              {L("ยินดีต้อนรับ", "Welcome", "欢迎光临")}
             </VerticalCutReveal>
             <span className="shd-wave text-3xl sm:text-4xl">👋</span>
           </h1>
-          <p className="text-sm text-muted mt-2">ระบบขายหน้าร้านหลายสาขา · หลายแบรนด์ · ออฟไลน์ได้</p>
+          <p className="text-sm text-muted mt-2">{L("ระบบขายหน้าร้านหลายสาขา · หลายแบรนด์ · ออฟไลน์ได้", "Multi-branch POS · Multi-brand · Offline-ready", "多门店 POS · 多品牌 · 支持离线")}</p>
 
           <div className="grid sm:grid-cols-3 gap-4 mt-7">
             <Link href="/pos/sell" className="card p-5 hover:border-brand transition-colors group">
               <Store className="text-brand mb-3" size={22} />
               <p className="font-semibold text-sm">{t.app.pos}</p>
-              <p className="text-xs text-muted mt-1">ขายสินค้า เปิดกะ รับคืน พิมพ์สลิป</p>
+              <p className="text-xs text-muted mt-1">{L("ขายสินค้า เปิดกะ รับคืน พิมพ์สลิป", "Sell, open shift, returns, print receipts", "销售、开班、退货、打印小票")}</p>
             </Link>
             <Link href="/admin" className="card p-5 hover:border-brand transition-colors">
               <LayoutDashboard className="text-brand mb-3" size={22} />
               <p className="font-semibold text-sm">{t.app.admin}</p>
-              <p className="text-xs text-muted mt-1">แดชบอร์ด สต๊อก พนักงาน สิทธิ์ audit</p>
+              <p className="text-xs text-muted mt-1">{L("แดชบอร์ด สต๊อก พนักงาน สิทธิ์ audit", "Dashboard, stock, staff, permissions, audit", "仪表盘、库存、员工、权限、审计")}</p>
             </Link>
             <Link href="/pos/display" className="card p-5 hover:border-brand transition-colors">
               <Monitor className="text-brand mb-3" size={22} />
               <p className="font-semibold text-sm">{t.settings.customerDisplay}</p>
-              <p className="text-xs text-muted mt-1">จอฝั่งลูกค้า (เปิดบนจอที่สอง)</p>
+              <p className="text-xs text-muted mt-1">{L("จอฝั่งลูกค้า (เปิดบนจอที่สอง)", "Customer-facing display (open on a second screen)", "顾客显示屏（在第二块屏幕打开）")}</p>
             </Link>
           </div>
         </div>

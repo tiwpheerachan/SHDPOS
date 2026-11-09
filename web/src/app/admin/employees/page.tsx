@@ -15,6 +15,7 @@ import { ROLE_LABEL, can, visibleBranchIds } from "@/lib/permissions";
 
 export default function AdminEmployeesPage() {
   const { t, locale } = useI18n();
+  const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
   const { employee } = useSession();
   const { branches, brands } = useAdminScope();
   const [filter, setFilter] = useDefaultFilter();
@@ -63,7 +64,7 @@ export default function AdminEmployeesPage() {
 
       <div className="grid lg:grid-cols-[1fr_360px] gap-4">
         <Card>
-          <CardHeader title={t.admin.topEmployees} subtitle="ยอดขายแยกรายคน — รวมกรณีเข้ากะพร้อมกันหลายคน" />
+          <CardHeader title={t.admin.topEmployees} subtitle={L("ยอดขายแยกรายคน — รวมกรณีเข้ากะพร้อมกันหลายคน", "Sales by individual — combined when several share a shift", "按个人销售额 — 多人同班时合并计算")} />
           {rows.length ? (
             <Table>
               <thead>

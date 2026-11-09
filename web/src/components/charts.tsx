@@ -8,6 +8,7 @@
 
 import React, { useId, useMemo, useState } from "react";
 import { formatCompact, formatTHB, formatInt } from "@/lib/money";
+import { useI18n } from "@/lib/i18n/provider";
 
 /** จานสีสำหรับข้อมูลแบบหมวดหมู่ — โทน warm/accent อ่านออกทั้งโหมดสว่าง/มืด */
 export const SERIES_COLORS = [
@@ -39,6 +40,8 @@ export function AreaChart({
   color?: string;
   compareColor?: string;
 }) {
+  const { locale } = useI18n();
+  const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
   const gid = useId().replace(/:/g, "");
   const [hover, setHover] = useState<number | null>(null);
 
@@ -65,7 +68,7 @@ export function AreaChart({
     return { path, areaPath, comparePath, max, pts };
   }, [data]);
 
-  if (!data.length) return <div className="h-[220px] grid place-items-center text-xs text-muted">ไม่มีข้อมูล</div>;
+  if (!data.length) return <div className="h-[220px] grid place-items-center text-xs text-muted">{L("ไม่มีข้อมูล", "No data", "暂无数据")}</div>;
 
   return (
     <div className="relative">
@@ -136,8 +139,10 @@ export function BarList({
   max?: number;
   colorFor?: (i: number) => string;
 }) {
+  const { locale } = useI18n();
+  const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
   const max = maxProp ?? Math.max(1, ...data.map((d) => d.value));
-  if (!data.length) return <div className="py-8 text-center text-xs text-muted">ไม่มีข้อมูล</div>;
+  if (!data.length) return <div className="py-8 text-center text-xs text-muted">{L("ไม่มีข้อมูล", "No data", "暂无数据")}</div>;
   return (
     <div className="space-y-2.5">
       {data.map((d, i) => (
@@ -318,6 +323,8 @@ export function HeroChart({
   valueFormat?: (n: number) => string;
   accent?: string;
 }) {
+  const { locale } = useI18n();
+  const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
   const gid = useId().replace(/:/g, "");
   const [hover, setHover] = useState<number | null>(null);
   const W = 1000, H = 340;
@@ -340,7 +347,7 @@ export function HeroChart({
     return { bars, linePath, max, targetY: target != null ? y(target) : null };
   }, [data, target]);
 
-  if (!data.length) return <div className="grid place-items-center text-xs text-muted" style={{ height }}>ไม่มีข้อมูล</div>;
+  if (!data.length) return <div className="grid place-items-center text-xs text-muted" style={{ height }}>{L("ไม่มีข้อมูล", "No data", "暂无数据")}</div>;
   const baseY = H - pad.b;
 
   return (
@@ -391,7 +398,7 @@ export function HeroChart({
           <div className="font-semibold opacity-70 text-[10px] uppercase tracking-wide">{data[hover].label}</div>
           <div className="tnum text-sm font-semibold mt-0.5">{valueFormat(data[hover].value)}</div>
           {data[hover].compare != null ? (
-            <div className="tnum text-[10px] opacity-60 mt-0.5">เทียบก่อนหน้า {valueFormat(data[hover].compare!)}</div>
+            <div className="tnum text-[10px] opacity-60 mt-0.5">{L("เทียบก่อนหน้า", "vs previous", "对比上期")} {valueFormat(data[hover].compare!)}</div>
           ) : null}
         </div>
       ) : null}

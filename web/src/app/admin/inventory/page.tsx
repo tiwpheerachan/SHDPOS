@@ -12,6 +12,7 @@ import { can, visibleBranchIds } from "@/lib/permissions";
 
 export default function AdminInventoryPage() {
   const { t, locale, pick } = useI18n();
+  const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
   const { employee } = useSession();
   const [products, setProducts] = useState<Product[]>([]);
   const [stock, setStock] = useState<(StockLevel & { key: string })[]>([]);
@@ -84,7 +85,7 @@ export default function AdminInventoryPage() {
         <KpiTile label="SKU" value={formatInt(rows.length)} icon={<Boxes size={15} />} />
         <KpiTile label={t.inventory.lowStock} value={formatInt(lowCount)} tone="warn" icon={<AlertTriangle size={15} />} />
         <KpiTile label={t.pos.outOfStock} value={formatInt(outCount)} tone="danger" />
-        {showCost ? <KpiTile label="มูลค่าสต๊อก (ต้นทุน)" value={formatTHB(stockValue)} tone="brand" /> : <KpiTile label={t.common.branch} value={formatInt(allowed.length)} />}
+        {showCost ? <KpiTile label={L("มูลค่าสต๊อก (ต้นทุน)", "Stock value (cost)", "库存价值（成本）")} value={formatTHB(stockValue)} tone="brand" /> : <KpiTile label={t.common.branch} value={formatInt(allowed.length)} />}
       </div>
 
       <Card>
@@ -132,7 +133,7 @@ export default function AdminInventoryPage() {
                 <Th>{t.admin.products}</Th>
                 <Th align="right">{t.inventory.onHand}</Th>
                 <Th align="right">{t.inventory.reorder}</Th>
-                {showCost ? <Th align="right">มูลค่า</Th> : null}
+                {showCost ? <Th align="right">{L("มูลค่า", "Value", "价值")}</Th> : null}
                 <Th align="center">{t.common.status}</Th>
               </tr>
             </thead>

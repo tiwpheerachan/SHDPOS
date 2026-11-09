@@ -6,6 +6,7 @@
 // =====================================================================
 import { useEffect, useRef, useState } from "react";
 import { Search, Check, ChevronDown, X } from "lucide-react";
+import { useI18n } from "@/lib/i18n/provider";
 
 export interface SSOption { v: string; label: string; sub?: string }
 
@@ -14,7 +15,7 @@ export function SearchSelect({
   options,
   selected,
   onChange,
-  placeholder = "ค้นหา…",
+  placeholder,
 }: {
   allLabel: string;
   options: SSOption[];
@@ -22,6 +23,9 @@ export function SearchSelect({
   onChange: (next: string[]) => void;
   placeholder?: string;
 }) {
+  const { locale } = useI18n();
+  const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
+  const ph = placeholder ?? L("ค้นหา…", "Search…", "搜索…");
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
   const ref = useRef<HTMLDivElement>(null);
@@ -44,7 +48,7 @@ export function SearchSelect({
     ? allLabel
     : selected.length <= 2
       ? selected.map((v) => options.find((o) => o.v === v)?.label ?? v).join(", ")
-      : `เลือก ${selected.length} รายการ`;
+      : L(`เลือก ${selected.length} รายการ`, `${selected.length} selected`, `已选 ${selected.length} 项`);
 
   return (
     <div className="relative" ref={ref}>
@@ -62,7 +66,7 @@ export function SearchSelect({
         <div className="absolute z-30 mt-1 w-full rounded-xl border border-line bg-surface shadow-pop overflow-hidden">
           <div className="relative p-2 border-b border-line">
             <Search size={14} className="absolute left-4 top-4 text-muted" />
-            <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder={placeholder}
+            <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder={ph}
               className="w-full h-9 pl-8 pr-2 rounded-lg bg-surface2/60 border border-line outline-none text-sm focus:border-brand/40" />
           </div>
           <ul className="max-h-56 overflow-y-auto py-1">
@@ -83,7 +87,7 @@ export function SearchSelect({
                 </button>
               </li>
             ))}
-            {filtered.length === 0 && <li className="px-3 py-3 text-xs text-muted text-center">ไม่พบ</li>}
+            {filtered.length === 0 && <li className="px-3 py-3 text-xs text-muted text-center">{L("ไม่พบ", "No results", "无结果")}</li>}
           </ul>
         </div>
       )}

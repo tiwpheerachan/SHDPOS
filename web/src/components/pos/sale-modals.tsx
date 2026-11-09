@@ -32,7 +32,8 @@ export function DiscountModal({
   /** needsApproval = true เมื่อเกินเพดาน */
   onApply: (percent: number, amount: number, needsApproval: boolean) => void;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
+  const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
   const [mode, setMode] = useState<"percent" | "amount">("percent");
   const [value, setValue] = useState("");
 
@@ -94,7 +95,7 @@ export function DiscountModal({
         </div>
         <div className="rounded-xl bg-surface2 border border-line px-3.5 py-3 text-xs space-y-1">
           <div className="flex justify-between">
-            <span className="text-muted">ยอดก่อนลด</span>
+            <span className="text-muted">{L("ยอดก่อนลด", "Before discount", "折前金额")}</span>
             <span className="tnum">{formatTHB(base)}</span>
           </div>
           <div className="flex justify-between">
@@ -112,7 +113,7 @@ export function DiscountModal({
           <div className="flex items-start gap-2 text-xs text-warn bg-warn/10 border border-warn/25 rounded-lg px-3 py-2">
             <AlertTriangle size={14} className="mt-0.5 shrink-0" />
             <span>
-              เกินสิทธิ์ของคุณ ({limitPercent}%) — ต้องให้หัวหน้าอนุมัติ
+              {L("เกินสิทธิ์ของคุณ", "Exceeds your limit", "超出您的权限")} ({limitPercent}%) — {L("ต้องให้หัวหน้าอนุมัติ", "supervisor approval required", "需主管审批")}
             </span>
           </div>
         ) : null}
@@ -139,7 +140,8 @@ export function SerialModal({
   initial: string[];
   onSave: (serials: string[]) => void;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
+  const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
   const [list, setList] = useState<string[]>([]);
   const [draft, setDraft] = useState("");
 
@@ -179,7 +181,7 @@ export function SerialModal({
     >
       <div className="space-y-3">
         <p className="text-sm font-medium">{productName}</p>
-        <p className="text-xs text-muted">ต้องสแกนให้ครบ {qty} ชิ้น — ใช้เครื่องสแกนยิงต่อกันได้เลย</p>
+        <p className="text-xs text-muted">{L("ต้องสแกนให้ครบ", "Scan all", "需扫描全部")} {qty} {L("ชิ้น — ใช้เครื่องสแกนยิงต่อกันได้เลย", "items — scan them one after another", "件 — 可连续扫描")}</p>
         <div className="flex gap-2">
           <div className="relative flex-1">
             <Barcode size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
@@ -206,7 +208,7 @@ export function SerialModal({
               </button>
             </li>
           ))}
-          {!list.length ? <li className="text-xs text-muted text-center py-6">ยังไม่มี serial</li> : null}
+          {!list.length ? <li className="text-xs text-muted text-center py-6">{L("ยังไม่มี serial", "No serials yet", "暂无序列号")}</li> : null}
         </ul>
       </div>
     </Modal>

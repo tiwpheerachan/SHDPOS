@@ -11,7 +11,8 @@ import { formatTHB } from "@/lib/money";
 import { can } from "@/lib/permissions";
 
 export default function AdminProductsPage() {
-  const { t, pick } = useI18n();
+  const { t, pick, locale } = useI18n();
+  const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
   const { employee } = useSession();
   const [products, setProducts] = useState<Product[]>([]);
   const [brands, setBrands] = useState<Brand[]>([]);
@@ -43,7 +44,11 @@ export default function AdminProductsPage() {
       <Card>
         <CardHeader
           title={t.admin.products}
-          subtitle={`${rows.length} SKU — ข้อมูลสินค้าจริงจะ import จากฐานข้อมูลของคุณ (ดู docs/08-api-reference.md)`}
+          subtitle={L(
+            `${rows.length} SKU — ข้อมูลสินค้าจริงจะ import จากฐานข้อมูลของคุณ (ดู docs/08-api-reference.md)`,
+            `${rows.length} SKUs — real product data will be imported from your database (see docs/08-api-reference.md)`,
+            `${rows.length} 个 SKU — 真实商品数据将从您的数据库导入（见 docs/08-api-reference.md）`
+          )}
         />
         <div className="p-4 flex flex-wrap gap-2">
           <Select value={brandId} onChange={(e) => setBrandId(e.target.value)} className="h-9 w-44">
@@ -65,9 +70,9 @@ export default function AdminProductsPage() {
                 <Th>SKU</Th>
                 <Th>{t.admin.products}</Th>
                 <Th>{t.common.brand}</Th>
-                <Th>หมวด</Th>
+                <Th>{L("หมวด", "Category", "分类")}</Th>
                 <Th align="right">{t.common.price}</Th>
-                {showCost ? <Th align="right">ต้นทุน</Th> : null}
+                {showCost ? <Th align="right">{L("ต้นทุน", "Cost", "成本")}</Th> : null}
                 {showCost ? <Th align="right">GP%</Th> : null}
                 <Th align="center">Serial</Th>
               </tr>

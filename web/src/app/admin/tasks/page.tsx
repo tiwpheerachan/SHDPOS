@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { listEmployees } from "@/lib/data/repo";
 import { useScopeFilter } from "@/lib/store/scope-filter";
+import { useI18n } from "@/lib/i18n/provider";
 import type { Employee } from "@/lib/types";
 import { Modal, EmptyState } from "@/components/ui";
 
@@ -35,27 +36,29 @@ interface Task {
 }
 interface CustHit { id: string; name: string; phone: string | null }
 
-const KIND: Record<string, { label: string; icon: typeof FileText; cls: string }> = {
-  follow_up: { label: "ติดตาม", icon: ClipboardList, cls: "bg-aqua text-ink" },
-  quotation: { label: "ใบเสนอราคา", icon: FileText, cls: "bg-lavender text-brand" },
-  warranty: { label: "ประกัน", icon: ShieldCheck, cls: "bg-mint text-ink" },
-  callback: { label: "โทรกลับ", icon: PhoneCall, cls: "bg-yellow/70 text-ink" },
-  other: { label: "อื่นๆ", icon: ClipboardList, cls: "bg-surface2 text-muted" },
+// label tuples = [th, en, zh] — rendered via L at point of use
+const KIND: Record<string, { label: [string, string, string]; icon: typeof FileText; cls: string }> = {
+  follow_up: { label: ["ติดตาม", "Follow-up", "跟进"], icon: ClipboardList, cls: "bg-aqua text-ink" },
+  quotation: { label: ["ใบเสนอราคา", "Quotation", "报价单"], icon: FileText, cls: "bg-lavender text-brand" },
+  warranty: { label: ["ประกัน", "Warranty", "保修"], icon: ShieldCheck, cls: "bg-mint text-ink" },
+  callback: { label: ["โทรกลับ", "Callback", "回电"], icon: PhoneCall, cls: "bg-yellow/70 text-ink" },
+  other: { label: ["อื่นๆ", "Other", "其他"], icon: ClipboardList, cls: "bg-surface2 text-muted" },
 };
-const KIND_OPTS = Object.entries(KIND).map(([v, k]) => ({ v, label: k.label }));
+const KIND_OPTS = Object.keys(KIND);
 
 const FILTERS = [
-  { v: "open", label: "ค้างอยู่" },
-  { v: "overdue", label: "เกินกำหนด" },
-  { v: "today", label: "วันนี้" },
-  { v: "done", label: "เสร็จแล้ว" },
-  { v: "all", label: "ทั้งหมด" },
+  { v: "open", label: ["ค้างอยู่", "Open", "待办"] },
+  { v: "overdue", label: ["เกินกำหนด", "Overdue", "逾期"] },
+  { v: "today", label: ["วันนี้", "Today", "今天"] },
+  { v: "done", label: ["เสร็จแล้ว", "Done", "已完成"] },
+  { v: "all", label: ["ทั้งหมด", "All", "全部"] },
 ] as const;
 type Filter = (typeof FILTERS)[number]["v"];
 
-function fmtDate(iso: string | null): string {
-  if (!iso) return "ไม่กำหนด";
-  return new Date(iso).toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "2-digit" });
+function fmtDate(iso: string | null, locale: string, L: (th: string, en: string, zh: string) => string): string {
+  if (!iso) return L("ไม่กำหนด", "No due date", "未设定");
+  const loc = locale === "th" ? "th-TH" : locale === "zh" ? "zh-CN" : "en-US";
+  return new Date(iso).toLocaleDateString(loc, { day: "numeric", month: "short", year: "2-digit" });
 }
 function todayStr(): string {
   return new Date().toISOString().slice(0, 10);
@@ -65,6 +68,8 @@ function isOverdue(t: Task): boolean {
 }
 
 export default function AdminTasksPage() {
+  const { locale } = useI18n();
+  const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<Filter>("open");
@@ -163,11 +168,11 @@ export default function AdminTasksPage() {
     <div className="p-4 sm:p-6 space-y-5 w-full">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-xl font-bold flex items-center gap-2"><CalendarClock size={22} /> ติดตามลูกค้า</h1>
-          <p className="text-sm text-muted mt-0.5">งานติดตาม นัดหมาย และบันทึกผลการติดต่อ</p>
+          <h1 className="text-xl font-bold flex items-center gap-2"><CalendarClock size={22} /> {L("ติดตามลูกค้า", "Customer Follow-ups", "客户跟进")}</h1>
+          <p className="text-sm text-muted mt-0.5">{L("งานติดตาม นัดหมาย และบันทึกผลการติดต่อ", "Follow-up tasks, appointments, and contact logs", "跟进任务、预约与联系记录")}</p>
         </div>
         <button onClick={openCreate} className="h-10 px-4 rounded-2xl bg-brand text-brandInk text-sm font-bold inline-flex items-center gap-2">
-          <Plus size={16} /> เพิ่มงานติดตาม
+          <Plus size={16} /> {L("เพิ่มงานติดตาม", "Add follow-up task", "添加跟进任务")}
         </button>
       </div>
 
@@ -181,7 +186,7 @@ export default function AdminTasksPage() {
               filter === f.v ? "bg-brand text-brandInk" : "bg-surface2 text-muted hover:text-ink"
             }`}
           >
-            {f.label}
+            {L(f.label[0], f.label[1], f.label[2])}
             {f.v === "overdue" && counts.overdue > 0 && (
               <span className="px-1.5 rounded-full bg-danger text-white text-[10px]">{counts.overdue}</span>
             )}
@@ -190,9 +195,9 @@ export default function AdminTasksPage() {
       </div>
 
       {loading ? (
-        <div className="py-20 text-center text-muted"><Loader2 className="inline animate-spin" size={20} /> กำลังโหลด…</div>
+        <div className="py-20 text-center text-muted"><Loader2 className="inline animate-spin" size={20} /> {L("กำลังโหลด…", "Loading…", "加载中…")}</div>
       ) : shown.length === 0 ? (
-        <EmptyState icon={<CalendarClock size={26} />} title="ไม่มีงานติดตาม" body="กด “เพิ่มงานติดตาม” เพื่อสร้างงานใหม่" />
+        <EmptyState icon={<CalendarClock size={26} />} title={L("ไม่มีงานติดตาม", "No follow-up tasks", "暂无跟进任务")} body={L("กด “เพิ่มงานติดตาม” เพื่อสร้างงานใหม่", "Tap “Add follow-up task” to create one", "点击“添加跟进任务”以新建")} />
       ) : (
         <ul className="space-y-2.5">
           {shown.map((t) => {
@@ -206,27 +211,27 @@ export default function AdminTasksPage() {
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className={`text-sm font-semibold ${done ? "line-through text-muted" : ""}`}>{t.title}</span>
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${k.cls}`}>{k.label}</span>
-                    {overdue && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-danger/15 text-danger inline-flex items-center gap-1"><AlertTriangle size={10} />เกินกำหนด</span>}
-                    {done && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-ok/15 text-ok">เสร็จแล้ว</span>}
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${k.cls}`}>{L(k.label[0], k.label[1], k.label[2])}</span>
+                    {overdue && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-danger/15 text-danger inline-flex items-center gap-1"><AlertTriangle size={10} />{L("เกินกำหนด", "Overdue", "逾期")}</span>}
+                    {done && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-ok/15 text-ok">{L("เสร็จแล้ว", "Done", "已完成")}</span>}
                   </div>
                   <div className="flex items-center gap-3 text-[12px] text-muted mt-1 flex-wrap">
                     <span className="inline-flex items-center gap-1 font-medium text-ink/80"><User size={12} />{t.customer_name}</span>
                     {t.customer_phone && <span className="inline-flex items-center gap-1"><Phone size={11} />{t.customer_phone}</span>}
-                    <span className={`inline-flex items-center gap-1 ${overdue ? "text-danger font-semibold" : ""}`}><CalendarClock size={11} />{fmtDate(t.due_date)}</span>
-                    {t.assignee_name && <span className="inline-flex items-center gap-1">มอบ: {t.assignee_name}</span>}
+                    <span className={`inline-flex items-center gap-1 ${overdue ? "text-danger font-semibold" : ""}`}><CalendarClock size={11} />{fmtDate(t.due_date, locale, L)}</span>
+                    {t.assignee_name && <span className="inline-flex items-center gap-1">{L("มอบ", "Assigned", "负责")}: {t.assignee_name}</span>}
                   </div>
                   {t.note && <p className="text-xs text-muted mt-1">{t.note}</p>}
-                  {t.result && <p className="text-xs mt-1 text-ok">ผล: {t.result}</p>}
+                  {t.result && <p className="text-xs mt-1 text-ok">{L("ผล", "Result", "结果")}: {t.result}</p>}
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
                   {!done && (
                     <button onClick={() => { setDoneTask(t); setDoneResult(""); }}
                       className="h-8 px-3 rounded-lg bg-ok/12 text-ok text-xs font-semibold inline-flex items-center gap-1 hover:bg-ok/20">
-                      <Check size={14} /> เสร็จ
+                      <Check size={14} /> {L("เสร็จ", "Done", "完成")}
                     </button>
                   )}
-                  <button onClick={() => void removeTask(t.id)} className="h-8 w-8 grid place-items-center rounded-lg text-muted hover:text-danger hover:bg-surface2" aria-label="ลบ">
+                  <button onClick={() => void removeTask(t.id)} className="h-8 w-8 grid place-items-center rounded-lg text-muted hover:text-danger hover:bg-surface2" aria-label={L("ลบ", "Delete", "删除")}>
                     <Trash2 size={15} />
                   </button>
                 </div>
@@ -237,13 +242,13 @@ export default function AdminTasksPage() {
       )}
 
       {/* สร้างงาน */}
-      <Modal open={createOpen} onClose={() => setCreateOpen(false)} title="เพิ่มงานติดตาม" size="md"
+      <Modal open={createOpen} onClose={() => setCreateOpen(false)} title={L("เพิ่มงานติดตาม", "Add follow-up task", "添加跟进任务")} size="md"
         footer={
           <>
-            <button onClick={() => setCreateOpen(false)} className="h-10 px-4 rounded-xl bg-surface2 text-sm font-semibold text-muted">ยกเลิก</button>
+            <button onClick={() => setCreateOpen(false)} className="h-10 px-4 rounded-xl bg-surface2 text-sm font-semibold text-muted">{L("ยกเลิก", "Cancel", "取消")}</button>
             <button onClick={() => void submitCreate()} disabled={!form.customer_id || !form.title.trim() || saving}
               className="h-10 px-5 rounded-xl bg-brand text-brandInk text-sm font-bold disabled:opacity-50 inline-flex items-center gap-1.5">
-              {saving ? <Loader2 size={15} className="animate-spin" /> : null} บันทึก
+              {saving ? <Loader2 size={15} className="animate-spin" /> : null} {L("บันทึก", "Save", "保存")}
             </button>
           </>
         }
@@ -259,7 +264,7 @@ export default function AdminTasksPage() {
           ) : (
             <div className="relative">
               <Search size={15} className="absolute left-3 top-3 text-muted" />
-              <input value={cq} onChange={(e) => setCq(e.target.value)} placeholder="ค้นหาลูกค้า (ชื่อ/เบอร์)…" autoFocus
+              <input value={cq} onChange={(e) => setCq(e.target.value)} placeholder={L("ค้นหาลูกค้า (ชื่อ/เบอร์)…", "Search customer (name/phone)…", "搜索客户（姓名/电话）…")} autoFocus
                 className="w-full h-10 pl-9 pr-3 rounded-xl bg-surface2/60 border border-line outline-none text-sm focus:border-brand/40" />
               {cHits.length > 0 && (
                 <ul className="mt-1 border border-line rounded-xl overflow-hidden divide-y divide-line/60">
@@ -278,32 +283,32 @@ export default function AdminTasksPage() {
           )}
 
           <div className="grid grid-cols-2 gap-2.5">
-            <label className="text-xs text-muted">ประเภท
+            <label className="text-xs text-muted">{L("ประเภท", "Type", "类型")}
               <select value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value })}
                 className="mt-1 w-full h-10 px-2 rounded-xl bg-surface border border-line text-sm text-ink">
-                {KIND_OPTS.map((o) => <option key={o.v} value={o.v}>{o.label}</option>)}
+                {KIND_OPTS.map((v) => { const lb = (KIND[v] ?? KIND.other).label; return <option key={v} value={v}>{L(lb[0], lb[1], lb[2])}</option>; })}
               </select>
             </label>
-            <label className="text-xs text-muted">วันนัด / ครบกำหนด
+            <label className="text-xs text-muted">{L("วันนัด / ครบกำหนด", "Due date", "到期日")}
               <input type="date" value={form.due_date} onChange={(e) => setForm({ ...form, due_date: e.target.value })}
                 className="mt-1 w-full h-10 px-2 rounded-xl bg-surface border border-line text-sm text-ink" />
             </label>
           </div>
 
-          <label className="text-xs text-muted block">หัวข้องาน *
-            <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="เช่น โทรติดตามใบเสนอราคากล้องติดรถ"
+          <label className="text-xs text-muted block">{L("หัวข้องาน", "Task title", "任务标题")} *
+            <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder={L("เช่น โทรติดตามใบเสนอราคากล้องติดรถ", "e.g. Call to follow up on the dash cam quotation", "例如：致电跟进行车记录仪报价")}
               className="mt-1 w-full h-10 px-3 rounded-xl bg-surface border border-line text-sm outline-none focus:border-brand/40" />
           </label>
 
-          <label className="text-xs text-muted block">มอบหมายให้
+          <label className="text-xs text-muted block">{L("มอบหมายให้", "Assign to", "指派给")}
             <select value={form.assigned_to} onChange={(e) => setForm({ ...form, assigned_to: e.target.value })}
               className="mt-1 w-full h-10 px-2 rounded-xl bg-surface border border-line text-sm text-ink">
-              <option value="">— ไม่ระบุ —</option>
+              <option value="">{L("— ไม่ระบุ —", "— Unassigned —", "— 未指定 —")}</option>
               {employees.map((e) => <option key={e.id} value={e.id}>{e.nickname ?? e.first_name}</option>)}
             </select>
           </label>
 
-          <label className="text-xs text-muted block">รายละเอียด
+          <label className="text-xs text-muted block">{L("รายละเอียด", "Details", "详情")}
             <textarea value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} rows={2}
               className="mt-1 w-full px-3 py-2 rounded-xl bg-surface border border-line text-sm outline-none focus:border-brand/40 resize-none" />
           </label>
@@ -311,19 +316,19 @@ export default function AdminTasksPage() {
       </Modal>
 
       {/* ปิดงาน + บันทึกผล */}
-      <Modal open={Boolean(doneTask)} onClose={() => setDoneTask(null)} title="บันทึกผลการติดต่อ" size="sm"
+      <Modal open={Boolean(doneTask)} onClose={() => setDoneTask(null)} title={L("บันทึกผลการติดต่อ", "Log contact result", "记录联系结果")} size="sm"
         footer={
           <>
-            <button onClick={() => setDoneTask(null)} className="h-10 px-4 rounded-xl bg-surface2 text-sm font-semibold text-muted">ยกเลิก</button>
+            <button onClick={() => setDoneTask(null)} className="h-10 px-4 rounded-xl bg-surface2 text-sm font-semibold text-muted">{L("ยกเลิก", "Cancel", "取消")}</button>
             <button onClick={() => void markDone()} disabled={saving}
               className="h-10 px-5 rounded-xl bg-ok text-white text-sm font-bold disabled:opacity-50 inline-flex items-center gap-1.5">
-              {saving ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />} ทำเสร็จ
+              {saving ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />} {L("ทำเสร็จ", "Mark done", "标记完成")}
             </button>
           </>
         }
       >
         <p className="text-sm mb-2">{doneTask?.title}</p>
-        <textarea value={doneResult} onChange={(e) => setDoneResult(e.target.value)} rows={3} placeholder="ผลการติดต่อ (เช่น ลูกค้ายืนยันซื้อ / ขอคิดก่อน / ติดต่อไม่ได้)"
+        <textarea value={doneResult} onChange={(e) => setDoneResult(e.target.value)} rows={3} placeholder={L("ผลการติดต่อ (เช่น ลูกค้ายืนยันซื้อ / ขอคิดก่อน / ติดต่อไม่ได้)", "Contact result (e.g. customer confirmed / wants to think / unreachable)", "联系结果（例如：客户确认购买/再考虑/无法联系）")}
           className="w-full px-3 py-2 rounded-xl bg-surface border border-line text-sm outline-none focus:border-brand/40 resize-none" />
       </Modal>
     </div>

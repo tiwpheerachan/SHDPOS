@@ -26,6 +26,7 @@ const COMPANY = {
 
 export default function PosOrdersPage() {
   const { t, locale } = useI18n();
+  const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
   const toast = useToast();
   const session = useSession();
   const employee = session.employee;
@@ -96,7 +97,7 @@ export default function PosOrdersPage() {
   async function reprint(o: Order) {
     const res = await printEscPos(
       session.printer,
-      buildReceipt({ order: o, branch, cashier: employee ?? undefined, company: COMPANY, width: session.printer.width, copyLabel: "สำเนา / REPRINT" })
+      buildReceipt({ order: o, branch, cashier: employee ?? undefined, company: COMPANY, width: session.printer.width, copyLabel: L("สำเนา / REPRINT", "COPY / REPRINT", "副本 / 补打") })
     );
     toast.push(
       res.ok
@@ -115,7 +116,7 @@ export default function PosOrdersPage() {
         branchId: branchId!,
         requestedBy: employee.id,
         amount: o.grand_total,
-        reason: `ยกเลิกบิล ${o.order_no}`,
+        reason: L(`ยกเลิกบิล ${o.order_no}`, `Void order ${o.order_no}`, `作废订单 ${o.order_no}`),
         payload: { order_no: o.order_no },
       });
       return;
@@ -280,7 +281,7 @@ export default function PosOrdersPage() {
           <p className="text-sm">
             {voidTarget?.order_no} · <span className="tnum font-semibold">{formatTHB(voidTarget?.grand_total ?? 0)}</span>
           </p>
-          <p className="text-xs text-muted">สินค้าจะถูกคืนเข้าสต๊อกอัตโนมัติ และบันทึกลง audit log</p>
+          <p className="text-xs text-muted">{L("สินค้าจะถูกคืนเข้าสต๊อกอัตโนมัติ และบันทึกลง audit log", "Items are returned to stock automatically and logged to the audit log", "商品将自动退回库存并记入审计日志")}</p>
           <Field label={t.orders.voidReason}>
             <Input autoFocus value={voidReason} onChange={(e) => setVoidReason(e.target.value)} />
           </Field>

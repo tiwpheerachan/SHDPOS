@@ -15,6 +15,7 @@ import { can } from "@/lib/permissions";
 
 export default function AdminSettingsPage() {
   const { t, locale } = useI18n();
+  const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
   const toast = useToast();
   const { employee } = useSession();
   const [branches, setBranches] = useState<Branch[]>([]);
@@ -52,7 +53,7 @@ export default function AdminSettingsPage() {
       <Card>
         <CardHeader
           title={t.settings.dataMode}
-          subtitle={isLiveMode() ? "เชื่อมต่อ Supabase แล้ว" : "โหมดสาธิต — ข้อมูลอยู่ใน IndexedDB ของเครื่องนี้"}
+          subtitle={isLiveMode() ? L("เชื่อมต่อ Supabase แล้ว", "Connected to Supabase", "已连接 Supabase") : L("โหมดสาธิต — ข้อมูลอยู่ใน IndexedDB ของเครื่องนี้", "Demo mode — data is in this device's IndexedDB", "演示模式——数据存储在本机 IndexedDB 中")}
           right={<Badge tone={isLiveMode() ? "ok" : "warn"}>{isLiveMode() ? "Supabase" : "Demo"}</Badge>}
         />
         <div className="p-5 flex flex-wrap gap-2">
@@ -67,25 +68,25 @@ export default function AdminSettingsPage() {
               location.reload();
             }}
           >
-            <Database size={15} /> ล้างข้อมูลในเครื่อง
+            <Database size={15} /> {L("ล้างข้อมูลในเครื่อง", "Clear local data", "清除本机数据")}
           </Button>
           {!sync.online ? <Badge tone="warn">{t.offline.offline}</Badge> : null}
         </div>
       </Card>
 
       <Card>
-        <CardHeader title="ข้อมูลบริษัท (หัวใบเสร็จ / ใบกำกับภาษี)" subtitle="แก้ที่นี่แล้วจะใช้กับสลิปทุกสาขา" />
+        <CardHeader title={L("ข้อมูลบริษัท (หัวใบเสร็จ / ใบกำกับภาษี)", "Company info (receipt / tax invoice header)", "公司信息（收据/发票抬头）")} subtitle={L("แก้ที่นี่แล้วจะใช้กับสลิปทุกสาขา", "Edit here to apply to receipts at all branches", "在此修改后将应用于所有门店的小票")} />
         <div className="p-5 grid sm:grid-cols-2 gap-3">
-          <Field label="ชื่อบริษัท">
+          <Field label={L("ชื่อบริษัท", "Company name", "公司名称")}>
             <Input value={company.name} onChange={(e) => setCompany({ ...company, name: e.target.value })} />
           </Field>
-          <Field label="เลขประจำตัวผู้เสียภาษี">
+          <Field label={L("เลขประจำตัวผู้เสียภาษี", "Tax ID", "纳税人识别号")}>
             <Input value={company.taxId} onChange={(e) => setCompany({ ...company, taxId: e.target.value })} className="font-mono" />
           </Field>
-          <Field label="ที่อยู่">
+          <Field label={L("ที่อยู่", "Address", "地址")}>
             <Input value={company.address} onChange={(e) => setCompany({ ...company, address: e.target.value })} />
           </Field>
-          <Field label="โทรศัพท์">
+          <Field label={L("โทรศัพท์", "Phone", "电话")}>
             <Input value={company.phone} onChange={(e) => setCompany({ ...company, phone: e.target.value })} />
           </Field>
           <div className="sm:col-span-2">
@@ -97,39 +98,39 @@ export default function AdminSettingsPage() {
               {t.common.save}
             </Button>
             {!can(employee, "admin.settings") ? (
-              <p className="text-[11px] text-muted mt-2">ต้องเป็นระดับ HQ จึงจะแก้ค่าระบบได้</p>
+              <p className="text-[11px] text-muted mt-2">{L("ต้องเป็นระดับ HQ จึงจะแก้ค่าระบบได้", "Only HQ level can edit system settings", "仅总部级别可修改系统设置")}</p>
             ) : null}
           </div>
         </div>
       </Card>
 
       <Card>
-        <CardHeader title="ภาษี / e-Tax Invoice" subtitle="VAT 7% แบบราคารวมภาษี (inclusive)" />
+        <CardHeader title={L("ภาษี / e-Tax Invoice", "Tax / e-Tax Invoice", "税务 / e-Tax Invoice")} subtitle={L("VAT 7% แบบราคารวมภาษี (inclusive)", "VAT 7%, tax-inclusive pricing (inclusive)", "增值税 7%，含税价（inclusive）")} />
         <div className="p-5 space-y-3 text-sm">
           <div className="flex items-center gap-2">
             <Receipt size={15} className="text-muted" />
-            ใบกำกับภาษีอย่างย่อออกอัตโนมัติทุกบิล · ใบกำกับเต็มรูปออกเมื่อลูกค้าให้เลขผู้เสียภาษี
+            {L("ใบกำกับภาษีอย่างย่อออกอัตโนมัติทุกบิล · ใบกำกับเต็มรูปออกเมื่อลูกค้าให้เลขผู้เสียภาษี", "Abbreviated tax invoice issued automatically for every bill · full tax invoice issued when the customer provides a tax ID", "每单自动开具简式发票 · 客户提供纳税人识别号时开具增值税专用发票")}
           </div>
           <div className="flex items-center gap-2">
             <Percent size={15} className="text-muted" />
-            เลขที่เอกสารรันแยกรายสาขา/รายเครื่อง เพื่อไม่ชนกันตอนออฟไลน์
+            {L("เลขที่เอกสารรันแยกรายสาขา/รายเครื่อง เพื่อไม่ชนกันตอนออฟไลน์", "Document numbers run separately per branch/device to avoid collisions when offline", "单据编号按门店/设备分别生成，以避免离线时冲突")}
           </div>
           <p className="text-xs text-muted">
-            การเชื่อม e-Tax Invoice by Email / ผู้ให้บริการ (INET, Frank, Ksher) อยู่ในเอกสาร docs/07-etax-invoice.md
+            {L("การเชื่อม e-Tax Invoice by Email / ผู้ให้บริการ (INET, Frank, Ksher) อยู่ในเอกสาร docs/07-etax-invoice.md", "e-Tax Invoice by Email / provider (INET, Frank, Ksher) integration is documented in docs/07-etax-invoice.md", "e-Tax Invoice by Email / 服务商（INET、Frank、Ksher）的接入见文档 docs/07-etax-invoice.md")}
           </p>
         </div>
       </Card>
 
       <Card>
-        <CardHeader title={t.common.branch} subtitle={`${branches.length} สาขา`} />
+        <CardHeader title={t.common.branch} subtitle={L(`${branches.length} สาขา`, `${branches.length} branches`, `${branches.length} 门店`)} />
         <Table>
           <thead>
             <tr>
-              <Th>รหัส</Th>
+              <Th>{L("รหัส", "Code", "编码")}</Th>
               <Th>{t.common.branch}</Th>
               <Th>{t.common.brand}</Th>
-              <Th>จังหวัด</Th>
-              <Th align="center">สาขาภาษี</Th>
+              <Th>{L("จังหวัด", "Province", "省份")}</Th>
+              <Th align="center">{L("สาขาภาษี", "Tax branch", "税务分支")}</Th>
             </tr>
           </thead>
           <tbody>

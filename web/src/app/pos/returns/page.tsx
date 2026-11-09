@@ -200,8 +200,8 @@ export default function ReturnsPage() {
                     <tr key={it.id} className={sel ? "bg-brand/5" : remain === 0 ? "opacity-50" : ""}>
                       <Td align="center"><button disabled={remain === 0} onClick={() => toggle(it.id, remain)} className={`w-5 h-5 rounded border grid place-items-center disabled:opacity-40 ${sel ? "bg-brand border-brand text-brandInk" : "border-line"}`}>{sel ? <Check size={13} /> : null}</button></Td>
                       <Td>
-                        <p className="text-xs font-medium flex items-center gap-1.5">{it.name}{it.is_gift && <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-ink text-surface inline-flex items-center gap-0.5"><Gift size={8} />ของแถม</span>}</p>
-                        <p className="text-[10px] font-mono text-muted">{it.sku}{it.serials.length ? ` · SN ${it.serials.join(",")}` : ""}{returned > 0 ? ` · คืนแล้ว ${returned}/${it.qty}` : ""}</p>
+                        <p className="text-xs font-medium flex items-center gap-1.5">{it.name}{it.is_gift && <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-ink text-surface inline-flex items-center gap-0.5"><Gift size={8} />{L("ของแถม", "Gift", "赠品")}</span>}</p>
+                        <p className="text-[10px] font-mono text-muted">{it.sku}{it.serials.length ? ` · SN ${it.serials.join(",")}` : ""}{returned > 0 ? ` · ${L("คืนแล้ว", "Returned", "已退")} ${returned}/${it.qty}` : ""}</p>
                       </Td>
                       <Td align="center">{sel ? <Input value={sel.qty} inputMode="numeric" onChange={(e) => { const q = Math.min(Number(e.target.value.replace(/\D/g, "") || 0), remain); setSelected((s) => ({ ...s, [it.id]: { ...s[it.id], qty: q } })); }} className="h-8 w-16 text-center tnum" /> : <span className="text-xs text-muted tnum">{remain}/{it.qty}</span>}</Td>
                       <Td>{sel ? <Select value={sel.condition} onChange={(e) => setSelected((s) => ({ ...s, [it.id]: { ...s[it.id], condition: e.target.value } }))} className="h-8 text-xs">

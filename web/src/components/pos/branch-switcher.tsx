@@ -17,7 +17,8 @@ import type { Branch } from "@/lib/types";
  */
 export function BranchSwitcher({ className }: { className?: string }) {
   const { employee, branchId, setBranch } = useSession();
-  const { pick } = useI18n();
+  const { pick, locale } = useI18n();
+  const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -60,7 +61,7 @@ export function BranchSwitcher({ className }: { className?: string }) {
   }, [open]);
 
   const current = branches.find((b) => b.id === branchId) ?? null;
-  const label = current ? pick({ th: current.name_th ?? current.name, en: current.name, zh: current.name }) : "เลือกสาขา";
+  const label = current ? pick({ th: current.name_th ?? current.name, en: current.name, zh: current.name }) : L("เลือกสาขา", "Select branch", "选择门店");
   const switchable = visible.length > 1;
   const needsPick = !branchId;
 
@@ -85,7 +86,7 @@ export function BranchSwitcher({ className }: { className?: string }) {
             ? "bg-brand/12 text-brand ring-1 ring-brand/30 hover:bg-brand/20"
             : "bg-surface2 text-ink hover:bg-surface2/70 ring-1 ring-line"
         )}
-        title="เลือก/สลับสาขา"
+        title={L("เลือก/สลับสาขา", "Select / switch branch", "选择/切换门店")}
       >
         <Building2 size={14} className="shrink-0" />
         <span className="truncate max-w-[150px]">{label}</span>
@@ -94,7 +95,7 @@ export function BranchSwitcher({ className }: { className?: string }) {
 
       {open ? (
         <div className="absolute left-0 mt-1.5 w-60 max-h-[60vh] overflow-y-auto bg-surface border border-line rounded-xl shadow-pop py-1.5 z-50">
-          <p className="px-3 py-1 text-[10px] uppercase tracking-wide text-muted">เลือกสาขาที่กำลังทำงาน</p>
+          <p className="px-3 py-1 text-[10px] uppercase tracking-wide text-muted">{L("เลือกสาขาที่กำลังทำงาน", "Select your working branch", "选择当前门店")}</p>
           {visible.map((b) => {
             const active = b.id === branchId;
             return (
@@ -113,7 +114,7 @@ export function BranchSwitcher({ className }: { className?: string }) {
             );
           })}
           {visible.length === 0 ? (
-            <p className="px-3 py-2 text-xs text-muted">ไม่มีสาขาที่คุณมีสิทธิ์</p>
+            <p className="px-3 py-2 text-xs text-muted">{L("ไม่มีสาขาที่คุณมีสิทธิ์", "No branches available", "无可用门店")}</p>
           ) : null}
         </div>
       ) : null}

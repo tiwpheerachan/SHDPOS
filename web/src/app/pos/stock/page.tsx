@@ -14,7 +14,8 @@ import { formatTHB, formatInt } from "@/lib/money";
 import { can } from "@/lib/permissions";
 
 export default function PosStockPage() {
-  const { t, pick } = useI18n();
+  const { t, pick, locale } = useI18n();
+  const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
   const session = useSession();
   const employee = session.employee;
   const branchId = session.branchId;
@@ -135,7 +136,7 @@ export default function PosStockPage() {
                 <Th align="right">{t.inventory.onHand}</Th>
                 <Th align="right">{t.inventory.reorder}</Th>
                 <Th align="right">{t.common.price}</Th>
-                {showCost ? <Th align="right">ต้นทุน</Th> : null}
+                {showCost ? <Th align="right">{L("ต้นทุน", "Cost", "成本")}</Th> : null}
                 <Th align="center">{t.common.status}</Th>
               </tr>
             </thead>

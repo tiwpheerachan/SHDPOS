@@ -47,6 +47,7 @@ export default function SellPage() {
   const toast = useToast();
   const session = useSession();
   const cart = useCart();
+  const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
 
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -292,7 +293,7 @@ export default function SellPage() {
       branchId: branchId!,
       requestedBy: employee!.id,
       amount: amount || round2((base * percent) / 100),
-      reason: `ส่วนลด ${pct.toFixed(1)}% เกินสิทธิ์ (${discountLimit(employee)}%)`,
+      reason: `${L("ส่วนลด", "Discount", "折扣")} ${pct.toFixed(1)}% ${L("เกินสิทธิ์", "exceeds limit", "超出权限")} (${discountLimit(employee)}%)`,
       payload: { percent: pct, line_id: lineId },
     });
     setLineDiscountId(null);
@@ -307,7 +308,7 @@ export default function SellPage() {
     const bill: HeldBill = {
       id: nanoid(),
       branch_id: branchId,
-      label: cart.customerName || `${cart.lines.length} รายการ · ${formatTHB(totals.grandTotal, false)}`,
+      label: cart.customerName || `${cart.lines.length} ${L("รายการ", "items", "项")} · ${formatTHB(totals.grandTotal, false)}`,
       lines: cart.lines,
       customer_name: cart.customerName,
       created_at: new Date().toISOString(),
@@ -340,9 +341,9 @@ export default function SellPage() {
         cart.setCoupon(code.toUpperCase(), r.discount ?? 0, r.campaign_id);
         setCouponInput("");
         setCouponMsg(null);
-        toast.push({ tone: "ok", title: "ใช้คูปองแล้ว", body: `${r.name ?? code} · ลด ${formatTHB(r.discount ?? 0, false)}` });
+        toast.push({ tone: "ok", title: L("ใช้คูปองแล้ว", "Coupon applied", "已使用优惠券"), body: `${r.name ?? code} · ${L("ลด", "−", "减")} ${formatTHB(r.discount ?? 0, false)}` });
       } else {
-        setCouponMsg(r.reason ?? "ใช้คูปองไม่ได้");
+        setCouponMsg(r.reason ?? L("ใช้คูปองไม่ได้", "Coupon not valid", "优惠券无效"));
       }
     } finally {
       setCouponChecking(false);
@@ -430,7 +431,7 @@ export default function SellPage() {
       // เปิดลิ้นชักอัตโนมัติเมื่อรับเงินสด
       if (payments.some((p) => p.method === "cash")) void openCashDrawer(session.printer);
     } catch (e) {
-      toast.push({ tone: "danger", title: "บันทึกบิลไม่สำเร็จ", body: e instanceof Error ? e.message : String(e) });
+      toast.push({ tone: "danger", title: L("บันทึกบิลไม่สำเร็จ", "Failed to save order", "保存订单失败"), body: e instanceof Error ? e.message : String(e) });
     } finally {
       setBusy(false);
     }
@@ -464,8 +465,8 @@ export default function SellPage() {
       <div className="p-6">
         <Card className="max-w-md mx-auto mt-16 p-8 text-center">
           <Store size={34} className="mx-auto text-brand mb-3" />
-          <h2 className="text-base font-semibold">เลือกสาขาก่อนเริ่มขาย</h2>
-          <p className="text-xs text-muted mt-1">บิลทุกใบต้องผูกกับสาขาที่ขาย — เลือกสาขาที่คุณกำลังทำงานอยู่</p>
+          <h2 className="text-base font-semibold">{L("เลือกสาขาก่อนเริ่มขาย", "Select a branch to start selling", "请先选择门店再开始销售")}</h2>
+          <p className="text-xs text-muted mt-1">{L("บิลทุกใบต้องผูกกับสาขาที่ขาย — เลือกสาขาที่คุณกำลังทำงานอยู่", "Every order is tied to a branch — pick the one you're working at", "每笔订单都需绑定门店 — 请选择您当前所在门店")}</p>
           <div className="mt-5 flex justify-center">
             <BranchSwitcher />
           </div>
@@ -559,10 +560,10 @@ export default function SellPage() {
                         <Package size={26} className="text-muted/35" />
                       )}
                       {promo && (
-                        <span className="absolute top-1.5 left-1.5 text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-brand text-brandInk inline-flex items-center gap-0.5 shadow-sm"><Tag size={8} />โปร</span>
+                        <span className="absolute top-1.5 left-1.5 text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-brand text-brandInk inline-flex items-center gap-0.5 shadow-sm"><Tag size={8} />{L("โปร", "Promo", "促销")}</span>
                       )}
                       {out ? (
-                        <span className="absolute top-1.5 right-1.5 text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-danger text-white tnum shadow-sm">{qty < 0 ? qty : "หมด"}</span>
+                        <span className="absolute top-1.5 right-1.5 text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-danger text-white tnum shadow-sm">{qty < 0 ? qty : L("หมด", "Out", "缺货")}</span>
                       ) : low ? (
                         <span className="absolute top-1.5 right-1.5 text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-warn text-white tnum shadow-sm inline-flex items-center gap-0.5"><AlertTriangle size={8} />{qty}</span>
                       ) : null}
@@ -572,7 +573,7 @@ export default function SellPage() {
                     <p className="text-[11.5px] font-medium leading-snug line-clamp-2 mt-1.5 flex-1">{name}</p>
                     <div className="flex items-center justify-between gap-1 mt-1">
                       <p className="text-sm font-bold tnum">{formatTHB(p.price, false)}</p>
-                      {p.is_stocked && !out && !low && <span className="text-[10px] text-muted tnum">เหลือ {qty}</span>}
+                      {p.is_stocked && !out && !low && <span className="text-[10px] text-muted tnum">{L("เหลือ", "Left", "剩")} {qty}</span>}
                     </div>
                   </button>
                 );
@@ -587,8 +588,8 @@ export default function SellPage() {
       {/* ================= ตะกร้า ================= */}
       <aside className="flex flex-col min-h-0 bg-surface border-l border-line">
         <div className="px-4 pt-3 pb-1 flex items-center justify-between">
-          <span className="text-sm font-bold flex items-center gap-1.5"><Package size={15} /> ตะกร้า {cart.lines.length > 0 && <span className="text-xs font-normal text-muted">({cart.lines.length})</span>}</span>
-          <button onClick={() => setCartExpanded((v) => !v)} title={cartExpanded ? "ย่อตะกร้า" : "ขยายตะกร้า"}
+          <span className="text-sm font-bold flex items-center gap-1.5"><Package size={15} /> {t.pos.cart} {cart.lines.length > 0 && <span className="text-xs font-normal text-muted">({cart.lines.length})</span>}</span>
+          <button onClick={() => setCartExpanded((v) => !v)} title={cartExpanded ? L("ย่อตะกร้า", "Collapse cart", "收起购物车") : L("ขยายตะกร้า", "Expand cart", "展开购物车")}
             className="hidden lg:grid h-7 w-7 place-items-center rounded-lg text-muted hover:bg-surface2">
             {cartExpanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
           </button>
@@ -617,10 +618,10 @@ export default function SellPage() {
                 <span className="block text-[11px] text-muted leading-tight truncate">
                   {cart.customerPhone ? (
                     <span className="inline-flex items-center gap-1"><Phone size={10} />{cart.customerPhone}</span>
-                  ) : cart.customerId ? "สมาชิก" : "แตะเพื่อเปลี่ยน / ค้นหา"}
+                  ) : cart.customerId ? L("สมาชิก", "Member", "会员") : L("แตะเพื่อเปลี่ยน / ค้นหา", "Tap to change / search", "点按更改/搜索")}
                 </span>
               </button>
-              <button onClick={() => cart.clearCustomer()} className="p-1.5 rounded-lg text-muted hover:text-danger shrink-0" aria-label="ล้างลูกค้า">
+              <button onClick={() => cart.clearCustomer()} className="p-1.5 rounded-lg text-muted hover:text-danger shrink-0" aria-label={L("ล้างลูกค้า", "Clear customer", "清除客户")}>
                 <X size={14} />
               </button>
             </div>
@@ -630,7 +631,7 @@ export default function SellPage() {
               className="flex items-center gap-2 w-full h-10 px-3 rounded-xl border border-dashed border-line text-muted hover:text-ink hover:border-ink/30 transition-colors text-xs"
             >
               <UserPlus size={15} className="shrink-0" />
-              <span className="flex-1 text-left">เลือก / สร้างลูกค้า</span>
+              <span className="flex-1 text-left">{L("เลือก / สร้างลูกค้า", "Select / create customer", "选择/创建客户")}</span>
               <ChevronRight size={15} />
             </button>
           )}
@@ -639,7 +640,7 @@ export default function SellPage() {
           {cart.customerId && (cart.customerPoints > 0 || cart.customerCredit > 0) && (
             <div className="flex items-center gap-2 rounded-xl bg-surface2/60 border border-line px-2.5 py-1.5">
               <span className="flex items-center gap-1 text-[11px] text-amber-600 dark:text-amber-300 font-semibold">
-                <Star size={12} /> {cart.customerPoints.toLocaleString()} แต้ม
+                <Star size={12} /> {cart.customerPoints.toLocaleString()} {L("แต้ม", "pts", "积分")}
               </span>
               {cart.customerCredit > 0 && (
                 <span className="flex items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-300 font-semibold">
@@ -649,7 +650,7 @@ export default function SellPage() {
               {cart.customerPoints > 0 && (
                 cart.redeemPoints > 0 ? (
                   <button onClick={() => cart.setRedeem(0)} className="ml-auto text-[11px] font-semibold text-danger hover:underline">
-                    ยกเลิกใช้แต้ม
+                    {L("ยกเลิกใช้แต้ม", "Cancel points", "取消用积分")}
                   </button>
                 ) : (
                   <button
@@ -657,7 +658,7 @@ export default function SellPage() {
                     disabled={!cart.lines.length}
                     className="ml-auto text-[11px] font-semibold text-brand hover:underline disabled:opacity-40"
                   >
-                    ใช้แต้ม
+                    {L("ใช้แต้ม", "Use points", "使用积分")}
                   </button>
                 )
               )}
@@ -669,7 +670,7 @@ export default function SellPage() {
             <div className="flex items-center gap-2 rounded-xl bg-violet-500/10 border border-violet-500/25 px-2.5 py-1.5">
               <Ticket size={13} className="text-violet-600 dark:text-violet-300 shrink-0" />
               <span className="font-mono text-xs font-bold text-violet-700 dark:text-violet-300">{cart.couponCode}</span>
-              <span className="text-[11px] text-muted">ลด {formatTHB(cart.couponDiscount, false)}</span>
+              <span className="text-[11px] text-muted">{L("ลด", "−", "减")} {formatTHB(cart.couponDiscount, false)}</span>
               <button onClick={() => cart.clearCoupon()} className="ml-auto text-muted hover:text-danger"><X size={13} /></button>
             </div>
           ) : (
@@ -681,7 +682,7 @@ export default function SellPage() {
                     value={couponInput}
                     onChange={(e) => { setCouponInput(e.target.value.toUpperCase()); setCouponMsg(null); }}
                     onKeyDown={(e) => { if (e.key === "Enter") void applyCoupon(); }}
-                    placeholder="รหัสคูปอง"
+                    placeholder={L("รหัสคูปอง", "Coupon code", "优惠券码")}
                     className="w-full h-8 pl-7 pr-2 rounded-lg bg-surface2/60 border border-line outline-none text-xs font-mono uppercase focus:border-brand/40"
                   />
                 </div>
@@ -689,7 +690,7 @@ export default function SellPage() {
                   onClick={() => void applyCoupon()} disabled={!couponInput.trim() || couponChecking}
                   className="h-8 px-3 rounded-lg bg-surface2 text-xs font-semibold text-ink hover:bg-surface2/70 disabled:opacity-40"
                 >
-                  {couponChecking ? "…" : "ใช้"}
+                  {couponChecking ? "…" : L("ใช้", "Apply", "使用")}
                 </button>
               </div>
               {couponMsg && <p className="text-[11px] text-danger px-1">{couponMsg}</p>}
@@ -718,7 +719,7 @@ export default function SellPage() {
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium leading-snug line-clamp-2">
                           {l.name}
-                          {l.is_gift && <span className="ml-1.5 text-[9px] font-bold px-1.5 py-0.5 rounded bg-ink text-surface align-middle inline-flex items-center gap-0.5"><Gift size={9} />{l.gift_source === "campaign" ? "ของแถมแคมเปญ" : "ของแถม"}</span>}
+                          {l.is_gift && <span className="ml-1.5 text-[9px] font-bold px-1.5 py-0.5 rounded bg-ink text-surface align-middle inline-flex items-center gap-0.5"><Gift size={9} />{l.gift_source === "campaign" ? L("ของแถมแคมเปญ", "Campaign gift", "活动赠品") : L("ของแถม", "Gift", "赠品")}</span>}
                         </p>
                         <p className="text-[10px] font-mono text-muted mt-0.5">{l.sku}</p>
                       </div>
@@ -748,7 +749,7 @@ export default function SellPage() {
                       {!isCampaignGift && (
                         <button
                           onClick={() => cart.toggleGift(l.lineId)}
-                          title={l.is_gift ? "ยกเลิกของแถม" : "ทำเป็นของแถม (฿0)"}
+                          title={l.is_gift ? L("ยกเลิกของแถม", "Remove gift", "取消赠品") : L("ทำเป็นของแถม (฿0)", "Make gift (฿0)", "设为赠品(฿0)")}
                           className={`h-8 px-2 rounded-lg border text-[11px] font-medium inline-flex items-center gap-1 ${
                             l.is_gift ? "border-ink bg-ink text-surface" : "border-line text-muted hover:text-ink"
                           }`}
@@ -813,13 +814,13 @@ export default function SellPage() {
           </button>
           {totals.couponAmount > 0 && (
             <div className="flex justify-between text-xs">
-              <span className="text-muted flex items-center gap-1"><Ticket size={11} className="text-violet-500" /> คูปอง {cart.couponCode}</span>
+              <span className="text-muted flex items-center gap-1"><Ticket size={11} className="text-violet-500" /> {L("คูปอง", "Coupon", "优惠券")} {cart.couponCode}</span>
               <span className="tnum text-danger">-{formatTHB(totals.couponAmount)}</span>
             </div>
           )}
           {totals.redeemAmount > 0 && (
             <div className="flex justify-between text-xs">
-              <span className="text-muted flex items-center gap-1"><Star size={11} className="text-amber-500" /> ใช้แต้ม ({cart.redeemPoints})</span>
+              <span className="text-muted flex items-center gap-1"><Star size={11} className="text-amber-500" /> {L("ใช้แต้ม", "Points", "用积分")} ({cart.redeemPoints})</span>
               <span className="tnum text-danger">-{formatTHB(totals.redeemAmount)}</span>
             </div>
           )}
@@ -855,7 +856,7 @@ export default function SellPage() {
           >
             {t.pos.pay} · {formatTHB(totals.grandTotal)}
           </Button>
-          <p className="text-[10px] text-muted text-center">F2 = ชำระเงิน · F4 = พักบิล · / = ค้นหา</p>
+          <p className="text-[10px] text-muted text-center">{L("F2 = ชำระเงิน · F4 = พักบิล · / = ค้นหา", "F2 = Pay · F4 = Hold · / = Search", "F2 = 收款 · F4 = 挂单 · / = 搜索")}</p>
         </div>
       </aside>
 

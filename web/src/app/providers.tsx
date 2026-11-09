@@ -1,13 +1,39 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { I18nProvider } from "@/lib/i18n/provider";
+import { I18nProvider, useI18n } from "@/lib/i18n/provider";
 import { ThemeProvider } from "@/lib/theme";
 import { ToastHost } from "@/components/toast-host";
 import { bootstrap } from "@/lib/data/repo";
 import { startSyncWorker } from "@/lib/offline/sync";
 import { Spinner } from "@/components/ui";
 import { CommandPalette } from "@/components/command-palette";
+
+// แยกออกมาเป็นคอมโพเนนต์ลูกเพื่อให้เรียก useI18n ได้ (อยู่ภายใน I18nProvider แล้ว)
+function BootGate({ ready, error, children }: { ready: boolean; error: string | null; children: React.ReactNode }) {
+  const { locale } = useI18n();
+  const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
+  return (
+    <>
+      {ready ? (
+        children
+      ) : (
+        <div className="min-h-screen grid place-items-center">
+          <div className="flex items-center gap-3 text-sm text-muted">
+            <Spinner />
+            {L("กำลังเตรียมข้อมูล...", "Preparing data...", "正在准备数据...")}
+          </div>
+        </div>
+      )}
+      {error ? (
+        <div className="fixed bottom-4 left-4 z-[70] text-xs text-danger bg-surface border border-danger/30 rounded-xl px-3 py-2">
+          {L("เตรียมข้อมูลไม่สำเร็จ", "Failed to prepare data", "数据准备失败")}: {error}
+        </div>
+      ) : null}
+      {ready ? <CommandPalette /> : null}
+    </>
+  );
+}
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
@@ -34,22 +60,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <ThemeProvider>
       <I18nProvider>
-        {ready ? (
-          children
-        ) : (
-          <div className="min-h-screen grid place-items-center">
-            <div className="flex items-center gap-3 text-sm text-muted">
-              <Spinner />
-              กำลังเตรียมข้อมูล...
-            </div>
-          </div>
-        )}
-        {error ? (
-          <div className="fixed bottom-4 left-4 z-[70] text-xs text-danger bg-surface border border-danger/30 rounded-xl px-3 py-2">
-            เตรียมข้อมูลไม่สำเร็จ: {error}
-          </div>
-        ) : null}
-        {ready ? <CommandPalette /> : null}
+        <BootGate ready={ready} error={error}>{children}</BootGate>
         <ToastHost />
       </I18nProvider>
     </ThemeProvider>

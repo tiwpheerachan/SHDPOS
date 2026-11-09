@@ -8,12 +8,15 @@ import { useEffect, useRef, useState } from "react";
 import { ChevronDown, Search, Check, Layers, Store } from "lucide-react";
 import { useAdminScope } from "@/components/admin/filters";
 import { useScopeFilter } from "@/lib/store/scope-filter";
+import { useI18n } from "@/lib/i18n/provider";
 
 interface Opt { v: string; label: string }
 
 function FilterDropdown({ icon, allLabel, opts, value, onChange, searchable }: {
   icon: React.ReactNode; allLabel: string; opts: Opt[]; value: string | null; onChange: (v: string | null) => void; searchable?: boolean;
 }) {
+  const { locale } = useI18n();
+  const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
   const ref = useRef<HTMLDivElement>(null);
@@ -41,7 +44,7 @@ function FilterDropdown({ icon, allLabel, opts, value, onChange, searchable }: {
           {searchable && (
             <div className="relative p-2 border-b border-line">
               <Search size={13} className="absolute left-4 top-[14px] text-muted" />
-              <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="ค้นหา…"
+              <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder={L("ค้นหา…", "Search…", "搜索…")}
                 className="w-full h-8 pl-7 pr-2 rounded-lg bg-surface2/60 border border-line outline-none text-xs focus:border-brand/40" />
             </div>
           )}
@@ -61,7 +64,7 @@ function FilterDropdown({ icon, allLabel, opts, value, onChange, searchable }: {
                 </button>
               </li>
             ))}
-            {list.length === 0 && <li className="px-3 py-3 text-xs text-muted text-center">ไม่พบ</li>}
+            {list.length === 0 && <li className="px-3 py-3 text-xs text-muted text-center">{L("ไม่พบ", "No results", "无结果")}</li>}
           </ul>
         </div>
       )}
@@ -72,11 +75,13 @@ function FilterDropdown({ icon, allLabel, opts, value, onChange, searchable }: {
 export function ScopeTopbar() {
   const { brands, branches } = useAdminScope();
   const { brandId, branchId, setBrand, setBranch } = useScopeFilter();
+  const { locale } = useI18n();
+  const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
   return (
     <div className="hidden xl:flex items-center gap-1">
-      <FilterDropdown icon={<Layers size={13} />} allLabel="ทุกแบรนด์" value={brandId} onChange={setBrand}
+      <FilterDropdown icon={<Layers size={13} />} allLabel={L("ทุกแบรนด์", "All brands", "全部品牌")} value={brandId} onChange={setBrand}
         opts={brands.map((b) => ({ v: b.id, label: b.name }))} searchable={brands.length > 8} />
-      <FilterDropdown icon={<Store size={13} />} allLabel="ทุกสาขา" value={branchId} onChange={setBranch}
+      <FilterDropdown icon={<Store size={13} />} allLabel={L("ทุกสาขา", "All branches", "全部门店")} value={branchId} onChange={setBranch}
         opts={branches.map((b) => ({ v: b.id, label: b.name_th ?? b.name }))} searchable />
     </div>
   );

@@ -15,6 +15,7 @@ import { openCashDrawer } from "@/lib/printing/bridge";
 
 export default function ShiftPage() {
   const { t, locale } = useI18n();
+  const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
   const router = useRouter();
   const toast = useToast();
   const session = useSession();
@@ -132,7 +133,7 @@ export default function ShiftPage() {
                   })}
               </div>
               <p className="text-[11px] text-muted mt-2">
-                เลือกพนักงานที่เข้ากะพร้อมกัน — ระบบจะเก็บยอดขายแยกรายคนให้อัตโนมัติ
+                {L("เลือกพนักงานที่เข้ากะพร้อมกัน — ระบบจะเก็บยอดขายแยกรายคนให้อัตโนมัติ", "Select staff sharing this shift — sales are tracked per person automatically", "选择同班员工 — 系统会自动按人统计销售额")}
               </p>
             </div>
 
@@ -208,10 +209,10 @@ export default function ShiftPage() {
               >
                 <Inbox size={15} /> {t.shift.noSale}
               </Button>
-              <Button variant="ghost" className="w-full justify-start" onClick={() => toast.push({ tone: "info", title: t.shift.cashIn, body: "บันทึกผ่านหน้าหลังบ้าน" })}>
+              <Button variant="ghost" className="w-full justify-start" onClick={() => toast.push({ tone: "info", title: t.shift.cashIn, body: L("บันทึกผ่านหน้าหลังบ้าน", "Record via Back Office", "请在后台记录") })}>
                 <ArrowDownToLine size={15} /> {t.shift.cashIn}
               </Button>
-              <Button variant="ghost" className="w-full justify-start" onClick={() => toast.push({ tone: "info", title: t.shift.cashOut, body: "บันทึกผ่านหน้าหลังบ้าน" })}>
+              <Button variant="ghost" className="w-full justify-start" onClick={() => toast.push({ tone: "info", title: t.shift.cashOut, body: L("บันทึกผ่านหน้าหลังบ้าน", "Record via Back Office", "请在后台记录") })}>
                 <ArrowUpFromLine size={15} /> {t.shift.cashOut}
               </Button>
             </Card>

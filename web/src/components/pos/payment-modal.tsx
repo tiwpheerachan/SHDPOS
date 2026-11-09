@@ -36,7 +36,8 @@ export function PaymentModal({
   onConfirm: (payments: PaymentEntry[], paid: number, change: number) => void;
   busy?: boolean;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
+  const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
   const [payments, setPayments] = useState<PaymentEntry[]>([]);
   const [method, setMethod] = useState<PaymentMethod>("cash");
   const [amountText, setAmountText] = useState("");
@@ -242,7 +243,7 @@ export function PaymentModal({
                 <div className="min-w-0 flex-1">
                   <p className="text-xs font-medium truncate">{methodLabel(p.method)}</p>
                   <p className="text-[10px] text-muted truncate">
-                    {[p.acquirer_bank, p.card_last4 ? `****${p.card_last4}` : "", p.approval_code, p.installment_months ? `${p.installment_months} งวด` : ""]
+                    {[p.acquirer_bank, p.card_last4 ? `****${p.card_last4}` : "", p.approval_code, p.installment_months ? `${p.installment_months} ${L("งวด", "mo", "期")}` : ""]
                       .filter(Boolean)
                       .join(" · ") || "—"}
                   </p>

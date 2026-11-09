@@ -55,6 +55,7 @@ export default function PosLoginPage() {
   const router = useRouter();
   const session = useSession();
   const toast = useToast();
+  const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
 
   const [branches, setBranches] = useState<Branch[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -73,7 +74,7 @@ export default function PosLoginPage() {
     // แจ้ง error จาก callback (เช่น ?sso_error=verify_failed)
     const p = new URLSearchParams(window.location.search);
     const err = p.get("sso_error");
-    if (err) toast.push({ tone: "danger", title: "เข้าสู่ระบบ SSO ไม่สำเร็จ", body: err });
+    if (err) toast.push({ tone: "danger", title: L("เข้าสู่ระบบ SSO ไม่สำเร็จ", "SSO sign-in failed", "SSO 登录失败"), body: err });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -229,8 +230,8 @@ export default function PosLoginPage() {
         <div className="w-full max-w-md relative pointer-events-auto">
           {/* หัวข้อ */}
           <div className="flex flex-col items-center text-center mb-4">
-            <h1 className="text-lg font-semibold tracking-tight text-white drop-shadow-sm">ยินดีต้อนรับ 👋</h1>
-            <p className="text-xs text-white/85 mt-1">ยืนยันตัวตนเพื่อเข้าใช้งาน SHDPOS</p>
+            <h1 className="text-lg font-semibold tracking-tight text-white drop-shadow-sm">{L("ยินดีต้อนรับ", "Welcome", "欢迎")} 👋</h1>
+            <p className="text-xs text-white/85 mt-1">{L("ยืนยันตัวตนเพื่อเข้าใช้งาน SHDPOS", "Verify your identity to use SHDPOS", "验证身份以使用 SHDPOS")}</p>
           </div>
 
         <Card className="p-6">
@@ -248,11 +249,11 @@ export default function PosLoginPage() {
                 )}
                 <div className="text-left">
                   <p className="text-sm font-semibold">{session.employee?.nickname ?? session.employee?.first_name}</p>
-                  <p className="text-[11px] text-muted">เข้าสู่ระบบอยู่</p>
+                  <p className="text-[11px] text-muted">{L("เข้าสู่ระบบอยู่", "Signed in", "已登录")}</p>
                 </div>
               </div>
               <Button variant="primary" className="w-full" onClick={() => router.push("/")}>
-                เข้าใช้งานต่อ <ArrowRight size={16} />
+                {L("เข้าใช้งานต่อ", "Continue", "继续使用")} <ArrowRight size={16} />
               </Button>
               <button
                 onClick={() => {
@@ -262,7 +263,7 @@ export default function PosLoginPage() {
                 }}
                 className="mt-3 inline-flex items-center gap-1.5 text-xs text-muted hover:text-danger"
               >
-                <LogOut size={14} /> ออกจากระบบ / สลับผู้ใช้
+                <LogOut size={14} /> {L("ออกจากระบบ / สลับผู้ใช้", "Log out / switch user", "退出 / 切换用户")}
               </button>
             </div>
           ) : (
@@ -290,17 +291,17 @@ export default function PosLoginPage() {
                   {central.authz?.allowed ? (
                     <div className="mt-3">
                       <Button variant="primary" className="w-full" disabled={ssoBusy} onClick={() => void ssoLogin()}>
-                        {ssoBusy ? "กำลังเข้า…" : "เข้าสู่ระบบ"} <ArrowRight size={16} />
+                        {ssoBusy ? L("กำลังเข้า…", "Signing in…", "登录中…") : L("เข้าสู่ระบบ", "Sign in", "登录")} <ArrowRight size={16} />
                       </Button>
-                      <p className="mt-2 text-[11px] text-muted text-center leading-snug">เลือกสาขาที่หน้าร้านก่อนเริ่มขาย</p>
+                      <p className="mt-2 text-[11px] text-muted text-center leading-snug">{L("เลือกสาขาที่หน้าร้านก่อนเริ่มขาย", "Select a branch at the store before selling", "开始销售前请在门店选择分店")}</p>
                     </div>
                   ) : (
                     <p className="mt-3 text-[11px] text-warn bg-warn/10 rounded-lg px-3 py-2 leading-snug">
-                      บัญชีนี้ยังไม่ได้รับสิทธิ์ใช้งาน SHD POS — กรุณาติดต่อแอดมินเพื่อเพิ่มสิทธิ์
+                      {L("บัญชีนี้ยังไม่ได้รับสิทธิ์ใช้งาน SHD POS — กรุณาติดต่อแอดมินเพื่อเพิ่มสิทธิ์", "This account hasn't been granted access to SHD POS — please contact an admin to request access", "此账号尚未获得 SHD POS 使用权限 — 请联系管理员开通")}
                     </p>
                   )}
                   <div className="mt-2 text-center">
-                    <a href="/sso/logout" className="text-[11px] text-muted hover:text-ink">ออกจากบัญชีกลาง</a>
+                    <a href="/sso/logout" className="text-[11px] text-muted hover:text-ink">{L("ออกจากบัญชีกลาง", "Sign out of central account", "退出中央账号")}</a>
                   </div>
                 </div>
               ) : (
@@ -308,13 +309,13 @@ export default function PosLoginPage() {
                   href="/sso/login?next=/pos"
                   className="flex items-center justify-center gap-2 rounded-2xl bg-brand text-brandInk hover:opacity-90 px-4 py-3.5 text-sm font-semibold transition-opacity"
                 >
-                  <ShieldCheck size={18} /> เข้าสู่ระบบด้วยบัญชีกลาง SHD
+                  <ShieldCheck size={18} /> {L("เข้าสู่ระบบด้วยบัญชีกลาง SHD", "Sign in with SHD central account", "使用 SHD 中央账号登录")}
                 </a>
               )}
 
               {/* ตัวคั่น */}
               <div className="flex items-center gap-3 text-[11px] text-muted">
-                <span className="h-px bg-line flex-1" /> หรือ <span className="h-px bg-line flex-1" />
+                <span className="h-px bg-line flex-1" /> {L("หรือ", "or", "或")} <span className="h-px bg-line flex-1" />
               </div>
 
               {/* ── วิธีสำรอง: PIN พนักงาน ── */}
@@ -322,7 +323,7 @@ export default function PosLoginPage() {
                 onClick={() => setShowPin(true)}
                 className="w-full flex items-center justify-center gap-2 rounded-2xl border border-line bg-surface hover:bg-surface2 px-4 py-3 text-sm font-medium transition-colors"
               >
-                <KeyRound size={16} className="text-muted" /> เข้าด้วยรหัส PIN พนักงาน
+                <KeyRound size={16} className="text-muted" /> {L("เข้าด้วยรหัส PIN พนักงาน", "Sign in with staff PIN", "使用员工 PIN 登录")}
               </button>
             </div>
           )}
@@ -335,14 +336,14 @@ export default function PosLoginPage() {
         open={showPin}
         onClose={() => { setShowPin(false); setPinMatches(null); setPin(""); }}
         size="sm"
-        title="เข้าด้วยรหัส PIN พนักงาน"
+        title={L("เข้าด้วยรหัส PIN พนักงาน", "Sign in with staff PIN", "使用员工 PIN 登录")}
       >
         <div className="space-y-4">
           {pinMatches ? (
             /* PIN ตรงกับหลายคน → ให้เลือกชื่อ */
             <div>
-              <p className="text-sm font-medium text-center">เลือกชื่อของคุณ</p>
-              <p className="text-[11px] text-muted text-center mb-3">PIN นี้ตรงกับพนักงานหลายคนในสาขานี้ (ควรตั้ง PIN ไม่ให้ซ้ำกัน)</p>
+              <p className="text-sm font-medium text-center">{L("เลือกชื่อของคุณ", "Select your name", "选择您的姓名")}</p>
+              <p className="text-[11px] text-muted text-center mb-3">{L("PIN นี้ตรงกับพนักงานหลายคนในสาขานี้ (ควรตั้ง PIN ไม่ให้ซ้ำกัน)", "This PIN matches several employees in this branch (PINs should be unique)", "此 PIN 匹配本门店多名员工（建议设置不重复的 PIN）")}</p>
               <div className="grid gap-2 max-h-[46vh] overflow-y-auto pr-1">
                 {pinMatches.map((e) => (
                   <button
@@ -368,12 +369,12 @@ export default function PosLoginPage() {
                   </button>
                 ))}
               </div>
-              <button onClick={() => { setPinMatches(null); setPin(""); }} className="mt-3 w-full text-xs text-muted hover:text-ink">← ใส่ PIN ใหม่</button>
+              <button onClick={() => { setPinMatches(null); setPin(""); }} className="mt-3 w-full text-xs text-muted hover:text-ink">← {L("ใส่ PIN ใหม่", "Enter PIN again", "重新输入 PIN")}</button>
             </div>
           ) : (
             /* ใส่ PIN */
             <div className="flex flex-col">
-              <p className="text-sm font-medium text-center">ใส่รหัส PIN</p>
+              <p className="text-sm font-medium text-center">{L("ใส่รหัส PIN", "Enter PIN", "输入 PIN 码")}</p>
               <p className="text-xs text-muted text-center mt-0.5">{t.login.subtitle}</p>
               <div className={`flex justify-center gap-3 my-5 ${error ? "animate-pop" : ""}`}>
                 {[0, 1, 2, 3, 4, 5].map((i) => (
@@ -394,7 +395,7 @@ export default function PosLoginPage() {
                 }
               />
               <Button variant="primary" className="w-full mt-3" disabled={pin.length < 4 || pinBusy} onClick={() => void submitPin()}>
-                {pinBusy ? "กำลังตรวจสอบ…" : t.login.enter}
+                {pinBusy ? L("กำลังตรวจสอบ…", "Verifying…", "验证中…") : t.login.enter}
               </Button>
               {!isLiveMode() ? <p className="text-[11px] text-muted text-center mt-3">{t.login.demoHint}</p> : null}
             </div>

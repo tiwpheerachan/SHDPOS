@@ -10,6 +10,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Search, UserPlus, X, Phone, Star, Check, Loader2, IdCard } from "lucide-react";
 import { searchCustomers, createCustomer } from "@/lib/data/repo";
+import { useI18n } from "@/lib/i18n/provider";
 import { Avatar } from "@/components/ui";
 import type { Customer } from "@/lib/types";
 
@@ -106,6 +107,8 @@ export function CustomerPicker({
   branchId?: string | null;
   initialQuery?: string;
 }) {
+  const { locale } = useI18n();
+  const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
   const [q, setQ] = useState(initialQuery);
   const [results, setResults] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(false);
@@ -189,12 +192,12 @@ export function CustomerPicker({
       <div className="cxp-scrim" onClick={onClose} />
       <div className="cxp-sheet cxp-grow">
         <div className="cxp-grip" />
-        <button className="cxp-x" onClick={onClose} aria-label="ปิด"><X size={17} /></button>
+        <button className="cxp-x" onClick={onClose} aria-label={L("ปิด", "Close", "关闭")}><X size={17} /></button>
 
         <div className="cxp-head">
-          <div className="cxp-title">{mode === "create" ? "ลูกค้าใหม่" : "เลือกลูกค้า"}</div>
+          <div className="cxp-title">{mode === "create" ? L("ลูกค้าใหม่", "New customer", "新客户") : L("เลือกลูกค้า", "Select customer", "选择客户")}</div>
           <div className="cxp-sub">
-            {mode === "create" ? "กรอกข้อมูลลูกค้าเพื่อผูกกับบิลนี้" : "ค้นหาด้วยชื่อ เบอร์โทร หรือรหัสสมาชิก"}
+            {mode === "create" ? L("กรอกข้อมูลลูกค้าเพื่อผูกกับบิลนี้", "Fill in customer details to link to this order", "填写客户信息以绑定此单") : L("ค้นหาด้วยชื่อ เบอร์โทร หรือรหัสสมาชิก", "Search by name, phone, or member code", "按姓名、电话或会员号搜索")}
           </div>
         </div>
 
@@ -207,7 +210,7 @@ export function CustomerPicker({
                 className="cxp-search"
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
-                placeholder="ชื่อ หรือ 08x-xxx-xxxx"
+                placeholder={L("ชื่อ หรือ 08x-xxx-xxxx", "Name or 08x-xxx-xxxx", "姓名或 08x-xxx-xxxx")}
                 inputMode="text"
                 autoComplete="off"
               />
@@ -219,12 +222,12 @@ export function CustomerPicker({
                   <span className="cxp-ava" style={{ width: 34, height: 34, fontSize: 0, background: "rgba(121,80,216,.18)", boxShadow: "none", color: "#7950D8" }}>
                     <UserPlus size={17} />
                   </span>
-                  สร้างลูกค้าใหม่ “{q.trim()}”
+                  {L("สร้างลูกค้าใหม่", "Create new customer", "创建新客户")} “{q.trim()}”
                 </button>
               )}
 
               {loading && (
-                <div className="cxp-empty"><Loader2 size={18} className="inline animate-spin" /> กำลังค้นหา…</div>
+                <div className="cxp-empty"><Loader2 size={18} className="inline animate-spin" /> {L("กำลังค้นหา…", "Searching…", "搜索中…")}</div>
               )}
 
               {!loading && results.map((c) => (
@@ -235,7 +238,7 @@ export function CustomerPicker({
                     <span className="cxp-meta">
                       {c.phone && <span className="inline-flex items-center gap-1"><Phone size={12} />{c.phone}</span>}
                       {c.member_code && <span className="inline-flex items-center gap-1"><IdCard size={12} />{c.member_code}</span>}
-                      {!!c.points && <span className="cxp-chip"><Star size={11} />{c.points} แต้ม</span>}
+                      {!!c.points && <span className="cxp-chip"><Star size={11} />{c.points} {L("แต้ม", "pts", "积分")}</span>}
                     </span>
                   </span>
                   <Check size={18} style={{ opacity: 0, color: "#7950D8" }} />
@@ -243,10 +246,10 @@ export function CustomerPicker({
               ))}
 
               {!loading && q.trim() && results.length === 0 && (
-                <div className="cxp-empty">ไม่พบลูกค้า — กด “สร้างลูกค้าใหม่” ด้านบน</div>
+                <div className="cxp-empty">{L("ไม่พบลูกค้า — กด “สร้างลูกค้าใหม่” ด้านบน", "No customers found — tap “Create new customer” above", "未找到客户 — 点击上方“创建新客户”")}</div>
               )}
               {!loading && !q.trim() && (
-                <div className="cxp-empty">เริ่มพิมพ์เพื่อค้นหา หรือสร้างลูกค้าใหม่</div>
+                <div className="cxp-empty">{L("เริ่มพิมพ์เพื่อค้นหา หรือสร้างลูกค้าใหม่", "Start typing to search or create a customer", "开始输入以搜索或创建客户")}</div>
               )}
             </div>
           </>
@@ -254,25 +257,25 @@ export function CustomerPicker({
           <>
             <div className="cxp-form cxp-grow" style={{ overflowY: "auto" }}>
               <div className="cxp-field">
-                <input className="cxp-inp" autoFocus value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="ชื่อลูกค้า *" />
+                <input className="cxp-inp" autoFocus value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={L("ชื่อลูกค้า *", "Customer name *", "客户姓名 *")} />
               </div>
               <div className="cxp-field">
                 <Phone size={16} className="cxp-inp-ic" />
-                <input className="cxp-inp cxp-inp2" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="เบอร์โทร" inputMode="tel" />
+                <input className="cxp-inp cxp-inp2" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder={L("เบอร์โทร", "Phone", "电话")} inputMode="tel" />
               </div>
               <div className="cxp-field">
-                <input className="cxp-inp" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="อีเมล (ไม่บังคับ)" inputMode="email" />
+                <input className="cxp-inp" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder={L("อีเมล (ไม่บังคับ)", "Email (optional)", "邮箱(选填)")} inputMode="email" />
               </div>
               <div className="cxp-field">
                 <IdCard size={16} className="cxp-inp-ic" />
-                <input className="cxp-inp cxp-inp2" value={form.tax_id} onChange={(e) => setForm({ ...form, tax_id: e.target.value })} placeholder="เลขผู้เสียภาษี (ไม่บังคับ)" inputMode="numeric" />
+                <input className="cxp-inp cxp-inp2" value={form.tax_id} onChange={(e) => setForm({ ...form, tax_id: e.target.value })} placeholder={L("เลขผู้เสียภาษี (ไม่บังคับ)", "Tax ID (optional)", "纳税人识别号(选填)")} inputMode="numeric" />
               </div>
             </div>
             <div className="cxp-foot">
-              <button className="cxp-btn cxp-btn-ghost" onClick={() => setMode("search")}>ย้อนกลับ</button>
+              <button className="cxp-btn cxp-btn-ghost" onClick={() => setMode("search")}>{L("ย้อนกลับ", "Back", "返回")}</button>
               <button className="cxp-btn cxp-btn-primary" disabled={!form.name.trim() || saving} onClick={submitCreate}>
                 {saving ? <Loader2 size={18} className="animate-spin" /> : <Check size={18} />}
-                บันทึกและเลือก
+                {L("บันทึกและเลือก", "Save & select", "保存并选择")}
               </button>
             </div>
           </>

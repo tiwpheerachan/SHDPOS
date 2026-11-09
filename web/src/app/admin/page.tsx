@@ -32,7 +32,6 @@ import { isLiveMode, supabase } from "@/lib/supabase/client";
 
 type Metric = "revenue" | "orders" | "profit" | "units";
 type Gran = "hourly" | "daily" | "weekly";
-const WEEKDAYS = ["จ", "อ", "พ", "พฤ", "ศ", "ส", "อา"];
 
 /** pseudo-random คงที่จาก seed — ใช้เติมตัวเลขฝั่งปฏิบัติการในโหมดสาธิต */
 const seeded = (seed: number) => {
@@ -42,9 +41,15 @@ const seeded = (seed: number) => {
 
 export default function CommandCenter() {
   const { t, locale } = useI18n();
+  const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
   const { employee } = useSession();
   const { branches, brands } = useAdminScope();
   const [filter, setFilter] = useDefaultFilter();
+  const weekdays = locale === "th"
+    ? ["จ", "อ", "พ", "พฤ", "ศ", "ส", "อา"]
+    : locale === "zh"
+    ? ["一", "二", "三", "四", "五", "六", "日"]
+    : ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
   const [orders, setOrders] = useState<Order[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -351,15 +356,15 @@ export default function CommandCenter() {
   const insights = useMemo(() => {
     const arr: string[] = [];
     const topB = branchRows[0];
-    if (topB && prev.gross) arr.push(`${topB.label} ${t.cmd.strong.toLowerCase()} +${Math.round(seeded(topB.value) * 20 + 12)}% เทียบค่าเฉลี่ย 4 สัปดาห์`);
+    if (topB && prev.gross) arr.push(`${topB.label} ${t.cmd.strong.toLowerCase()} +${Math.round(seeded(topB.value) * 20 + 12)}% ${L("เทียบค่าเฉลี่ย 4 สัปดาห์", "vs 4-week average", "对比4周均值")}`);
     const crit = low.find((l) => l.critical) ?? low[0];
-    if (crit) arr.push(`${crit.name} อาจหมดสต๊อกภายใน 1 วัน (${crit.branch})`);
+    if (crit) arr.push(`${crit.name} ${L("อาจหมดสต๊อกภายใน 1 วัน", "may run out of stock within 1 day", "可能在1天内缺货")} (${crit.branch})`);
     const topE = empRows[0];
-    if (topE) arr.push(`${topE.label} ยอดเฉลี่ยต่อบิลเพิ่มขึ้น ${Math.round(seeded(topE.value) * 15 + 8)}% สัปดาห์นี้`);
+    if (topE) arr.push(`${topE.label} ${L("ยอดเฉลี่ยต่อบิลเพิ่มขึ้น", "avg basket up", "客单价上升")} ${Math.round(seeded(topE.value) * 15 + 8)}% ${L("สัปดาห์นี้", "this week", "本周")}`);
     const peak = heat.grid.reduce((best, row, hi) => { const s = row.reduce((a, b) => a + b, 0); return s > best.s ? { hi, s } : best; }, { hi: 0, s: 0 });
-    if (peak.s) arr.push(`ช่วง ${heat.rows[peak.hi]}:00 คิดเป็นสัดส่วนยอดขายสูงสุดของวัน`);
+    if (peak.s) arr.push(`${L("ช่วง", "Hour", "时段")} ${heat.rows[peak.hi]}:00 ${L("คิดเป็นสัดส่วนยอดขายสูงสุดของวัน", "is the peak sales hour of the day", "为全天销售高峰")}`);
     return arr.slice(0, 4);
-  }, [branchRows, low, empRows, heat, prev.gross, t]);
+  }, [branchRows, low, empRows, heat, prev.gross, t, locale]);
 
   const liveFeed = useMemo(() => current.slice(0, 12), [current]);
 
@@ -475,7 +480,7 @@ export default function CommandCenter() {
                 <>
                   <div className="flex items-center justify-between mb-2">
                     <p className="eyebrow truncate">{provinceTH(focusProv)}</p>
-                    <button onClick={() => setFocusProv(null)} className="text-[11px] text-muted hover:text-ink">← กลับ</button>
+                    <button onClick={() => setFocusProv(null)} className="text-[11px] text-muted hover:text-ink">← {L("กลับ", "Back", "返回")}</button>
                   </div>
                   <ol className="space-y-1.5 flex-1 overflow-y-auto pr-1 -mr-1">
                     {focusBranches.map((b, i) => {
@@ -496,7 +501,7 @@ export default function CommandCenter() {
                     })}
                     {!focusBranches.length ? <li className="text-xs text-muted">{t.common.empty}</li> : null}
                   </ol>
-                  <p className="text-[10px] text-muted mt-2 shrink-0">แตะสาขาเพื่อกรองแดชบอร์ด</p>
+                  <p className="text-[10px] text-muted mt-2 shrink-0">{L("แตะสาขาเพื่อกรองแดชบอร์ด", "Tap a branch to filter the dashboard", "点击门店以筛选仪表盘")}</p>
                 </>
               ) : (
                 <>
@@ -663,7 +668,7 @@ export default function CommandCenter() {
         <Card className="col-span-12 lg:col-span-6 p-5">
           <SectionTitle>{t.cmd.salesHeatmap}</SectionTitle>
           <div className="mt-4">
-            <Heatmap rows={heat.rows} cols={WEEKDAYS} values={heat.grid} color="#FF725E" />
+            <Heatmap rows={heat.rows} cols={weekdays} values={heat.grid} color="#FF725E" />
           </div>
         </Card>
 

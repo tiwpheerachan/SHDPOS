@@ -64,6 +64,7 @@ const COLLAPSE_KEY = "shdpos.nav.collapsed";
 
 export function AdminShell({ children }: { children: React.ReactNode }) {
   const { t, locale, setLocale } = useI18n();
+  const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
   const { mode, setMode } = useTheme();
   const pathname = usePathname();
   const { employee, logout } = useSession();
@@ -97,11 +98,11 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
     inventory: t.admin.inventory, transfers: t.admin.transfers, products: t.admin.products,
     approvals: t.admin.approvals, users: t.admin.users, audit: t.admin.audit, settings: t.admin.settings,
     movement: t.cmd.stockMovement, documents: t.cmd.documentCenter,
-    permissions: locale === "en" ? "Users" : "ผู้ใช้",
-    customers: locale === "en" ? "Customers" : "ลูกค้า",
-    stores: locale === "en" ? "Stores" : "ร้าน",
-    tasks: locale === "en" ? "Follow-ups" : "ติดตามลูกค้า",
-    campaigns: locale === "en" ? "Campaigns" : "แคมเปญ",
+    permissions: L("ผู้ใช้", "Users", "用户"),
+    customers: L("ลูกค้า", "Customers", "客户"),
+    stores: L("ร้าน", "Stores", "店铺"),
+    tasks: L("ติดตามลูกค้า", "Follow-ups", "跟进任务"),
+    campaigns: L("แคมเปญ", "Campaigns", "活动"),
   };
   const sectionLabel: Record<string, string> = {
     overview: t.cmd.secOverview, sales: t.cmd.secSales, operations: t.cmd.secOps,
