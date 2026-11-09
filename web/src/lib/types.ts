@@ -2,7 +2,7 @@
 // SHD POS — Domain types (ตรงกับ schema ใน supabase/migrations)
 // =====================================================================
 
-export type EmployeeRole = "staff" | "supervisor" | "manager" | "brand_admin" | "hq" | "auditor";
+export type EmployeeRole = "staff" | "supervisor" | "manager" | "brand_admin" | "hq" | "auditor" | "owner";
 export type DataScope = "own" | "branch" | "brand" | "company";
 export type ProductKind = "goods" | "service" | "bundle" | "fee";
 export type LineKind = "goods" | "service" | "fee" | "travel" | "claim" | "b2b";

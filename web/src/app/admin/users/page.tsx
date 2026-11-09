@@ -12,7 +12,7 @@ import type { Branch, Brand, DataScope, Employee, EmployeeRole } from "@/lib/typ
 import { Button, Card, CardHeader, Input, Field, Select, Table, Th, Td, Badge, Modal, Segmented, EmptyState } from "@/components/ui";
 import { ROLE_LABEL, ROLE_MATRIX, PERMISSION_KEYS, can, type PermissionKey } from "@/lib/permissions";
 
-const ROLES: EmployeeRole[] = ["staff", "supervisor", "manager", "brand_admin", "hq", "auditor"];
+const ROLES: EmployeeRole[] = ["staff", "supervisor", "manager", "brand_admin", "hq", "auditor", "owner"];
 const SCOPES: DataScope[] = ["own", "branch", "brand", "company"];
 
 const PERM_LABEL: Record<string, string> = {

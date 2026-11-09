@@ -17,6 +17,7 @@ import { LOCALES, LOCALE_LABEL } from "@/lib/i18n/dict";
 import { Badge } from "@/components/ui";
 import { Clock as LiveClock } from "@/components/clock";
 import { BrandReveal } from "@/components/brand-reveal";
+import { BranchSwitcher } from "@/components/pos/branch-switcher";
 import { openDisplayWindow } from "@/lib/customer-display";
 import { formatTHB } from "@/lib/money";
 
@@ -34,7 +35,7 @@ const NAV = [
   { href: "/pos/adjust", icon: SlidersHorizontal, key: "adjust" },
 ] as const;
 
-export function PosTopBar({ branchName }: { branchName?: string }) {
+export function PosTopBar() {
   const { t, locale, setLocale } = useI18n();
   const { mode, setMode } = useTheme();
   const router = useRouter();
@@ -80,13 +81,13 @@ export function PosTopBar({ branchName }: { branchName?: string }) {
   return (
     <header className="sticky top-0 z-40 bg-surface/95 backdrop-blur border-b border-line no-print">
       <div className="flex items-center gap-3 px-3 sm:px-4 h-14">
-        <Link href="/pos/sell" className="flex items-center gap-2 shrink-0">
-          <BrandReveal className="w-8 h-8 rounded-lg" tileSize={64} />
-          <div className="hidden md:block leading-tight">
-            <p className="text-sm font-semibold">SHD POS</p>
-            <p className="text-[10px] text-muted truncate max-w-[160px]">{branchName ?? "—"}</p>
-          </div>
-        </Link>
+        <div className="flex items-center gap-2 shrink-0">
+          <Link href="/pos/sell" className="flex items-center gap-2">
+            <BrandReveal className="w-8 h-8 rounded-lg" tileSize={64} />
+            <p className="hidden md:block text-sm font-semibold">SHD POS</p>
+          </Link>
+          <BranchSwitcher />
+        </div>
 
         <div ref={navWrapRef} className="relative flex items-center gap-1 overflow-x-auto flex-1 min-w-0">
           {/* กรอบแก้ว (liquid glass) เลื่อนครอบเมนูที่เลือก — เอาแค่ animation เปลี่ยนแท็บ */}

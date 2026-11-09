@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { nanoid } from "nanoid";
 import {
   Search, Plus, Minus, Trash2, Percent, Barcode, Inbox, PauseCircle, PlayCircle,
-  UserRound, AlertTriangle, PackageX, Tag, UserPlus, Phone, ChevronRight, X, Star, Wallet, Ticket, Gift, Package, Maximize2, Minimize2,
+  UserRound, AlertTriangle, PackageX, Tag, UserPlus, Phone, ChevronRight, X, Star, Wallet, Ticket, Gift, Package, Maximize2, Minimize2, Store,
 } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { useSession } from "@/lib/store/session";
@@ -27,6 +27,7 @@ import { ReceiptPreview } from "@/components/pos/receipt-preview";
 import { ApprovalModal, type ApprovalRequestInput } from "@/components/pos/approval-modal";
 import { pushDisplay } from "@/lib/customer-display";
 import { CustomerPicker } from "@/components/pos/customer-picker";
+import { BranchSwitcher } from "@/components/pos/branch-switcher";
 import { maxRedeemablePoints, POINT_VALUE_THB } from "@/lib/loyalty";
 import { uuidv4 } from "@/lib/uuid";
 import { buildReceipt } from "@/lib/printing/receipt";
@@ -455,7 +456,23 @@ export default function SellPage() {
     }
   }
 
-  if (!employee || !branchId) return null;
+  if (!employee) return null;
+
+  // ยังไม่ได้เลือกสาขา (คนหลายสาขา/ทุกสาขา) → บังคับเลือกสาขาก่อนเริ่มขาย
+  if (!branchId) {
+    return (
+      <div className="p-6">
+        <Card className="max-w-md mx-auto mt-16 p-8 text-center">
+          <Store size={34} className="mx-auto text-brand mb-3" />
+          <h2 className="text-base font-semibold">เลือกสาขาก่อนเริ่มขาย</h2>
+          <p className="text-xs text-muted mt-1">บิลทุกใบต้องผูกกับสาขาที่ขาย — เลือกสาขาที่คุณกำลังทำงานอยู่</p>
+          <div className="mt-5 flex justify-center">
+            <BranchSwitcher />
+          </div>
+        </Card>
+      </div>
+    );
+  }
 
   if (!session.shift) {
     return (

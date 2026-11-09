@@ -11,7 +11,7 @@ import { nanoid } from "nanoid";
 import { isLiveMode } from "@/lib/supabase/client";
 
 const ROLE_RANK: Record<EmployeeRole, number> = {
-  staff: 0, auditor: 0, supervisor: 1, manager: 2, brand_admin: 3, hq: 4,
+  staff: 0, auditor: 0, supervisor: 1, manager: 2, brand_admin: 3, hq: 4, owner: 5,
 };
 
 export interface ApprovalRequestInput {

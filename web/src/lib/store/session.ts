@@ -13,9 +13,9 @@ interface SessionState {
   printer: PrinterConfig;
   /** ช่องทางขายเริ่มต้นของเครื่องนี้ */
   channel: "offline" | "online_shopee" | "online_lazada" | "online_tiktok" | "event";
-  login: (e: Employee, branchId: string, terminalId: string | null) => void;
+  login: (e: Employee, branchId: string | null, terminalId: string | null) => void;
   logout: () => void;
-  setBranch: (branchId: string, terminalId: string | null) => void;
+  setBranch: (branchId: string | null, terminalId: string | null) => void;
   setShift: (s: Shift | null) => void;
   setPrinter: (p: Partial<PrinterConfig>) => void;
 }

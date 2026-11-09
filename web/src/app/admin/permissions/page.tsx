@@ -9,7 +9,7 @@ import type { Branch, DataScope, EmployeeRole, PermissionEffect } from "@/lib/ty
 import { ROLE_LABEL, ROLE_MATRIX, can, type PermissionKey } from "@/lib/permissions";
 import { Button, Card, Input, Field, Select, Table, Th, Td, Badge, Modal, EmptyState } from "@/components/ui";
 
-const ROLES: EmployeeRole[] = ["staff", "supervisor", "manager", "brand_admin", "hq", "auditor"];
+const ROLES: EmployeeRole[] = ["staff", "supervisor", "manager", "brand_admin", "hq", "auditor", "owner"];
 const SCOPES: { v: DataScope; label: string }[] = [
   { v: "own", label: "เฉพาะตัวเอง" },
   { v: "branch", label: "สาขาที่ระบุ" },
@@ -299,7 +299,7 @@ export default function AdminUsersUnifiedPage() {
               <Field label="อีเมล (ใช้ล็อกอิน SSO)"><Input value={draft.email} onChange={(e) => setDraft({ ...draft, email: e.target.value })} placeholder="name@shd-technology.co.th" /></Field>
             </div>
             <div className="grid sm:grid-cols-3 gap-3">
-              <Field label="บทบาท (role)"><Select value={draft.role} onChange={(e) => setDraft({ ...draft, role: e.target.value as EmployeeRole })}>{ROLES.map((r) => <option key={r} value={r}>{ROLE_LABEL[r].th}</option>)}</Select></Field>
+              <Field label="บทบาท (role)"><Select value={draft.role} onChange={(e) => { const role = e.target.value as EmployeeRole; setDraft({ ...draft, role, ...((role === "owner" || role === "hq") ? { data_scope: "company" as DataScope } : {}) }); }}>{ROLES.map((r) => <option key={r} value={r}>{ROLE_LABEL[r].th}</option>)}</Select></Field>
               <Field label="ขอบเขตข้อมูล"><Select value={draft.data_scope} onChange={(e) => setDraft({ ...draft, data_scope: e.target.value as DataScope })}>{SCOPES.map((s) => <option key={s.v} value={s.v}>{s.label}</option>)}</Select></Field>
               <Field label="เพดานส่วนลด (%)"><Input type="number" min={0} max={100} value={draft.max_discount_percent} onChange={(e) => setDraft({ ...draft, max_discount_percent: Number(e.target.value) || 0 })} /></Field>
             </div>

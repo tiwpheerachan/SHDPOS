@@ -109,6 +109,10 @@ export const ROLE_MATRIX: Record<EmployeeRole, Partial<Record<PermissionKey, Rul
   hq: Object.fromEntries(
     PERMISSION_KEYS.map((k) => [k, { effect: "allow", limit: k === "pos.discount" ? 100 : undefined }])
   ) as Partial<Record<PermissionKey, Rule>>,
+  // เจ้าของกิจการ — สิทธิ์เต็มทุกอย่าง เห็นทุกแบรนด์ทุกสาขา (เทียบเท่า/สูงกว่า HQ)
+  owner: Object.fromEntries(
+    PERMISSION_KEYS.map((k) => [k, { effect: "allow", limit: k === "pos.discount" ? 100 : undefined }])
+  ) as Partial<Record<PermissionKey, Rule>>,
   auditor: {
     "inventory.view": { effect: "allow" },
     "report.employee_perf": { effect: "allow" },
@@ -176,7 +180,15 @@ export function discountApprovalLevel(percent: number): EmployeeRole | null {
 /** สาขาที่พนักงานคนนี้มองเห็น */
 export function visibleBranchIds(employee: Employee | null, allBranchIds: string[]): string[] {
   if (!employee) return [];
-  if (employee.data_scope === "company") return allBranchIds;
+  // เจ้าของ/HQ/ผู้ดูแลสูงสุด หรือ scope ระดับบริษัท → เห็นทุกสาขา
+  if (
+    employee.data_scope === "company" ||
+    employee.role === "owner" ||
+    employee.role === "hq" ||
+    isSuperadmin(employee.email)
+  ) {
+    return allBranchIds;
+  }
   return employee.branch_ids.length ? employee.branch_ids : (employee.home_branch_id ? [employee.home_branch_id] : []);
 }
 
@@ -187,4 +199,5 @@ export const ROLE_LABEL: Record<EmployeeRole, { th: string; en: string; zh: stri
   brand_admin: { th: "แอดมินแบรนด์", en: "Brand Admin", zh: "品牌管理员" },
   hq: { th: "สำนักงานใหญ่", en: "HQ", zh: "总部" },
   auditor: { th: "ผู้ตรวจสอบ", en: "Auditor", zh: "审计" },
+  owner: { th: "เจ้าของกิจการ", en: "Owner", zh: "企业主" },
 };

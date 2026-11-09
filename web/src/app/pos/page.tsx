@@ -1,18 +1,18 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Delete, ChevronRight, Building2, ShieldCheck, LogOut, KeyRound, ArrowRight } from "lucide-react";
+import { Delete, ChevronRight, ShieldCheck, LogOut, KeyRound, ArrowRight } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { useSession } from "@/lib/store/session";
 import { listBranches, listEmployees, getTerminalForBranch, writeAudit, currentShift } from "@/lib/data/repo";
 import type { Branch, Employee } from "@/lib/types";
-import { Button, Card, Numpad, Select, Badge, Modal } from "@/components/ui";
-import { ROLE_LABEL } from "@/lib/permissions";
+import { Button, Card, Numpad, Modal } from "@/components/ui";
+import { ROLE_LABEL, visibleBranchIds } from "@/lib/permissions";
 import { isLiveMode, supabase } from "@/lib/supabase/client";
 import { useToast } from "@/components/toast-host";
 import { useCentral } from "@/lib/sso/use-central";
-import { buildSsoEmployee, matchBranch } from "@/lib/sso/map-employee";
+import { buildSsoEmployee } from "@/lib/sso/map-employee";
 import StickerSlapFooter from "@/components/ui/sticker-slap-footer";
 
 // สติ๊กเกอร์แบรนด์ของเรา (ตัดจากชุด SHD) สำหรับหน้า login
@@ -30,7 +30,8 @@ const LOGIN_STICKERS = [
 ];
 
 // แปลง safe profile จาก RPC (pos_login_by_pin) → Employee สำหรับ session
-function profileToEmployee(p: any, branchId: string): Employee {
+// RPC คืน branch_ids / brand_ids แล้ว จึงไม่ต้องผูกสาขาตอน login
+function profileToEmployee(p: any): Employee {
   return {
     id: p.id,
     employee_code: p.employee_code,
@@ -39,9 +40,9 @@ function profileToEmployee(p: any, branchId: string): Employee {
     nickname: p.nickname ?? null,
     role: p.role,
     data_scope: p.data_scope,
-    home_branch_id: p.home_branch_id ?? branchId,
-    branch_ids: p.branch_ids ?? [branchId],
-    brand_ids: p.brand_ids ?? [],
+    home_branch_id: p.home_branch_id ?? null,
+    branch_ids: (p.branch_ids as string[] | null) ?? [],
+    brand_ids: (p.brand_ids as string[] | null) ?? [],
     max_discount_percent: p.max_discount_percent ?? 0,
     can_open_drawer: p.can_open_drawer ?? false,
     status: p.status ?? "active",
@@ -57,7 +58,6 @@ export default function PosLoginPage() {
 
   const [branches, setBranches] = useState<Branch[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
-  const [branchId, setBranchId] = useState<string>("");
   const [pin, setPin] = useState("");
   const [error, setError] = useState(false);
   const [showPin, setShowPin] = useState(false);
@@ -83,25 +83,16 @@ export default function PosLoginPage() {
       const shops = b.filter((x) => x.branch_type !== "warehouse");
       setBranches(shops);
       setEmployees(e);
-      setBranchId(session.branchId ?? shops[0]?.id ?? "");
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const branchEmployees = useMemo(
-    () => employees.filter((e) =>
-      e.status === "active" &&
-      // HQ / brand admin เข้าได้จากทุกสาขา · พนักงานสาขาเข้าเฉพาะสาขาตัวเอง
-      (e.data_scope === "company" || e.data_scope === "brand" || e.home_branch_id === branchId || e.branch_ids.includes(branchId))
-    ),
-    [employees, branchId]
-  );
-
-  // เปลี่ยนสาขา → ล้าง PIN + รายการที่ต้องเลือก
-  useEffect(() => {
-    setPin("");
-    setPinMatches(null);
-  }, [branchId]);
+  // หาสาขาเริ่มต้นหลัง login — เลือกให้อัตโนมัติเฉพาะคนที่มีสาขาเดียว
+  // ส่วนคนที่เห็นหลายสาขา/ทุกสาขา → ปล่อยว่าง (null) ไปเลือกเองในหน้า POS ก่อนขาย
+  function pickLoginBranch(emp: Employee): string | null {
+    const visible = visibleBranchIds(emp, branches.map((b) => b.id));
+    return visible.length === 1 ? visible[0] : null;
+  }
 
   // พิมพ์ PIN จากคีย์บอร์ดได้ (เมื่อเปิด modal PIN และยังไม่อยู่ขั้นเลือกชื่อ)
   useEffect(() => {
@@ -124,7 +115,7 @@ export default function PosLoginPage() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showPin, pinMatches, pin, branchId]);
+  }, [showPin, pinMatches, pin]);
 
   function wrongPin() {
     setError(true);
@@ -132,19 +123,19 @@ export default function PosLoginPage() {
     setTimeout(() => setError(false), 1200);
   }
 
-  // เข้าสู่ระบบด้วย PIN อย่างเดียว → ระบบหาว่า PIN นี้เป็นของใครในสาขาที่เลือก
+  // เข้าสู่ระบบด้วย PIN อย่างเดียว → ระบบหาว่า PIN นี้เป็นของใคร (ทั่วบริษัท ไม่ผูกสาขา)
   async function submitPin() {
-    if (!branchId || pin.length < 4 || pinBusy) return;
+    if (pin.length < 4 || pinBusy) return;
     setPinBusy(true);
     try {
       let matches: Employee[] = [];
       if (isLiveMode()) {
         const sb = supabase();
-        const { data } = await sb!.rpc("pos_login_by_pin", { p_branch_id: branchId, p_pin: pin });
-        matches = ((data as any[]) ?? []).map((p) => profileToEmployee(p, branchId));
+        const { data } = await sb!.rpc("pos_login_by_pin", { p_branch_id: null, p_pin: pin });
+        matches = ((data as any[]) ?? []).map((p) => profileToEmployee(p));
       } else {
-        // โหมดสาธิต: PIN 1234 ใช้ได้กับพนักงานในสาขา
-        matches = pin === "1234" ? branchEmployees : [];
+        // โหมดสาธิต: PIN 1234 ใช้ได้กับพนักงาน active ทุกคน (เลือกสาขาทีหลัง)
+        matches = pin === "1234" ? employees.filter((e) => e.status === "active") : [];
       }
       if (matches.length === 0) { wrongPin(); return; }
       if (matches.length === 1) { await finishLogin(matches[0]); return; }
@@ -155,15 +146,17 @@ export default function PosLoginPage() {
   }
 
   async function finishLogin(emp: Employee) {
-    const terminal = await getTerminalForBranch(branchId);
-    session.login(emp, branchId, terminal?.id ?? null);
-    const shift = await currentShift(branchId);
+    // ไม่บังคับเลือกสาขาตอน login — เลือกให้เฉพาะคนสาขาเดียว, ที่เหลือไปเลือกในหน้า POS
+    const bid = pickLoginBranch(emp);
+    const terminal = bid ? await getTerminalForBranch(bid) : null;
+    session.login(emp, bid, terminal?.id ?? null);
+    const shift = bid ? await currentShift(bid) : null;
     session.setShift(shift ?? null);
     try {
       await writeAudit({
         action: "login",
         actor_id: emp.id,
-        branch_id: branchId,
+        branch_id: bid,
         ref_table: null,
         ref_no: null,
         amount: null,
@@ -175,28 +168,16 @@ export default function PosLoginPage() {
     router.push("/");
   }
 
-  // เลือกสาขาให้อัตโนมัติจากหมวกหลักของ SSO (ถ้าตรงกับสาขาในระบบ)
-  useEffect(() => {
-    if (!central.authenticated || !central.profile?.branch || !branches.length) return;
-    const b = matchBranch(branches, central.profile.branch);
-    if (b) setBranchId(b.id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [central.authenticated, central.profile?.branch, branches]);
-
-  // เข้าสู่ระบบด้วย SSO — ไม่ต้องใส่ PIN (ระบบกลางยืนยันตัวตนแล้ว) แต่ยังต้องเลือกสาขา
+  // เข้าสู่ระบบด้วย SSO — ไม่ต้องใส่ PIN และไม่ต้องเลือกสาขา (เลือกในหน้า POS ก่อนขาย)
   async function ssoLogin() {
     if (!central.authenticated || !central.profile || !central.authz?.allowed) return;
-    const bid = branchId || matchBranch(branches, central.profile.branch)?.id || branches[0]?.id || "";
-    if (!bid) {
-      toast.push({ tone: "warn", title: "ยังไม่มีสาขาให้เลือก" });
-      return;
-    }
     setSsoBusy(true);
     try {
-      const emp = buildSsoEmployee(central.profile, central.authz, bid);
-      const terminal = await getTerminalForBranch(bid);
+      const emp = buildSsoEmployee(central.profile, central.authz, "");
+      const bid = pickLoginBranch(emp);
+      const terminal = bid ? await getTerminalForBranch(bid) : null;
       session.login(emp, bid, terminal?.id ?? null);
-      const shift = await currentShift(bid);
+      const shift = bid ? await currentShift(bid) : null;
       session.setShift(shift ?? null);
       try {
         await writeAudit({
@@ -307,18 +288,11 @@ export default function PosLoginPage() {
                   </div>
 
                   {central.authz?.allowed ? (
-                    <div className="mt-3 space-y-2">
-                      <div className="relative">
-                        <Building2 size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
-                        <Select value={branchId} onChange={(e) => setBranchId(e.target.value)} className="pl-9">
-                          {branches.map((b) => (
-                            <option key={b.id} value={b.id}>{locale === "th" ? b.name_th ?? b.name : b.name}</option>
-                          ))}
-                        </Select>
-                      </div>
+                    <div className="mt-3">
                       <Button variant="primary" className="w-full" disabled={ssoBusy} onClick={() => void ssoLogin()}>
                         {ssoBusy ? "กำลังเข้า…" : "เข้าสู่ระบบ"} <ArrowRight size={16} />
                       </Button>
+                      <p className="mt-2 text-[11px] text-muted text-center leading-snug">เลือกสาขาที่หน้าร้านก่อนเริ่มขาย</p>
                     </div>
                   ) : (
                     <p className="mt-3 text-[11px] text-warn bg-warn/10 rounded-lg px-3 py-2 leading-snug">
@@ -364,18 +338,6 @@ export default function PosLoginPage() {
         title="เข้าด้วยรหัส PIN พนักงาน"
       >
         <div className="space-y-4">
-          <div>
-            <label className="label">{t.common.branch}</label>
-            <div className="relative">
-              <Building2 size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
-              <Select value={branchId} onChange={(e) => setBranchId(e.target.value)} className="pl-9">
-                {branches.map((b) => (
-                  <option key={b.id} value={b.id}>{locale === "th" ? b.name_th ?? b.name : b.name}</option>
-                ))}
-              </Select>
-            </div>
-          </div>
-
           {pinMatches ? (
             /* PIN ตรงกับหลายคน → ให้เลือกชื่อ */
             <div>
