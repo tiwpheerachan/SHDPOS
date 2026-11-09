@@ -10,6 +10,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { formatCompact } from "@/lib/money";
 import { provinceTH } from "@/lib/geo/th-provinces";
+import { useI18n } from "@/lib/i18n/provider";
 
 type Ring = [number, number][];
 interface Feature { properties: { name: string }; geometry: { type: "Polygon" | "MultiPolygon"; coordinates: number[][][] | number[][][][] } }
@@ -32,6 +33,8 @@ export function ThailandMap({
   focus?: string | null;
   onFocus?: (enName: string | null) => void;
 }) {
+  const { locale } = useI18n();
+  const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
   const [features, setFeatures] = useState<Feature[] | null>(null);
   const [hover, setHover] = useState<string | null>(null);
   const [pos, setPos] = useState({ x: 0, y: 0 });
@@ -110,7 +113,7 @@ export function ThailandMap({
         <button onClick={() => onFocus?.(null)} className="absolute top-2 left-2 z-10 btn-soft h-8 px-2.5 text-xs">← ทั้งประเทศ</button>
       ) : null}
       <svg viewBox={`0 0 ${VB.w} ${VB.h}`} preserveAspectRatio="xMidYMid meet" className="h-full w-full block"
-        role="img" aria-label="แผนที่ยอดขายประเทศไทย"
+        role="img" aria-label={L("แผนที่ยอดขายประเทศไทย", "Thailand sales map", "泰国销售地图")}
         style={{ WebkitMaskImage: "radial-gradient(130% 118% at 50% 46%, #000 78%, transparent 100%)", maskImage: "radial-gradient(130% 118% at 50% 46%, #000 78%, transparent 100%)" }}>
         <g transform={`translate(${g.tx.toFixed(1)} ${g.ty.toFixed(1)}) scale(${g.s.toFixed(3)})`} style={{ transition: "transform .6s cubic-bezier(.22,1,.36,1)" }}>
           {paths.map((p) => {
@@ -138,21 +141,21 @@ export function ThailandMap({
       {hv ? (
         <div className="pointer-events-none absolute z-20 bg-surface border border-line rounded-xl shadow-pop px-3 py-2 text-xs w-44"
           style={{ left: Math.min(pos.x + 12, (wrapRef.current?.clientWidth ?? 300) - 180), top: pos.y + 12 }}>
-          <div className="font-semibold truncate">{hv.th}</div>
+          <div className="font-semibold truncate">{locale === "th" ? hv.th : hv.name}</div>
           {hv.stat && hv.stat.branches ? (
             <>
-              <div className="mt-1 flex justify-between"><span className="text-muted">ยอดขาย</span><span className="tnum font-semibold text-coral">฿{formatCompact(hv.stat.sales)}</span></div>
-              <div className="flex justify-between"><span className="text-muted">บิล / สาขา</span><span className="tnum">{hv.stat.orders} / {hv.stat.branches}</span></div>
-              <div className="text-[10px] text-muted mt-0.5">คลิกเพื่อซูม + ดูสาขา</div>
+              <div className="mt-1 flex justify-between"><span className="text-muted">{L("ยอดขาย", "Sales", "销售额")}</span><span className="tnum font-semibold text-coral">฿{formatCompact(hv.stat.sales)}</span></div>
+              <div className="flex justify-between"><span className="text-muted">{L("บิล / สาขา", "Bills / Branches", "单据 / 门店")}</span><span className="tnum">{hv.stat.orders} / {hv.stat.branches}</span></div>
+              <div className="text-[10px] text-muted mt-0.5">{L("คลิกเพื่อซูม + ดูสาขา", "Click to zoom + view branches", "点击放大 + 查看门店")}</div>
             </>
-          ) : <div className="text-muted mt-0.5">ไม่มีสาขา</div>}
+          ) : <div className="text-muted mt-0.5">{L("ไม่มีสาขา", "No branches", "无门店")}</div>}
         </div>
       ) : null}
 
       <div className="absolute bottom-2 right-2 flex items-center gap-2 text-[10px] text-muted bg-surface/80 backdrop-blur rounded-lg px-2 py-1.5">
-        <span>น้อย</span>
+        <span>{L("น้อย", "Low", "少")}</span>
         <span className="h-2 w-16 rounded-full" style={{ background: "linear-gradient(90deg, rgba(255,114,94,0.16), rgba(255,114,94,0.98))" }} />
-        <span>มาก</span>
+        <span>{L("มาก", "High", "多")}</span>
       </div>
     </div>
   );
