@@ -1,14 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Network, Building2, Plus, Pencil, Trash2, UserPlus } from "lucide-react";
+import { Network, Building2, Plus, Pencil, Trash2, UserPlus, Search, Check, ChevronDown } from "lucide-react";
+import clsx from "clsx";
 import { useI18n } from "@/lib/i18n/provider";
 import { useSession } from "@/lib/store/session";
-import { Card, CardHeader, Avatar, Button, Input, Select, Field, Modal, EmptyState, Badge } from "@/components/ui";
+import { Card, CardHeader, Avatar, Button, Select, Field, Modal, EmptyState, Badge } from "@/components/ui";
 import { useAdminScope } from "@/components/admin/filters";
 import { ROLE_LABEL, visibleBranchIds } from "@/lib/permissions";
 import { useToast } from "@/components/toast-host";
 import { loadOrg, upsertOrg, deleteOrg, type OrgEmp, type OrgPos } from "@/lib/data/org";
+import { positionLabel, searchPositions, type Locale } from "@/lib/positions";
 import type { EmployeeRole } from "@/lib/types";
 
 interface TreeNode { emp: OrgEmp; pos: OrgPos | null; children: TreeNode[] }
@@ -95,6 +97,7 @@ export default function AdminOrgPage() {
   }
 
   const roleLabel = (role: string) => ROLE_LABEL[role as EmployeeRole]?.[locale] ?? role;
+  const posLabel = (code: string | null | undefined) => positionLabel(code, locale as Locale);
   const branchLabel = (b: { name_th?: string | null; name: string }) => (locale === "th" ? b.name_th ?? b.name : b.name);
   const editEmp = editId ? emps.find((e) => e.id === editId) ?? null : null;
 
@@ -150,7 +153,7 @@ export default function AdminOrgPage() {
                 .shd-org > ul { padding-top:0; }
                 .shd-org > ul > li:only-child { padding-top:0; }
               `}</style>
-              <OrgLevel nodes={roots} onEdit={setEditId} roleLabel={roleLabel} />
+              <OrgLevel nodes={roots} onEdit={setEditId} roleLabel={roleLabel} posLabel={posLabel} />
             </div>
           ) : (
             <EmptyState
@@ -191,6 +194,7 @@ export default function AdminOrgPage() {
             pos={posByEmp.get(editEmp.id) ?? null}
             others={positioned.filter((e) => e.id !== editEmp.id)}
             roleLabel={roleLabel}
+            locale={locale as Locale}
             L={L}
             onSave={async (title, reports_to) => { await savePos(editEmp.id, { title, reports_to }); setEditId(null); }}
             onRemove={async () => { await removePos(editEmp.id); setEditId(null); }}
@@ -202,41 +206,56 @@ export default function AdminOrgPage() {
 }
 
 // ---- ระดับหนึ่งของผัง (recursive) ----
-function OrgLevel({ nodes, onEdit, roleLabel }: { nodes: TreeNode[]; onEdit: (id: string) => void; roleLabel: (r: string) => string }) {
+function OrgLevel({ nodes, onEdit, roleLabel, posLabel }: { nodes: TreeNode[]; onEdit: (id: string) => void; roleLabel: (r: string) => string; posLabel: (c: string | null | undefined) => string }) {
   return (
     <ul>
-      {nodes.map((n) => (
-        <li key={n.emp.id}>
-          <button
-            onClick={() => onEdit(n.emp.id)}
-            className="group relative inline-flex flex-col items-center gap-1.5 w-44 rounded-2xl border border-line bg-surface hover:border-brand hover:shadow-pop px-3 py-3 transition-all"
-          >
-            <Avatar name={n.emp.name} src={n.emp.photo_url} size={44} />
-            <p className="text-sm font-semibold leading-tight text-center line-clamp-1">{n.emp.name}</p>
-            {n.pos?.title ? <p className="text-[11px] text-brand font-medium text-center line-clamp-2 leading-snug">{n.pos.title}</p> : null}
-            <Badge tone="brand">{roleLabel(n.emp.role)}</Badge>
-            <Pencil size={12} className="absolute top-2 right-2 text-muted opacity-0 group-hover:opacity-100 transition-opacity" />
-          </button>
-          {n.children.length ? <OrgLevel nodes={n.children} onEdit={onEdit} roleLabel={roleLabel} /> : null}
-        </li>
-      ))}
+      {nodes.map((n) => {
+        const title = posLabel(n.pos?.title);
+        return (
+          <li key={n.emp.id}>
+            <button
+              onClick={() => onEdit(n.emp.id)}
+              className="group relative inline-flex flex-col items-center gap-1.5 w-44 rounded-2xl border border-line bg-surface hover:border-brand hover:shadow-pop px-3 py-3 transition-all"
+            >
+              <Avatar name={n.emp.name} src={n.emp.photo_url} size={44} />
+              <p className="text-sm font-semibold leading-tight text-center line-clamp-1">{n.emp.name}</p>
+              {title ? <p className="text-[11px] text-brand font-medium text-center line-clamp-2 leading-snug">{title}</p> : null}
+              <Badge tone="brand">{roleLabel(n.emp.role)}</Badge>
+              <Pencil size={12} className="absolute top-2 right-2 text-muted opacity-0 group-hover:opacity-100 transition-opacity" />
+            </button>
+            {n.children.length ? <OrgLevel nodes={n.children} onEdit={onEdit} roleLabel={roleLabel} posLabel={posLabel} /> : null}
+          </li>
+        );
+      })}
     </ul>
   );
 }
 
 // ---- แผงแก้ไข ----
 function EditPanel({
-  emp, pos, others, roleLabel, L, onSave, onRemove,
+  emp, pos, others, roleLabel, locale, L, onSave, onRemove,
 }: {
   emp: OrgEmp; pos: OrgPos | null; others: OrgEmp[];
   roleLabel: (r: string) => string;
+  locale: Locale;
   L: (th: string, en: string, zh: string) => string;
   onSave: (title: string, reports_to: string | null) => Promise<void>;
   onRemove: () => Promise<void>;
 }) {
-  const [title, setTitle] = useState(pos?.title ?? "");
+  const [code, setCode] = useState(pos?.title ?? "");   // เก็บ code ของตำแหน่ง
   const [reportsTo, setReportsTo] = useState<string>(pos?.reports_to ?? "");
   const [busy, setBusy] = useState(false);
+  // dropdown ตำแหน่ง (ค้นหาได้)
+  const [posOpen, setPosOpen] = useState(false);
+  const [posQuery, setPosQuery] = useState("");
+  const posRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!posOpen) return;
+    const onDown = (e: MouseEvent) => { if (posRef.current && !posRef.current.contains(e.target as Node)) setPosOpen(false); };
+    window.addEventListener("mousedown", onDown);
+    return () => window.removeEventListener("mousedown", onDown);
+  }, [posOpen]);
+  const results = searchPositions(posQuery);
 
   return (
     <div className="space-y-4">
@@ -247,17 +266,48 @@ function EditPanel({
           <p className="text-[11px] text-muted truncate">{emp.code} · {roleLabel(emp.role)}</p>
         </div>
       </div>
-      <Field label={L("ตำแหน่ง (พิมพ์ได้อิสระ)", "Position (free text)", "职位（自由输入）")}>
-        <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={L("เช่น ผู้จัดการสาขา, Senior Technician", "e.g. Branch Manager, Senior Technician", "例如 门店经理、资深技师")} />
+
+      <Field label={L("ตำแหน่ง", "Position", "职位")}>
+        <div className="relative" ref={posRef}>
+          <button type="button" onClick={() => setPosOpen((o) => !o)} className="input flex items-center justify-between w-full text-left">
+            <span className={code ? "" : "text-muted"}>{code ? positionLabel(code, locale) : L("เลือกตำแหน่ง", "Select position", "选择职位")}</span>
+            <ChevronDown size={15} className={clsx("text-muted shrink-0 transition-transform", posOpen && "rotate-180")} />
+          </button>
+          {posOpen ? (
+            <div className="absolute z-50 mt-1.5 w-full bg-surface border border-line rounded-xl shadow-pop p-1.5">
+              <div className="relative mb-1">
+                <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted" />
+                {/* eslint-disable-next-line jsx-a11y/no-autofocus */}
+                <input autoFocus value={posQuery} onChange={(e) => setPosQuery(e.target.value)} placeholder={L("พิมพ์ค้นหาตำแหน่ง…", "Search position…", "搜索职位…")} className="w-full h-8 pl-8 pr-2 rounded-lg bg-surface2 border border-line text-sm outline-none focus:ring-2 focus:ring-brand/30" />
+              </div>
+              <div className="max-h-56 overflow-y-auto">
+                {results.map((p) => (
+                  <button
+                    key={p.code}
+                    type="button"
+                    onClick={() => { setCode(p.code); setPosOpen(false); setPosQuery(""); }}
+                    className={clsx("w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg text-sm text-left hover:bg-surface2 transition-colors", code === p.code && "text-brand font-medium")}
+                  >
+                    <span className="truncate">{p[locale]}</span>
+                    {code === p.code ? <Check size={14} className="text-brand shrink-0" /> : null}
+                  </button>
+                ))}
+                {!results.length ? <p className="px-2.5 py-2 text-xs text-muted">{L("ไม่พบตำแหน่ง", "No match", "无结果")}</p> : null}
+              </div>
+            </div>
+          ) : null}
+        </div>
       </Field>
+
       <Field label={L("หัวหน้า (รายงานตรงต่อ)", "Manager (reports to)", "上级（汇报对象）")}>
         <Select value={reportsTo} onChange={(e) => setReportsTo(e.target.value)}>
           <option value="">{L("— ไม่มี (ระดับบนสุด) —", "— None (top level) —", "— 无（最高层）—")}</option>
           {others.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
         </Select>
       </Field>
+
       <div className="flex items-center gap-2 pt-1">
-        <Button variant="primary" className="flex-1" disabled={busy} onClick={async () => { setBusy(true); try { await onSave(title.trim(), reportsTo || null); } finally { setBusy(false); } }}>
+        <Button variant="primary" className="flex-1" disabled={busy} onClick={async () => { setBusy(true); try { await onSave(code, reportsTo || null); } finally { setBusy(false); } }}>
           {L("บันทึก", "Save", "保存")}
         </Button>
         <Button variant="ghost" className="text-danger" disabled={busy} onClick={async () => { setBusy(true); try { await onRemove(); } finally { setBusy(false); } }}>
