@@ -203,7 +203,7 @@ export default function AdminOrgPage() {
         all={dirAll}
         featuredCount={positioned.length}
         directoryTitle={L("ไดเรกทอรีพนักงาน", "Staff directory", "员工目录")}
-        directorySub={`${emps.length} ${L("คนในสาขานี้", "in this branch", "人")}`}
+        directorySub={`${emps.length} ${L("คนในระบบ", "in the system", "人")}`}
         searchPlaceholder={L("ค้นหาพนักงาน…", "Search staff…", "搜索员工…")}
         emptyFeatured={L("ยังไม่มีใครในผัง — แตะพนักงานด้านล่างเพื่อเพิ่ม", "No one in the chart — tap staff below to add", "架构中暂无人员 — 点击下方员工添加")}
         onPick={handlePick}

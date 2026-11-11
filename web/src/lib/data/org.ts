@@ -26,8 +26,14 @@ const useDb = (branchId: string, employeeId: string) => isLiveMode() && isUuid(b
 
 export async function loadOrg(branchId: string): Promise<{ employees: OrgEmp[]; positions: OrgPos[] }> {
   const all = await listEmployees();
+  // แสดงพนักงาน active "ทั้งหมดในระบบ" เป็น pool ให้เลือกเข้าผังแต่ละสาขา
+  //   (พนักงานจริงจาก Lark/SSO ยังไม่ถูกผูกสาขา การเพิ่มเข้าผัง = สร้างความเชื่อมโยง)
+  //   เรียงคนที่ผูกกับสาขานี้ (home_branch/branch_ids) ขึ้นก่อน
+  const linked = (e: { home_branch_id?: string | null; branch_ids?: string[] }) =>
+    e.home_branch_id === branchId || (e.branch_ids ?? []).includes(branchId);
   const employees: OrgEmp[] = all
-    .filter((e) => e.status === "active" && (e.home_branch_id === branchId || (e.branch_ids ?? []).includes(branchId)))
+    .filter((e) => e.status === "active")
+    .sort((a, b) => Number(linked(b)) - Number(linked(a)) || (a.first_name || "").localeCompare(b.first_name || ""))
     .map((e) => ({
       id: e.id,
       code: e.employee_code,
