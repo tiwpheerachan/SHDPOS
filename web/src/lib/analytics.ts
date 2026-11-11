@@ -161,6 +161,52 @@ export function dailySeries(orders: Order[], from: Date, to: Date): { label: str
   return out;
 }
 
+export type TimeGran = "day" | "month" | "year";
+
+function bucketKey(d: Date, gran: TimeGran): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return gran === "year" ? `${y}` : gran === "month" ? `${y}-${m}` : `${y}-${m}-${day}`;
+}
+function bucketLabel(key: string, gran: TimeGran): string {
+  if (gran === "year") return key;              // YYYY
+  if (gran === "month") return key.slice(2);    // YY-MM
+  return key.slice(5);                          // MM-DD
+}
+
+/**
+ * ยอดขายต่อช่วงเวลา (รายวัน/เดือน/ปี)
+ *  - ไม่ใส่ employeeId → รวมทั้งหมด (ใช้ grand_total)
+ *  - ใส่ employeeId → นับเฉพาะ line_total ของรายการที่คนนั้นเป็นผู้ขาย
+ */
+export function salesSeries(
+  orders: Order[],
+  gran: TimeGran,
+  employeeId?: string | null
+): { label: string; value: number; orders: number }[] {
+  const map = new Map<string, { gross: number; ids: Set<string> }>();
+  for (const o of orders) {
+    if (o.status === "voided") continue;
+    const key = bucketKey(new Date(o.created_at), gran);
+    const cur = map.get(key) ?? { gross: 0, ids: new Set<string>() };
+    if (employeeId) {
+      let add = 0, hit = false;
+      for (const it of o.items) {
+        const eid = it.salesperson_id ?? o.salesperson_id ?? o.cashier_id;
+        if (eid === employeeId) { add += it.line_total; hit = true; }
+      }
+      if (hit) { cur.gross += add; cur.ids.add(o.id); }
+    } else {
+      cur.gross += o.grand_total; cur.ids.add(o.id);
+    }
+    map.set(key, cur);
+  }
+  return [...map.entries()]
+    .sort((a, b) => (a[0] < b[0] ? -1 : 1))
+    .map(([k, v]) => ({ label: bucketLabel(k, gran), value: round2(v.gross), orders: v.ids.size }));
+}
+
 export function hourlySeries(orders: Order[]): { label: string; value: number }[] {
   const buckets = new Array(24).fill(0) as number[];
   for (const o of orders) {

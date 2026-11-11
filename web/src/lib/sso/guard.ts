@@ -29,3 +29,21 @@ export async function requireAdmin(req: NextRequest): Promise<AdminContext | nul
   if (!canManagePermissions(profile.email, authz)) return null;
   return { profile, authz };
 }
+
+/** คนนี้มีสิทธิ์ตามคีย์ที่ระบุไหม (superadmin ผ่านเสมอ) */
+export function hasPerm(email: string | undefined, authz: AppAuthz | null, key: PermissionKey): boolean {
+  if (isSuperadmin(email)) return true;
+  if (!authz || !authz.allowed) return false;
+  const override = authz.permission_overrides?.[key];
+  if (override) return override === "allow";
+  return ROLE_MATRIX[authz.role as EmployeeRole]?.[key]?.effect === "allow";
+}
+
+/** คืน context ถ้าผู้เรียกจัดการพนักงานได้ (admin.employee_manage) — ใช้กับผังองค์กร */
+export async function requireEmployeeAdmin(req: NextRequest): Promise<AdminContext | null> {
+  const profile = readSession(req.cookies.get(SSO_COOKIE)?.value);
+  if (!profile) return null;
+  const authz = await resolveAuthz(profile);
+  if (!hasPerm(profile.email, authz, "admin.employee_manage")) return null;
+  return { profile, authz };
+}
