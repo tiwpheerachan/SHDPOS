@@ -321,13 +321,13 @@ function EditPanel({
             <ChevronDown size={15} className={clsx("text-muted shrink-0 transition-transform", posOpen && "rotate-180")} />
           </button>
           {posOpen ? (
-            <div className="absolute z-50 mt-1.5 w-full bg-surface border border-line rounded-xl shadow-pop p-1.5">
+            <div className="mt-1.5 w-full bg-surface2/40 border border-line rounded-xl p-1.5">
               <div className="relative mb-1">
                 <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted" />
                 {/* eslint-disable-next-line jsx-a11y/no-autofocus */}
-                <input autoFocus value={posQuery} onChange={(e) => setPosQuery(e.target.value)} placeholder={L("พิมพ์ค้นหาตำแหน่ง…", "Search position…", "搜索职位…")} className="w-full h-8 pl-8 pr-2 rounded-lg bg-surface2 border border-line text-sm outline-none focus:ring-2 focus:ring-brand/30" />
+                <input autoFocus value={posQuery} onChange={(e) => setPosQuery(e.target.value)} placeholder={L("พิมพ์ค้นหาตำแหน่ง…", "Search position…", "搜索职位…")} className="w-full h-8 pl-8 pr-2 rounded-lg bg-surface border border-line text-sm outline-none focus:ring-2 focus:ring-brand/30" />
               </div>
-              <div className="max-h-56 overflow-y-auto">
+              <div className="max-h-48 overflow-y-auto">
                 {results.map((p) => (
                   <button
                     key={p.code}
