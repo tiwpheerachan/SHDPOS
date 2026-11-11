@@ -11,7 +11,18 @@ import { ROLE_LABEL, visibleBranchIds } from "@/lib/permissions";
 import { useToast } from "@/components/toast-host";
 import { loadOrg, upsertOrg, deleteOrg, type OrgEmp, type OrgPos } from "@/lib/data/org";
 import { positionLabel, searchPositions, type Locale } from "@/lib/positions";
+import { TeamDirectory, type DirMember } from "@/components/admin/team-directory";
 import type { EmployeeRole } from "@/lib/types";
+
+const ROLE_TONE: Record<string, string> = {
+  staff: "rgb(var(--c-lavender))",
+  supervisor: "rgb(var(--c-aqua))",
+  manager: "rgb(var(--c-mint))",
+  brand_admin: "rgb(var(--c-peach))",
+  hq: "rgb(var(--c-lavender))",
+  auditor: "rgb(var(--c-surface-2))",
+  owner: "rgb(var(--c-brand) / 0.22)",
+};
 
 interface TreeNode { emp: OrgEmp; pos: OrgPos | null; children: TreeNode[] }
 
@@ -101,6 +112,26 @@ export default function AdminOrgPage() {
   const branchLabel = (b: { name_th?: string | null; name: string }) => (locale === "th" ? b.name_th ?? b.name : b.name);
   const editEmp = editId ? emps.find((e) => e.id === editId) ?? null : null;
 
+  // ── ข้อมูลการ์ดไดเรกทอรีทีม ──
+  const toDir = (e: OrgEmp, inChart: boolean): DirMember => {
+    const p = posByEmp.get(e.id);
+    return {
+      id: e.id,
+      name: e.name,
+      photo_url: e.photo_url,
+      roleLabel: roleLabel(e.role),
+      sub: inChart && p?.title ? posLabel(p.title) : (inChart ? L("อยู่ในผัง", "In chart", "在架构中") : L("ยังไม่จัดผัง", "Unassigned", "未安排")),
+      tone: ROLE_TONE[e.role],
+    };
+  };
+  const dirFeatured = positioned.map((e) => toDir(e, true));
+  const dirAll = emps.map((e) => toDir(e, posByEmp.has(e.id)));
+  async function handlePick(id: string) {
+    if (posByEmp.has(id)) { setEditId(id); return; }
+    await savePos(id, { title: "", reports_to: null });
+    setEditId(id);
+  }
+
   return (
     <div className="p-4 sm:p-6 space-y-4">
       {/* หัว + เลือกสาขา */}
@@ -131,6 +162,7 @@ export default function AdminOrgPage() {
         {!shopBranches.length ? <p className="text-sm text-muted">{L("ไม่มีสาขาที่คุณดูแล", "No branches in your scope", "没有您负责的门店")}</p> : null}
       </div>
 
+      <div className="grid xl:grid-cols-[minmax(0,1fr)_440px] gap-4 items-start">
       <Card>
         <CardHeader
           title={L("โครงสร้างทีม", "Team structure", "团队结构")}
@@ -163,6 +195,21 @@ export default function AdminOrgPage() {
           )}
         </div>
       </Card>
+
+      {/* การ์ดไดเรกทอรีทีม (แอนิเมชัน) */}
+      <TeamDirectory
+        title={L("ในผังองค์กร", "In org chart", "架构内")}
+        featured={dirFeatured}
+        all={dirAll}
+        featuredCount={positioned.length}
+        directoryTitle={L("ไดเรกทอรีพนักงาน", "Staff directory", "员工目录")}
+        directorySub={`${emps.length} ${L("คนในสาขานี้", "in this branch", "人")}`}
+        searchPlaceholder={L("ค้นหาพนักงาน…", "Search staff…", "搜索员工…")}
+        emptyFeatured={L("ยังไม่มีใครในผัง — แตะพนักงานด้านล่างเพื่อเพิ่ม", "No one in the chart — tap staff below to add", "架构中暂无人员 — 点击下方员工添加")}
+        onPick={handlePick}
+        onAdd={unassigned.length ? () => setAddOpen(true) : undefined}
+      />
+      </div>
 
       {/* Modal: เพิ่มคนเข้าผัง */}
       <Modal open={addOpen} onClose={() => setAddOpen(false)} size="sm" title={L("เพิ่มคนเข้าผัง", "Add to chart", "添加成员")}>
