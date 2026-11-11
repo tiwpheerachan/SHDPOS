@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Users, Trophy, LayoutDashboard, Table as TableIcon, UserRound, Network } from "lucide-react";
+import { Users, Trophy, LayoutDashboard, Table as TableIcon, UserRound, Network, Briefcase } from "lucide-react";
 import Link from "next/link";
 import { useI18n } from "@/lib/i18n/provider";
 import { useSession } from "@/lib/store/session";
 import { listOrders, listEmployees } from "@/lib/data/repo";
+import { loadAllPositions } from "@/lib/data/org";
 import type { Employee, Order } from "@/lib/types";
 import { Card, CardHeader, Table, Th, Td, EmptyState, KpiTile, Avatar, Segmented, Select } from "@/components/ui";
 import { BarList, AreaChart, SERIES_COLORS } from "@/components/charts";
@@ -13,8 +14,9 @@ import { FilterBar, useAdminScope, useDefaultFilter } from "@/components/admin/f
 import { byEmployee, filterOrders, summarize, salesSeries, type TimeGran } from "@/lib/analytics";
 import { formatTHB, formatInt } from "@/lib/money";
 import { ROLE_LABEL, can, visibleBranchIds } from "@/lib/permissions";
+import { positionLabel, positionLevel, type Locale } from "@/lib/positions";
 
-type View = "dashboard" | "table" | "person";
+type View = "dashboard" | "table" | "person" | "position";
 
 export default function AdminEmployeesPage() {
   const { t, locale } = useI18n();
@@ -27,11 +29,14 @@ export default function AdminEmployeesPage() {
   const [view, setView] = useState<View>("dashboard");
   const [gran, setGran] = useState<TimeGran>("day");
   const [personId, setPersonId] = useState<string | null>(null);
+  const [allPos, setAllPos] = useState<{ branch_id: string; employee_id: string; title: string }[]>([]);
+  const [posCode, setPosCode] = useState<string | null>(null);
 
   useEffect(() => {
     void (async () => {
       setOrders(await listOrders());
       setEmployees(await listEmployees());
+      setAllPos(await loadAllPositions());
     })();
   }, []);
 
@@ -74,6 +79,42 @@ export default function AdminEmployeesPage() {
     { value: "year", label: L("รายปี", "Yearly", "每年") },
   ];
 
+  // ── เทียบ performance ตามตำแหน่ง ──
+  const posLabel = (code: string) => positionLabel(code, locale as Locale);
+  const brandName = (id: string) => brands.find((x) => x.id === id)?.name ?? "—";
+  const empBestPos = useMemo(() => {
+    const m = new Map<string, { code: string; branchId: string }>();
+    for (const p of allPos) {
+      if (!p.title) continue;
+      const cur = m.get(p.employee_id);
+      if (!cur || positionLevel(p.title) > positionLevel(cur.code)) m.set(p.employee_id, { code: p.title, branchId: p.branch_id });
+    }
+    return m;
+  }, [allPos]);
+  const posPeople = useMemo(() => {
+    const salesById = new Map(rows.map((r) => [r.id, r]));
+    const list: { id: string; label: string; code: string; branchId: string; brandId: string; value: number; orders: number; grossProfit: number }[] = [];
+    for (const [empId, pos] of empBestPos) {
+      const s = salesById.get(empId);
+      const e = employees.find((x) => x.id === empId);
+      const brandId = branches.find((b) => b.id === pos.branchId)?.brand_id ?? "";
+      list.push({ id: empId, label: e ? (e.nickname ?? e.first_name) : empId, code: pos.code, branchId: pos.branchId, brandId, value: s?.value ?? 0, orders: s?.orders ?? 0, grossProfit: s?.grossProfit ?? 0 });
+    }
+    return list;
+  }, [empBestPos, rows, employees, branches]);
+  const positionAgg = useMemo(() => {
+    const m = new Map<string, { code: string; people: number; total: number; orders: number }>();
+    for (const p of posPeople) {
+      const cur = m.get(p.code) ?? { code: p.code, people: 0, total: 0, orders: 0 };
+      cur.people += 1; cur.total += p.value; cur.orders += p.orders;
+      m.set(p.code, cur);
+    }
+    return [...m.values()].map((x) => ({ ...x, avg: x.people ? x.total / x.people : 0 })).sort((a, b) => b.total - a.total);
+  }, [posPeople]);
+  const activePos = posCode ?? positionAgg[0]?.code ?? null;
+  const activePeople = posPeople.filter((p) => p.code === activePos).sort((a, b) => b.value - a.value);
+  const activeAgg = positionAgg.find((x) => x.code === activePos) ?? null;
+
   return (
     <div className="p-4 sm:p-6 space-y-4">
       <FilterBar value={filter} onChange={setFilter} branches={branches} brands={brands} />
@@ -88,6 +129,7 @@ export default function AdminEmployeesPage() {
             { value: "dashboard", label: <span className="inline-flex items-center gap-1.5"><LayoutDashboard size={14} /> {L("แดชบอร์ด", "Dashboard", "仪表盘")}</span> },
             { value: "table", label: <span className="inline-flex items-center gap-1.5"><TableIcon size={14} /> {L("ตาราง", "Table", "表格")}</span> },
             { value: "person", label: <span className="inline-flex items-center gap-1.5"><UserRound size={14} /> {L("รายบุคคล", "Individual", "个人")}</span> },
+            { value: "position", label: <span className="inline-flex items-center gap-1.5"><Briefcase size={14} /> {L("ตามตำแหน่ง", "By position", "按职位")}</span> },
           ]}
         />
         <Link href="/admin/org" className="inline-flex items-center gap-1.5 h-9 px-3 rounded-xl border border-line bg-surface hover:bg-surface2 text-sm font-medium text-ink transition-colors">
@@ -255,6 +297,87 @@ export default function AdminEmployeesPage() {
               </Card>
             </>
           ) : <EmptyState title={t.common.empty} />}
+        </div>
+      ) : null}
+
+      {/* ============ BY POSITION (เทียบตามตำแหน่ง ข้ามสาขา/แบรนด์) ============ */}
+      {view === "position" ? (
+        <div className="space-y-4">
+          {positionAgg.length ? (
+            <>
+              {/* ชิปเลือกตำแหน่ง */}
+              <div className="flex gap-2 overflow-x-auto pb-1">
+                {positionAgg.map((p) => (
+                  <button
+                    key={p.code}
+                    onClick={() => setPosCode(p.code)}
+                    className={`shrink-0 inline-flex items-center gap-1.5 h-9 px-3 rounded-xl text-sm font-medium border transition-colors ${activePos === p.code ? "bg-brand text-brandInk border-brand" : "bg-surface border-line text-muted hover:text-ink hover:bg-surface2"}`}
+                  >
+                    {posLabel(p.code)} <span className="opacity-70 text-xs">· {p.people}</span>
+                  </button>
+                ))}
+              </div>
+
+              {/* KPI ของตำแหน่งที่เลือก */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                <KpiTile label={L("จำนวนคน", "People", "人数")} value={formatInt(activeAgg?.people ?? 0)} icon={<Briefcase size={15} />} tone="brand" />
+                <KpiTile label={L("ยอดรวมตำแหน่งนี้", "Position total", "该职位合计")} value={formatTHB(activeAgg?.total ?? 0)} />
+                <KpiTile label={L("เฉลี่ย/คน", "Avg / person", "人均")} value={formatTHB(activeAgg?.avg ?? 0)} tone="ok" />
+                <KpiTile label={t.admin.orderCount} value={formatInt(activeAgg?.orders ?? 0)} />
+              </div>
+
+              <div className="grid lg:grid-cols-[1fr_360px] gap-4">
+                {/* อันดับคนในตำแหน่งนี้ ข้ามสาขา */}
+                <Card>
+                  <CardHeader title={`${posLabel(activePos ?? "")} · ${L("จัดอันดับข้ามสาขา", "Ranked across branches", "跨门店排名")}`} subtitle={L("ยอดขายต่อคน พร้อมสาขา/แบรนด์", "Sales per person with branch/brand", "各员工销售额 + 门店/品牌")} />
+                  {activePeople.length ? (
+                    <Table>
+                      <thead>
+                        <tr>
+                          <Th>#</Th>
+                          <Th>{t.common.employee}</Th>
+                          <Th>{t.common.branch}</Th>
+                          <Th>{t.common.brand}</Th>
+                          <Th align="right">{t.admin.gmv}</Th>
+                          <Th align="right">{t.admin.orderCount}</Th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {activePeople.map((p, i) => (
+                          <tr key={p.id} className="hover:bg-surface2/60">
+                            <Td><span className="w-5 h-5 rounded-md grid place-items-center text-[10px] font-bold text-white" style={{ background: SERIES_COLORS[i % SERIES_COLORS.length] }}>{i + 1}</span></Td>
+                            <Td>
+                              <div className="flex items-center gap-2.5">
+                                <Avatar name={p.label} src={empPhoto(p.id)} size={28} />
+                                <span className="text-xs font-medium truncate">{p.label}</span>
+                              </div>
+                            </Td>
+                            <Td className="text-xs text-muted truncate max-w-[150px]">{branchName(p.branchId)}</Td>
+                            <Td className="text-xs text-muted">{p.brandId ? brandName(p.brandId) : "—"}</Td>
+                            <Td align="right" className="font-medium">{formatTHB(p.value, false)}</Td>
+                            <Td align="right" className="text-xs">{p.orders}</Td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </Table>
+                  ) : <EmptyState title={t.common.empty} />}
+                </Card>
+
+                {/* เทียบตำแหน่งทั้งหมด (เฉลี่ย/คน) */}
+                <Card>
+                  <CardHeader title={L("เทียบทุกตำแหน่ง", "All positions", "各职位对比")} subtitle={L("ยอดเฉลี่ย/คน", "Avg per person", "人均")} />
+                  <div className="p-5 pt-3">
+                    <BarList data={positionAgg.map((p) => ({ label: posLabel(p.code), value: p.avg, sub: `${p.people} ${L("คน", "ppl", "人")}` }))} />
+                  </div>
+                </Card>
+              </div>
+            </>
+          ) : (
+            <EmptyState
+              title={L("ยังไม่มีข้อมูลตำแหน่งในผัง", "No positions set in org chart", "架构中尚无职位")}
+              body={L("ไปตั้งตำแหน่งที่หน้าผังองค์กรก่อน", "Set positions in the org chart first", "请先在组织架构设置职位")}
+            />
+          )}
         </div>
       ) : null}
     </div>

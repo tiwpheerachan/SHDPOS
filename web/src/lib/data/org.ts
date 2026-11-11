@@ -89,6 +89,36 @@ export async function upsertOrg(
   writeLS(branchId, rows);
 }
 
+/** ดึงตำแหน่งในผัง "ทั้งหมด" (ข้ามสาขา) สำหรับ dashboard เทียบตามตำแหน่ง */
+export async function loadAllPositions(): Promise<{ branch_id: string; employee_id: string; title: string }[]> {
+  const out: { branch_id: string; employee_id: string; title: string }[] = [];
+  const seen = new Set<string>();
+  if (isLiveMode()) {
+    const sb = supabase();
+    if (sb) {
+      const { data } = await sb.rpc("pos_org_all");
+      for (const r of (data as { branch_id: string; employee_id: string; title: string }[]) ?? []) {
+        out.push({ branch_id: r.branch_id, employee_id: r.employee_id, title: r.title });
+        seen.add(`${r.branch_id}:${r.employee_id}`);
+      }
+    }
+  }
+  // รวม localStorage (demo / รายการที่เก็บในเครื่อง)
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k || !k.startsWith("shdpos.org.")) continue;
+      const bid = k.slice("shdpos.org.".length);
+      const rows = JSON.parse(localStorage.getItem(k) || "[]") as OrgPos[];
+      for (const r of rows) {
+        if (seen.has(`${bid}:${r.employee_id}`)) continue;
+        out.push({ branch_id: bid, employee_id: r.employee_id, title: r.title });
+      }
+    }
+  } catch { /* ignore */ }
+  return out;
+}
+
 export async function deleteOrg(branchId: string, employeeId: string): Promise<void> {
   if (useDb(branchId, employeeId)) {
     const sb = supabase();
