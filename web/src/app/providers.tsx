@@ -6,7 +6,7 @@ import { ThemeProvider } from "@/lib/theme";
 import { ToastHost } from "@/components/toast-host";
 import { bootstrap } from "@/lib/data/repo";
 import { startSyncWorker } from "@/lib/offline/sync";
-import { Spinner } from "@/components/ui";
+import { AiLoader } from "@/components/ui/ai-loader";
 import { CommandPalette } from "@/components/command-palette";
 
 // แยกออกมาเป็นคอมโพเนนต์ลูกเพื่อให้เรียก useI18n ได้ (อยู่ภายใน I18nProvider แล้ว)
@@ -18,12 +18,7 @@ function BootGate({ ready, error, children }: { ready: boolean; error: string | 
       {ready ? (
         children
       ) : (
-        <div className="min-h-screen grid place-items-center">
-          <div className="flex items-center gap-3 text-sm text-muted">
-            <Spinner />
-            {L("กำลังเตรียมข้อมูล...", "Preparing data...", "正在准备数据...")}
-          </div>
-        </div>
+        <AiLoader text={L("กำลังเตรียมข้อมูล", "Preparing data", "正在准备数据")} />
       )}
       {error ? (
         <div className="fixed bottom-4 left-4 z-[70] text-xs text-danger bg-surface border border-danger/30 rounded-xl px-3 py-2">
