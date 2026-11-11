@@ -75,6 +75,12 @@ export interface Employee {
   email?: string | null;
   /** สิทธิ์เฉพาะคนที่ override ทับ role matrix — { "pos.void": "allow", "report.cost": "deny" } */
   permission_overrides?: Record<string, PermissionEffect> | null;
+  /** ข้อมูลจากระบบกลาง (Lark/GoodHR) — เติมด้วย SSO sync */
+  union_id?: string | null;
+  job_title?: string | null;
+  manager_union_id?: string | null;
+  central_branch?: string | null;
+  central_department?: string | null;
 }
 
 /** สิทธิ์รายคนที่เก็บใน Supabase (ตาราง app_user_grants) — ผู้ใช้ SSO */

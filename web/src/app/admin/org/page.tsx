@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Network, Building2, Plus, Pencil, Trash2, UserPlus, Search, Check, ChevronDown } from "lucide-react";
+import { Network, Building2, Plus, Pencil, Trash2, UserPlus, Search, Check, ChevronDown, RefreshCw, Sparkles } from "lucide-react";
 import clsx from "clsx";
 import { useI18n } from "@/lib/i18n/provider";
 import { useSession } from "@/lib/store/session";
@@ -11,6 +11,7 @@ import { ROLE_LABEL, visibleBranchIds } from "@/lib/permissions";
 import { useToast } from "@/components/toast-host";
 import { loadOrg, upsertOrg, deleteOrg, type OrgEmp, type OrgPos } from "@/lib/data/org";
 import { positionLabel, searchPositions, type Locale } from "@/lib/positions";
+import { jobTitleToPositionCode } from "@/lib/sso/map-central";
 import { TeamDirectory, type DirMember } from "@/components/admin/team-directory";
 import type { EmployeeRole } from "@/lib/types";
 
@@ -132,6 +133,29 @@ export default function AdminOrgPage() {
     setEditId(id);
   }
 
+  // union_id → employee id (ไว้แปลงหัวหน้าจาก SSO)
+  const unionToId = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const e of emps) if (e.union_id) m.set(e.union_id, e.id);
+    return m;
+  }, [emps]);
+
+  const [syncing, setSyncing] = useState(false);
+  async function syncSSO() {
+    setSyncing(true);
+    try {
+      const r = await fetch("/api/admin/sso-sync", { method: "POST" });
+      const j = await r.json();
+      if (r.ok) {
+        toast.push({ tone: "ok", title: L("ดึงข้อมูล SSO สำเร็จ", "Synced from SSO", "已同步 SSO"), body: `${j.synced}/${j.total} · ${L("แมปสาขา", "branch matched", "匹配门店")} ${j.branchMatched}` });
+        if (branchId) await load(branchId);
+      } else {
+        toast.push({ tone: "danger", title: j.error === "forbidden" ? L("ต้องเข้าสู่ระบบด้วย SSO", "SSO login required", "需用 SSO 登录") : (j.error ?? "sync failed") });
+      }
+    } catch { toast.push({ tone: "danger", title: L("ดึงข้อมูลไม่สำเร็จ", "Sync failed", "同步失败") }); }
+    finally { setSyncing(false); }
+  }
+
   return (
     <div className="p-4 sm:p-6 space-y-4">
       {/* หัว + เลือกสาขา */}
@@ -143,9 +167,14 @@ export default function AdminOrgPage() {
             <p className="text-[11px] text-muted">{L("โครงสร้างทีมต่อสาขา · ตั้งตำแหน่งและสายบังคับบัญชา", "Team structure per branch · set positions & reporting line", "各门店团队结构 · 设置职位与汇报关系")}</p>
           </div>
         </div>
-        {unassigned.length ? (
-          <Button variant="primary" onClick={() => setAddOpen(true)}><UserPlus size={16} /> {L("เพิ่มคนเข้าผัง", "Add to chart", "添加成员")}</Button>
-        ) : null}
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" onClick={() => void syncSSO()} disabled={syncing}>
+            <RefreshCw size={15} className={syncing ? "animate-spin" : ""} /> {L("ดึงข้อมูลจาก SSO", "Sync from SSO", "同步 SSO")}
+          </Button>
+          {unassigned.length ? (
+            <Button variant="primary" onClick={() => setAddOpen(true)}><UserPlus size={16} /> {L("เพิ่มคนเข้าผัง", "Add to chart", "添加成员")}</Button>
+          ) : null}
+        </div>
       </div>
 
       {/* เลือกสาขา (ชิป) */}
@@ -242,6 +271,10 @@ export default function AdminOrgPage() {
             others={positioned.filter((e) => e.id !== editEmp.id)}
             roleLabel={roleLabel}
             locale={locale as Locale}
+            ssoTitle={editEmp.job_title ?? null}
+            ssoBranch={editEmp.central_branch ?? null}
+            ssoPositionCode={jobTitleToPositionCode(editEmp.job_title ?? undefined)}
+            ssoManagerId={editEmp.manager_union_id ? unionToId.get(editEmp.manager_union_id) ?? null : null}
             L={L}
             onSave={async (title, reports_to) => { await savePos(editEmp.id, { title, reports_to }); setEditId(null); }}
             onRemove={async () => { await removePos(editEmp.id); setEditId(null); }}
@@ -280,11 +313,15 @@ function OrgLevel({ nodes, onEdit, roleLabel, posLabel }: { nodes: TreeNode[]; o
 
 // ---- แผงแก้ไข ----
 function EditPanel({
-  emp, pos, others, roleLabel, locale, L, onSave, onRemove,
+  emp, pos, others, roleLabel, locale, ssoTitle, ssoBranch, ssoPositionCode, ssoManagerId, L, onSave, onRemove,
 }: {
   emp: OrgEmp; pos: OrgPos | null; others: OrgEmp[];
   roleLabel: (r: string) => string;
   locale: Locale;
+  ssoTitle?: string | null;
+  ssoBranch?: string | null;
+  ssoPositionCode?: string | null;
+  ssoManagerId?: string | null;
   L: (th: string, en: string, zh: string) => string;
   onSave: (title: string, reports_to: string | null) => Promise<void>;
   onRemove: () => Promise<void>;
@@ -313,6 +350,23 @@ function EditPanel({
           <p className="text-[11px] text-muted truncate">{emp.code} · {roleLabel(emp.role)}</p>
         </div>
       </div>
+
+      {ssoTitle || ssoBranch ? (
+        <div className="rounded-xl border border-brand/25 bg-brand/5 p-3 text-xs space-y-1">
+          <div className="flex items-center gap-1.5 text-brand font-semibold"><Sparkles size={13} /> {L("ข้อมูลจาก SSO / Lark", "From SSO / Lark", "来自 SSO / Lark")}</div>
+          {ssoTitle ? <p className="text-muted">{L("ตำแหน่ง", "Position", "职位")}: <span className="text-ink font-medium">{ssoTitle}</span></p> : null}
+          {ssoBranch ? <p className="text-muted">{L("สาขา (ส่วนกลาง)", "Branch (central)", "门店（中心）")}: <span className="text-ink font-medium">{ssoBranch}</span></p> : null}
+          {ssoPositionCode || ssoManagerId ? (
+            <button
+              type="button"
+              onClick={() => { if (ssoPositionCode) setCode(ssoPositionCode); if (ssoManagerId) setReportsTo(ssoManagerId); }}
+              className="mt-1 inline-flex items-center gap-1 text-brand font-semibold hover:underline"
+            >
+              {L("ใช้ค่าจาก SSO", "Apply from SSO", "套用 SSO")} →
+            </button>
+          ) : null}
+        </div>
+      ) : null}
 
       <Field label={L("ตำแหน่ง", "Position", "职位")}>
         <div className="relative" ref={posRef}>

@@ -8,7 +8,10 @@
 import { supabase, isLiveMode } from "@/lib/supabase/client";
 import { listEmployees } from "./repo";
 
-export interface OrgEmp { id: string; code: string; name: string; full_name: string; role: string; photo_url: string | null }
+export interface OrgEmp {
+  id: string; code: string; name: string; full_name: string; role: string; photo_url: string | null;
+  job_title?: string | null; manager_union_id?: string | null; union_id?: string | null; central_branch?: string | null;
+}
 export interface OrgPos { id: string; employee_id: string; title: string; reports_to: string | null; sort_order: number }
 
 const isUuid = (v: string): boolean => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
@@ -41,6 +44,10 @@ export async function loadOrg(branchId: string): Promise<{ employees: OrgEmp[]; 
       full_name: [e.first_name, e.last_name].filter(Boolean).join(" ") || e.nickname || "",
       role: e.role,
       photo_url: e.photo_url ?? null,
+      job_title: e.job_title ?? null,
+      manager_union_id: e.manager_union_id ?? null,
+      union_id: e.union_id ?? null,
+      central_branch: e.central_branch ?? null,
     }));
 
   // DB (พนักงานจริง) — ถ้า live + สาขาเป็น UUID
