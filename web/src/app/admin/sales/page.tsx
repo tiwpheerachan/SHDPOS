@@ -8,9 +8,12 @@ import { listOrders } from "@/lib/data/repo";
 import type { Order } from "@/lib/types";
 import { Card, CardHeader, Table, Th, Td, Badge, Input, Button, EmptyState, KpiTile } from "@/components/ui";
 import { FilterBar, useAdminScope, useDefaultFilter } from "@/components/admin/filters";
-import { filterOrders, summarize } from "@/lib/analytics";
+import { filterOrders, summarize, salesSeries } from "@/lib/analytics";
 import { formatTHB, formatInt } from "@/lib/money";
 import { can, visibleBranchIds } from "@/lib/permissions";
+import { BranchRadar, SalesAreaTrend } from "@/components/charts-rich";
+import CellColumnTrend from "@/components/ui/cell-column-trend";
+import type { ChartConfig } from "@/components/ui/chart";
 
 export default function AdminSalesPage() {
   const { t, locale } = useI18n();
@@ -39,6 +42,48 @@ export default function AdminSalesPage() {
 
   const totals = summarize(rows);
   const showCost = can(employee, "report.cost");
+  const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
+
+  // ── ข้อมูลกราฟใหม่ ──
+  const trend = useMemo(() => salesSeries(rows, "day"), [rows]);
+  const areaData = useMemo(() => trend.map((s) => ({ label: s.label, value: s.value })), [trend]);
+  const areaConfig: ChartConfig = { value: { label: L("ยอดขาย", "Sales", "销售额"), color: "rgb(var(--chart-1))" } };
+
+  const radarData = useMemo(() => {
+    const map = new Map<string, { label: string; sales: number; orders: number }>();
+    for (const o of rows) {
+      if (o.status === "voided") continue;
+      const b = branches.find((x) => x.id === o.branch_id);
+      const cur = map.get(o.branch_id) ?? { label: b ? (locale === "th" ? b.name_th ?? b.name : b.name) : o.branch_id, sales: 0, orders: 0 };
+      cur.sales += o.grand_total; cur.orders += 1;
+      map.set(o.branch_id, cur);
+    }
+    const top = [...map.values()].sort((a, b) => b.sales - a.sales).slice(0, 6);
+    const maxS = Math.max(1, ...top.map((b) => b.sales));
+    const maxO = Math.max(1, ...top.map((b) => b.orders));
+    return top.map((b) => ({ dim: b.label, sales: Math.round((b.sales / maxS) * 100), orders: Math.round((b.orders / maxO) * 100) }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, branches, locale]);
+  const radarConfig: ChartConfig = {
+    sales: { label: L("ยอดขาย", "Sales", "销售额"), color: "rgb(var(--chart-1))" },
+    orders: { label: L("จำนวนบิล", "Orders", "订单"), color: "rgb(var(--chart-4))" },
+  };
+
+  const pctChange = (vals: number[]) => {
+    const a = vals.find((v) => v > 0) ?? 0;
+    const b = [...vals].reverse().find((v) => v > 0) ?? 0;
+    return a ? ((b - a) / a) * 100 : 0;
+  };
+  const cellLabels = trend.map((s) => s.label);
+  const cellTicks = useMemo(() => {
+    if (trend.length <= 6) return trend.map((s) => s.label);
+    const step = Math.ceil(trend.length / 6);
+    return trend.filter((_, i) => i % step === 0).map((s) => s.label);
+  }, [trend]);
+  const cellMetrics = [
+    { key: "sales", label: L("ยอดขาย", "Sales", "销售额"), values: trend.map((s) => s.value), summary: formatTHB(totals.gross, false), delta: pctChange(trend.map((s) => s.value)), format: (n: number) => formatTHB(n, false) },
+    { key: "orders", label: L("จำนวนบิล", "Orders", "订单"), values: trend.map((s) => s.orders), summary: formatInt(totals.orders), delta: pctChange(trend.map((s) => s.orders)), format: (n: number) => formatInt(n) },
+  ];
 
   function exportCsv() {
     const head = [
@@ -86,6 +131,38 @@ export default function AdminSalesPage() {
         <KpiTile label={t.pos.discount} value={formatTHB(totals.discount)} tone="warn" />
         <KpiTile label={t.pos.vat} value={formatTHB(totals.gross - totals.gross / 1.07)} />
       </div>
+
+      {/* ── กราฟใหม่ ── */}
+      {rows.length ? (
+        <>
+          <div className="grid lg:grid-cols-[1.7fr_1fr] gap-4">
+            <Card>
+              <CardHeader title={L("แนวโน้มยอดขาย", "Sales trend", "销售趋势")} subtitle={L("รายวันในช่วงที่เลือก", "Daily over selected range", "所选范围按日")} />
+              <div className="p-4 pt-2">
+                <SalesAreaTrend data={areaData} config={areaConfig} valueFormat={(n) => formatTHB(n, false)} />
+              </div>
+            </Card>
+            <Card>
+              <CardHeader title={L("เทียบรายสาขา", "Branch comparison", "门店对比")} subtitle={L("ยอดขาย vs จำนวนบิล (สัดส่วน%)", "Sales vs orders (normalized %)", "销售额 vs 订单（归一化%）")} />
+              <div className="p-4 pt-2">
+                {radarData.length ? (
+                  <BranchRadar data={radarData} config={radarConfig} keys={["sales", "orders"]} />
+                ) : (
+                  <EmptyState title={t.common.empty} />
+                )}
+              </div>
+            </Card>
+          </div>
+
+          <CellColumnTrend
+            title={L("สุขภาพยอดขาย", "Sales health", "销售概览")}
+            caption={L("แตะการ์ดด้านล่างเพื่อสลับเมตริก", "Tap a tile to switch metric", "点击下方卡片切换指标")}
+            metrics={cellMetrics}
+            labels={cellLabels}
+            ticks={cellTicks}
+          />
+        </>
+      ) : null}
 
       <Card>
         <CardHeader title={t.orders.title} subtitle={`${rows.length} ${t.admin.orderCount}`} />
