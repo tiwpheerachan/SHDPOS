@@ -4,7 +4,12 @@
 import {
   Area,
   AreaChart,
+  Bar,
+  BarChart,
   CartesianGrid,
+  Cell,
+  Pie,
+  PieChart,
   PolarAngleAxis,
   PolarGrid,
   Radar,
@@ -75,6 +80,60 @@ export function SalesAreaTrend({
         <ChartTooltip content={<ChartTooltipContent indicator="line" />} />
         <Area type="monotone" dataKey="value" stroke="var(--color-value)" strokeWidth={2} fill="url(#cr-fill-value)" />
       </AreaChart>
+    </ChartContainer>
+  );
+}
+
+/** กราฟแท่ง (รายชั่วโมง/รายวัน) — ไฮไลต์แท่งที่ highlight=true */
+export function InsightBars({
+  data,
+  config,
+  valueFormat,
+  className = "h-[220px] w-full",
+}: {
+  data: { label: string; value: number; highlight?: boolean }[];
+  config: ChartConfig;
+  valueFormat?: (n: number) => string;
+  className?: string;
+}) {
+  return (
+    <ChartContainer config={config} className={className}>
+      <BarChart data={data} margin={{ top: 8, right: 6, left: 0, bottom: 4 }}>
+        <CartesianGrid vertical={false} strokeDasharray="4 8" />
+        <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} interval="preserveStartEnd" />
+        <YAxis tickLine={false} axisLine={false} width={44} tickFormatter={valueFormat} />
+        <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
+        <Bar dataKey="value" radius={[5, 5, 0, 0]}>
+          {data.map((d, i) => (
+            <Cell key={i} fill={d.highlight ? "rgb(var(--chart-1))" : "rgb(var(--chart-1) / 0.3)"} />
+          ))}
+        </Bar>
+      </BarChart>
+    </ChartContainer>
+  );
+}
+
+/** โดนัทสัดส่วน (ช่องทาง/การจ่าย) — data key ต้องตรงกับ config */
+export function MixDonut({
+  data,
+  config,
+  className = "mx-auto aspect-square max-h-[230px]",
+}: {
+  data: { key: string; value: number }[];
+  config: ChartConfig;
+  className?: string;
+}) {
+  return (
+    <ChartContainer config={config} className={className}>
+      <PieChart>
+        <ChartTooltip content={<ChartTooltipContent nameKey="key" hideLabel />} />
+        <Pie data={data} dataKey="value" nameKey="key" innerRadius={52} outerRadius={82} paddingAngle={2} strokeWidth={2}>
+          {data.map((d) => (
+            <Cell key={d.key} fill={`var(--color-${d.key})`} />
+          ))}
+        </Pie>
+        <ChartLegend content={<ChartLegendContent nameKey="key" />} className="flex-wrap" />
+      </PieChart>
     </ChartContainer>
   );
 }
