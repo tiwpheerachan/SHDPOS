@@ -66,7 +66,7 @@ export async function resolveAuthz(profile: SsoSessionProfile): Promise<AppAuthz
   if (profile.email) {
     const { data } = await sb
       .from("employees")
-      .select("id,role,data_scope,home_branch_id,max_discount_percent,permission_overrides,can_open_drawer,status")
+      .select("id,role,data_scope,home_branch_id,max_discount_percent,permission_overrides,can_open_drawer,status,app_access")
       .ilike("email", profile.email)
       .maybeSingle();
     emp = data;
@@ -87,7 +87,8 @@ export async function resolveAuthz(profile: SsoSessionProfile): Promise<AppAuthz
     };
   }
 
-  if (!emp || emp.status !== "active") {
+  // org-only (app_access=false) → อยู่ในผัง/ระบบได้ แต่ login ไม่ได้
+  if (!emp || emp.status !== "active" || emp.app_access === false) {
     return {
       allowed: false,
       isSuperadmin: false,

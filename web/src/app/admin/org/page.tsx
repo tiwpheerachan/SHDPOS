@@ -10,6 +10,7 @@ import { useAdminScope } from "@/components/admin/filters";
 import { ROLE_LABEL, visibleBranchIds } from "@/lib/permissions";
 import { useToast } from "@/components/toast-host";
 import { loadOrg, upsertOrg, deleteOrg, type OrgEmp, type OrgPos } from "@/lib/data/org";
+import { refreshDirectory } from "@/lib/data/repo";
 import { positionLabel, searchPositions, type Locale } from "@/lib/positions";
 import { jobTitleToPositionCode } from "@/lib/sso/map-central";
 import { TeamDirectory, type DirMember } from "@/components/admin/team-directory";
@@ -140,6 +141,35 @@ export default function AdminOrgPage() {
     return m;
   }, [emps]);
 
+  // ค้นหา + เพิ่มคนจาก Lark directory (org-only)
+  const [centralQ, setCentralQ] = useState("");
+  const [centralRes, setCentralRes] = useState<{ union_id: string; name: string; email: string; job_title?: string; departments?: string[]; avatar_url?: string }[]>([]);
+  const [centralBusy, setCentralBusy] = useState(false);
+  async function searchCentral() {
+    if (centralQ.trim().length < 2) { setCentralRes([]); return; }
+    setCentralBusy(true);
+    try {
+      const r = await fetch(`/api/admin/directory?q=${encodeURIComponent(centralQ.trim())}`);
+      const j = await r.json();
+      if (r.ok) setCentralRes(j.items ?? []);
+      else toast.push({ tone: "danger", title: j.error === "forbidden" ? L("ต้องเข้าสู่ระบบด้วย SSO", "SSO login required", "需用 SSO 登录") : (j.error ?? "search failed") });
+    } catch { toast.push({ tone: "danger", title: L("ค้นหาไม่สำเร็จ", "Search failed", "搜索失败") }); }
+    finally { setCentralBusy(false); }
+  }
+  async function addFromCentral(p: { email: string; union_id: string }) {
+    if (!branchId) return;
+    try {
+      const r = await fetch("/api/admin/directory", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ branch_id: branchId, email: p.email, union_id: p.union_id }) });
+      const j = await r.json();
+      if (r.ok) {
+        await refreshDirectory();
+        await load(branchId);
+        setAddOpen(false); setCentralRes([]); setCentralQ("");
+        toast.push({ tone: "ok", title: L("เพิ่มเข้าผังแล้ว", "Added to chart", "已加入架构") });
+      } else toast.push({ tone: "danger", title: j.error ?? "add failed" });
+    } catch { toast.push({ tone: "danger", title: L("เพิ่มไม่สำเร็จ", "Add failed", "添加失败") }); }
+  }
+
   const [syncing, setSyncing] = useState(false);
   async function syncSSO() {
     setSyncing(true);
@@ -242,22 +272,68 @@ export default function AdminOrgPage() {
 
       {/* Modal: เพิ่มคนเข้าผัง */}
       <Modal open={addOpen} onClose={() => setAddOpen(false)} size="sm" title={L("เพิ่มคนเข้าผัง", "Add to chart", "添加成员")}>
-        <div className="grid gap-2 max-h-[60vh] overflow-y-auto">
-          {unassigned.map((e) => (
-            <button
-              key={e.id}
-              onClick={async () => { await savePos(e.id, { title: "", reports_to: null }); setAddOpen(false); setEditId(e.id); }}
-              className="flex items-center gap-3 p-2.5 rounded-xl border border-line hover:bg-surface2 text-left transition-colors"
-            >
-              <Avatar name={e.name} src={e.photo_url} size={34} />
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium truncate">{e.name}</p>
-                <p className="text-[11px] text-muted truncate">{e.code} · {roleLabel(e.role)}</p>
+        <div className="space-y-4">
+          {/* คนในระบบที่ยังไม่จัดผัง */}
+          {unassigned.length ? (
+            <div>
+              <p className="text-[11px] font-semibold text-muted uppercase tracking-wide mb-1.5">{L("ในระบบ", "In system", "系统内")}</p>
+              <div className="grid gap-2 max-h-[32vh] overflow-y-auto">
+                {unassigned.map((e) => (
+                  <button
+                    key={e.id}
+                    onClick={async () => { await savePos(e.id, { title: "", reports_to: null }); setAddOpen(false); setEditId(e.id); }}
+                    className="flex items-center gap-3 p-2.5 rounded-xl border border-line hover:bg-surface2 text-left transition-colors"
+                  >
+                    <Avatar name={e.name} src={e.photo_url} size={34} />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium truncate">{e.name}</p>
+                      <p className="text-[11px] text-muted truncate">{e.code} · {roleLabel(e.role)}</p>
+                    </div>
+                    <Plus size={16} className="text-brand shrink-0" />
+                  </button>
+                ))}
               </div>
-              <Plus size={16} className="text-brand shrink-0" />
-            </button>
-          ))}
-          {!unassigned.length ? <p className="text-sm text-muted text-center py-6">{L("ทุกคนอยู่ในผังแล้ว", "Everyone is placed", "全部已安排")}</p> : null}
+            </div>
+          ) : null}
+
+          {/* ค้นหาจากองค์กร (Lark directory) → เพิ่มแบบ org-only */}
+          <div className="pt-1 border-t border-line">
+            <p className="text-[11px] font-semibold text-muted uppercase tracking-wide mb-1.5 mt-3">{L("ค้นจากองค์กร (Lark)", "From org directory (Lark)", "组织目录 (Lark)")}</p>
+            <div className="relative mb-2">
+              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+              <input
+                value={centralQ}
+                onChange={(e) => setCentralQ(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") void searchCentral(); }}
+                placeholder={L("พิมพ์ชื่อ/อีเมล แล้วกด Enter", "Type name/email then Enter", "输入姓名/邮箱后回车")}
+                className="w-full h-9 pl-9 pr-3 rounded-xl bg-surface2 border border-line text-sm outline-none focus:ring-2 focus:ring-brand/30"
+              />
+            </div>
+            {centralBusy ? <p className="text-xs text-muted py-2 text-center">{L("กำลังค้นหา…", "Searching…", "搜索中…")}</p> : null}
+            <div className="grid gap-2 max-h-[32vh] overflow-y-auto">
+              {centralRes.map((p) => (
+                <button
+                  key={p.union_id}
+                  onClick={() => void addFromCentral({ email: p.email, union_id: p.union_id })}
+                  className="flex items-center gap-3 p-2.5 rounded-xl border border-line hover:bg-surface2 text-left transition-colors"
+                >
+                  <Avatar name={p.name} src={p.avatar_url} size={34} />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium truncate">{p.name}</p>
+                    <p className="text-[11px] text-muted truncate">{[p.job_title, p.departments?.[0]].filter(Boolean).join(" · ")}</p>
+                  </div>
+                  <Plus size={16} className="text-brand shrink-0" />
+                </button>
+              ))}
+              {!centralBusy && centralQ.trim().length >= 2 && !centralRes.length ? (
+                <p className="text-xs text-muted text-center py-3">{L("ไม่พบในองค์กร", "Not found", "未找到")}</p>
+              ) : null}
+            </div>
+          </div>
+
+          {!unassigned.length && !centralRes.length && !centralQ ? (
+            <p className="text-sm text-muted text-center py-2">{L("ทุกคนอยู่ในผังแล้ว · หรือค้นจากองค์กรด้านบน", "Everyone placed · or search the org above", "全部已安排 · 或从上方搜索")}</p>
+          ) : null}
         </div>
       </Modal>
 

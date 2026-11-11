@@ -57,7 +57,7 @@ async function doBootstrap(): Promise<void> {
 }
 
 /** ดึงเฉพาะ master data ที่เปลี่ยนบ่อย (brands/branches/terminals/employees) ใหม่ */
-async function refreshDirectory(): Promise<void> {
+export async function refreshDirectory(): Promise<void> {
   const sb = supabase();
   if (!sb) return;
   const d = db();
