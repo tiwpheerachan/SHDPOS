@@ -7,7 +7,7 @@ import clsx from "clsx";
 import {
   LayoutDashboard, TrendingUp, Users, Package, Boxes, ArrowLeftRight,
   ShieldCheck, ScrollText, Settings2, Store, Sun, Moon, Languages, Menu, X, Bell,
-  Search, PanelLeftClose, PanelLeftOpen, ChevronDown, Command, Home, Activity, FileText, LogOut, Contact, CalendarClock, Ticket, Network, Landmark,
+  Search, PanelLeftClose, PanelLeftOpen, ChevronDown, Command, Home, Activity, FileText, LogOut, Contact, CalendarClock, Ticket, Network, Landmark, Wand2,
 } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { useTheme } from "@/lib/theme";
@@ -27,6 +27,7 @@ const NAV: NavGroup[] = [
     section: "overview",
     items: [
       { href: "/admin", icon: LayoutDashboard, key: "dashboard" },
+      { href: "/admin/insights", icon: Wand2, key: "insights", perm: "report.employee_perf" },
       { href: "/admin/finance", icon: Landmark, key: "finance", perm: "finance.view" },
     ],
   },
@@ -112,6 +113,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
     campaigns: L("แคมเปญ", "Campaigns", "活动"),
     org: L("ผังองค์กร", "Org chart", "组织架构"),
     finance: L("การเงิน", "Finance", "财务"),
+    insights: L("ผู้ช่วย AI", "AI assistant", "AI 助手"),
   };
   const sectionLabel: Record<string, string> = {
     overview: t.cmd.secOverview, sales: t.cmd.secSales, operations: t.cmd.secOps,
