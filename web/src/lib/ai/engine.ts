@@ -221,6 +221,21 @@ export function parsePrompt(prompt: string, l: Locale): View {
   return { id: uid(), name, prompt: prompt.trim(), widgets, createdAt: new Date().toISOString() };
 }
 
+/** คำแนะนำต่อยอดอย่างฉลาด (เมื่อไม่มี LLM) — เสนอมิติที่ยังไม่ได้ดู */
+export function localSuggestions(view: View | null, l: Locale): string[] {
+  const dims = new Set((view?.widgets ?? []).map((w) => w.dimension).filter(Boolean) as Dimension[]);
+  const opts: [boolean, string][] = [
+    [!dims.has("branch"), tr(l, "ดูรายสาขาด้วย", "Break down by branch", "按门店拆分")],
+    [!dims.has("employee"), tr(l, "ดูรายพนักงาน", "By staff", "按员工")],
+    [!dims.has("product"), tr(l, "สินค้าขายดี 10 อันดับ", "Top 10 products", "热销前10")],
+    [!dims.has("day"), tr(l, "แนวโน้มรายวัน", "Daily trend", "每日趋势")],
+    [!dims.has("payment"), tr(l, "สัดส่วนวิธีจ่าย", "Payment mix", "支付占比")],
+    [!dims.has("channel"), tr(l, "แยกตามช่องทาง", "By channel", "按渠道")],
+    [true, tr(l, "เทียบกำไรแทนยอดขาย", "Show profit instead", "改看毛利")],
+  ];
+  return opts.filter(([ok]) => ok).map(([, s]) => s).slice(0, 3);
+}
+
 /** สรุปคำตอบสั้นจากผลลัพธ์ (ใช้เมื่อไม่มีคำตอบจาก LLM) */
 export function localAnswer(view: View, firstData: WidgetData | null, l: Locale): string {
   if (!firstData || !firstData.rows.length) return tr(l, "ไม่พบข้อมูลในช่วงที่เลือก", "No data in range", "所选范围无数据");
