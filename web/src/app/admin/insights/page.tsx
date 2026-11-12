@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Sparkles, Send, Save, Trash2, LayoutDashboard, Wand2, Bookmark, Pencil, Plus, X, Loader2, Download, Share2, GripVertical, BarChart3, Undo2, Redo2 } from "lucide-react";
+import { Sparkles, Send, Save, Trash2, LayoutDashboard, Wand2, Bookmark, Pencil, Plus, X, Loader2, Download, Share2, GripVertical, BarChart3, Undo2, Redo2, ListTodo, ListPlus } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { useSession } from "@/lib/store/session";
 import { useToast } from "@/components/toast-host";
@@ -22,6 +22,8 @@ import {
 import { buildFactPack, localInsights, type Insight } from "@/lib/ai/facts";
 import { listViews, saveView, deleteView } from "@/lib/ai/views";
 import { ChartBuilder } from "@/components/admin/chart-builder";
+import { TaskDrawer } from "@/components/admin/task-drawer";
+import { listTasks, addTask, type Task, type TaskPriority } from "@/lib/ai/tasks";
 import { dashboardShareUrl, dashboardFromHash } from "@/lib/ai/share";
 import { exportExcel } from "@/lib/ai/export-excel";
 
@@ -68,6 +70,8 @@ export default function AdminInsightsPage() {
   const [editId, setEditId] = useState<string | null>(null);
   const [leftPct, setLeftPct] = useState(62);
   const [builderOpen, setBuilderOpen] = useState(false);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [tasksOpen, setTasksOpen] = useState(false);
   const [drills, setDrills] = useState<Drill[]>([]);
   const [hist, setHist] = useState({ i: -1, len: 0 });
   const threadRef = useRef<HTMLDivElement>(null);
@@ -92,7 +96,7 @@ export default function AdminInsightsPage() {
   const canUndo = hist.i > 0, canRedo = hist.i >= 0 && hist.i < hist.len - 1;
 
   useEffect(() => {
-    void listOrders().then(setOrders); void listEmployees().then(setEmployees); setSaved(listViews());
+    void listOrders().then(setOrders); void listEmployees().then(setEmployees); setSaved(listViews()); setTasks(listTasks());
     try { const s = localStorage.getItem("shdpos.ai.split"); if (s) setLeftPct(Math.max(42, Math.min(75, Number(s)))); } catch { /* ignore */ }
     const shared = dashboardFromHash(typeof window !== "undefined" ? window.location.hash : "");
     if (shared) { setView(shared); setSource("shared"); setMessages([{ role: "assistant", text: L("เปิดแดชบอร์ดที่แชร์มาให้แล้ว ✨ (ตัวเลขคำนวณตามสิทธิ์ของคุณ)", "Opened shared dashboard ✨", "已打开分享的仪表盘 ✨") }]); }
@@ -211,6 +215,14 @@ export default function AdminInsightsPage() {
     exportExcel(view, data, locale);
     toast.push({ tone: "ok", title: L("ดาวน์โหลด Excel แล้ว", "Excel downloaded", "已下载 Excel") });
   }
+  // บทวิเคราะห์ → งานติดตาม (ความสำคัญจากโทน · ผูกสาขาที่กำลังเจาะอยู่ ถ้ามี)
+  const toneToPriority: Record<string, TaskPriority> = { warn: "high", info: "med", ok: "low" };
+  function createTaskFromInsight(text: string, tone?: string) {
+    const branchId = drills.find((d) => d.dim === "branch")?.key ?? null;
+    setTasks(addTask({ title: text, priority: toneToPriority[tone ?? "info"] ?? "med", branchId, source: "insight" }));
+    toast.push({ tone: "ok", title: L("เพิ่มเป็นงานติดตามแล้ว", "Added to follow-up tasks", "已加入跟进任务") });
+  }
+  const openTaskCount = tasks.filter((t) => t.status !== "done").length;
 
   const EXAMPLES = [
     L("ยอดขายรายสาขา", "Sales by branch", "各门店销售"),
@@ -228,8 +240,14 @@ export default function AdminInsightsPage() {
           <h1 className="text-xl font-bold flex items-center gap-2"><Wand2 size={20} className="text-brand" />{L("ผู้ช่วย AI · สนทนา & แดชบอร์ด", "AI · Chat & dashboard", "AI 对话与仪表盘")}</h1>
           <p className="text-sm text-muted">{L("แชตด้านขวา · แดชบอร์ดด้านซ้าย (ลากแบ่งปรับขนาด) · ดาวน์โหลด Excel / แชร์ลิงก์ได้", "Chat right · dashboard left (drag to resize) · export Excel / share link", "右侧对话 · 左侧仪表盘（拖动调整）· 导出 Excel / 分享")}</p>
         </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <button onClick={() => setTasksOpen(true)} className="relative inline-flex items-center gap-1.5 h-9 px-3 rounded-xl border border-line text-sm hover:bg-surface2 hover:text-brand">
+            <ListTodo size={15} />{L("งานติดตาม", "Tasks", "任务")}
+            {openTaskCount ? <span className="ml-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-brand text-white text-[10px] font-semibold grid place-items-center">{openTaskCount}</span> : null}
+          </button>
         {saved.length ? (
-          <div className="flex flex-wrap items-center gap-1.5">
+          <>
+            <span className="w-px h-5 bg-line mx-0.5" />
             <Bookmark size={12} className="text-muted" />
             {saved.map((v) => (
               <span key={v.id} className="group inline-flex items-center gap-1 text-xs pl-2.5 pr-1 py-1 rounded-full bg-surface2 border border-line">
@@ -237,8 +255,9 @@ export default function AdminInsightsPage() {
                 <button onClick={() => setSaved(deleteView(v.id))} className="opacity-40 group-hover:opacity-100 hover:text-danger p-0.5"><Trash2 size={11} /></button>
               </span>
             ))}
-          </div>
+          </>
         ) : null}
+        </div>
       </div>
 
       <div className="shrink-0"><FilterBar value={filter} onChange={setFilter} branches={branches} brands={brands} /></div>
@@ -360,9 +379,11 @@ export default function AdminInsightsPage() {
                   {m.role === "assistant" && m.insights?.length ? (
                     <ul className="mt-2 space-y-1.5">
                       {m.insights.map((ins, j) => (
-                        <li key={j} className="flex items-start gap-1.5 text-[12.5px] leading-snug">
+                        <li key={j} className="group/ins flex items-start gap-1.5 text-[12.5px] leading-snug">
                           <span className={`mt-1.5 w-1.5 h-1.5 rounded-full shrink-0 ${ins.tone === "ok" ? "bg-ok" : ins.tone === "warn" ? "bg-danger" : "bg-brand"}`} />
-                          <span className="text-ink">{ins.text}</span>
+                          <span className="text-ink flex-1">{ins.text}</span>
+                          <button onClick={() => createTaskFromInsight(ins.text, ins.tone)} title={L("สร้างงานติดตามจากข้อนี้", "Create a follow-up task", "创建跟进任务")}
+                            className="shrink-0 mt-0.5 opacity-0 group-hover/ins:opacity-100 transition-opacity text-muted hover:text-brand"><ListPlus size={14} /></button>
                         </li>
                       ))}
                     </ul>
@@ -404,6 +425,8 @@ export default function AdminInsightsPage() {
 
       <ChartBuilder open={builderOpen} onClose={() => setBuilderOpen(false)} onAdd={addFromBuilder}
         rows={rows} prevRows={prevRows} ctx={ctx} branches={branches} facts={facts} locale={locale} L={L} />
+
+      <TaskDrawer open={tasksOpen} onClose={() => setTasksOpen(false)} branches={branches} tasks={tasks} onChange={setTasks} locale={locale} L={L} />
     </div>
   );
 }
