@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Sparkles, Send, Save, Trash2, LayoutDashboard, Wand2, Bookmark, Pencil, Plus, X, Loader2, Download, Share2, GripVertical, BarChart3, Undo2, Redo2, ListTodo, ListPlus, ArrowUp, ArrowDown, Maximize2, Minimize2 } from "lucide-react";
+import { Sparkles, Send, Save, Trash2, LayoutDashboard, Wand2, Bookmark, Pencil, Plus, X, Loader2, Download, Share2, GripVertical, BarChart3, Undo2, Redo2, ListTodo, ListPlus, ArrowUp, ArrowDown, Maximize2, Minimize2, Boxes } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { useSession } from "@/lib/store/session";
 import { useToast } from "@/components/toast-host";
-import { listOrders, listEmployees } from "@/lib/data/repo";
-import type { Order, Employee } from "@/lib/types";
+import { listOrders, listEmployees, listProducts, stockAll } from "@/lib/data/repo";
+import type { Order, Employee, Product, StockLevel } from "@/lib/types";
 import { Card, CardHeader, Badge, EmptyState, KpiTile, Select } from "@/components/ui";
 import { FilterBar, useAdminScope, useDefaultFilter } from "@/components/admin/filters";
 import { filterOrders } from "@/lib/analytics";
@@ -24,6 +24,8 @@ import { listViews, saveView, deleteView } from "@/lib/ai/views";
 import { ChartBuilder } from "@/components/admin/chart-builder";
 import { TaskDrawer } from "@/components/admin/task-drawer";
 import { listTasks, addTask, type Task, type TaskPriority } from "@/lib/ai/tasks";
+import { analyzeStock, type StockRow } from "@/lib/ai/stock";
+import { StockDrawer } from "@/components/admin/stock-drawer";
 import { dashboardShareUrl, dashboardFromHash } from "@/lib/ai/share";
 import { exportExcel } from "@/lib/ai/export-excel";
 
@@ -75,6 +77,9 @@ export default function AdminInsightsPage() {
   const [builderOpen, setBuilderOpen] = useState(false);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [tasksOpen, setTasksOpen] = useState(false);
+  const [stock, setStock] = useState<StockLevel[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [stockOpen, setStockOpen] = useState(false);
   const [drills, setDrills] = useState<Drill[]>([]);
   const [hist, setHist] = useState({ i: -1, len: 0 });
   const threadRef = useRef<HTMLDivElement>(null);
@@ -102,6 +107,7 @@ export default function AdminInsightsPage() {
 
   useEffect(() => {
     void listOrders().then(setOrders); void listEmployees().then(setEmployees); setSaved(listViews()); setTasks(listTasks());
+    void listProducts().then(setProducts); void stockAll().then(setStock);
     try { const s = localStorage.getItem("shdpos.ai.split"); if (s) setLeftPct(Math.max(42, Math.min(75, Number(s)))); } catch { /* ignore */ }
     const shared = dashboardFromHash(typeof window !== "undefined" ? window.location.hash : "");
     if (shared) { setView(shared); setSource("shared"); setMessages([{ role: "assistant", text: L("เปิดแดชบอร์ดที่แชร์มาให้แล้ว ✨ (ตัวเลขคำนวณตามสิทธิ์ของคุณ)", "Opened shared dashboard ✨", "已打开分享的仪表盘 ✨") }]); }
@@ -141,6 +147,15 @@ export default function AdminInsightsPage() {
     const pf = new Date(facts.prevPeriod.from).getTime(), pt = new Date(facts.prevPeriod.to).getTime();
     return drilled.filter((o) => { const t = new Date(o.created_at).getTime(); return t >= pf && t <= pt; });
   }, [drilled, facts.prevPeriod.from, facts.prevPeriod.to]);
+
+  // วิเคราะห์สต๊อก (Days-of-Stock) — ความเร็วขายจากช่วง/ขอบเขตปัจจุบัน (ไม่เอา drill)
+  const stockAnalysis = useMemo(() => {
+    const ids = visibleBranchIds(employee, branches.map((b) => b.id));
+    const stockScoped = stock.filter((s) => ids.includes(s.branch_id));
+    const f = new Date(filter.from).getTime(), t = new Date(filter.to).getTime();
+    const periodOrders = scoped.filter((o) => { const x = new Date(o.created_at).getTime(); return x >= f && x <= t; });
+    return analyzeStock(periodOrders, stockScoped, products, { from: filter.from, to: filter.to });
+  }, [stock, products, scoped, employee, branches, filter.from, filter.to]);
 
   const data = useMemo(() => {
     const m = new Map<string, WidgetData>();
@@ -255,6 +270,13 @@ export default function AdminInsightsPage() {
     toast.push({ tone: "ok", title: L("เพิ่มเป็นงานติดตามแล้ว", "Added to follow-up tasks", "已加入跟进任务") });
   }
   const openTaskCount = tasks.filter((t) => t.status !== "done").length;
+  // สต๊อก → งานเติม (เชื่อมกับระบบงานติดตาม)
+  function onRestock(r: StockRow) {
+    const dl = r.daysLeft == null ? null : Math.round(r.daysLeft);
+    const tail = r.onHand <= 0 ? L(" (หมด)", " (out)", " (缺货)") : dl != null ? L(` (เหลือ ~${dl} วัน)`, ` (~${dl}d left)`, ` (~${dl}天)`) : "";
+    setTasks(addTask({ title: L(`เติมสต๊อก ${r.name}${tail}`, `Restock ${r.name}${tail}`, `补货 ${r.name}${tail}`), priority: (r.status === "out" || r.status === "critical") ? "high" : "med", source: "insight" }));
+    toast.push({ tone: "ok", title: L("เพิ่มงานเติมสต๊อกแล้ว", "Restock task added", "已加入补货任务") });
+  }
 
   const EXAMPLES = [
     L("ยอดขายรายสาขา", "Sales by branch", "各门店销售"),
@@ -273,6 +295,10 @@ export default function AdminInsightsPage() {
           <p className="text-sm text-muted">{L("แชตด้านขวา · แดชบอร์ดด้านซ้าย (ลากแบ่งปรับขนาด) · ดาวน์โหลด Excel / แชร์ลิงก์ได้", "Chat right · dashboard left (drag to resize) · export Excel / share link", "右侧对话 · 左侧仪表盘（拖动调整）· 导出 Excel / 分享")}</p>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
+          <button onClick={() => setStockOpen(true)} className="relative inline-flex items-center gap-1.5 h-9 px-3 rounded-xl border border-line text-sm hover:bg-surface2 hover:text-brand">
+            <Boxes size={15} />{L("สต๊อก", "Stock", "库存")}
+            {stockAnalysis.summary.out + stockAnalysis.summary.critical > 0 ? <span className="ml-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-danger text-white text-[10px] font-semibold grid place-items-center">{stockAnalysis.summary.out + stockAnalysis.summary.critical}</span> : null}
+          </button>
           <button onClick={() => setTasksOpen(true)} className="relative inline-flex items-center gap-1.5 h-9 px-3 rounded-xl border border-line text-sm hover:bg-surface2 hover:text-brand">
             <ListTodo size={15} />{L("งานติดตาม", "Tasks", "任务")}
             {openTaskCount ? <span className="ml-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-brand text-white text-[10px] font-semibold grid place-items-center">{openTaskCount}</span> : null}
@@ -468,6 +494,8 @@ export default function AdminInsightsPage() {
         rows={rows} prevRows={prevRows} ctx={ctx} branches={branches} facts={facts} locale={locale} L={L} />
 
       <TaskDrawer open={tasksOpen} onClose={() => setTasksOpen(false)} branches={branches} tasks={tasks} onChange={setTasks} locale={locale} L={L} />
+
+      <StockDrawer open={stockOpen} onClose={() => setStockOpen(false)} analysis={stockAnalysis} locale={locale} L={L} onRestock={onRestock} />
     </div>
   );
 }
