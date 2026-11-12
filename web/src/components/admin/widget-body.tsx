@@ -2,7 +2,7 @@
 
 // ตัวเรนเดอร์เนื้อหากราฟกลาง — ใช้ทั้งหน้า insights และ Chart Builder
 //   รองรับ bar/hbar/donut/line/table/heatmap + โหมดเทียบช่วงก่อน (compare)
-import { MixDonut, SalesAreaTrend, InsightBars, CompareBars, RankedBars, WaterfallChart } from "@/components/charts-rich";
+import { MixDonut, SalesAreaTrend, InsightBars, CompareBars, RankedBars, WaterfallChart, StackedBars, ScatterPlot } from "@/components/charts-rich";
 import { Heatmap } from "@/components/charts";
 import { Table, Th, Td, EmptyState } from "@/components/ui";
 import type { ChartConfig } from "@/components/ui/chart";
@@ -26,6 +26,19 @@ export function WidgetBody({ w, data, locale, L, onDrill }: { w: Widget; data?: 
     if (!data?.matrix) return <EmptyState title={L("ไม่มีข้อมูล", "No data", "无数据")} />;
     return <div className="overflow-x-auto"><Heatmap rows={data.rowsLabel ?? []} cols={data.cols ?? []} values={data.matrix} valueFormat={(n) => fmtMetric(w.metric, n)} /></div>;
   }
+
+  if (w.viz === "stacked") {
+    const s = data?.stacked;
+    if (!s || !s.data.length) return <EmptyState title={L("ต้องเลือก “แยกตาม (ซ้อน)” และมีข้อมูล", "Pick a stack dimension", "需选择堆叠维度")} />;
+    return <StackedBars data={s.data} series={s.series} valueFormat={fmt} />;
+  }
+  if (w.viz === "scatter") {
+    const pts = data?.points;
+    if (!pts || !pts.length) return <EmptyState title={L("ไม่มีข้อมูลในช่วง/ตัวกรองนี้", "No data", "无数据")} />;
+    const my = data?.metricY ?? w.metric;
+    return <ScatterPlot data={pts} xLabel={mL} yLabel={METRIC_LABEL[my][locale]} xFormat={(n) => fmtMetric(w.metric, n)} yFormat={(n) => fmtMetric(my, n)} />;
+  }
+
   if (!rows.length) return <EmptyState title={L("ไม่มีข้อมูลในช่วง/ตัวกรองนี้", "No data", "无数据")} />;
 
   if (w.viz === "waterfall") {

@@ -35,6 +35,24 @@ export function exportExcel(view: View, dataMap: Map<string, WidgetData>, locale
     if (!d) continue;
     h += `<h3>${esc(w.title || mL(w.metric))}</h3>`;
 
+    // stacked — ตารางมิติหลัก × series ซ้อน
+    if (w.viz === "stacked" && d.stacked) {
+      const { series, data } = d.stacked;
+      if (!data.length) { h += `<p style="font-family:sans-serif;font-size:11px;color:#999">${esc(L(locale, "ไม่มีข้อมูล", "No data", "无数据"))}</p>`; continue; }
+      h += `<table><tr><th>${esc(mL(w.metric))}</th>${series.map((s) => `<th>${esc(s.label)}</th>`).join("")}</tr>`;
+      for (const r of data) h += `<tr><td>${esc(r.label)}</td>${series.map((s) => `<td>${typeof r[s.key] === "number" ? num(w.metric, r[s.key] as number) : ""}</td>`).join("")}</tr>`;
+      h += `</table>`;
+      continue;
+    }
+    // scatter — ตาราง x/y
+    if (w.viz === "scatter" && d.points) {
+      if (!d.points.length) { h += `<p style="font-family:sans-serif;font-size:11px;color:#999">${esc(L(locale, "ไม่มีข้อมูล", "No data", "无数据"))}</p>`; continue; }
+      const my = d.metricY ?? w.metric;
+      h += `<table><tr><th>${esc(L(locale, "รายการ", "Item", "项目"))}</th><th>${esc(mL(w.metric))} (x)</th><th>${esc(mL(my))} (y)</th><th>${esc(L(locale, "บิล", "Bills", "单"))}</th></tr>`;
+      for (const p of d.points) h += `<tr><td>${esc(p.label)}</td><td>${num(w.metric, p.x)}</td><td>${num(my, p.y)}</td><td>${p.z}</td></tr>`;
+      h += `</table>`;
+      continue;
+    }
     // heatmap — ตารางวัน×ชั่วโมง
     if (w.viz === "heatmap" && d.matrix) {
       const cols = d.cols ?? [];

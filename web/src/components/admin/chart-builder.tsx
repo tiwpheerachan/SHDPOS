@@ -14,6 +14,8 @@ import type { Order, Branch } from "@/lib/types";
 const uid = () => Math.random().toString(36).slice(2, 9);
 const METRICS: Metric[] = ["sales", "qty", "gp", "gp_pct", "orders", "aov", "discount", "discount_pct"];
 const DIMS: Dimension[] = ["branch", "brand", "product", "employee", "channel", "payment", "day", "weekday", "hour"];
+const STACK_DIMS: Dimension[] = ["brand", "channel", "branch", "weekday", "hour", "day"];
+const defaultStackBy = (d?: Dimension | null): Dimension => (d === "brand" ? "channel" : "brand");
 
 /** แนะนำชนิดกราฟจากมิติ */
 const suggestViz = (d: Dimension | null | undefined): Viz => !d ? "kpi" : d === "day" ? "line" : d === "hour" || d === "weekday" ? "bar" : d === "channel" || d === "payment" ? "donut" : "bar";
@@ -37,6 +39,8 @@ export function ChartBuilder({ open, onClose, onAdd, rows, prevRows, ctx, branch
     const next = { ...prev, ...p };
     if (!next.dimension) { next.viz = "kpi"; next.dimension = null; }
     else if (next.viz === "kpi") next.viz = "bar";
+    if (next.viz === "stacked" && (!next.stackBy || next.stackBy === next.dimension)) next.stackBy = defaultStackBy(next.dimension);
+    if (next.viz === "scatter" && !next.metricY) next.metricY = next.metric === "sales" || next.metric === "gp" ? "gp_pct" : "sales";
     return next;
   });
 
@@ -89,10 +93,12 @@ export function ChartBuilder({ open, onClose, onAdd, rows, prevRows, ctx, branch
           {w.dimension ? (
             <>
               <Field label={<span className="flex items-center gap-1">{L("รูปแบบกราฟ", "Chart type", "图表")} <span className="text-[10px] text-brand">({L("แนะนำ", "rec.", "推荐")}: {recommended})</span></span>}>
-                <Select value={w.viz} onChange={(e) => patch({ viz: e.target.value as Viz })}><option value="bar">{L("แท่ง", "Bar", "柱状")}</option><option value="hbar">{L("แท่งแนวนอน", "H-Bar", "横向")}</option><option value="donut">{L("โดนัท", "Donut", "环形")}</option><option value="line">{L("เส้น", "Line", "折线")}</option><option value="waterfall">{L("Waterfall (ปัจจัยเปลี่ยนแปลง)", "Waterfall", "瀑布图")}</option><option value="heatmap">{L("ฮีตแมป (วัน×ชม.)", "Heatmap", "热力图")}</option><option value="table">{L("ตาราง", "Table", "表格")}</option></Select>
+                <Select value={w.viz} onChange={(e) => patch({ viz: e.target.value as Viz })}><option value="bar">{L("แท่ง", "Bar", "柱状")}</option><option value="stacked">{L("แท่งซ้อน (มิติซ้อน)", "Stacked bar", "堆叠柱")}</option><option value="hbar">{L("แท่งแนวนอน", "H-Bar", "横向")}</option><option value="donut">{L("โดนัท", "Donut", "环形")}</option><option value="line">{L("เส้น", "Line", "折线")}</option><option value="scatter">{L("กระจาย (x×y)", "Scatter", "散点")}</option><option value="waterfall">{L("Waterfall (ปัจจัยเปลี่ยนแปลง)", "Waterfall", "瀑布图")}</option><option value="heatmap">{L("ฮีตแมป (วัน×ชม.)", "Heatmap", "热力图")}</option><option value="table">{L("ตาราง", "Table", "表格")}</option></Select>
               </Field>
-              {w.viz !== "heatmap" ? <Field label={L("จำกัดอันดับ (Top-N)", "Top-N", "前N")}><Select value={String(w.limit ?? 0)} onChange={(e) => patch({ limit: Number(e.target.value) || undefined })}><option value="0">{L("ทั้งหมด", "All", "全部")}</option>{[5, 10, 15, 20, 30].map((n) => <option key={n} value={n}>{n}</option>)}</Select></Field> : null}
-              {w.dimension === "day" ? <Field label={L("แปลงอนุกรม", "Transform", "变换")}><Select value={w.transform ?? "none"} onChange={(e) => patch({ transform: e.target.value as Transform })}><option value="none">{L("ไม่แปลง", "None", "无")}</option><option value="cumulative">{L("สะสม", "Cumulative", "累计")}</option><option value="ma7">{L("เฉลี่ยเคลื่อนที่ 7", "Moving avg 7", "移动均7")}</option></Select></Field> : null}
+              {w.viz === "stacked" ? <Field label={L("แยกตาม (ซ้อน)", "Stack by", "堆叠维度")}><Select value={w.stackBy ?? ""} onChange={(e) => patch({ stackBy: e.target.value as Dimension })}>{STACK_DIMS.filter((d) => d !== w.dimension).map((d) => <option key={d} value={d}>{DIM_LABEL[d][locale]}</option>)}</Select></Field> : null}
+              {w.viz === "scatter" ? <Field label={L("แกน Y (ตัววัด)", "Y axis metric", "Y轴指标")}><Select value={w.metricY ?? "gp_pct"} onChange={(e) => patch({ metricY: e.target.value as Metric })}>{METRICS.map((m) => <option key={m} value={m}>{METRIC_LABEL[m][locale]}</option>)}</Select></Field> : null}
+              {w.viz !== "heatmap" && w.viz !== "scatter" ? <Field label={L("จำกัดอันดับ (Top-N)", "Top-N", "前N")}><Select value={String(w.limit ?? 0)} onChange={(e) => patch({ limit: Number(e.target.value) || undefined })}><option value="0">{L("ทั้งหมด", "All", "全部")}</option>{[5, 10, 15, 20, 30].map((n) => <option key={n} value={n}>{n}</option>)}</Select></Field> : null}
+              {w.dimension === "day" && (w.viz === "line" || w.viz === "bar") ? <Field label={L("แปลงอนุกรม", "Transform", "变换")}><Select value={w.transform ?? "none"} onChange={(e) => patch({ transform: e.target.value as Transform })}><option value="none">{L("ไม่แปลง", "None", "无")}</option><option value="cumulative">{L("สะสม", "Cumulative", "累计")}</option><option value="ma7">{L("เฉลี่ยเคลื่อนที่ 7", "Moving avg 7", "移动均7")}</option></Select></Field> : null}
             </>
           ) : null}
           <Field label={L("ฟิลเตอร์สาขา", "Branch filter", "门店筛选")}><Select value={w.branchId ?? ""} onChange={(e) => patch({ branchId: e.target.value || null })}><option value="">{L("ทุกสาขา", "All", "全部")}</option>{branches.map((b) => <option key={b.id} value={b.id}>{locale === "th" ? b.name_th ?? b.name : b.name}</option>)}</Select></Field>
