@@ -50,7 +50,6 @@ export default function AdminInsightsPage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [prompt, setPrompt] = useState("");
   const [thinking, setThinking] = useState(false);
-  const [focused, setFocused] = useState(false);
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [view, setView] = useState<View | null>(null);
   const [source, setSource] = useState<string | null>(null);
@@ -173,9 +172,9 @@ export default function AdminInsightsPage() {
   const srcLabel = source === "deepseek" ? "DeepSeek" : source === "anthropic" ? "Claude" : source === "shared" ? L("แชร์", "Shared", "分享") : source === "local" ? L("AI ในเครื่อง", "On-device", "本地 AI") : "AI";
 
   return (
-    <div className="relative p-4 sm:p-6 w-full min-h-[calc(100vh-64px)]" style={{ backgroundImage: "radial-gradient(rgb(var(--c-ink) / 0.055) 1px, transparent 1.3px)", backgroundSize: "22px 22px" }}>
+    <div className="relative p-4 sm:p-6 w-full flex flex-col lg:h-[calc(100dvh-74px)] lg:overflow-hidden" style={{ backgroundImage: "radial-gradient(rgb(var(--c-ink) / 0.055) 1px, transparent 1.3px)", backgroundSize: "22px 22px" }}>
       <style>{"@keyframes shd-typ{0%,80%,100%{opacity:.25;transform:translateY(0)}40%{opacity:1;transform:translateY(-2px)}}"}</style>
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+      <div className="shrink-0 flex flex-wrap items-center justify-between gap-3 mb-3">
         <div>
           <h1 className="text-xl font-bold flex items-center gap-2"><Wand2 size={20} className="text-brand" />{L("ผู้ช่วย AI · สนทนา & แดชบอร์ด", "AI · Chat & dashboard", "AI 对话与仪表盘")}</h1>
           <p className="text-sm text-muted">{L("แชตด้านขวา · แดชบอร์ดด้านซ้าย (ลากแบ่งปรับขนาด) · ดาวน์โหลด Excel / แชร์ลิงก์ได้", "Chat right · dashboard left (drag to resize) · export Excel / share link", "右侧对话 · 左侧仪表盘（拖动调整）· 导出 Excel / 分享")}</p>
@@ -193,11 +192,11 @@ export default function AdminInsightsPage() {
         ) : null}
       </div>
 
-      <FilterBar value={filter} onChange={setFilter} branches={branches} brands={brands} />
+      <div className="shrink-0"><FilterBar value={filter} onChange={setFilter} branches={branches} brands={brands} /></div>
 
-      <div ref={contRef} className="flex flex-col lg:flex-row gap-4 mt-4" style={{ ["--lw" as string]: `${leftPct}%` }}>
-        {/* ── ซ้าย: แดชบอร์ด (ปรับขนาดได้) ── */}
-        <div className="w-full lg:w-[var(--lw)] min-w-0 space-y-4">
+      <div ref={contRef} className="flex flex-col lg:flex-row gap-4 mt-4 lg:flex-1 lg:min-h-0" style={{ ["--lw" as string]: `${leftPct}%` }}>
+        {/* ── ซ้าย: แดชบอร์ด (ปรับขนาดได้ · เลื่อนในกรอบตัวเอง) ── */}
+        <div className="w-full lg:w-[var(--lw)] min-w-0 space-y-4 lg:h-full lg:overflow-y-auto lg:pr-1">
           {thinking && !view ? (
             <div className="grid place-items-center min-h-[52vh]"><ThinkingOrb size={168} text={L("กำลังคิด", "Thinking", "思考中")} /></div>
           ) : view ? (
@@ -258,8 +257,8 @@ export default function AdminInsightsPage() {
           <div className="w-1 h-10 rounded-full bg-line group-hover/handle:bg-brand transition-colors flex items-center justify-center"><GripVertical size={12} className="text-muted group-hover/handle:text-brand" /></div>
         </div>
 
-        {/* ── ขวา: แชต (ยาวลงมา) ── */}
-        <div className="w-full lg:flex-1 lg:min-w-[300px] lg:sticky lg:top-4 lg:self-start flex flex-col rounded-2xl border border-line bg-surface/70 backdrop-blur-sm overflow-hidden lg:h-[calc(100vh-170px)] min-h-[360px]">
+        {/* ── ขวา: แชต (เลื่อนในกรอบตัวเอง) ── */}
+        <div className="w-full lg:flex-1 lg:min-w-[300px] flex flex-col rounded-2xl border border-line bg-surface/70 backdrop-blur-sm overflow-hidden lg:h-full min-h-[360px]">
           <div className="flex items-center justify-between px-4 py-2.5 border-b border-line shrink-0">
             <p className="text-sm font-semibold flex items-center gap-1.5"><Sparkles size={15} className="text-brand" />{L("ผู้ช่วย AI", "AI assistant", "AI 助手")}</p>
             {messages.length ? <button onClick={reset} className="text-xs px-2 py-0.5 rounded-full border border-line text-muted hover:text-brand">{L("เริ่มใหม่", "New", "新")}</button> : null}
@@ -297,10 +296,10 @@ export default function AdminInsightsPage() {
           </div>
 
           <div className="p-2.5 border-t border-line shrink-0">
-            <BorderBeam radius={22} width={2} duration={3} active={thinking || focused} className="block rounded-[22px]">
+            <BorderBeam radius={22} width={2} duration={3} active className="block rounded-[22px]">
               <form onSubmit={(e) => { e.preventDefault(); void onAsk(prompt); }} className="flex items-center gap-2 rounded-[22px] bg-surface border border-line pl-3.5 pr-1.5 py-1.5">
                 <Sparkles size={16} className="text-brand shrink-0" />
-                <input value={prompt} onChange={(e) => setPrompt(e.target.value)} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
+                <input value={prompt} onChange={(e) => setPrompt(e.target.value)}
                   placeholder={messages.length ? L("ถามต่อ หรือสั่งแก้แดชบอร์ด…", "Reply or edit…", "继续…") : L("ถามอะไรก็ได้…", "Ask anything…", "随便问…")}
                   className="flex-1 bg-transparent h-9 outline-none text-sm placeholder:text-muted" />
                 <button type="submit" disabled={thinking || !prompt.trim()} className="w-9 h-9 rounded-full bg-brand text-white grid place-items-center shrink-0 disabled:opacity-40 hover:bg-brandHover transition-colors">

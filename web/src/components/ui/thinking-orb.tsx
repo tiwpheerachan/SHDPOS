@@ -54,31 +54,35 @@ export function ThinkingOrb({ size = 150, text, className }: Props) {
     const draw = (now: number) => {
       const time = (now - t0) / 1000;
       ctx.clearRect(0, 0, D, D);
-      const yaw = reduced ? 0.6 : time * 0.6;
+      const yaw = reduced ? 0.6 : time * 0.45;          // หมุนช้านุ่มขึ้น
       const cyw = Math.cos(yaw), syw = Math.sin(yaw);
-      const head = (time * 300) % N; // ไฟวิ่งรอบ (ตามดัชนีจุด)
-      const lat = Math.sin(time * 2.2); // คลื่นแนวนอน
+      const sweep = time * 1.5;                          // แถบแสงวิ่งรอบ (ตามลองจิจูด)
+      const breathe = reduced ? 1 : 1 + 0.035 * Math.sin(time * 1.6); // หายใจเบาๆ
 
-      // คำนวณ + เรียงตาม depth (วาดหลังก่อนหน้า)
+      // คำนวณ + เรียงตาม depth (วาดหลังก่อนหน้า) เพื่อความนุ่ม
       const pts: { x: number; y: number; r: number; a: number; lit: number }[] = [];
       for (let n = 0; n < N; n++) {
         const d = DOTS[n];
         const x1 = d.x * cyw + d.z * syw, z1 = -d.x * syw + d.z * cyw;
         const y2 = d.y * CP - z1 * SP, z2 = d.y * SP + z1 * CP;
         const f = 2.8 / (2.8 - z2), depth = (z2 + 1) / 2;
-        let dd = Math.abs(n - head); if (dd > N - dd) dd = N - dd;
-        const pulse = reduced ? 0 : Math.pow(Math.max(0, 1 - dd / 16), 2);
-        const latHit = reduced ? 0 : Math.max(0, 1 - Math.pow((d.y - lat) / 0.14, 2));
-        const lit = Math.max(pulse, latHit * 0.7);
-        const a = (0.12 + 0.5 * depth * depth + 0.7 * lit) * (0.5 + 0.5 * depth);
-        pts.push({ x: C + x1 * R * f, y: C - y2 * R * f, r: (0.5 + 0.8 * depth) * f + lit * 1.1, a: Math.min(1, a), lit });
+        // แถบแสงไหล: คลื่น cos ตามลองจิจูด (ต่อเนื่อง ไม่กระตุก) + คลื่นรองจางๆ
+        let lit = 0;
+        if (!reduced) {
+          const lon = Math.atan2(z1, x1);
+          const band = Math.max(0, Math.cos(lon - sweep));
+          const band2 = Math.max(0, Math.cos(lon - sweep + 2.3));
+          const shimmer = 0.5 + 0.5 * Math.sin(d.y * 5 + time * 2 + d.seed);
+          lit = Math.min(1, Math.pow(band, 7) + Math.pow(band2, 16) * 0.45 + shimmer * 0.06);
+        }
+        const a = (0.1 + 0.5 * depth * depth + 0.72 * lit) * (0.45 + 0.55 * depth);
+        pts.push({ x: C + x1 * R * f * breathe, y: C - y2 * R * f * breathe, r: ((0.5 + 0.8 * depth) * f + lit * 1.35) * breathe, a: Math.min(1, a), lit });
       }
       pts.sort((p, q) => p.r - q.r);
       for (const p of pts) {
         ctx.beginPath();
         ctx.arc(p.x, p.y, Math.max(0.3, p.r), 0, TAU);
-        // ไฟที่วิ่ง = สว่างออกขาว, จุดปกติ = สีแบรนด์
-        const mix = p.lit;
+        const mix = p.lit; // ยิ่งโดนแสงยิ่งออกขาว, ปกติ = สีแบรนด์
         const r = Math.round(br + (255 - br) * mix), g = Math.round(bg + (255 - bg) * mix), b = Math.round(bb + (255 - bb) * mix);
         ctx.fillStyle = `rgba(${r},${g},${b},${p.a.toFixed(3)})`;
         ctx.fill();
