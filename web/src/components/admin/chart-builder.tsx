@@ -1,12 +1,12 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Sparkles, Loader2, Plus, Lightbulb } from "lucide-react";
+import { Sparkles, Loader2, Plus, Lightbulb, Sigma } from "lucide-react";
 import { Modal, Select, Button } from "@/components/ui";
-import { WidgetBody, fmtMetric } from "@/components/admin/widget-body";
+import { WidgetBody, fmtWidget, widgetMetricLabel } from "@/components/admin/widget-body";
 import {
-  computeWidget, METRIC_LABEL, DIM_LABEL,
-  type Widget, type Ctx, type Metric, type Dimension, type Viz, type Transform, type WidgetData,
+  computeWidget, METRIC_LABEL, DIM_LABEL, validateFormula, FORMULA_VARS,
+  type Widget, type Ctx, type Metric, type Dimension, type Viz, type Transform, type WidgetData, type Formula,
 } from "@/lib/ai/engine";
 import type { FactPack } from "@/lib/ai/facts";
 import type { Order, Branch } from "@/lib/types";
@@ -34,7 +34,8 @@ export function ChartBuilder({ open, onClose, onAdd, rows, prevRows, ctx, branch
   const wr = useMemo(() => (w.branchId ? rows.filter((o) => o.branch_id === w.branchId) : rows), [rows, w.branchId]);
   const pwr = useMemo(() => (w.branchId ? prevRows.filter((o) => o.branch_id === w.branchId) : prevRows), [prevRows, w.branchId]);
   const data: WidgetData = useMemo(() => computeWidget(wr, ctx, w, locale, w.compare ? pwr : undefined), [wr, pwr, ctx, w, locale]);
-  const mL = METRIC_LABEL[w.metric][locale];
+  const mL = widgetMetricLabel(w, locale);
+  const formulaErr = w.formula ? validateFormula(w.formula.expr) : null;
   const patch = (p: Partial<Widget>) => setW((prev) => {
     const next = { ...prev, ...p };
     if (!next.dimension) { next.viz = "kpi"; next.dimension = null; }
@@ -72,7 +73,7 @@ export function ChartBuilder({ open, onClose, onAdd, rows, prevRows, ctx, branch
   const preview = w.viz === "kpi" ? (
     <div className="grid place-items-center h-full">
       <div className="text-center">
-        <p className="text-[32px] font-bold tnum">{fmtMetric(w.metric, data.total)}</p>
+        <p className="text-[32px] font-bold tnum">{fmtWidget(w, data.total)}</p>
         {deltaPct != null ? <p className={`text-sm font-medium ${deltaPct >= 0 ? "text-ok" : "text-danger"}`}>{deltaPct >= 0 ? "↑" : "↓"} {Math.abs(deltaPct)}%</p> : null}
         <p className="text-xs text-muted mt-1">{w.title || mL}</p>
       </div>
@@ -88,7 +89,27 @@ export function ChartBuilder({ open, onClose, onAdd, rows, prevRows, ctx, branch
       <div className="grid lg:grid-cols-[300px_1fr] gap-4">
         {/* ── ซ้าย: ตั้งค่า ── */}
         <div className="space-y-3">
-          <Field label={L("ตัววัด (Metric)", "Metric", "指标")}><Select value={w.metric} onChange={(e) => patch({ metric: e.target.value as Metric })}>{METRICS.map((m) => <option key={m} value={m}>{METRIC_LABEL[m][locale]}</option>)}</Select></Field>
+          <Field label={L("ตัววัด (Metric)", "Metric", "指标")}><Select value={w.metric} disabled={!!w.formula} onChange={(e) => patch({ metric: e.target.value as Metric })} className={w.formula ? "opacity-50" : ""}>{METRICS.map((m) => <option key={m} value={m}>{METRIC_LABEL[m][locale]}</option>)}</Select></Field>
+          {/* ตัววัดแบบสูตรเอง */}
+          <Field label={<span className="flex items-center gap-1"><Sigma size={11} className="text-brand" />{L("ตัววัดแบบสูตรเอง", "Custom formula", "自定义公式")}</span>}>
+            <label className="flex items-center gap-2 text-sm cursor-pointer mb-1">
+              <input type="checkbox" checked={!!w.formula} onChange={(e) => patch({ formula: e.target.checked ? { name: w.formula?.name || L("ตัววัดใหม่", "Custom metric", "自定义"), expr: w.formula?.expr || "gp/qty", fmt: w.formula?.fmt || "thb" } : null })} className="accent-brand" />
+              {L("สร้างสูตรเอง (แทนตัววัด)", "Build a formula", "使用公式")}
+            </label>
+            {w.formula ? (
+              <div className="space-y-1.5 rounded-xl border border-line bg-surface2/40 p-2">
+                <input value={w.formula.name} onChange={(e) => patch({ formula: { ...w.formula!, name: e.target.value } })} placeholder={L("ชื่อตัววัด เช่น กำไร/ชิ้น", "Metric name", "名称")} className="w-full h-8 px-2 rounded-lg bg-surface border border-line text-xs outline-none focus:ring-2 focus:ring-brand/30" />
+                <input value={w.formula.expr} onChange={(e) => patch({ formula: { ...w.formula!, expr: e.target.value } })} placeholder="gp/qty" spellCheck={false} className={`w-full h-8 px-2 rounded-lg bg-surface border text-xs font-mono outline-none focus:ring-2 focus:ring-brand/30 ${formulaErr ? "border-danger" : "border-line"}`} />
+                <div className="flex flex-wrap gap-1">
+                  {FORMULA_VARS.map((v) => <button key={v.key} type="button" onClick={() => patch({ formula: { ...w.formula!, expr: `${w.formula!.expr} ${v.key} `.replace(/\s+/g, " ").replace(/^\s/, "") } })} title={locale === "th" ? v.th : v.en} className="text-[10px] px-1.5 py-0.5 rounded bg-brand/10 text-brand hover:bg-brand/20">{v.key}</button>)}
+                  {["+", "-", "*", "/", "(", ")"].map((op) => <button key={op} type="button" onClick={() => patch({ formula: { ...w.formula!, expr: w.formula!.expr + op } })} className="text-[10px] w-5 py-0.5 rounded bg-surface2 border border-line hover:text-brand">{op}</button>)}
+                  <button type="button" onClick={() => patch({ formula: { ...w.formula!, expr: "" } })} className="text-[10px] px-1.5 py-0.5 rounded bg-surface2 border border-line text-muted hover:text-danger">{L("ล้าง", "clear", "清")}</button>
+                </div>
+                <Select value={w.formula.fmt} onChange={(e) => patch({ formula: { ...w.formula!, fmt: e.target.value as Formula["fmt"] } })} className="h-8 text-xs"><option value="thb">฿ {L("บาท", "THB", "泰铢")}</option><option value="int">{L("จำนวน", "Number", "数量")}</option><option value="pct">% {L("ร้อยละ", "Percent", "百分比")}</option></Select>
+                {formulaErr ? <p className="text-[10px] text-danger">{L("สูตรไม่ถูกต้อง", "Invalid formula", "公式无效")}{formulaErr.startsWith("unknown:") ? ` (${formulaErr.slice(8)}?)` : ""}</p> : <p className="text-[10px] text-muted">{L("ตัวอย่าง", "e.g.", "例")}: gp/qty, sales-discount, gp/sales*100</p>}
+              </div>
+            ) : null}
+          </Field>
           <Field label={L("มิติ (Dimension)", "Dimension", "维度")}><Select value={w.dimension ?? ""} onChange={(e) => patch(e.target.value ? { dimension: e.target.value as Dimension, viz: suggestViz(e.target.value as Dimension) } : { dimension: null })}><option value="">{L("รวม (KPI)", "Total (KPI)", "合计")}</option>{DIMS.map((d) => <option key={d} value={d}>{DIM_LABEL[d][locale]}</option>)}</Select></Field>
           {w.dimension ? (
             <>
@@ -118,7 +139,7 @@ export function ChartBuilder({ open, onClose, onAdd, rows, prevRows, ctx, branch
         <div className="rounded-2xl border border-line bg-surface p-4 min-h-[340px] flex flex-col">
           <div className="flex items-center justify-between mb-2">
             <div><p className="font-semibold text-sm">{w.title || mL}{w.dimension ? ` · ${DIM_LABEL[w.dimension][locale]}` : ""}</p>
-              <p className="text-[11px] text-muted">{L("รวม", "Total", "合计")} {fmtMetric(w.metric, data.total)}{deltaPct != null ? <span className={deltaPct >= 0 ? "text-ok" : "text-danger"}> · {deltaPct >= 0 ? "+" : ""}{deltaPct}% {L("เทียบช่วงก่อน", "vs prev", "对比上期")}</span> : null}</p>
+              <p className="text-[11px] text-muted">{L("รวม", "Total", "合计")} {fmtWidget(w, data.total)}{!w.formula && deltaPct != null ? <span className={deltaPct >= 0 ? "text-ok" : "text-danger"}> · {deltaPct >= 0 ? "+" : ""}{deltaPct}% {L("เทียบช่วงก่อน", "vs prev", "对比上期")}</span> : null}</p>
             </div>
           </div>
           <div className="flex-1 min-h-[240px]">{preview}</div>

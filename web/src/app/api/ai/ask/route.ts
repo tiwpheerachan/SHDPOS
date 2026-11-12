@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { metricsBrief } from "@/lib/ai/metrics";
+import { validateFormula } from "@/lib/ai/engine";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,6 +32,14 @@ Honesty: if scope note says local/partial data, do NOT claim company-wide. If a 
 type Spec = { reply?: string; insights?: unknown; suggestions?: unknown; widgets?: unknown };
 type Msg = { role: string; content: string };
 
+function cleanFormula(raw: unknown): { name: string; expr: string; fmt: string } | null {
+  if (!raw || typeof raw !== "object") return null;
+  const f = raw as Record<string, unknown>;
+  const expr = String(f.expr ?? "");
+  if (validateFormula(expr)) return null; // ไม่ผ่านการตรวจ → ไม่ใช้สูตร
+  const fmt = ["thb", "int", "pct"].includes(String(f.fmt)) ? String(f.fmt) : "thb";
+  return { name: String(f.name ?? "Custom").slice(0, 60), expr: expr.slice(0, 200), fmt };
+}
 function cleanWidgets(raw: unknown): object[] | null {
   if (raw === null || raw === undefined) return null;
   if (!Array.isArray(raw)) return null;
@@ -50,6 +59,7 @@ function cleanWidgets(raw: unknown): object[] | null {
       metricY: w.metricY && METRICS.includes(String(w.metricY)) ? String(w.metricY) : null,
       span: w.span === 2 ? 2 : 1,
       tall: w.tall === true,
+      formula: cleanFormula(w.formula),
     }))
     .slice(0, 8);
   return out.length ? out : null;

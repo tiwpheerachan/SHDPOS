@@ -17,8 +17,8 @@ import { FilterBar, useAdminScope, useDefaultFilter } from "@/components/admin/f
 import { filterOrders } from "@/lib/analytics";
 import { visibleBranchIds, can } from "@/lib/permissions";
 import { Sparkline } from "@/components/charts";
-import { WidgetBody, fmtMetric } from "@/components/admin/widget-body";
-import { computeWidget, METRIC_LABEL, type View, type WidgetData, type Ctx, type Metric } from "@/lib/ai/engine";
+import { WidgetBody, fmtWidget, widgetMetricLabel } from "@/components/admin/widget-body";
+import { computeWidget, type View, type WidgetData, type Ctx, type Metric } from "@/lib/ai/engine";
 import { buildFactPack } from "@/lib/ai/facts";
 import { dashboardFromHash, encodeDashboard } from "@/lib/ai/share";
 import { exportExcel } from "@/lib/ai/export-excel";
@@ -145,7 +145,7 @@ export default function SharedDashboardPage() {
         {kpis.length ? (
           <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 mb-4">
             {kpis.map((w) => (
-              <KpiTile key={w.id} label={w.title || METRIC_LABEL[w.metric][locale]} value={fmtMetric(w.metric, data.get(w.id)?.total ?? 0)} delta={kpiDelta(w.metric)} variant="ink"
+              <KpiTile key={w.id} label={w.title || widgetMetricLabel(w, locale)} value={fmtWidget(w, data.get(w.id)?.total ?? 0)} delta={w.formula ? null : kpiDelta(w.metric)} variant="ink"
                 spark={(() => { const s = data.get(w.id)?.series; return s && s.length > 2 ? <Sparkline values={s} color="rgba(255,255,255,0.55)" height={28} /> : undefined; })()} />
             ))}
           </div>
@@ -156,7 +156,7 @@ export default function SharedDashboardPage() {
             {charts.map((w) => (
               <div key={w.id} className={`card p-4 ${w.span === 2 ? "xl:col-span-2" : ""}`}>
                 <div className="flex items-center justify-between gap-2 mb-2">
-                  <p className="font-semibold text-sm truncate">{w.title || METRIC_LABEL[w.metric][locale]}</p>
+                  <p className="font-semibold text-sm truncate">{w.title || widgetMetricLabel(w, locale)}</p>
                   {w.compare ? <Badge tone="brand">{L("เทียบช่วงก่อน", "vs prev", "对比上期")}</Badge> : null}
                 </div>
                 <WidgetBody w={w} data={data.get(w.id)} locale={locale} L={L} />

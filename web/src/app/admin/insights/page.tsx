@@ -12,7 +12,7 @@ import { FilterBar, useAdminScope, useDefaultFilter } from "@/components/admin/f
 import { filterOrders } from "@/lib/analytics";
 import { visibleBranchIds, can } from "@/lib/permissions";
 import { Sparkline } from "@/components/charts";
-import { WidgetBody, fmtMetric } from "@/components/admin/widget-body";
+import { WidgetBody, fmtWidget, widgetMetricLabel } from "@/components/admin/widget-body";
 import { BorderBeam } from "@/components/ui/border-beam";
 import { ThinkingOrb } from "@/components/ui/thinking-orb";
 import {
@@ -339,7 +339,7 @@ export default function AdminInsightsPage() {
                 <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
                   {view.widgets.filter((w) => w.viz === "kpi").map((w) => (
                     <div key={w.id} className="relative group">
-                      <KpiTile label={w.title || METRIC_LABEL[w.metric][locale]} value={fmtMetric(w.metric, data.get(w.id)?.total ?? 0)} delta={kpiDelta(w.metric)} variant="ink"
+                      <KpiTile label={w.title || widgetMetricLabel(w, locale)} value={fmtWidget(w, data.get(w.id)?.total ?? 0)} delta={w.formula ? null : kpiDelta(w.metric)} variant="ink"
                         spark={(() => { const s = data.get(w.id)?.series; return s && s.length > 2 ? <Sparkline values={s} color="rgba(255,255,255,0.55)" height={28} /> : undefined; })()} />
                       <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         <IconBtn onClick={() => setEditId(editId === w.id ? null : w.id)} ink><Pencil size={12} /></IconBtn>
@@ -502,6 +502,12 @@ function EditPanel({ w, branches, locale, L, onChange, onClose }: {
         {w.dimension === "day" && (w.viz === "line" || w.viz === "bar") ? <Labeled label={L("แปลงอนุกรม", "Transform", "变换")}><Select value={w.transform ?? "none"} onChange={(e) => onChange({ transform: e.target.value as Transform })}><option value="none">{L("ไม่แปลง", "None", "无")}</option><option value="cumulative">{L("สะสม", "Cumulative", "累计")}</option><option value="ma7">{L("เฉลี่ยเคลื่อนที่ 7", "Moving avg 7", "移动均7")}</option></Select></Labeled> : null}
         <Labeled label={L("ฟิลเตอร์สาขา", "Branch filter", "门店筛选")}><Select value={w.branchId ?? ""} onChange={(e) => onChange({ branchId: e.target.value || null })}><option value="">{L("ทุกสาขา", "All branches", "全部门店")}</option>{branches.map((b) => <option key={b.id} value={b.id}>{locale === "th" ? b.name_th ?? b.name : b.name}</option>)}</Select></Labeled>
       </div>
+      {w.formula ? (
+        <div className="flex items-center gap-1.5 text-[11px] rounded-lg bg-brand/8 border border-brand/20 px-2 py-1.5">
+          <span className="text-brand font-mono truncate flex-1" title={w.formula.expr}>ƒ {w.formula.name}: {w.formula.expr}</span>
+          <button onClick={() => onChange({ formula: null })} className="text-muted hover:text-danger shrink-0">{L("ล้างสูตร", "Clear", "清除")}</button>
+        </div>
+      ) : null}
       {w.viz !== "heatmap" ? <label className="flex items-center gap-2 text-sm cursor-pointer"><input type="checkbox" checked={!!w.compare} onChange={(e) => onChange({ compare: e.target.checked })} className="accent-brand" />{L("เทียบช่วงก่อนหน้า", "Compare prev period", "对比上期")}</label> : null}
     </div>
   );
@@ -510,12 +516,12 @@ function Labeled({ label, children }: { label: string; children: React.ReactNode
 function normalize(w: Widget): Widget { if (!w.dimension) return { ...w, viz: "kpi", dimension: null }; if (w.viz === "kpi") return { ...w, viz: "bar" }; return w; }
 
 function WidgetCard({ widget: w, data, locale, L, onDrill }: { widget: Widget; data?: WidgetData; locale: "th" | "en" | "zh"; L: (th: string, en: string, zh: string) => string; onDrill?: (key: string, label: string) => void }) {
-  const mL = METRIC_LABEL[w.metric][locale];
+  const mL = widgetMetricLabel(w, locale);
   const dp = w.compare && data && data.totalPrev != null && data.totalPrev !== 0 ? Math.round(((data.total - data.totalPrev) / data.totalPrev) * 1000) / 10 : null;
   return (
     <Card className="p-4">
       <CardHeader title={w.title || mL}
-        subtitle={data ? <span>{L("รวม", "Total", "合计")} {fmtMetric(w.metric, data.total)}{dp != null ? <span className={dp >= 0 ? "text-ok" : "text-danger"}> · {dp >= 0 ? "+" : ""}{dp}% {L("เทียบช่วงก่อน", "vs prev", "对比上期")}</span> : null}{onDrill ? <span className="text-brand/70"> · {L("กดเพื่อเจาะ", "tap to drill", "点击钻取")}</span> : null}</span> : undefined} />
+        subtitle={data ? <span>{L("รวม", "Total", "合计")} {fmtWidget(w, data.total)}{dp != null ? <span className={dp >= 0 ? "text-ok" : "text-danger"}> · {dp >= 0 ? "+" : ""}{dp}% {L("เทียบช่วงก่อน", "vs prev", "对比上期")}</span> : null}{onDrill ? <span className="text-brand/70"> · {L("กดเพื่อเจาะ", "tap to drill", "点击钻取")}</span> : null}</span> : undefined} />
       <WidgetBody w={w} data={data} locale={locale} L={L} onDrill={onDrill} />
     </Card>
   );

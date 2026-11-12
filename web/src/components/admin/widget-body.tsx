@@ -10,14 +10,18 @@ import { formatTHB, formatInt } from "@/lib/money";
 import { METRIC_LABEL, type Widget, type WidgetData, type Metric } from "@/lib/ai/engine";
 
 export const fmtMetric = (m: Metric, n: number) => (m === "gp_pct" || m === "discount_pct") ? `${Math.round(n * 10) / 10}%` : (m === "orders" || m === "qty") ? formatInt(n) : formatTHB(n, false);
+// จัดรูปแบบตามตัววัดของ widget (รองรับตัววัดแบบสูตร: ฿/จำนวน/%)
+export const fmtWidget = (w: Widget, n: number) => w.formula ? (w.formula.fmt === "pct" ? `${Math.round(n * 10) / 10}%` : w.formula.fmt === "int" ? formatInt(n) : formatTHB(n, false)) : fmtMetric(w.metric, n);
+// ชื่อตัววัดที่แสดง (สูตร → ชื่อสูตร)
+export const widgetMetricLabel = (w: Widget, locale: "th" | "en" | "zh") => w.formula?.name || METRIC_LABEL[w.metric][locale];
 type LFn = (th: string, en: string, zh: string) => string;
 const deltaPct = (cur: number, prev?: number) => (prev == null || prev === 0 ? null : Math.round(((cur - prev) / prev) * 1000) / 10);
 
 export function WidgetBody({ w, data, locale, L, onDrill }: { w: Widget; data?: WidgetData; locale: "th" | "en" | "zh"; L: LFn; onDrill?: (key: string, label: string) => void }) {
   const rows = data?.rows ?? [];
   const drill = onDrill ? (i: number) => { const r = rows[i]; if (r) onDrill(r.key, r.label); } : undefined;
-  const mL = METRIC_LABEL[w.metric][locale];
-  const fmt = (n: number) => fmtMetric(w.metric, n);
+  const mL = w.formula?.name || METRIC_LABEL[w.metric][locale];
+  const fmt = (n: number) => fmtWidget(w, n);
   const cfg: ChartConfig = { value: { label: mL, color: "rgb(var(--chart-1))" } };
   const cmp = !!w.compare;
   const curLbl = L("ช่วงนี้", "Current", "本期"), prevLbl = L("ช่วงก่อน", "Previous", "上期");
@@ -36,7 +40,7 @@ export function WidgetBody({ w, data, locale, L, onDrill }: { w: Widget; data?: 
     const pts = data?.points;
     if (!pts || !pts.length) return <EmptyState title={L("ไม่มีข้อมูลในช่วง/ตัวกรองนี้", "No data", "无数据")} />;
     const my = data?.metricY ?? w.metric;
-    return <ScatterPlot data={pts} xLabel={mL} yLabel={METRIC_LABEL[my][locale]} xFormat={(n) => fmtMetric(w.metric, n)} yFormat={(n) => fmtMetric(my, n)} />;
+    return <ScatterPlot data={pts} xLabel={mL} yLabel={METRIC_LABEL[my][locale]} xFormat={(n) => fmtWidget(w, n)} yFormat={(n) => fmtMetric(my, n)} />;
   }
 
   if (!rows.length) return <EmptyState title={L("ไม่มีข้อมูลในช่วง/ตัวกรองนี้", "No data", "无数据")} />;

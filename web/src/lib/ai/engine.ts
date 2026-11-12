@@ -25,6 +25,60 @@ export interface Widget {
   metricY?: Metric;          // ตัววัดแกน Y (สำหรับ scatter — เช่น ยอดขาย×อัตรากำไร)
   span?: 1 | 2;              // ความกว้างการ์ด: 1 = ครึ่ง (ค่าเริ่ม) · 2 = เต็มแถว
   tall?: boolean;            // การ์ดสูงพิเศษ (กราฟใหญ่ขึ้น)
+  formula?: Formula | null;  // ตัววัดแบบสูตรเอง (ใช้แทน metric เมื่อกำหนด)
+}
+/** ตัววัดแบบสูตรเอง — สูตรคำนวณจากตัวแปรฐานต่อกลุ่ม (เช่น gp/qty = กำไรต่อชิ้น) */
+export interface Formula { name: string; expr: string; fmt: "thb" | "int" | "pct" }
+// ตัวแปรที่ใช้ในสูตรได้ (คำนวณต่อกลุ่ม/ช่วง)
+export const FORMULA_VARS: { key: string; th: string; en: string }[] = [
+  { key: "sales", th: "ยอดขาย", en: "sales" },
+  { key: "gp", th: "กำไรขั้นต้น", en: "gp" },
+  { key: "cost", th: "ต้นทุน (ยอด−กำไร)", en: "cost" },
+  { key: "qty", th: "จำนวนชิ้น", en: "qty" },
+  { key: "orders", th: "จำนวนบิล", en: "orders" },
+  { key: "discount", th: "ส่วนลด", en: "discount" },
+  { key: "net", th: "ยอดสุทธิ (ยอด−ส่วนลด)", en: "net" },
+  { key: "aov", th: "เฉลี่ย/บิล", en: "aov" },
+];
+const FORMULA_KEYS = new Set(FORMULA_VARS.map((v) => v.key));
+
+/** ประเมินสูตรแบบปลอดภัย (shunting-yard + RPN — ไม่ใช้ eval) → คืนค่าตัวเลข (0 เมื่อผิด) */
+export function evalFormula(expr: string, vars: Record<string, number>): number {
+  const toks = expr.match(/\d+\.?\d*|[a-zA-Z_]+|[()+\-*/]/g);
+  if (!toks) return 0;
+  const out: (number | string)[] = []; const ops: string[] = [];
+  const prec: Record<string, number> = { "+": 1, "-": 1, "*": 2, "/": 2 };
+  for (const t of toks) {
+    if (/^\d/.test(t)) out.push(Number(t));
+    else if (/^[a-zA-Z_]+$/.test(t)) { const k = t.toLowerCase(); if (!(k in vars)) return 0; out.push(vars[k]); }
+    else if (t === "(") ops.push(t);
+    else if (t === ")") { while (ops.length && ops[ops.length - 1] !== "(") out.push(ops.pop()!); ops.pop(); }
+    else { while (ops.length && ops[ops.length - 1] !== "(" && prec[ops[ops.length - 1]] >= prec[t]) out.push(ops.pop()!); ops.push(t); }
+  }
+  while (ops.length) { const o = ops.pop()!; if (o !== "(") out.push(o); }
+  const st: number[] = [];
+  for (const o of out) {
+    if (typeof o === "number") st.push(o);
+    else { const b = st.pop(); const a = st.pop(); if (a == null || b == null) return 0; st.push(o === "+" ? a + b : o === "-" ? a - b : o === "*" ? a * b : (b === 0 ? 0 : a / b)); }
+  }
+  const r = st.pop();
+  return typeof r === "number" && isFinite(r) ? r : 0;
+}
+/** ตรวจความถูกต้องของสูตร — คืน null ถ้าผ่าน หรือข้อความ error (คีย์เวิร์ดที่ไม่รู้จัก/วงเล็บ/ว่าง) */
+export function validateFormula(expr: string): string | null {
+  const e = expr.trim();
+  if (!e) return "empty";
+  if (!/^[\sa-zA-Z0-9_()+\-*/.]+$/.test(e)) return "invalid-char";
+  const toks = e.match(/\d+\.?\d*|[a-zA-Z_]+|[()+\-*/]/g) ?? [];
+  let depth = 0;
+  for (const t of toks) {
+    if (/^[a-zA-Z_]+$/.test(t) && !FORMULA_KEYS.has(t.toLowerCase())) return `unknown:${t}`;
+    if (t === "(") depth++;
+    if (t === ")") { depth--; if (depth < 0) return "paren"; }
+  }
+  if (depth !== 0) return "paren";
+  if (!toks.some((t) => /^[a-zA-Z_]/.test(t) || /^\d/.test(t))) return "no-operand";
+  return null;
 }
 export interface View {
   id: string;
@@ -107,10 +161,20 @@ const pick = (a: Acc, m: Metric): number =>
   : m === "discount_pct" ? (a.sales ? round2((a.discount / a.sales) * 100) : 0) // ส่วนลด % ของยอด
   : a.orders.size ? round2(a.sales / a.orders.size) : 0;                  // aov
 export const isPctMetric = (m: Metric) => m === "gp_pct" || m === "discount_pct";
+// ตัวแปรสูตรจากตัวสะสมหนึ่งกลุ่ม
+const formulaVars = (a: Acc): Record<string, number> => ({
+  sales: a.sales, gp: a.gp, cost: a.sales - a.gp, qty: a.qty, orders: a.orders.size,
+  discount: a.discount, net: a.sales - a.discount, aov: a.orders.size ? a.sales / a.orders.size : 0,
+});
 
 /** คำนวณ widget จาก orders ตาม metric×dimension (prevOrders = ช่วงก่อน สำหรับเทียบ) */
 export function computeWidget(orders: Order[], ctx: Ctx, w: Widget, l: Locale, prevOrders?: Order[]): WidgetData {
   const metric = w.metric;
+  // ตัววัดแบบสูตร (ยกเว้น heatmap ที่คิดต่อเซลล์แบบบวกไม่ได้) → ใช้แทน pick(a, metric)
+  const fm = w.formula && w.viz !== "heatmap" ? w.formula : null;
+  const val = (a: Acc): number => (fm ? round2(evalFormula(fm.expr, formulaVars(a))) : pick(a, metric));
+  // สูตรเป็นอัตราส่วน (ไม่บวกข้ามแถว) → total คิดจากตัวสะสมรวม
+  const sumsRows = !fm && !isPctMetric(metric);
   const bName = (id: string) => { const b = ctx.branches.find((x) => x.id === id); return b ? (l === "th" ? b.name_th ?? b.name : b.name) : id; };
   const brandName = (id: string) => ctx.brands.find((x) => x.id === id)?.name ?? id;
   const eName = (id: string) => { const e = ctx.employees.find((x) => x.id === id); return e ? (e.nickname ?? e.first_name ?? e.employee_code) : id; };
@@ -156,7 +220,7 @@ export function computeWidget(orders: Order[], ctx: Ctx, w: Widget, l: Locale, p
     }
     // รวมยอดต่อ series เพื่อเลือก Top-N series (ที่เหลือรวมเป็น "อื่นๆ")
     const seriesTot = new Map<string, { label: string; v: number }>();
-    for (const p of primaries.values()) for (const [sk, a] of p.parts) { let s = seriesTot.get(sk); if (!s) { s = { label: a.label, v: 0 }; seriesTot.set(sk, s); } s.v += pick(a, metric); }
+    for (const p of primaries.values()) for (const [sk, a] of p.parts) { let s = seriesTot.get(sk); if (!s) { s = { label: a.label, v: 0 }; seriesTot.set(sk, s); } s.v += val(a); }
     const MAX = 6;
     const ranked = Array.from(seriesTot.entries()).sort((x, y) => y[1].v - x[1].v);
     const mainKeys = ranked.slice(0, MAX).map(([k]) => k);
@@ -164,7 +228,7 @@ export function computeWidget(orders: Order[], ctx: Ctx, w: Widget, l: Locale, p
     const series: StackSeries[] = mainKeys.map((k) => ({ key: k, label: seriesTot.get(k)!.label }));
     if (hasOther) series.push({ key: "__other", label: tr(l, "อื่นๆ", "Other", "其他") });
     // เรียงมิติหลัก (เวลา = ตามเวลา, อื่นๆ = ยอดรวมมากไปน้อย) + จำกัด Top-N
-    const primTotal = (p: { parts: Map<string, Acc> }) => Array.from(p.parts.values()).reduce((s, a) => s + pick(a, metric), 0);
+    const primTotal = (p: { parts: Map<string, Acc> }) => Array.from(p.parts.values()).reduce((s, a) => s + val(a), 0);
     let prim = Array.from(primaries.entries());
     if (w.dimension === "day") prim.sort((a, b) => a[0].localeCompare(b[0]));
     else if (w.dimension === "weekday" || w.dimension === "hour") prim.sort((a, b) => Number(a[0]) - Number(b[0]));
@@ -173,12 +237,12 @@ export function computeWidget(orders: Order[], ctx: Ctx, w: Widget, l: Locale, p
     const data = prim.map(([, p]) => {
       const row: Record<string, string | number> = { label: p.label };
       let other = 0;
-      for (const [sk, a] of p.parts) { const v = pick(a, metric); if (mainKeys.includes(sk)) row[sk] = round2(v); else other += v; }
+      for (const [sk, a] of p.parts) { const v = val(a); if (mainKeys.includes(sk)) row[sk] = round2(v); else other += v; }
       for (const k of mainKeys) if (!(k in row)) row[k] = 0;
       if (hasOther) row["__other"] = round2(other);
       return row;
     });
-    const total = pick(aggAll(orders), metric);
+    const total = val(aggAll(orders));
     return { rows: [], total: round2(total), metric, stacked: { series, data } };
   }
 
@@ -188,8 +252,8 @@ export function computeWidget(orders: Order[], ctx: Ctx, w: Widget, l: Locale, p
     // series รายวันสำหรับ sparkline
     const byDay = new Map<string, Acc>();
     for (const o of orders) { if (!live(o)) continue; const k = new Date(o.created_at).toLocaleDateString("en-CA"); let d = byDay.get(k); if (!d) { d = { label: k, sales: 0, qty: 0, gp: 0, orders: new Set(), discount: 0 }; byDay.set(k, d); } d.sales += o.grand_total; d.gp += o.gross_profit; d.discount += o.discount_total; d.orders.add(o.id); for (const it of o.items) d.qty += it.qty; }
-    const series = Array.from(byDay.entries()).sort((x, y) => x[0].localeCompare(y[0])).map(([, d]) => pick(d, metric)).slice(-30);
-    return { rows: [], total: pick(a, metric), metric, totalPrev: prevOrders ? pick(aggAll(prevOrders), metric) : undefined, series };
+    const series = Array.from(byDay.entries()).sort((x, y) => x[0].localeCompare(y[0])).map(([, d]) => val(d)).slice(-30);
+    return { rows: [], total: val(a), metric, totalPrev: prevOrders ? val(aggAll(prevOrders)) : undefined, series };
   }
 
   const dim = w.dimension;
@@ -225,21 +289,21 @@ export function computeWidget(orders: Order[], ctx: Ctx, w: Widget, l: Locale, p
   // ── Scatter: จุดต่อมิติ (x = metric, y = metricY, ขนาด = จำนวนบิล) ──
   if (w.viz === "scatter") {
     const my: Metric = w.metricY ?? (metric === "sales" || metric === "gp" ? "gp_pct" : "sales");
-    const points = Array.from(curMap.values()).map((a) => ({ label: a.label, x: pick(a, metric), y: pick(a, my), z: a.orders.size }));
-    const total = isPctMetric(metric) ? pick(aggAll(orders), metric) : points.reduce((s, p) => s + p.x, 0);
+    const points = Array.from(curMap.values()).map((a) => ({ label: a.label, x: val(a), y: pick(a, my), z: a.orders.size }));
+    const total = sumsRows ? points.reduce((s, p) => s + p.x, 0) : val(aggAll(orders));
     return { rows: points.map((p) => ({ key: p.label, label: p.label, value: p.x, qty: 0, gp: 0, orders: p.z })), total: round2(total), metric, points, metricY: my };
   }
 
   const prevMap = prevOrders ? groupBy(prevOrders) : null;
   let rows: Row[] = Array.from(curMap.entries()).map(([key, a]) => ({
-    key, label: a.label, value: pick(a, metric), qty: round2(a.qty), gp: round2(a.gp), orders: a.orders.size,
-    prev: prevMap ? (prevMap.has(key) ? pick(prevMap.get(key)!, metric) : 0) : undefined,
+    key, label: a.label, value: val(a), qty: round2(a.qty), gp: round2(a.gp), orders: a.orders.size,
+    prev: prevMap ? (prevMap.has(key) ? val(prevMap.get(key)!) : 0) : undefined,
   }));
   if (dim === "day") rows.sort((a, b) => a.key.localeCompare(b.key));
   else if (dim === "weekday" || dim === "hour") rows.sort((a, b) => Number(a.key) - Number(b.key));
   else rows.sort((a, b) => b.value - a.value);
-  const total = isPctMetric(metric) ? pick(aggAll(orders), metric) : rows.reduce((s, r) => s + r.value, 0);
-  const totalPrev = prevMap ? (isPctMetric(metric) ? (prevOrders ? pick(aggAll(prevOrders), metric) : 0) : Array.from(prevMap.values()).reduce((s, a) => s + pick(a, metric), 0)) : undefined;
+  const total = sumsRows ? rows.reduce((s, r) => s + r.value, 0) : val(aggAll(orders));
+  const totalPrev = prevMap ? (sumsRows ? Array.from(prevMap.values()).reduce((s, a) => s + val(a), 0) : (prevOrders ? val(aggAll(prevOrders)) : 0)) : undefined;
   // แปลงอนุกรมเวลา (dimension=day): สะสม / ค่าเฉลี่ยเคลื่อนที่ 7
   if (w.transform && w.transform !== "none" && dim === "day") {
     if (w.transform === "cumulative") { let c = 0, cp = 0; for (const r of rows) { c += r.value; r.value = round2(c); if (r.prev != null) { cp += r.prev; r.prev = round2(cp); } } }
