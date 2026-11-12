@@ -14,6 +14,7 @@ import { refreshDirectory } from "@/lib/data/repo";
 import { positionLabel, searchPositions, type Locale } from "@/lib/positions";
 import { jobTitleToPositionCode } from "@/lib/sso/map-central";
 import { TeamDirectory, type DirMember } from "@/components/admin/team-directory";
+import { BorderBeam } from "@/components/ui/border-beam";
 import type { EmployeeRole } from "@/lib/types";
 
 const ROLE_TONE: Record<string, string> = {
@@ -299,16 +300,18 @@ export default function AdminOrgPage() {
           {/* ค้นหาจากองค์กร (Lark directory) → เพิ่มแบบ org-only */}
           <div className="pt-1 border-t border-line">
             <p className="text-[11px] font-semibold text-muted uppercase tracking-wide mb-1.5 mt-3">{L("ค้นจากองค์กร (Lark)", "From org directory (Lark)", "组织目录 (Lark)")}</p>
-            <div className="relative mb-2">
-              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
-              <input
-                value={centralQ}
-                onChange={(e) => setCentralQ(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") void searchCentral(); }}
-                placeholder={L("พิมพ์ชื่อ/อีเมล แล้วกด Enter", "Type name/email then Enter", "输入姓名/邮箱后回车")}
-                className="w-full h-9 pl-9 pr-3 rounded-xl bg-surface2 border border-line text-sm outline-none focus:ring-2 focus:ring-brand/30"
-              />
-            </div>
+            <BorderBeam radius={12} duration={3.2} active={centralBusy || !!centralQ.trim()} className="mb-2 block">
+              <div className="relative">
+                <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted z-10" />
+                <input
+                  value={centralQ}
+                  onChange={(e) => setCentralQ(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") void searchCentral(); }}
+                  placeholder={L("พิมพ์ชื่อ/อีเมล แล้วกด Enter", "Type name/email then Enter", "输入姓名/邮箱后回车")}
+                  className="w-full h-9 pl-9 pr-3 rounded-xl bg-surface2 border border-line text-sm outline-none focus:ring-2 focus:ring-brand/30"
+                />
+              </div>
+            </BorderBeam>
             {centralBusy ? <p className="text-xs text-muted py-2 text-center">{L("กำลังค้นหา…", "Searching…", "搜索中…")}</p> : null}
             <div className="grid gap-2 max-h-[32vh] overflow-y-auto">
               {centralRes.map((p) => (
