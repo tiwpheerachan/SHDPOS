@@ -16,6 +16,7 @@ export const PERMISSION_KEYS = [
   "admin.employee_manage", "admin.permission_manage", "admin.product_manage",
   "admin.branch_manage", "admin.settings", "audit.view",
   "customer.manage", "tax.issue_full",
+  "finance.view",
 ] as const;
 
 export type PermissionKey = (typeof PERMISSION_KEYS)[number];
@@ -91,6 +92,7 @@ export const ROLE_MATRIX: Record<EmployeeRole, Partial<Record<PermissionKey, Rul
     "customer.manage": { effect: "allow" },
     "audit.view": { effect: "allow" },
     "tax.issue_full": { effect: "allow" },
+    "finance.view": { effect: "allow" },
   },
   brand_admin: {
     "return.approve": { effect: "allow" },
@@ -105,6 +107,7 @@ export const ROLE_MATRIX: Record<EmployeeRole, Partial<Record<PermissionKey, Rul
     "admin.employee_manage": { effect: "allow" },
     "admin.permission_manage": { effect: "allow" },
     "audit.view": { effect: "allow" },
+    "finance.view": { effect: "allow" },
   },
   hq: Object.fromEntries(
     PERMISSION_KEYS.map((k) => [k, { effect: "allow", limit: k === "pos.discount" ? 100 : undefined }])
@@ -119,6 +122,7 @@ export const ROLE_MATRIX: Record<EmployeeRole, Partial<Record<PermissionKey, Rul
     "report.cost": { effect: "allow" },
     "report.gross_profit": { effect: "allow" },
     "audit.view": { effect: "allow" },
+    "finance.view": { effect: "allow" },
   },
 };
 
