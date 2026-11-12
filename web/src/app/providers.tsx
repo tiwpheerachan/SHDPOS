@@ -8,6 +8,7 @@ import { bootstrap } from "@/lib/data/repo";
 import { startSyncWorker } from "@/lib/offline/sync";
 import { AiLoader } from "@/components/ui/ai-loader";
 import { CommandPalette } from "@/components/command-palette";
+import { useSession } from "@/lib/store/session";
 
 // แยกออกมาเป็นคอมโพเนนต์ลูกเพื่อให้เรียก useI18n ได้ (อยู่ภายใน I18nProvider แล้ว)
 function BootGate({ ready, error, children }: { ready: boolean; error: string | null; children: React.ReactNode }) {
@@ -40,6 +41,8 @@ export function Providers({ children }: { children: React.ReactNode }) {
       .then(() => {
         if (!alive) return;
         startSyncWorker();
+        // ดึง role/สิทธิ์ล่าสุดจาก DB (เผื่อแอดมินเปลี่ยน role หลัง login — เมนูจะอัปเดตเอง)
+        void useSession.getState().refreshEmployee();
         setReady(true);
       })
       .catch((e: unknown) => {
