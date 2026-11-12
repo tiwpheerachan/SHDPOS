@@ -154,7 +154,7 @@ export default function SharedDashboardPage() {
         {charts.length ? (
           <div className="grid xl:grid-cols-2 gap-4">
             {charts.map((w) => (
-              <div key={w.id} className="card p-4">
+              <div key={w.id} className={`card p-4 ${w.span === 2 ? "xl:col-span-2" : ""}`}>
                 <div className="flex items-center justify-between gap-2 mb-2">
                   <p className="font-semibold text-sm truncate">{w.title || METRIC_LABEL[w.metric][locale]}</p>
                   {w.compare ? <Badge tone="brand">{L("เทียบช่วงก่อน", "vs prev", "对比上期")}</Badge> : null}

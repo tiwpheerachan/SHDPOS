@@ -23,6 +23,8 @@ export interface Widget {
   transform?: Transform;     // แปลงอนุกรมเวลา (ใช้กับ dimension=day)
   stackBy?: Dimension | null; // มิติซ้อน (สำหรับ stacked bar — เช่น สาขา×แบรนด์)
   metricY?: Metric;          // ตัววัดแกน Y (สำหรับ scatter — เช่น ยอดขาย×อัตรากำไร)
+  span?: 1 | 2;              // ความกว้างการ์ด: 1 = ครึ่ง (ค่าเริ่ม) · 2 = เต็มแถว
+  tall?: boolean;            // การ์ดสูงพิเศษ (กราฟใหญ่ขึ้น)
 }
 export interface View {
   id: string;

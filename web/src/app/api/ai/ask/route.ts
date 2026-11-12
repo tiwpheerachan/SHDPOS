@@ -48,6 +48,8 @@ function cleanWidgets(raw: unknown): object[] | null {
       transform: TRANSFORMS.includes(String(w.transform)) ? String(w.transform) : "none",
       stackBy: w.stackBy && DIMENSIONS.includes(String(w.stackBy)) ? String(w.stackBy) : null,
       metricY: w.metricY && METRICS.includes(String(w.metricY)) ? String(w.metricY) : null,
+      span: w.span === 2 ? 2 : 1,
+      tall: w.tall === true,
     }))
     .slice(0, 8);
   return out.length ? out : null;

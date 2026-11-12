@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Sparkles, Send, Save, Trash2, LayoutDashboard, Wand2, Bookmark, Pencil, Plus, X, Loader2, Download, Share2, GripVertical, BarChart3, Undo2, Redo2, ListTodo, ListPlus } from "lucide-react";
+import { Sparkles, Send, Save, Trash2, LayoutDashboard, Wand2, Bookmark, Pencil, Plus, X, Loader2, Download, Share2, GripVertical, BarChart3, Undo2, Redo2, ListTodo, ListPlus, ArrowUp, ArrowDown, Maximize2, Minimize2 } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { useSession } from "@/lib/store/session";
 import { useToast } from "@/components/toast-host";
@@ -83,6 +83,8 @@ export default function AdminInsightsPage() {
   const histRef = useRef<View[]>([]);
   const hiRef = useRef(-1);
   const skipHist = useRef(false);
+  const dragId = useRef<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
   const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
 
   // ── undo/redo: บันทึก snapshot ของ view ทุกครั้งที่เปลี่ยน ──
@@ -194,6 +196,33 @@ export default function AdminInsightsPage() {
     setView((v) => v ? { ...v, widgets: [...v.widgets, w] } : { id: uid(), name: L("แดชบอร์ดใหม่", "New dashboard", "新仪表盘"), prompt: "", widgets: [w], createdAt: new Date().toISOString() });
   };
   const onDrill = (dim: Dimension, key: string, label: string) => setDrills((d) => [...d.filter((x) => x.dim !== dim), { dim, key, label }]);
+
+  // ── จัดวางการ์ด: ปรับกว้าง (span) + ย้ายลำดับ (ปุ่ม/ลาก) ──
+  const setSpan = (id: string, span: 1 | 2) => patchWidget(id, { span });
+  // ย้ายการ์ดกราฟสลับกับเพื่อนบ้าน (คง KPI ไว้ที่เดิม)
+  const moveChart = (id: string, dir: -1 | 1) => setView((v) => {
+    if (!v) return v;
+    const ws = [...v.widgets];
+    const chartIdx = ws.map((w, i) => ({ w, i })).filter((x) => x.w.viz !== "kpi").map((x) => x.i);
+    const pos = chartIdx.findIndex((i) => ws[i].id === id);
+    const target = pos + dir;
+    if (pos < 0 || target < 0 || target >= chartIdx.length) return v;
+    const a = chartIdx[pos], b = chartIdx[target];
+    [ws[a], ws[b]] = [ws[b], ws[a]];
+    return { ...v, widgets: ws };
+  });
+  // ลากวางเพื่อสลับตำแหน่ง (ย้ายการ์ดที่ลากไปไว้หน้าการ์ดเป้าหมาย)
+  const reorderChart = (fromId: string, toId: string) => setView((v) => {
+    if (!v || fromId === toId) return v;
+    const ws = [...v.widgets];
+    const from = ws.findIndex((w) => w.id === fromId);
+    if (from < 0) return v;
+    const [moved] = ws.splice(from, 1);
+    const to = ws.findIndex((w) => w.id === toId);
+    if (to < 0) return v;
+    ws.splice(to, 0, moved);
+    return { ...v, widgets: ws };
+  });
 
   function onSave() {
     if (!view) return;
@@ -324,10 +353,19 @@ export default function AdminInsightsPage() {
 
               <div className="grid xl:grid-cols-2 gap-4">
                 {view.widgets.filter((w) => w.viz !== "kpi").map((w) => (
-                  <div key={w.id} className="relative group">
+                  <div key={w.id}
+                    className={`relative group transition-all ${w.span === 2 ? "xl:col-span-2" : ""} ${dragOverId === w.id ? "ring-2 ring-brand/50 rounded-2xl" : ""}`}
+                    onDragOver={(e) => { if (dragId.current && dragId.current !== w.id) { e.preventDefault(); setDragOverId(w.id); } }}
+                    onDragLeave={() => setDragOverId((p) => (p === w.id ? null : p))}
+                    onDrop={(e) => { e.preventDefault(); if (dragId.current) reorderChart(dragId.current, w.id); dragId.current = null; setDragOverId(null); }}>
                     <WidgetCard widget={w} data={data.get(w.id)} locale={locale} L={L}
                   onDrill={w.dimension && DRILLABLE.includes(w.dimension) && (w.viz === "bar" || w.viz === "hbar" || w.viz === "donut") ? (k, l) => onDrill(w.dimension as Dimension, k, l) : undefined} />
                     <div className="absolute top-3 right-3 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button draggable onDragStart={(e) => { dragId.current = w.id; e.dataTransfer.effectAllowed = "move"; }} onDragEnd={() => { dragId.current = null; setDragOverId(null); }}
+                        title={L("ลากเพื่อย้าย", "Drag to move", "拖动移动")} className="w-6 h-6 rounded-lg grid place-items-center border bg-surface border-line text-muted hover:text-brand hover:border-brand/40 cursor-grab active:cursor-grabbing"><GripVertical size={13} /></button>
+                      <IconBtn onClick={() => moveChart(w.id, -1)} title={L("ย้ายขึ้น", "Move up", "上移")}><ArrowUp size={13} /></IconBtn>
+                      <IconBtn onClick={() => moveChart(w.id, 1)} title={L("ย้ายลง", "Move down", "下移")}><ArrowDown size={13} /></IconBtn>
+                      <IconBtn onClick={() => setSpan(w.id, w.span === 2 ? 1 : 2)} title={w.span === 2 ? L("กว้างครึ่ง", "Half width", "半宽") : L("กว้างเต็มแถว", "Full width", "整行")}>{w.span === 2 ? <Minimize2 size={13} /> : <Maximize2 size={13} />}</IconBtn>
                       <IconBtn onClick={() => setEditId(editId === w.id ? null : w.id)}><Pencil size={13} /></IconBtn>
                       <IconBtn onClick={() => removeWidget(w.id)}><Trash2 size={13} /></IconBtn>
                     </div>
@@ -441,8 +479,8 @@ function ToolBtn({ onClick, icon, label }: { onClick: () => void; icon: React.Re
 function IconBtn2({ onClick, disabled, title, children }: { onClick: () => void; disabled?: boolean; title?: string; children: React.ReactNode }) {
   return <button onClick={onClick} disabled={disabled} title={title} className="h-9 w-9 rounded-xl border border-line grid place-items-center hover:bg-surface2 hover:text-brand disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-current">{children}</button>;
 }
-function IconBtn({ children, onClick, ink }: { children: React.ReactNode; onClick: () => void; ink?: boolean }) {
-  return <button onClick={onClick} className={`w-6 h-6 rounded-lg grid place-items-center border transition-colors ${ink ? "bg-brandInk/15 border-brandInk/20 text-brandInk hover:bg-brandInk/25" : "bg-surface border-line text-muted hover:text-brand hover:border-brand/40"}`}>{children}</button>;
+function IconBtn({ children, onClick, ink, title }: { children: React.ReactNode; onClick: () => void; ink?: boolean; title?: string }) {
+  return <button onClick={onClick} title={title} className={`w-6 h-6 rounded-lg grid place-items-center border transition-colors ${ink ? "bg-brandInk/15 border-brandInk/20 text-brandInk hover:bg-brandInk/25" : "bg-surface border-line text-muted hover:text-brand hover:border-brand/40"}`}>{children}</button>;
 }
 
 function EditPanel({ w, branches, locale, L, onChange, onClose }: {
