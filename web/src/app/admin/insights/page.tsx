@@ -22,6 +22,8 @@ import {
 import { buildFactPack, localInsights, type Insight } from "@/lib/ai/facts";
 import { listViews, saveView, deleteView } from "@/lib/ai/views";
 import { ChartBuilder } from "@/components/admin/chart-builder";
+import { dashboardShareUrl, dashboardFromHash } from "@/lib/ai/share";
+import { exportExcel } from "@/lib/ai/export-excel";
 
 const uid = () => Math.random().toString(36).slice(2, 9);
 const METRICS: Metric[] = ["sales", "qty", "gp", "gp_pct", "orders", "aov", "discount", "discount_pct"];
@@ -48,18 +50,6 @@ function applyDrills(orders: Order[], drills: Drill[], ctx: Ctx): Order[] {
 }
 
 type ChatMsg = { role: "user" | "assistant"; text: string; suggestions?: string[]; insights?: Insight[] };
-
-// ── เข้ารหัสสเปก (ไม่มีข้อมูล) ลง URL สำหรับแชร์ ──
-const b64e = (s: string) => btoa(unescape(encodeURIComponent(s))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-const b64d = (s: string) => decodeURIComponent(escape(atob(s.replace(/-/g, "+").replace(/_/g, "/"))));
-function viewFromHash(): View | null {
-  try {
-    const m = (typeof window !== "undefined" ? window.location.hash : "").match(/d=([^&]+)/);
-    if (!m) return null;
-    const j = JSON.parse(b64d(m[1])) as { n: string; w: Omit<Widget, "id">[] };
-    return { id: uid(), name: j.n || "Shared", prompt: "", widgets: j.w.map((w) => ({ ...w, id: uid() })), createdAt: new Date().toISOString() };
-  } catch { return null; }
-}
 
 export default function AdminInsightsPage() {
   const { locale } = useI18n();
@@ -104,7 +94,7 @@ export default function AdminInsightsPage() {
   useEffect(() => {
     void listOrders().then(setOrders); void listEmployees().then(setEmployees); setSaved(listViews());
     try { const s = localStorage.getItem("shdpos.ai.split"); if (s) setLeftPct(Math.max(42, Math.min(75, Number(s)))); } catch { /* ignore */ }
-    const shared = viewFromHash();
+    const shared = dashboardFromHash(typeof window !== "undefined" ? window.location.hash : "");
     if (shared) { setView(shared); setSource("shared"); setMessages([{ role: "assistant", text: L("เปิดแดชบอร์ดที่แชร์มาให้แล้ว ✨ (ตัวเลขคำนวณตามสิทธิ์ของคุณ)", "Opened shared dashboard ✨", "已打开分享的仪表盘 ✨") }]); }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -210,12 +200,11 @@ export default function AdminInsightsPage() {
 
   function onShare() {
     if (!view) return;
-    const payload = b64e(JSON.stringify({ n: view.name, w: view.widgets.map(({ id, ...r }) => { void id; return r; }) }));
-    const url = `${window.location.origin}${window.location.pathname}#d=${payload}`;
-    navigator.clipboard?.writeText(url).then(
-      () => toast.push({ tone: "ok", title: L("คัดลอกลิงก์แดชบอร์ดแล้ว", "Dashboard link copied", "已复制仪表盘链接") }),
-      () => { history.replaceState(null, "", `#d=${payload}`); toast.push({ tone: "info", title: L("ลิงก์อยู่ในแถบที่อยู่แล้ว", "Link is in the address bar", "链接已在地址栏") }); },
-    );
+    // ลิงก์หน้าแดชบอร์ดเดี่ยว (/dashboard) — เปิดเหมือนเว็บหนึ่งหน้า กดเข้าระบบได้
+    const url = dashboardShareUrl(view.name, view.widgets);
+    const done = () => toast.push({ tone: "ok", title: L("คัดลอกลิงก์แดชบอร์ดแล้ว", "Dashboard link copied", "已复制仪表盘链接"), body: L("เปิดได้เหมือนเว็บหนึ่งหน้า · ผู้เปิดเข้าสู่ระบบแล้วดูได้", "Opens as its own page · recipient signs in to view", "作为独立页面打开") });
+    if (navigator.clipboard?.writeText) navigator.clipboard.writeText(url).then(done, () => window.prompt(L("คัดลอกลิงก์นี้", "Copy this link", "复制此链接"), url));
+    else window.prompt(L("คัดลอกลิงก์นี้", "Copy this link", "复制此链接"), url);
   }
   function onExport() {
     if (!view) return;
@@ -429,32 +418,6 @@ function IconBtn2({ onClick, disabled, title, children }: { onClick: () => void;
 function IconBtn({ children, onClick, ink }: { children: React.ReactNode; onClick: () => void; ink?: boolean }) {
   return <button onClick={onClick} className={`w-6 h-6 rounded-lg grid place-items-center border transition-colors ${ink ? "bg-brandInk/15 border-brandInk/20 text-brandInk hover:bg-brandInk/25" : "bg-surface border-line text-muted hover:text-brand hover:border-brand/40"}`}>{children}</button>;
 }
-
-// ── ส่งออก Excel (HTML→.xls, ไม่ต้องลง lib; รองรับไทย) ──
-function exportExcel(view: View, dataMap: Map<string, WidgetData>, locale: "th" | "en" | "zh") {
-  const esc = (s: unknown) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  const mL = (m: Metric) => METRIC_LABEL[m][locale];
-  let h = `<html xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="utf-8"><style>table{border-collapse:collapse;margin-bottom:16px}td,th{border:1px solid #ccc;padding:4px 8px;font-family:sans-serif;font-size:12px}th{background:#7950D8;color:#fff;text-align:left}</style></head><body>`;
-  h += `<h2>${esc(view.name)}</h2>`;
-  const kpis = view.widgets.filter((w) => w.viz === "kpi");
-  if (kpis.length) {
-    h += `<table><tr>${kpis.map((w) => `<th>${esc(w.title || mL(w.metric))}</th>`).join("")}</tr><tr>${kpis.map((w) => `<td>${dataMap.get(w.id)?.total ?? 0}</td>`).join("")}</tr></table>`;
-  }
-  for (const w of view.widgets.filter((w) => w.viz !== "kpi")) {
-    const d = dataMap.get(w.id); if (!d) continue;
-    h += `<h3>${esc(w.title || mL(w.metric))}</h3><table><tr><th>${esc(L2(locale, "รายการ", "Item", "项目"))}</th><th>${esc(mL(w.metric))}</th><th>${esc(L2(locale, "ชิ้น", "Units", "件"))}</th><th>${esc(L2(locale, "บิล", "Bills", "单"))}</th></tr>`;
-    for (const r of d.rows) h += `<tr><td>${esc(r.label)}</td><td>${r.value}</td><td>${r.qty}</td><td>${r.orders}</td></tr>`;
-    h += `</table>`;
-  }
-  h += `</body></html>`;
-  const blob = new Blob(["﻿" + h], { type: "application/vnd.ms-excel;charset=utf-8" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = `${(view.name || "dashboard").replace(/[\\/:*?"<>|]/g, "_")}.xls`;
-  document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-}
-const L2 = (l: "th" | "en" | "zh", th: string, en: string, zh: string) => (l === "th" ? th : l === "zh" ? zh : en);
 
 function EditPanel({ w, branches, locale, L, onChange, onClose }: {
   w: Widget; branches: ReturnType<typeof useAdminScope>["branches"]; locale: "th" | "en" | "zh";

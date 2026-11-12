@@ -51,6 +51,15 @@ function profileToEmployee(p: any): Employee {
   };
 }
 
+// ปลายทางหลังเข้าสู่ระบบ — ถ้ามาจากลิงก์แชร์ (/dashboard) ให้กลับไปหน้านั้น
+function afterLoginDest(): string {
+  try {
+    const r = sessionStorage.getItem("shdpos.returnTo");
+    if (r) { sessionStorage.removeItem("shdpos.returnTo"); if (r.startsWith("/") && !r.startsWith("//")) return r; }
+  } catch { /* ignore */ }
+  return "/";
+}
+
 export default function PosLoginPage() {
   const { t, locale } = useI18n();
   const router = useRouter();
@@ -167,7 +176,7 @@ export default function PosLoginPage() {
       });
     } catch { /* ไม่บล็อกการเข้าสู่ระบบ */ }
     toast.push({ tone: "ok", title: `${t.login.enter} · ${emp.nickname ?? emp.first_name}` });
-    router.push("/");
+    router.push(afterLoginDest());
   }
 
   // เข้าสู่ระบบด้วย SSO — ไม่ต้องใส่ PIN และไม่ต้องเลือกสาขา (เลือกในหน้า POS ก่อนขาย)
@@ -196,7 +205,7 @@ export default function PosLoginPage() {
         /* audit ผ่าน SSO id ที่ไม่ใช่ uuid อาจล้มในโหมดจริง — ไม่บล็อกการเข้าสู่ระบบ */
       }
       toast.push({ tone: "ok", title: `${t.login.enter} · ${central.profile.name}` });
-      router.push("/");
+      router.push(afterLoginDest());
     } finally {
       setSsoBusy(false);
     }
@@ -253,7 +262,7 @@ export default function PosLoginPage() {
                   <p className="text-[11px] text-muted">{L("เข้าสู่ระบบอยู่", "Signed in", "已登录")}</p>
                 </div>
               </div>
-              <Button variant="primary" className="w-full" onClick={() => router.push("/")}>
+              <Button variant="primary" className="w-full" onClick={() => router.push(afterLoginDest())}>
                 {L("เข้าใช้งานต่อ", "Continue", "继续使用")} <ArrowRight size={16} />
               </Button>
               <button
