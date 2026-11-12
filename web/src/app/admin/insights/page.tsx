@@ -26,6 +26,26 @@ import { ChartBuilder } from "@/components/admin/chart-builder";
 const uid = () => Math.random().toString(36).slice(2, 9);
 const METRICS: Metric[] = ["sales", "qty", "gp", "gp_pct", "orders", "aov", "discount", "discount_pct"];
 const DIMS: Dimension[] = ["branch", "brand", "product", "employee", "channel", "payment", "day", "weekday", "hour"];
+// มิติที่กดเจาะลึก (drill) ได้ — ต้องกรองออเดอร์ได้ชัด (ตัวเลขตรวจย้อนกลับได้)
+const DRILLABLE: Dimension[] = ["branch", "brand", "channel", "day", "weekday", "hour"];
+type Drill = { dim: Dimension; key: string; label: string };
+function applyDrills(orders: Order[], drills: Drill[], ctx: Ctx): Order[] {
+  if (!drills.length) return orders;
+  const bb = new Map(ctx.branches.map((b) => [b.id, b.brand_id]));
+  const match = (o: Order, dr: Drill): boolean => {
+    const d = new Date(o.created_at);
+    switch (dr.dim) {
+      case "branch": return o.branch_id === dr.key;
+      case "brand": return (bb.get(o.branch_id) ?? "") === dr.key;
+      case "channel": return o.channel === dr.key;
+      case "day": return d.toLocaleDateString("en-CA") === dr.key;
+      case "weekday": return String(d.getDay()) === dr.key;
+      case "hour": return String(d.getHours()).padStart(2, "0") === dr.key;
+      default: return true;
+    }
+  };
+  return orders.filter((o) => drills.every((dr) => match(o, dr)));
+}
 
 type ChatMsg = { role: "user" | "assistant"; text: string; suggestions?: string[]; insights?: Insight[] };
 
@@ -58,6 +78,7 @@ export default function AdminInsightsPage() {
   const [editId, setEditId] = useState<string | null>(null);
   const [leftPct, setLeftPct] = useState(62);
   const [builderOpen, setBuilderOpen] = useState(false);
+  const [drills, setDrills] = useState<Drill[]>([]);
   const [hist, setHist] = useState({ i: -1, len: 0 });
   const threadRef = useRef<HTMLDivElement>(null);
   const contRef = useRef<HTMLDivElement>(null);
@@ -105,10 +126,12 @@ export default function AdminInsightsPage() {
     const ids = visibleBranchIds(employee, branches.map((b) => b.id));
     return orders.filter((o) => ids.includes(o.branch_id));
   }, [orders, employee, branches]);
-  const rows = useMemo(() => filterOrders(scoped, { ...filter, branches }), [scoped, filter, branches]);
   const ctx: Ctx = useMemo(() => ({ branches, employees, brands: brands.map((b) => ({ id: b.id, name: b.name })) }), [branches, employees, brands]);
+  // เจาะลึก: กรองออเดอร์ตาม drill breadcrumb (ทั้งแดชบอร์ด + บทวิเคราะห์)
+  const drilled = useMemo(() => applyDrills(scoped, drills, ctx), [scoped, drills, ctx]);
+  const rows = useMemo(() => filterOrders(drilled, { ...filter, branches }), [drilled, filter, branches]);
   // fact pack: ตัวเลขจริง (ปัจจุบัน vs ช่วงก่อน) ให้ AI วิเคราะห์ + โชว์ delta
-  const facts = useMemo(() => buildFactPack(scoped, ctx, { from: filter.from, to: filter.to }, locale), [scoped, ctx, filter.from, filter.to, locale]);
+  const facts = useMemo(() => buildFactPack(drilled, ctx, { from: filter.from, to: filter.to }, locale), [drilled, ctx, filter.from, filter.to, locale]);
   const kpiDelta = (m: Metric): number | null => {
     const t = facts.totals;
     const map: Record<string, { deltaPct: number | null }> = { sales: t.sales, orders: t.orders, aov: t.aov, gp: t.gp, qty: t.units, discount: t.discount };
@@ -117,8 +140,8 @@ export default function AdminInsightsPage() {
 
   const prevRows = useMemo(() => {
     const pf = new Date(facts.prevPeriod.from).getTime(), pt = new Date(facts.prevPeriod.to).getTime();
-    return scoped.filter((o) => { const t = new Date(o.created_at).getTime(); return t >= pf && t <= pt; });
-  }, [scoped, facts.prevPeriod.from, facts.prevPeriod.to]);
+    return drilled.filter((o) => { const t = new Date(o.created_at).getTime(); return t >= pf && t <= pt; });
+  }, [drilled, facts.prevPeriod.from, facts.prevPeriod.to]);
 
   const data = useMemo(() => {
     const m = new Map<string, WidgetData>();
@@ -172,6 +195,7 @@ export default function AdminInsightsPage() {
   const addFromBuilder = (w: Widget) => {
     setView((v) => v ? { ...v, widgets: [...v.widgets, w] } : { id: uid(), name: L("แดชบอร์ดใหม่", "New dashboard", "新仪表盘"), prompt: "", widgets: [w], createdAt: new Date().toISOString() });
   };
+  const onDrill = (dim: Dimension, key: string, label: string) => setDrills((d) => [...d.filter((x) => x.dim !== dim), { dim, key, label }]);
 
   function onSave() {
     if (!view) return;
@@ -181,7 +205,7 @@ export default function AdminInsightsPage() {
     setView(v); setSaved(saveView(v));
   }
   function recall(v: View) { setView(v); setSource(null); setEditId(null); setMessages([{ role: "assistant", text: L(`เปิดมุมมอง “${v.name}” ให้แล้ว`, `Opened “${v.name}”`, `已打开“${v.name}”`), suggestions: localSuggestions(v, locale) }]); }
-  function reset() { setMessages([]); setView(null); setSource(null); setEditId(null); setPrompt(""); histRef.current = []; hiRef.current = -1; setHist({ i: -1, len: 0 }); if (typeof window !== "undefined" && window.location.hash) history.replaceState(null, "", window.location.pathname); }
+  function reset() { setMessages([]); setView(null); setSource(null); setEditId(null); setPrompt(""); setDrills([]); histRef.current = []; hiRef.current = -1; setHist({ i: -1, len: 0 }); if (typeof window !== "undefined" && window.location.hash) history.replaceState(null, "", window.location.pathname); }
 
   function onShare() {
     if (!view) return;
@@ -257,6 +281,19 @@ export default function AdminInsightsPage() {
                 )}
               </p>
 
+              {drills.length ? (
+                <div className="flex flex-wrap items-center gap-1.5 -mt-1">
+                  <span className="text-[11px] text-muted">{L("กำลังเจาะ:", "Drilling:", "钻取：")}</span>
+                  {drills.map((dr) => (
+                    <span key={dr.dim} className="inline-flex items-center gap-1 text-[11px] pl-2 pr-1 py-0.5 rounded-full bg-brand/12 text-brand border border-brand/25">
+                      {DIM_LABEL[dr.dim][locale]}: <b className="font-semibold">{dr.label}</b>
+                      <button onClick={() => setDrills((d) => d.filter((x) => x.dim !== dr.dim))} className="hover:text-danger"><X size={11} /></button>
+                    </span>
+                  ))}
+                  <button onClick={() => setDrills([])} className="text-[11px] text-muted hover:text-danger underline">{L("ล้างทั้งหมด", "Clear all", "全部清除")}</button>
+                </div>
+              ) : null}
+
               {view.widgets.some((w) => w.viz === "kpi") ? (
                 <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
                   {view.widgets.filter((w) => w.viz === "kpi").map((w) => (
@@ -276,7 +313,8 @@ export default function AdminInsightsPage() {
               <div className="grid xl:grid-cols-2 gap-4">
                 {view.widgets.filter((w) => w.viz !== "kpi").map((w) => (
                   <div key={w.id} className="relative group">
-                    <WidgetCard widget={w} data={data.get(w.id)} locale={locale} L={L} />
+                    <WidgetCard widget={w} data={data.get(w.id)} locale={locale} L={L}
+                  onDrill={w.dimension && DRILLABLE.includes(w.dimension) ? (k, l) => onDrill(w.dimension as Dimension, k, l) : undefined} />
                     <div className="absolute top-3 right-3 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                       <IconBtn onClick={() => setEditId(editId === w.id ? null : w.id)}><Pencil size={13} /></IconBtn>
                       <IconBtn onClick={() => removeWidget(w.id)}><Trash2 size={13} /></IconBtn>
@@ -441,14 +479,14 @@ function EditPanel({ w, branches, locale, L, onChange, onClose }: {
 function Labeled({ label, children }: { label: string; children: React.ReactNode }) { return <div><label className="block text-[10px] font-medium text-muted mb-1">{label}</label>{children}</div>; }
 function normalize(w: Widget): Widget { if (!w.dimension) return { ...w, viz: "kpi", dimension: null }; if (w.viz === "kpi") return { ...w, viz: "bar" }; return w; }
 
-function WidgetCard({ widget: w, data, locale, L }: { widget: Widget; data?: WidgetData; locale: "th" | "en" | "zh"; L: (th: string, en: string, zh: string) => string }) {
+function WidgetCard({ widget: w, data, locale, L, onDrill }: { widget: Widget; data?: WidgetData; locale: "th" | "en" | "zh"; L: (th: string, en: string, zh: string) => string; onDrill?: (key: string, label: string) => void }) {
   const mL = METRIC_LABEL[w.metric][locale];
   const dp = w.compare && data && data.totalPrev != null && data.totalPrev !== 0 ? Math.round(((data.total - data.totalPrev) / data.totalPrev) * 1000) / 10 : null;
   return (
     <Card className="p-4">
       <CardHeader title={w.title || mL}
-        subtitle={data ? <span>{L("รวม", "Total", "合计")} {fmtMetric(w.metric, data.total)}{dp != null ? <span className={dp >= 0 ? "text-ok" : "text-danger"}> · {dp >= 0 ? "+" : ""}{dp}% {L("เทียบช่วงก่อน", "vs prev", "对比上期")}</span> : null}</span> : undefined} />
-      <WidgetBody w={w} data={data} locale={locale} L={L} />
+        subtitle={data ? <span>{L("รวม", "Total", "合计")} {fmtMetric(w.metric, data.total)}{dp != null ? <span className={dp >= 0 ? "text-ok" : "text-danger"}> · {dp >= 0 ? "+" : ""}{dp}% {L("เทียบช่วงก่อน", "vs prev", "对比上期")}</span> : null}{onDrill ? <span className="text-brand/70"> · {L("กดเพื่อเจาะ", "tap to drill", "点击钻取")}</span> : null}</span> : undefined} />
+      <WidgetBody w={w} data={data} locale={locale} L={L} onDrill={onDrill} />
     </Card>
   );
 }

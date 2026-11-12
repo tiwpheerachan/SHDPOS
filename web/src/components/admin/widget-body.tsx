@@ -13,8 +13,9 @@ export const fmtMetric = (m: Metric, n: number) => (m === "gp_pct" || m === "dis
 type LFn = (th: string, en: string, zh: string) => string;
 const deltaPct = (cur: number, prev?: number) => (prev == null || prev === 0 ? null : Math.round(((cur - prev) / prev) * 1000) / 10);
 
-export function WidgetBody({ w, data, locale, L }: { w: Widget; data?: WidgetData; locale: "th" | "en" | "zh"; L: LFn }) {
+export function WidgetBody({ w, data, locale, L, onDrill }: { w: Widget; data?: WidgetData; locale: "th" | "en" | "zh"; L: LFn; onDrill?: (key: string, label: string) => void }) {
   const rows = data?.rows ?? [];
+  const drill = onDrill ? (i: number) => { const r = rows[i]; if (r) onDrill(r.key, r.label); } : undefined;
   const mL = METRIC_LABEL[w.metric][locale];
   const fmt = (n: number) => fmtMetric(w.metric, n);
   const cfg: ChartConfig = { value: { label: mL, color: "rgb(var(--chart-1))" } };
@@ -31,10 +32,10 @@ export function WidgetBody({ w, data, locale, L }: { w: Widget; data?: WidgetDat
 
   if (w.viz === "donut") {
     const dc: ChartConfig = Object.fromEntries(rows.map((r, i) => [r.key, { label: r.label, color: `rgb(var(--chart-${(i % 5) + 1}))` }]));
-    return <MixDonut data={rows.map((r) => ({ key: r.key, value: r.value }))} config={dc} />;
+    return <MixDonut data={rows.map((r) => ({ key: r.key, value: r.value }))} config={dc} onBarClick={drill} />;
   }
 
-  if (w.viz === "hbar") return <RankedBars data={rows.map((r, i) => ({ label: r.label.length > 16 ? r.label.slice(0, 16) + "…" : r.label, value: r.value, prev: r.prev, highlight: i === 0 }))} valueFormat={fmt} compare={cmp} />;
+  if (w.viz === "hbar") return <RankedBars data={rows.map((r, i) => ({ label: r.label.length > 16 ? r.label.slice(0, 16) + "…" : r.label, value: r.value, prev: r.prev, highlight: i === 0 }))} valueFormat={fmt} compare={cmp} onBarClick={drill} />;
 
   if (w.viz === "table") {
     return (
@@ -63,6 +64,6 @@ export function WidgetBody({ w, data, locale, L }: { w: Widget; data?: WidgetDat
   }
 
   // bar (ค่าเริ่มต้น) — เทียบคู่เมื่อ compare
-  if (cmp) return <CompareBars data={rows.map((r) => ({ label: r.label.length > 10 ? r.label.slice(0, 10) + "…" : r.label, cur: r.value, prev: r.prev ?? 0 }))} labels={{ cur: curLbl, prev: prevLbl }} valueFormat={fmt} />;
-  return <InsightBars data={rows.map((r, i) => ({ label: r.label.length > 10 ? r.label.slice(0, 10) + "…" : r.label, value: r.value, highlight: i === 0 }))} config={cfg} valueFormat={fmt} />;
+  if (cmp) return <CompareBars data={rows.map((r) => ({ label: r.label.length > 10 ? r.label.slice(0, 10) + "…" : r.label, cur: r.value, prev: r.prev ?? 0 }))} labels={{ cur: curLbl, prev: prevLbl }} valueFormat={fmt} onBarClick={drill} />;
+  return <InsightBars data={rows.map((r, i) => ({ label: r.label.length > 10 ? r.label.slice(0, 10) + "…" : r.label, value: r.value, highlight: i === 0 }))} config={cfg} valueFormat={fmt} onBarClick={drill} />;
 }

@@ -27,10 +27,11 @@ import {
 } from "@/components/ui/chart";
 
 /** แท่งคู่ เทียบช่วงปัจจุบัน vs ช่วงก่อน (smart comparison) */
-export function CompareBars({ data, labels, valueFormat, className = "h-[240px] w-full" }: {
+export function CompareBars({ data, labels, valueFormat, onBarClick, className = "h-[240px] w-full" }: {
   data: { label: string; cur: number; prev: number }[];
   labels: { cur: string; prev: string };
   valueFormat?: (n: number) => string;
+  onBarClick?: (i: number) => void;
   className?: string;
 }) {
   const config: ChartConfig = { cur: { label: labels.cur, color: "rgb(var(--chart-1))" }, prev: { label: labels.prev, color: "rgb(var(--chart-1) / 0.3)" } };
@@ -43,17 +44,18 @@ export function CompareBars({ data, labels, valueFormat, className = "h-[240px] 
         <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
         <ChartLegend content={<ChartLegendContent />} />
         <Bar dataKey="prev" fill="var(--color-prev)" radius={[4, 4, 0, 0]} />
-        <Bar dataKey="cur" fill="var(--color-cur)" radius={[4, 4, 0, 0]} />
+        <Bar dataKey="cur" fill="var(--color-cur)" radius={[4, 4, 0, 0]} onClick={onBarClick ? (_: unknown, i: number) => onBarClick(i) : undefined} style={onBarClick ? { cursor: "pointer" } : undefined} />
       </BarChart>
     </ChartContainer>
   );
 }
 
 /** แท่งแนวนอนเรียงอันดับ (เหมาะกับชื่อยาว/เปรียบเทียบหลายรายการ) */
-export function RankedBars({ data, valueFormat, compare, className = "w-full" }: {
+export function RankedBars({ data, valueFormat, compare, onBarClick, className = "w-full" }: {
   data: { label: string; value: number; prev?: number; highlight?: boolean }[];
   valueFormat?: (n: number) => string;
   compare?: boolean;
+  onBarClick?: (i: number) => void;
   className?: string;
 }) {
   const config: ChartConfig = { value: { label: "", color: "rgb(var(--chart-1))" }, prev: { label: "", color: "rgb(var(--chart-1) / 0.3)" } };
@@ -66,7 +68,7 @@ export function RankedBars({ data, valueFormat, compare, className = "w-full" }:
         <YAxis type="category" dataKey="label" tickLine={false} axisLine={false} width={110} tick={{ fontSize: 11 }} interval={0} />
         <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
         {compare ? <Bar dataKey="prev" fill="rgb(var(--chart-1) / 0.3)" radius={[0, 3, 3, 0]} /> : null}
-        <Bar dataKey="value" radius={[0, 4, 4, 0]}>
+        <Bar dataKey="value" radius={[0, 4, 4, 0]} onClick={onBarClick ? (_: unknown, i: number) => onBarClick(i) : undefined} style={onBarClick ? { cursor: "pointer" } : undefined}>
           {data.map((d, i) => <Cell key={i} fill={d.highlight ? "rgb(var(--chart-1))" : "rgb(var(--chart-1) / 0.65)"} />)}
         </Bar>
       </BarChart>
@@ -137,11 +139,13 @@ export function InsightBars({
   data,
   config,
   valueFormat,
+  onBarClick,
   className = "h-[220px] w-full",
 }: {
   data: { label: string; value: number; highlight?: boolean }[];
   config: ChartConfig;
   valueFormat?: (n: number) => string;
+  onBarClick?: (i: number) => void;
   className?: string;
 }) {
   return (
@@ -151,7 +155,7 @@ export function InsightBars({
         <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} interval="preserveStartEnd" />
         <YAxis tickLine={false} axisLine={false} width={44} tickFormatter={valueFormat} />
         <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
-        <Bar dataKey="value" radius={[5, 5, 0, 0]}>
+        <Bar dataKey="value" radius={[5, 5, 0, 0]} onClick={onBarClick ? (_: unknown, i: number) => onBarClick(i) : undefined} style={onBarClick ? { cursor: "pointer" } : undefined}>
           {data.map((d, i) => (
             <Cell key={i} fill={d.highlight ? "rgb(var(--chart-1))" : "rgb(var(--chart-1) / 0.3)"} />
           ))}
@@ -165,17 +169,19 @@ export function InsightBars({
 export function MixDonut({
   data,
   config,
+  onBarClick,
   className = "mx-auto aspect-square max-h-[230px]",
 }: {
   data: { key: string; value: number }[];
   config: ChartConfig;
+  onBarClick?: (i: number) => void;
   className?: string;
 }) {
   return (
     <ChartContainer config={config} className={className}>
       <PieChart>
         <ChartTooltip content={<ChartTooltipContent nameKey="key" hideLabel />} />
-        <Pie data={data} dataKey="value" nameKey="key" innerRadius={52} outerRadius={82} paddingAngle={2} strokeWidth={2}>
+        <Pie data={data} dataKey="value" nameKey="key" innerRadius={52} outerRadius={82} paddingAngle={2} strokeWidth={2} onClick={onBarClick ? (_: unknown, i: number) => onBarClick(i) : undefined} style={onBarClick ? { cursor: "pointer" } : undefined}>
           {data.map((d) => (
             <Cell key={d.key} fill={`var(--color-${d.key})`} />
           ))}
