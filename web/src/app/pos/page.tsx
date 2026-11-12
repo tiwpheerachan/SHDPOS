@@ -14,6 +14,7 @@ import { useToast } from "@/components/toast-host";
 import { useCentral } from "@/lib/sso/use-central";
 import { buildSsoEmployee } from "@/lib/sso/map-employee";
 import StickerSlapFooter from "@/components/ui/sticker-slap-footer";
+import { BorderBeam } from "@/components/ui/border-beam";
 
 // สติ๊กเกอร์แบรนด์ของเรา (ตัดจากชุด SHD) สำหรับหน้า login
 const StImg = ({ src }: { src: string }) => (
@@ -346,10 +347,10 @@ export default function PosLoginPage() {
               <p className="text-[11px] text-muted text-center mb-3">{L("PIN นี้ตรงกับพนักงานหลายคนในสาขานี้ (ควรตั้ง PIN ไม่ให้ซ้ำกัน)", "This PIN matches several employees in this branch (PINs should be unique)", "此 PIN 匹配本门店多名员工（建议设置不重复的 PIN）")}</p>
               <div className="grid gap-2 max-h-[46vh] overflow-y-auto pr-1">
                 {pinMatches.map((e) => (
+                  <BorderBeam key={e.id} full animateOnHover radius={12} width={2} className="block">
                   <button
-                    key={e.id}
                     onClick={() => void finishLogin(e)}
-                    className="text-left rounded-xl border border-line bg-surface hover:bg-surface2 px-3.5 py-3 transition-colors"
+                    className="w-full text-left rounded-xl border border-line bg-surface hover:bg-surface2 px-3.5 py-3 transition-colors"
                   >
                     <div className="flex items-center gap-3">
                       {e.photo_url ? (
@@ -367,6 +368,7 @@ export default function PosLoginPage() {
                       <ChevronRight size={16} className="ml-auto text-muted shrink-0" />
                     </div>
                   </button>
+                  </BorderBeam>
                 ))}
               </div>
               <button onClick={() => { setPinMatches(null); setPin(""); }} className="mt-3 w-full text-xs text-muted hover:text-ink">← {L("ใส่ PIN ใหม่", "Enter PIN again", "重新输入 PIN")}</button>
