@@ -1,26 +1,28 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Sparkles, Send, Save, Trash2, LayoutDashboard, Wand2, Bookmark } from "lucide-react";
+import { Sparkles, Send, Save, Trash2, LayoutDashboard, Wand2, Bookmark, Pencil, Plus, X, Loader2 } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { useSession } from "@/lib/store/session";
 import { listOrders, listEmployees } from "@/lib/data/repo";
 import type { Order, Employee } from "@/lib/types";
-import { Card, CardHeader, Table, Th, Td, Badge, EmptyState, KpiTile, Input, Button } from "@/components/ui";
+import { Card, CardHeader, Table, Th, Td, Badge, EmptyState, KpiTile, Select } from "@/components/ui";
 import { FilterBar, useAdminScope, useDefaultFilter } from "@/components/admin/filters";
 import { filterOrders } from "@/lib/analytics";
 import { visibleBranchIds, can } from "@/lib/permissions";
 import { formatTHB, formatInt } from "@/lib/money";
 import { MixDonut, SalesAreaTrend, InsightBars } from "@/components/charts-rich";
 import type { ChartConfig } from "@/components/ui/chart";
-import { AiLoader } from "@/components/ui/ai-loader";
+import { BorderBeam } from "@/components/ui/border-beam";
 import {
-  computeWidget, parsePrompt, localAnswer, METRIC_LABEL,
-  type View, type Widget, type WidgetData, type Ctx, type Metric,
+  computeWidget, parsePrompt, localAnswer, METRIC_LABEL, DIM_LABEL,
+  type View, type Widget, type WidgetData, type Ctx, type Metric, type Dimension, type Viz,
 } from "@/lib/ai/engine";
 import { listViews, saveView, deleteView } from "@/lib/ai/views";
 
 const uid = () => Math.random().toString(36).slice(2, 9);
+const METRICS: Metric[] = ["sales", "qty", "gp", "orders", "aov", "discount"];
+const DIMS: Dimension[] = ["branch", "brand", "product", "employee", "channel", "payment", "day", "weekday", "hour"];
 
 export default function AdminInsightsPage() {
   const { locale } = useI18n();
@@ -31,10 +33,12 @@ export default function AdminInsightsPage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [prompt, setPrompt] = useState("");
   const [thinking, setThinking] = useState(false);
+  const [focused, setFocused] = useState(false);
   const [view, setView] = useState<View | null>(null);
   const [answer, setAnswer] = useState("");
-  const [source, setSource] = useState<"ai" | "local" | null>(null);
+  const [source, setSource] = useState<string | null>(null);
   const [saved, setSaved] = useState<View[]>([]);
+  const [editId, setEditId] = useState<string | null>(null);
   const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
 
   useEffect(() => { void listOrders().then(setOrders); void listEmployees().then(setEmployees); setSaved(listViews()); }, []);
@@ -46,19 +50,21 @@ export default function AdminInsightsPage() {
   const rows = useMemo(() => filterOrders(scoped, { ...filter, branches }), [scoped, filter, branches]);
   const ctx: Ctx = useMemo(() => ({ branches, employees, brands: brands.map((b) => ({ id: b.id, name: b.name })) }), [branches, employees, brands]);
 
-  // คำนวณ widget ทั้งหมดของ view ปัจจุบัน
   const data = useMemo(() => {
-    if (!view) return new Map<string, WidgetData>();
     const m = new Map<string, WidgetData>();
-    for (const w of view.widgets) m.set(w.id, computeWidget(rows, ctx, w, locale));
+    if (!view) return m;
+    for (const w of view.widgets) {
+      const wr = w.branchId ? rows.filter((o) => o.branch_id === w.branchId) : rows;
+      m.set(w.id, computeWidget(wr, ctx, w, locale));
+    }
     return m;
   }, [view, rows, ctx, locale]);
 
   const shownAnswer = useMemo(() => {
     if (!view) return "";
-    if (source === "ai" && answer) return answer;
-    const firstBreak = view.widgets.find((w) => w.dimension);
-    return localAnswer(view, firstBreak ? data.get(firstBreak.id) ?? null : null, locale);
+    if (source && source !== "local" && answer) return answer;
+    const fb = view.widgets.find((w) => w.dimension);
+    return localAnswer(view, fb ? data.get(fb.id) ?? null : null, locale);
   }, [view, answer, source, data, locale]);
 
   if (employee && !can(employee, "report.employee_perf")) {
@@ -67,15 +73,15 @@ export default function AdminInsightsPage() {
 
   async function onAsk(text: string) {
     const q = text.trim();
-    if (!q) return;
-    setPrompt(q); setThinking(true); setView(null); setAnswer(""); setSource(null);
+    if (!q || thinking) return;
+    setPrompt(q); setThinking(true); setView(null); setAnswer(""); setSource(null); setEditId(null);
     let v: View | null = null;
     try {
       const r = await fetch("/api/ai/ask", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: q, locale }) });
       if (r.ok) {
-        const d = (await r.json()) as { name: string; answer: string; widgets: Widget[] };
+        const d = (await r.json()) as { name: string; answer: string; widgets: Widget[]; provider?: string };
         v = { id: uid(), name: d.name, prompt: q, widgets: d.widgets, createdAt: new Date().toISOString() };
-        setAnswer(d.answer || ""); setSource("ai");
+        setAnswer(d.answer || ""); setSource(d.provider || "ai");
       }
     } catch { /* fall back */ }
     if (!v) { v = parsePrompt(q, locale); setSource("local"); }
@@ -83,13 +89,23 @@ export default function AdminInsightsPage() {
     setThinking(false);
   }
 
+  // ── แก้ไข widget ──
+  const mutate = (fn: (ws: Widget[]) => Widget[]) => setView((v) => (v ? { ...v, widgets: fn(v.widgets) } : v));
+  const patchWidget = (id: string, p: Partial<Widget>) => mutate((ws) => ws.map((w) => (w.id === id ? normalize({ ...w, ...p }) : w)));
+  const removeWidget = (id: string) => { mutate((ws) => ws.filter((w) => w.id !== id)); if (editId === id) setEditId(null); };
+  const addWidget = () => {
+    const w: Widget = { id: uid(), title: L("การ์ดใหม่", "New card", "新卡片"), viz: "bar", metric: "sales", dimension: "branch" };
+    mutate((ws) => [...ws, w]); setEditId(w.id);
+  };
+
   function onSave() {
     if (!view) return;
     const name = window.prompt(L("ตั้งชื่อมุมมอง", "Name this view", "命名视图"), view.name);
     if (!name) return;
-    setSaved(saveView({ ...view, name, id: view.id || uid(), createdAt: view.createdAt || new Date().toISOString() }));
+    const v = { ...view, name, id: view.id || uid(), createdAt: new Date().toISOString() };
+    setView(v); setSaved(saveView(v));
   }
-  function recall(v: View) { setPrompt(v.prompt); setView(v); setSource(null); setAnswer(""); }
+  function recall(v: View) { setPrompt(v.prompt); setView(v); setSource(null); setAnswer(""); setEditId(null); }
 
   const EXAMPLES = [
     L("ยอดขายรายสาขา", "Sales by branch", "各门店销售"),
@@ -98,99 +114,191 @@ export default function AdminInsightsPage() {
     L("ยอดตามช่องทางการจ่าย", "Sales by payment", "按支付方式"),
     L("แนวโน้มยอดขายรายวัน", "Daily sales trend", "每日趋势"),
   ];
+  const srcLabel = source === "deepseek" ? "DeepSeek" : source === "anthropic" ? "Claude" : source === "local" ? L("AI ในเครื่อง", "On-device", "本地 AI") : "AI";
 
   return (
-    <div className="p-4 sm:p-6 space-y-4 w-full">
+    <div className="p-4 sm:p-6 pb-28 space-y-4 w-full">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold flex items-center gap-2"><Wand2 size={20} className="text-brand" />{L("ผู้ช่วย AI · สร้างแดชบอร์ด", "AI · Dashboard builder", "AI 仪表盘生成")}</h1>
-          <p className="text-sm text-muted">{L("ถามเป็นภาษาธรรมชาติ → สร้างแดชบอร์ดอัตโนมัติ → บันทึกมุมมอง", "Ask in natural language → auto dashboard → save views", "自然语言提问 → 自动仪表盘 → 保存视图")}</p>
+          <p className="text-sm text-muted">{L("ถามด้านล่าง → สร้างแดชบอร์ด → กดแก้แต่ละการ์ดได้ → บันทึกมุมมอง", "Ask below → build dashboard → edit each card → save", "下方提问 → 生成仪表盘 → 编辑每张卡片 → 保存")}</p>
         </div>
-      </div>
-
-      {/* กล่องถาม */}
-      <Card className="p-4">
-        <form onSubmit={(e) => { e.preventDefault(); void onAsk(prompt); }} className="flex items-center gap-2">
-          <div className="relative flex-1">
-            <Sparkles size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-brand" />
-            <Input value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder={L("เช่น: ยอดขายรายสาขาเดือนนี้ + สินค้าขายดี 5 อันดับ", "e.g. sales by branch this month + top 5 products", "例如：本月各门店销售 + 热销前5")} className="pl-9 h-11" />
+        {saved.length ? (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Bookmark size={12} className="text-muted" />
+            {saved.map((v) => (
+              <span key={v.id} className="group inline-flex items-center gap-1 text-xs pl-2.5 pr-1 py-1 rounded-full bg-surface2 border border-line">
+                <button onClick={() => recall(v)} className="hover:text-brand">{v.name}</button>
+                <button onClick={() => setSaved(deleteView(v.id))} className="opacity-40 group-hover:opacity-100 hover:text-danger p-0.5"><Trash2 size={11} /></button>
+              </span>
+            ))}
           </div>
-          <Button type="submit" disabled={thinking || !prompt.trim()}><Send size={15} />{L("ถาม", "Ask", "提问")}</Button>
-        </form>
-        <div className="flex flex-wrap gap-1.5 mt-3">
-          {EXAMPLES.map((ex) => (
-            <button key={ex} onClick={() => void onAsk(ex)} className="text-[11px] px-2.5 py-1 rounded-full border border-line text-muted hover:text-brand hover:border-brand/40 transition-colors">{ex}</button>
-          ))}
-        </div>
-      </Card>
-
-      {/* มุมมองที่บันทึกไว้ */}
-      {saved.length ? (
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-[11px] text-muted flex items-center gap-1"><Bookmark size={12} />{L("มุมมองที่บันทึก", "Saved views", "已保存")}:</span>
-          {saved.map((v) => (
-            <span key={v.id} className="group inline-flex items-center gap-1 text-xs pl-2.5 pr-1 py-1 rounded-full bg-surface2 border border-line">
-              <button onClick={() => recall(v)} className="hover:text-brand">{v.name}</button>
-              <button onClick={() => setSaved(deleteView(v.id))} className="opacity-40 group-hover:opacity-100 hover:text-danger p-0.5"><Trash2 size={11} /></button>
-            </span>
-          ))}
-        </div>
-      ) : null}
+        ) : null}
+      </div>
 
       <FilterBar value={filter} onChange={setFilter} branches={branches} brands={brands} />
 
-      {thinking ? (
-        <Card className="p-10"><AiLoader fullscreen={false} size={120} text={L("กำลังคิด", "Thinking", "思考中")} /></Card>
-      ) : view ? (
+      {view ? (
         <div className="space-y-4">
-          {/* หัว + คำตอบ + ปุ่มบันทึก */}
           <Card className="p-4">
             <div className="flex items-start gap-3">
               <span className="w-8 h-8 rounded-full grid place-items-center bg-brand/12 text-brand shrink-0"><Sparkles size={16} /></span>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 flex-wrap">
                   <p className="font-semibold">{view.name}</p>
-                  <Badge tone="brand">{source === "ai" ? "Claude AI" : L("AI ในเครื่อง", "On-device", "本地 AI")}</Badge>
+                  <Badge tone="brand">{srcLabel}</Badge>
                 </div>
                 <p className="text-sm text-ink mt-0.5">{shownAnswer}</p>
               </div>
-              <Button onClick={onSave} className="shrink-0"><Save size={14} />{L("บันทึกมุมมอง", "Save view", "保存")}</Button>
+              <button onClick={addWidget} className="shrink-0 h-9 px-3 rounded-xl border border-line text-sm hover:bg-surface2 inline-flex items-center gap-1.5"><Plus size={14} />{L("เพิ่มการ์ด", "Add card", "加卡片")}</button>
+              <button onClick={onSave} className="shrink-0 h-9 px-3 rounded-xl bg-brand text-white text-sm hover:bg-brandHover inline-flex items-center gap-1.5"><Save size={14} />{L("บันทึก", "Save", "保存")}</button>
             </div>
           </Card>
 
-          {/* KPI row */}
           {view.widgets.some((w) => w.viz === "kpi") ? (
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
               {view.widgets.filter((w) => w.viz === "kpi").map((w) => (
-                <KpiTile key={w.id} label={w.title} value={fmtMetric(w.metric, data.get(w.id)?.total ?? 0)} variant="ink" />
+                <div key={w.id} className="relative group">
+                  <KpiTile label={w.title || METRIC_LABEL[w.metric][locale]} value={fmtMetric(w.metric, data.get(w.id)?.total ?? 0)} variant="ink" />
+                  <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <IconBtn onClick={() => setEditId(editId === w.id ? null : w.id)} ink><Pencil size={12} /></IconBtn>
+                    <IconBtn onClick={() => removeWidget(w.id)} ink><Trash2 size={12} /></IconBtn>
+                  </div>
+                  {editId === w.id ? <EditPanel w={w} branches={branches} locale={locale} L={L} onChange={(p) => patchWidget(w.id, p)} onClose={() => setEditId(null)} /> : null}
+                </div>
               ))}
             </div>
           ) : null}
 
-          {/* กราฟ/ตาราง */}
           <div className="grid lg:grid-cols-2 gap-4">
             {view.widgets.filter((w) => w.viz !== "kpi").map((w) => (
-              <WidgetCard key={w.id} widget={w} data={data.get(w.id)} L={L} />
+              <div key={w.id} className="relative group">
+                <WidgetCard widget={w} data={data.get(w.id)} L={L} />
+                <div className="absolute top-3 right-3 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <IconBtn onClick={() => setEditId(editId === w.id ? null : w.id)}><Pencil size={13} /></IconBtn>
+                  <IconBtn onClick={() => removeWidget(w.id)}><Trash2 size={13} /></IconBtn>
+                </div>
+                {editId === w.id ? <EditPanel w={w} branches={branches} locale={locale} L={L} onChange={(p) => patchWidget(w.id, p)} onClose={() => setEditId(null)} /> : null}
+              </div>
             ))}
           </div>
         </div>
       ) : (
         <Card className="p-10">
-          <EmptyState icon={<LayoutDashboard size={28} />} title={L("พิมพ์คำถามเพื่อสร้างแดชบอร์ด", "Type a question to build a dashboard", "输入问题生成仪表盘")}
-            body={L("ลองกดตัวอย่างด้านบน หรือถามอะไรก็ได้เกี่ยวกับยอดขาย/สินค้า/สาขา/พนักงาน", "Try an example above, or ask anything about sales/products/branches/staff", "试试上面的示例")} />
+          <EmptyState icon={<LayoutDashboard size={28} />} title={L("พิมพ์คำถามด้านล่างเพื่อสร้างแดชบอร์ด", "Ask below to build a dashboard", "下方提问生成仪表盘")}
+            body={L("หรือเลือกตัวอย่าง:", "or try an example:", "或选择示例：")} />
+          <div className="flex flex-wrap gap-1.5 justify-center mt-3">
+            {EXAMPLES.map((ex) => (
+              <button key={ex} onClick={() => void onAsk(ex)} className="text-xs px-3 py-1.5 rounded-full border border-line text-muted hover:text-brand hover:border-brand/40 transition-colors">{ex}</button>
+            ))}
+          </div>
         </Card>
       )}
 
-      <p className="text-[11px] text-muted pt-1">
-        {source === "ai"
-          ? L("ขับเคลื่อนด้วย Claude · ส่งเฉพาะคำถาม ไม่ส่งข้อมูลยอดขาย/ลูกค้าออกนอกระบบ", "Powered by Claude · only the question is sent, never your sales/customer data", "由 Claude 驱动 · 仅发送问题，不外传数据")
-          : L("โหมด AI ในเครื่อง (ไม่ต้องใช้อินเทอร์เน็ต) · ตั้ง ANTHROPIC_API_KEY เพื่อใช้ Claude เข้าใจคำถามอิสระได้ลึกขึ้น", "On-device mode · set ANTHROPIC_API_KEY to use Claude for richer free-form questions", "本地模式 · 设置 ANTHROPIC_API_KEY 启用 Claude")}
-      </p>
+      {/* กล่องถามลอยด้านล่าง + animation */}
+      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 w-[min(680px,calc(100vw-2rem))]">
+        <BorderBeam radius={28} width={2} duration={3} active={thinking || focused} className="block rounded-[28px]">
+          <form
+            onSubmit={(e) => { e.preventDefault(); void onAsk(prompt); }}
+            className="flex items-center gap-2 rounded-[28px] bg-surface/95 backdrop-blur-xl border border-line shadow-[0_12px_40px_-12px_rgba(0,0,0,.35)] pl-4 pr-1.5 py-1.5"
+          >
+            <Sparkles size={18} className="text-brand shrink-0" />
+            <input
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              onFocus={() => setFocused(true)}
+              onBlur={() => setFocused(false)}
+              placeholder={L("ถามอะไรก็ได้ เช่น ยอดขายรายสาขา + สินค้าขายดี 5 อันดับ", "Ask anything, e.g. sales by branch + top 5 products", "随便问，例如各门店销售 + 热销前5")}
+              className="flex-1 bg-transparent h-10 outline-none text-sm placeholder:text-muted"
+            />
+            <button type="submit" disabled={thinking || !prompt.trim()} className="w-10 h-10 rounded-full bg-brand text-white grid place-items-center shrink-0 disabled:opacity-40 hover:bg-brandHover transition-colors">
+              {thinking ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+            </button>
+          </form>
+        </BorderBeam>
+        <p className="text-[10px] text-muted text-center mt-1.5">
+          {source && source !== "local"
+            ? L(`ขับเคลื่อนด้วย ${srcLabel} · ส่งเฉพาะคำถาม ไม่ส่งข้อมูลยอดขาย/ลูกค้า`, `Powered by ${srcLabel} · only the question is sent`, `由 ${srcLabel} 驱动 · 仅发送问题`)
+            : L("AI ในเครื่อง (ออฟไลน์ได้) · ตั้งคีย์ใน .env.local เพื่อให้ AI เข้าใจคำถามอิสระลึกขึ้น", "On-device AI · set a key in .env.local for richer AI", "本地 AI · 在 .env.local 设置密钥")}
+        </p>
+      </div>
     </div>
   );
 }
 
 const fmtMetric = (m: Metric, n: number) => (m === "orders" || m === "qty") ? formatInt(n) : formatTHB(n, false);
+
+function IconBtn({ children, onClick, ink }: { children: React.ReactNode; onClick: () => void; ink?: boolean }) {
+  return (
+    <button onClick={onClick} className={`w-6 h-6 rounded-lg grid place-items-center border transition-colors ${ink ? "bg-brandInk/15 border-brandInk/20 text-brandInk hover:bg-brandInk/25" : "bg-surface border-line text-muted hover:text-brand hover:border-brand/40"}`}>
+      {children}
+    </button>
+  );
+}
+
+// ── แผงแก้ไข widget ──
+function EditPanel({ w, branches, locale, L, onChange, onClose }: {
+  w: Widget; branches: ReturnType<typeof useAdminScope>["branches"]; locale: "th" | "en" | "zh";
+  L: (th: string, en: string, zh: string) => string; onChange: (p: Partial<Widget>) => void; onClose: () => void;
+}) {
+  const isKpi = !w.dimension;
+  return (
+    <div className="absolute z-20 top-full mt-1 right-0 w-[min(340px,calc(100vw-3rem))] rounded-2xl border border-line bg-surface shadow-xl p-3 space-y-2.5">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-semibold text-muted uppercase tracking-wide">{L("แก้การ์ด", "Edit card", "编辑卡片")}</p>
+        <button onClick={onClose} className="text-muted hover:text-ink"><X size={14} /></button>
+      </div>
+      <input value={w.title} onChange={(e) => onChange({ title: e.target.value })} placeholder={L("ชื่อการ์ด", "Card title", "标题")} className="w-full h-9 px-3 rounded-lg bg-surface2 border border-line text-sm outline-none focus:ring-2 focus:ring-brand/30" />
+      <div className="grid grid-cols-2 gap-2">
+        <Labeled label={L("ตัววัด", "Metric", "指标")}>
+          <Select value={w.metric} onChange={(e) => onChange({ metric: e.target.value as Metric })}>
+            {METRICS.map((m) => <option key={m} value={m}>{METRIC_LABEL[m][locale]}</option>)}
+          </Select>
+        </Labeled>
+        <Labeled label={L("มิติ", "Dimension", "维度")}>
+          <Select value={w.dimension ?? ""} onChange={(e) => { const v = e.target.value; onChange(v ? { dimension: v as Dimension } : { dimension: null, viz: "kpi" }); }}>
+            <option value="">{L("รวม (KPI)", "Total (KPI)", "合计")}</option>
+            {DIMS.map((d) => <option key={d} value={d}>{DIM_LABEL[d][locale]}</option>)}
+          </Select>
+        </Labeled>
+        {!isKpi ? (
+          <Labeled label={L("รูปแบบ", "Chart", "图表")}>
+            <Select value={w.viz} onChange={(e) => onChange({ viz: e.target.value as Viz })}>
+              <option value="bar">{L("แท่ง", "Bar", "柱状")}</option>
+              <option value="donut">{L("โดนัท", "Donut", "环形")}</option>
+              <option value="line">{L("เส้น", "Line", "折线")}</option>
+              <option value="table">{L("ตาราง", "Table", "表格")}</option>
+            </Select>
+          </Labeled>
+        ) : null}
+        {!isKpi ? (
+          <Labeled label={L("จำกัดอันดับ", "Top-N", "前N")}>
+            <Select value={String(w.limit ?? 0)} onChange={(e) => onChange({ limit: Number(e.target.value) || undefined })}>
+              <option value="0">{L("ทั้งหมด", "All", "全部")}</option>
+              {[5, 10, 15, 20, 30].map((n) => <option key={n} value={n}>{n}</option>)}
+            </Select>
+          </Labeled>
+        ) : null}
+        <Labeled label={L("ฟิลเตอร์สาขา", "Branch filter", "门店筛选")}>
+          <Select value={w.branchId ?? ""} onChange={(e) => onChange({ branchId: e.target.value || null })}>
+            <option value="">{L("ทุกสาขา", "All branches", "全部门店")}</option>
+            {branches.map((b) => <option key={b.id} value={b.id}>{locale === "th" ? b.name_th ?? b.name : b.name}</option>)}
+          </Select>
+        </Labeled>
+      </div>
+    </div>
+  );
+}
+function Labeled({ label, children }: { label: string; children: React.ReactNode }) {
+  return <div><label className="block text-[10px] font-medium text-muted mb-1">{label}</label>{children}</div>;
+}
+
+// ── normalize: มิติว่าง = KPI ──
+function normalize(w: Widget): Widget {
+  if (!w.dimension) return { ...w, viz: "kpi", dimension: null };
+  if (w.viz === "kpi") return { ...w, viz: "bar" };
+  return w;
+}
 
 function WidgetCard({ widget: w, data, L }: { widget: Widget; data?: WidgetData; L: (th: string, en: string, zh: string) => string }) {
   const rows = data?.rows ?? [];
@@ -224,7 +332,7 @@ function WidgetCard({ widget: w, data, L }: { widget: Widget; data?: WidgetData;
 
   return (
     <Card className="p-4">
-      <CardHeader title={w.title} subtitle={data ? `${L("รวม", "Total", "合计")} ${fmt(data.total)}` : undefined} />
+      <CardHeader title={w.title || mL} subtitle={data ? `${L("รวม", "Total", "合计")} ${fmt(data.total)}` : undefined} />
       {body}
     </Card>
   );

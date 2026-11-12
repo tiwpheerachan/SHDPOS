@@ -17,6 +17,7 @@ export interface Widget {
   metric: Metric;
   dimension?: Dimension | null; // null = KPI รวม
   limit?: number;
+  branchId?: string | null; // ฟิลเตอร์รายการ์ด: เจาะสาขาเดียว (ว่าง = ทุกสาขาตามตัวกรองหลัก)
 }
 export interface View {
   id: string;
