@@ -14,6 +14,7 @@ import { formatTHB, formatInt } from "@/lib/money";
 import { MixDonut, SalesAreaTrend, InsightBars } from "@/components/charts-rich";
 import type { ChartConfig } from "@/components/ui/chart";
 import { BorderBeam } from "@/components/ui/border-beam";
+import { ThinkingOrb } from "@/components/ui/thinking-orb";
 import {
   computeWidget, parsePrompt, localAnswer, METRIC_LABEL, DIM_LABEL,
   type View, type Widget, type WidgetData, type Ctx, type Metric, type Dimension, type Viz,
@@ -75,6 +76,7 @@ export default function AdminInsightsPage() {
     const q = text.trim();
     if (!q || thinking) return;
     setPrompt(q); setThinking(true); setView(null); setAnswer(""); setSource(null); setEditId(null);
+    const minThink = new Promise((r) => setTimeout(r, 1100)); // ให้ลูกแก้ว "กำลังคิด" โชว์สักครู่
     let v: View | null = null;
     try {
       const r = await fetch("/api/ai/ask", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: q, locale }) });
@@ -85,6 +87,7 @@ export default function AdminInsightsPage() {
       }
     } catch { /* fall back */ }
     if (!v) { v = parsePrompt(q, locale); setSource("local"); }
+    await minThink;
     setView(v);
     setThinking(false);
   }
@@ -117,7 +120,10 @@ export default function AdminInsightsPage() {
   const srcLabel = source === "deepseek" ? "DeepSeek" : source === "anthropic" ? "Claude" : source === "local" ? L("AI ในเครื่อง", "On-device", "本地 AI") : "AI";
 
   return (
-    <div className="p-4 sm:p-6 pb-28 space-y-4 w-full">
+    <div
+      className="relative p-4 sm:p-6 pb-28 space-y-4 w-full min-h-[calc(100vh-64px)]"
+      style={{ backgroundImage: "radial-gradient(rgb(var(--c-ink) / 0.055) 1px, transparent 1.3px)", backgroundSize: "22px 22px" }}
+    >
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold flex items-center gap-2"><Wand2 size={20} className="text-brand" />{L("ผู้ช่วย AI · สร้างแดชบอร์ด", "AI · Dashboard builder", "AI 仪表盘生成")}</h1>
@@ -138,7 +144,11 @@ export default function AdminInsightsPage() {
 
       <FilterBar value={filter} onChange={setFilter} branches={branches} brands={brands} />
 
-      {view ? (
+      {thinking ? (
+        <div className="grid place-items-center min-h-[50vh]">
+          <ThinkingOrb size={168} text={L("กำลังคิด", "Thinking", "思考中")} />
+        </div>
+      ) : view ? (
         <div className="space-y-4">
           <Card className="p-4">
             <div className="flex items-start gap-3">
@@ -197,6 +207,11 @@ export default function AdminInsightsPage() {
 
       {/* กล่องถามลอยด้านล่าง + animation */}
       <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 w-[min(680px,calc(100vw-2rem))]">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-x-4 -bottom-3 h-14 -z-10 blur-2xl opacity-55 rounded-full"
+          style={{ background: "linear-gradient(90deg, rgb(var(--c-brand) / .7), rgb(var(--c-aqua) / .7), rgb(var(--c-mint) / .6), rgb(var(--c-lavender) / .8))" }}
+        />
         <BorderBeam radius={28} width={2} duration={3} active={thinking || focused} className="block rounded-[28px]">
           <form
             onSubmit={(e) => { e.preventDefault(); void onAsk(prompt); }}
