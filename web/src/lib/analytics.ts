@@ -43,6 +43,12 @@ export function summarize(orders: Order[]): Totals {
   };
 }
 
+// แปลง Date → ISO อย่างปลอดภัย — Invalid Date (getTime=NaN) → undefined (ไม่กรอง) แทนที่จะ throw
+//   กันทั้งหน้าแครชเมื่อช่องวันที่กำหนดเองยังกรอกไม่ครบ/ไม่ถูกต้อง
+function safeIso(d?: Date): string | undefined {
+  return d && !isNaN(d.getTime()) ? d.toISOString() : undefined;
+}
+
 export function filterOrders(
   orders: Order[],
   opts: { from?: Date; to?: Date; branchIds?: string[]; brandIds?: string[]; branches: Branch[] }
@@ -50,8 +56,8 @@ export function filterOrders(
   const branchSet = opts.branchIds?.length ? new Set(opts.branchIds) : null;
   const brandSet = opts.brandIds?.length ? new Set(opts.brandIds) : null;
   const branchBrand = new Map(opts.branches.map((b) => [b.id, b.brand_id]));
-  const from = opts.from?.toISOString();
-  const to = opts.to?.toISOString();
+  const from = safeIso(opts.from);
+  const to = safeIso(opts.to);
 
   return orders.filter((o) => {
     if (from && o.created_at < from) return false;
@@ -105,7 +111,7 @@ export function applyOrderFilters(
     cat = set(f.categoryIds), sku = set(f.skus), pay = set(f.paymentMethods),
     chan = set(f.channels), status = set(f.orderStatuses), cust = set(f.customerTypes),
     pos = set(f.posIds), flags = set(f.flags);
-  const from = f.from?.toISOString(), to = f.to?.toISOString();
+  const from = safeIso(f.from), to = safeIso(f.to);
 
   return orders.filter((o) => {
     if (from && o.created_at < from) return false;
