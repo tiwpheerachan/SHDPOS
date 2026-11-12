@@ -148,7 +148,8 @@ export default function AdminInsightsPage() {
     if (!view) return m;
     for (const w of view.widgets) {
       const wr = w.branchId ? rows.filter((o) => o.branch_id === w.branchId) : rows;
-      const pw = w.compare ? (w.branchId ? prevRows.filter((o) => o.branch_id === w.branchId) : prevRows) : undefined;
+      const needPrev = w.compare || w.viz === "waterfall";
+      const pw = needPrev ? (w.branchId ? prevRows.filter((o) => o.branch_id === w.branchId) : prevRows) : undefined;
       m.set(w.id, computeWidget(wr, ctx, w, locale, pw));
     }
     return m;
@@ -314,7 +315,7 @@ export default function AdminInsightsPage() {
                 {view.widgets.filter((w) => w.viz !== "kpi").map((w) => (
                   <div key={w.id} className="relative group">
                     <WidgetCard widget={w} data={data.get(w.id)} locale={locale} L={L}
-                  onDrill={w.dimension && DRILLABLE.includes(w.dimension) ? (k, l) => onDrill(w.dimension as Dimension, k, l) : undefined} />
+                  onDrill={w.dimension && DRILLABLE.includes(w.dimension) && (w.viz === "bar" || w.viz === "hbar" || w.viz === "donut") ? (k, l) => onDrill(w.dimension as Dimension, k, l) : undefined} />
                     <div className="absolute top-3 right-3 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                       <IconBtn onClick={() => setEditId(editId === w.id ? null : w.id)}><Pencil size={13} /></IconBtn>
                       <IconBtn onClick={() => removeWidget(w.id)}><Trash2 size={13} /></IconBtn>
@@ -467,7 +468,7 @@ function EditPanel({ w, branches, locale, L, onChange, onClose }: {
       <div className="grid grid-cols-2 gap-2">
         <Labeled label={L("ตัววัด", "Metric", "指标")}><Select value={w.metric} onChange={(e) => onChange({ metric: e.target.value as Metric })}>{METRICS.map((m) => <option key={m} value={m}>{METRIC_LABEL[m][locale]}</option>)}</Select></Labeled>
         <Labeled label={L("มิติ", "Dimension", "维度")}><Select value={w.dimension ?? ""} onChange={(e) => { const v = e.target.value; onChange(v ? { dimension: v as Dimension } : { dimension: null, viz: "kpi" }); }}><option value="">{L("รวม (KPI)", "Total (KPI)", "合计")}</option>{DIMS.map((d) => <option key={d} value={d}>{DIM_LABEL[d][locale]}</option>)}</Select></Labeled>
-        {!isKpi ? <Labeled label={L("รูปแบบ", "Chart", "图表")}><Select value={w.viz} onChange={(e) => onChange({ viz: e.target.value as Viz })}><option value="bar">{L("แท่ง", "Bar", "柱状")}</option><option value="hbar">{L("แท่งแนวนอน", "H-Bar", "横向")}</option><option value="donut">{L("โดนัท", "Donut", "环形")}</option><option value="line">{L("เส้น", "Line", "折线")}</option><option value="heatmap">{L("ฮีตแมป (วัน×ชม.)", "Heatmap", "热力图")}</option><option value="table">{L("ตาราง", "Table", "表格")}</option></Select></Labeled> : null}
+        {!isKpi ? <Labeled label={L("รูปแบบ", "Chart", "图表")}><Select value={w.viz} onChange={(e) => onChange({ viz: e.target.value as Viz })}><option value="bar">{L("แท่ง", "Bar", "柱状")}</option><option value="hbar">{L("แท่งแนวนอน", "H-Bar", "横向")}</option><option value="donut">{L("โดนัท", "Donut", "环形")}</option><option value="line">{L("เส้น", "Line", "折线")}</option><option value="waterfall">{L("Waterfall (ปัจจัยเปลี่ยนแปลง)", "Waterfall", "瀑布图")}</option><option value="heatmap">{L("ฮีตแมป (วัน×ชม.)", "Heatmap", "热力图")}</option><option value="table">{L("ตาราง", "Table", "表格")}</option></Select></Labeled> : null}
         {!isKpi && w.viz !== "heatmap" ? <Labeled label={L("จำกัดอันดับ", "Top-N", "前N")}><Select value={String(w.limit ?? 0)} onChange={(e) => onChange({ limit: Number(e.target.value) || undefined })}><option value="0">{L("ทั้งหมด", "All", "全部")}</option>{[5, 10, 15, 20, 30].map((n) => <option key={n} value={n}>{n}</option>)}</Select></Labeled> : null}
         {w.dimension === "day" ? <Labeled label={L("แปลงอนุกรม", "Transform", "变换")}><Select value={w.transform ?? "none"} onChange={(e) => onChange({ transform: e.target.value as Transform })}><option value="none">{L("ไม่แปลง", "None", "无")}</option><option value="cumulative">{L("สะสม", "Cumulative", "累计")}</option><option value="ma7">{L("เฉลี่ยเคลื่อนที่ 7", "Moving avg 7", "移动均7")}</option></Select></Labeled> : null}
         <Labeled label={L("ฟิลเตอร์สาขา", "Branch filter", "门店筛选")}><Select value={w.branchId ?? ""} onChange={(e) => onChange({ branchId: e.target.value || null })}><option value="">{L("ทุกสาขา", "All branches", "全部门店")}</option>{branches.map((b) => <option key={b.id} value={b.id}>{locale === "th" ? b.name_th ?? b.name : b.name}</option>)}</Select></Labeled>

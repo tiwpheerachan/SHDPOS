@@ -2,7 +2,7 @@
 
 // ตัวเรนเดอร์เนื้อหากราฟกลาง — ใช้ทั้งหน้า insights และ Chart Builder
 //   รองรับ bar/hbar/donut/line/table/heatmap + โหมดเทียบช่วงก่อน (compare)
-import { MixDonut, SalesAreaTrend, InsightBars, CompareBars, RankedBars } from "@/components/charts-rich";
+import { MixDonut, SalesAreaTrend, InsightBars, CompareBars, RankedBars, WaterfallChart } from "@/components/charts-rich";
 import { Heatmap } from "@/components/charts";
 import { Table, Th, Td, EmptyState } from "@/components/ui";
 import type { ChartConfig } from "@/components/ui/chart";
@@ -27,6 +27,20 @@ export function WidgetBody({ w, data, locale, L, onDrill }: { w: Widget; data?: 
     return <div className="overflow-x-auto"><Heatmap rows={data.rowsLabel ?? []} cols={data.cols ?? []} values={data.matrix} valueFormat={(n) => fmtMetric(w.metric, n)} /></div>;
   }
   if (!rows.length) return <EmptyState title={L("ไม่มีข้อมูลในช่วง/ตัวกรองนี้", "No data", "无数据")} />;
+
+  if (w.viz === "waterfall") {
+    const tp = data?.totalPrev; const tt = data?.total ?? 0;
+    if (tp == null) return <EmptyState title={L("ต้องเปิด “เทียบช่วงก่อนหน้า”", "Enable “Compare prev period”", "需开启对比上期")} />;
+    const movers = rows.map((r) => ({ label: r.label, delta: r.value - (r.prev ?? 0) })).filter((m) => Math.abs(m.delta) > 0.5).sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta)).slice(0, 7);
+    const other = (tt - tp) - movers.reduce((s, m) => s + m.delta, 0);
+    const segs: { label: string; base: number; val: number; kind: "up" | "down" | "total" }[] = [{ label: prevLbl, base: 0, val: tp, kind: "total" }];
+    let cum = tp;
+    const step = (label: string, delta: number) => { if (delta >= 0) segs.push({ label, base: cum, val: delta, kind: "up" }); else segs.push({ label, base: cum + delta, val: -delta, kind: "down" }); cum += delta; };
+    for (const m of movers) step(m.label, m.delta);
+    if (Math.abs(other) > 0.5) step(L("อื่นๆ", "Other", "其他"), other);
+    segs.push({ label: curLbl, base: 0, val: tt, kind: "total" });
+    return <WaterfallChart data={segs.map((s) => ({ ...s, label: s.label.length > 9 ? s.label.slice(0, 9) + "…" : s.label }))} valueFormat={fmt} />;
+  }
 
   if (w.viz === "line") return <SalesAreaTrend data={rows.map((r) => ({ label: r.label, value: r.value }))} config={cfg} valueFormat={fmt} />;
 

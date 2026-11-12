@@ -76,6 +76,30 @@ export function RankedBars({ data, valueFormat, compare, onBarClick, className =
   );
 }
 
+/** Waterfall — องค์ประกอบการเปลี่ยนแปลง (ช่วงก่อน → ปัจจัย +/- → ช่วงนี้) */
+export function WaterfallChart({ data, valueFormat, className = "h-[260px] w-full" }: {
+  data: { label: string; base: number; val: number; kind: "up" | "down" | "total" }[];
+  valueFormat?: (n: number) => string;
+  className?: string;
+}) {
+  const config: ChartConfig = { val: { label: "", color: "rgb(var(--chart-1))" } };
+  const color = (k: "up" | "down" | "total") => k === "total" ? "rgb(var(--c-brand))" : k === "up" ? "rgb(var(--c-ok, 34 197 94))" : "rgb(var(--c-danger, 239 68 68))";
+  return (
+    <ChartContainer config={config} className={className}>
+      <BarChart data={data} margin={{ top: 8, right: 6, left: 0, bottom: 4 }}>
+        <CartesianGrid vertical={false} strokeDasharray="4 8" />
+        <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} interval={0} tick={{ fontSize: 10 }} />
+        <YAxis tickLine={false} axisLine={false} width={48} tickFormatter={valueFormat} />
+        <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
+        <Bar dataKey="base" stackId="w" fill="transparent" />
+        <Bar dataKey="val" stackId="w" radius={[3, 3, 0, 0]}>
+          {data.map((d, i) => <Cell key={i} fill={color(d.kind)} />)}
+        </Bar>
+      </BarChart>
+    </ChartContainer>
+  );
+}
+
 /** กราฟเรดาร์เปรียบเทียบหลายสาขา/มิติ */
 export function BranchRadar({
   data,

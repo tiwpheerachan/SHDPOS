@@ -7,7 +7,7 @@ import type { Order, Branch, Employee } from "../types";
 
 export type Metric = "sales" | "qty" | "gp" | "orders" | "aov" | "discount" | "gp_pct" | "discount_pct";
 export type Dimension = "branch" | "brand" | "product" | "employee" | "channel" | "payment" | "day" | "weekday" | "hour";
-export type Viz = "kpi" | "bar" | "hbar" | "donut" | "line" | "table" | "heatmap";
+export type Viz = "kpi" | "bar" | "hbar" | "donut" | "line" | "table" | "heatmap" | "waterfall";
 export type Transform = "none" | "cumulative" | "ma7"; // สะสม / ค่าเฉลี่ยเคลื่อนที่ 7 (สำหรับกราฟเวลา)
 export type Locale = "th" | "en" | "zh";
 
