@@ -1,24 +1,24 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { Wallet, Banknote, CreditCard, Receipt, Sparkles, AlertTriangle, CircleCheck, Info, Landmark } from "lucide-react";
+import { Fragment, useEffect, useMemo, useState } from "react";
+import { Wallet, Banknote, CreditCard, Receipt, Sparkles, AlertTriangle, CircleCheck, Info, Landmark, Search, ChevronRight, Package, Store, User } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { useSession } from "@/lib/store/session";
-import { listOrders } from "@/lib/data/repo";
+import { listOrders, listEmployees } from "@/lib/data/repo";
 import type { Order, Employee } from "@/lib/types";
-import { Card, CardHeader, Table, Th, Td, Badge, EmptyState, KpiTile, Segmented } from "@/components/ui";
+import { Card, CardHeader, Table, Th, Td, Badge, EmptyState, KpiTile, Segmented, Input } from "@/components/ui";
 import { FilterBar, useAdminScope, useDefaultFilter } from "@/components/admin/filters";
 import { filterOrders, salesSeries, topProducts, byEmployee } from "@/lib/analytics";
 import {
   financeSummary, byPaymentDetail, byChannelDetail, byAcquirer, financeByBranch,
-  opsSummary, dailyBrief, type BriefBullet,
+  opsSummary, dailyBrief, productDrill, type BriefBullet, type ProdAgg,
 } from "@/lib/finance";
 import { formatTHB, formatInt } from "@/lib/money";
 import { can, visibleBranchIds } from "@/lib/permissions";
 import { MixDonut, SalesAreaTrend, InsightBars } from "@/components/charts-rich";
 import type { ChartConfig } from "@/components/ui/chart";
 
-type Tab = "money" | "daily" | "ops";
+type Tab = "money" | "drill" | "daily" | "ops";
 
 const dayKey = (iso: string) => new Date(iso).toLocaleDateString("en-CA"); // YYYY-MM-DD local
 
@@ -28,10 +28,11 @@ export default function AdminFinancePage() {
   const { branches, brands } = useAdminScope();
   const [filter, setFilter] = useDefaultFilter();
   const [orders, setOrders] = useState<Order[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
   const [tab, setTab] = useState<Tab>("money");
   const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
 
-  useEffect(() => { void listOrders().then(setOrders); }, []);
+  useEffect(() => { void listOrders().then(setOrders); void listEmployees().then(setEmployees); }, []);
 
   const scoped = useMemo(() => {
     const ids = visibleBranchIds(employee, branches.map((b) => b.id));
@@ -52,12 +53,13 @@ export default function AdminFinancePage() {
 
   const TABS: { value: Tab; label: string }[] = [
     { value: "money", label: L("เงินเข้า & ช่องทาง", "Money & channels", "资金与渠道") },
+    { value: "drill", label: L("เจาะลึกสินค้า", "Product drill-down", "商品钻取") },
     { value: "daily", label: L("สรุปรายวัน (AI)", "Daily (AI)", "每日 (AI)") },
     { value: "ops", label: L("การดำเนินกิจการ", "Operations", "经营概况") },
   ];
 
   return (
-    <div className="p-4 sm:p-6 space-y-4 max-w-[1400px] mx-auto">
+    <div className="p-4 sm:p-6 space-y-4 w-full">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold flex items-center gap-2"><Landmark size={20} className="text-brand" />{L("การเงิน", "Finance", "财务")}</h1>
@@ -69,6 +71,7 @@ export default function AdminFinancePage() {
       <FilterBar value={filter} onChange={setFilter} branches={branches} brands={brands} />
 
       {tab === "money" && <MoneyTab rows={rows} branches={branches} locale={locale} L={L} />}
+      {tab === "drill" && <DrillTab rows={rows} branches={branches} employees={employees} locale={locale} L={L} showGp={can(employee, "report.gross_profit")} />}
       {tab === "daily" && <DailyTab scoped={scoped} branches={branches} locale={locale} L={L} />}
       {tab === "ops" && <OpsTab rows={rows} branches={branches} employee={employee} locale={locale} L={L} t={t} />}
 
@@ -183,6 +186,132 @@ function MoneyTab({ rows, branches, locale, L }: { rows: Order[]; branches: Retu
           </div>
         </Card>
       ) : null}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// แท็บ: เจาะลึกสินค้า × สาขา × พนักงาน
+// ─────────────────────────────────────────────────────────────────────
+function MiniRank({ rows, icon, title, max, L }: {
+  rows: { id: string; label: string; qty: number; gross: number }[];
+  icon: React.ReactNode; title: string; max: number; L: LFn;
+}) {
+  return (
+    <div className="flex-1 min-w-0">
+      <p className="text-[11px] font-semibold text-muted uppercase tracking-wide mb-2 flex items-center gap-1.5">{icon}{title} · {rows.length}</p>
+      <div className="space-y-1.5">
+        {rows.slice(0, 12).map((r) => (
+          <div key={r.id} className="relative rounded-lg bg-surface2 overflow-hidden">
+            <div className="absolute inset-y-0 left-0 bg-brand/12" style={{ width: `${max > 0 ? (r.gross / max) * 100 : 0}%` }} />
+            <div className="relative flex items-center justify-between gap-2 px-2.5 py-1.5">
+              <span className="text-xs truncate">{r.label}</span>
+              <span className="text-xs tnum font-medium shrink-0">{formatTHB(r.gross, false)} <span className="text-muted">· {formatInt(r.qty)}{L("ชิ้น", "", "")}</span></span>
+            </div>
+          </div>
+        ))}
+        {rows.length > 12 ? <p className="text-[11px] text-muted text-center pt-0.5">+{rows.length - 12} {L("รายการ", "more", "项")}</p> : null}
+      </div>
+    </div>
+  );
+}
+
+function DrillTab({ rows, branches, employees, locale, L, showGp }: {
+  rows: Order[]; branches: ReturnType<typeof useAdminScope>["branches"]; employees: Employee[];
+  locale: "th" | "en" | "zh"; L: LFn; showGp: boolean;
+}) {
+  const [q, setQ] = useState("");
+  const [sort, setSort] = useState<"gross" | "qty" | "gp">("gross");
+  const [open, setOpen] = useState<string | null>(null);
+
+  const prods = useMemo(() => productDrill(rows, branches, employees, locale), [rows, branches, employees, locale]);
+  const filtered = useMemo(() => {
+    const term = q.trim().toLowerCase();
+    const list = term ? prods.filter((p) => p.name.toLowerCase().includes(term) || p.sku.toLowerCase().includes(term)) : prods;
+    const key = sort === "qty" ? (p: ProdAgg) => p.qty : sort === "gp" ? (p: ProdAgg) => p.gp : (p: ProdAgg) => p.gross;
+    return [...list].sort((a, b) => key(b) - key(a));
+  }, [prods, q, sort]);
+  const shown = filtered.slice(0, 150);
+
+  const totQty = prods.reduce((s, p) => s + p.qty, 0);
+  const totGross = prods.reduce((s, p) => s + p.gross, 0);
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <KpiTile label={L("จำนวนสินค้า (SKU)", "Products (SKU)", "商品数")} value={formatInt(prods.length)} variant="ink" icon={<Package size={15} />} />
+        <KpiTile label={L("ยอดขายรวม", "Total sales", "总销售")} value={formatTHB(totGross)} tone="brand" />
+        <KpiTile label={L("จำนวนชิ้นรวม", "Total units", "总件数")} value={formatInt(totQty)} />
+        <KpiTile label={L("กำลังแสดง", "Showing", "显示中")} value={`${formatInt(shown.length)}/${formatInt(filtered.length)}`} />
+      </div>
+
+      <Card className="p-4">
+        <div className="flex flex-wrap items-center gap-2 mb-3">
+          <div className="relative flex-1 min-w-[180px]">
+            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={L("ค้นหาสินค้า / SKU…", "Search product / SKU…", "搜索商品 / SKU…")} className="pl-9 h-9" />
+          </div>
+          <Segmented size="sm" value={sort} onChange={setSort} options={[
+            { value: "gross", label: L("ยอดขาย", "Sales", "销售") },
+            { value: "qty", label: L("จำนวน", "Qty", "数量") },
+            { value: "gp", label: L("กำไร", "Profit", "利润") },
+          ]} />
+        </div>
+        <p className="text-[11px] text-muted mb-2">{L("กดแถวเพื่อดูว่าสินค้านั้นขายจากสาขาไหน พนักงานคนไหน", "Tap a row to see which branches & staff sold it", "点击查看该商品的门店与员工分布")}</p>
+        {shown.length ? (
+          <div className="overflow-x-auto">
+            <Table>
+              <thead><tr>
+                <Th>{L("สินค้า", "Product", "商品")}</Th>
+                <Th align="right">{L("ยอดขาย", "Sales", "销售")}</Th>
+                <Th align="right">{L("ชิ้น", "Units", "件")}</Th>
+                {showGp ? <Th align="right">{L("กำไร", "Profit", "利润")}</Th> : null}
+                <Th align="center">{L("สาขา", "Branch", "门店")}</Th>
+                <Th align="center">{L("คน", "Staff", "员工")}</Th>
+                <Th align="right"> </Th>
+              </tr></thead>
+              <tbody>
+                {shown.map((p) => {
+                  const isOpen = open === p.sku;
+                  const maxB = p.branches[0]?.gross ?? 0;
+                  const maxE = p.employees[0]?.gross ?? 0;
+                  return (
+                    <Fragment key={p.sku}>
+                      <tr className="cursor-pointer hover:bg-surface2" onClick={() => setOpen(isOpen ? null : p.sku)}>
+                        <Td>
+                          <div className="flex items-center gap-2">
+                            <ChevronRight size={14} className={`text-muted transition-transform ${isOpen ? "rotate-90" : ""}`} />
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium truncate max-w-[220px]">{p.name}</p>
+                              <p className="text-[11px] text-muted">{p.sku}</p>
+                            </div>
+                          </div>
+                        </Td>
+                        <Td align="right" className="tnum font-semibold">{formatTHB(p.gross, false)}</Td>
+                        <Td align="right" className="tnum">{formatInt(p.qty)}</Td>
+                        {showGp ? <Td align="right" className="tnum text-ok">{formatTHB(p.gp, false)}<span className="text-[10px] text-muted"> · {p.gpPct}%</span></Td> : null}
+                        <Td align="center"><Badge tone="brand">{p.branches.length}</Badge></Td>
+                        <Td align="center"><Badge>{p.employees.length}</Badge></Td>
+                        <Td align="right"><span className="text-[11px] text-brand">{isOpen ? L("ซ่อน", "Hide", "收起") : L("ดู", "View", "查看")}</span></Td>
+                      </tr>
+                      {isOpen ? (
+                        <tr>
+                          <td colSpan={showGp ? 7 : 6} className="px-3 pb-4 pt-1 bg-surface2/40">
+                            <div className="flex flex-col sm:flex-row gap-5 p-2">
+                              <MiniRank rows={p.branches} icon={<Store size={13} />} title={L("ขายจากสาขา", "Sold by branch", "按门店")} max={maxB} L={L} />
+                              <MiniRank rows={p.employees} icon={<User size={13} />} title={L("ขายโดยพนักงาน", "Sold by staff", "按员工")} max={maxE} L={L} />
+                            </div>
+                          </td>
+                        </tr>
+                      ) : null}
+                    </Fragment>
+                  );
+                })}
+              </tbody>
+            </Table>
+          </div>
+        ) : <EmptyState icon={<Package size={24} />} title={L("ไม่พบสินค้า", "No products", "无商品")} body={L("ลองปรับตัวกรองช่วงเวลา/สาขา", "Adjust date/branch filter", "调整筛选")} />}
+      </Card>
     </div>
   );
 }

@@ -5,7 +5,7 @@
 //   NOTE: ยังไม่กระทบยอดเงินเข้าธนาคารจริง — หน้านี้ "แสดงว่าเงินมาจากไหน"
 //         เท่านั้น (received ตามสลิป/ระบบ ไม่ใช่ statement ธนาคาร)
 // =====================================================================
-import type { Order, Branch, PaymentMethod, SaleChannel } from "./types";
+import type { Order, Branch, Employee, PaymentMethod, SaleChannel } from "./types";
 
 export type Locale = "th" | "en" | "zh";
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -190,6 +190,47 @@ export function opsSummary(orders: Order[]): OpsSummary {
     units: round2(units), gp: round2(gp), gpPct: gross ? round2((gp / gross) * 100) : 0,
     customers: custs.size, discount: round2(discount),
   };
+}
+
+// ── เจาะลึก: สินค้า × สาขา × พนักงาน ───────────────────────────────
+export interface DrillRow { id: string; label: string; qty: number; gross: number; gp: number }
+export interface ProdAgg {
+  sku: string; name: string; qty: number; gross: number; gp: number; gpPct: number;
+  branches: DrillRow[]; employees: DrillRow[];
+}
+/** รวมยอดต่อสินค้า พร้อม breakdown รายสาขา + รายพนักงาน (เรียงยอด) */
+export function productDrill(orders: Order[], branches: Branch[], employees: Employee[], l: Locale): ProdAgg[] {
+  const bLabel = (id: string) => { const b = branches.find((x) => x.id === id); return b ? (l === "th" ? b.name_th ?? b.name : b.name) : id; };
+  const eLabel = (id: string) => { const e = employees.find((x) => x.id === id); return e ? (e.nickname ?? e.first_name ?? e.employee_code) : id; };
+  type Cell = { qty: number; gross: number; gp: number };
+  type P = { name: string; qty: number; gross: number; gp: number; br: Map<string, Cell>; em: Map<string, Cell> };
+  const map = new Map<string, P>();
+  const bump = (m: Map<string, Cell>, k: string, q: number, g: number, p: number) => {
+    const c = m.get(k) ?? { qty: 0, gross: 0, gp: 0 }; c.qty += q; c.gross += g; c.gp += p; m.set(k, c);
+  };
+  for (const o of orders) {
+    if (!live(o)) continue;
+    for (const it of o.items) {
+      const key = it.sku || it.product_id || it.name;
+      const cur = map.get(key) ?? { name: it.name, qty: 0, gross: 0, gp: 0, br: new Map(), em: new Map() };
+      cur.qty += it.qty; cur.gross += it.line_total; cur.gp += it.gross_profit;
+      bump(cur.br, o.branch_id, it.qty, it.line_total, it.gross_profit);
+      const eid = it.salesperson_id ?? o.salesperson_id ?? o.cashier_id;
+      if (eid) bump(cur.em, eid, it.qty, it.line_total, it.gross_profit);
+      map.set(key, cur);
+    }
+  }
+  const toRows = (m: Map<string, Cell>, label: (id: string) => string): DrillRow[] =>
+    Array.from(m.entries())
+      .map(([id, c]) => ({ id, label: label(id), qty: round2(c.qty), gross: round2(c.gross), gp: round2(c.gp) }))
+      .sort((a, b) => b.gross - a.gross);
+  return Array.from(map.entries())
+    .map(([sku, v]) => ({
+      sku, name: v.name, qty: round2(v.qty), gross: round2(v.gross), gp: round2(v.gp),
+      gpPct: v.gross ? round2((v.gp / v.gross) * 100) : 0,
+      branches: toRows(v.br, bLabel), employees: toRows(v.em, eLabel),
+    }))
+    .sort((a, b) => b.gross - a.gross);
 }
 
 // ── สรุป AI รายวัน (heuristic) ─────────────────────────────────────
