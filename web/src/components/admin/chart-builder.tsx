@@ -6,13 +6,13 @@ import { Modal, Select, Button } from "@/components/ui";
 import { WidgetBody, fmtMetric } from "@/components/admin/widget-body";
 import {
   computeWidget, METRIC_LABEL, DIM_LABEL,
-  type Widget, type Ctx, type Metric, type Dimension, type Viz, type WidgetData,
+  type Widget, type Ctx, type Metric, type Dimension, type Viz, type Transform, type WidgetData,
 } from "@/lib/ai/engine";
 import type { FactPack } from "@/lib/ai/facts";
 import type { Order, Branch } from "@/lib/types";
 
 const uid = () => Math.random().toString(36).slice(2, 9);
-const METRICS: Metric[] = ["sales", "qty", "gp", "orders", "aov", "discount"];
+const METRICS: Metric[] = ["sales", "qty", "gp", "gp_pct", "orders", "aov", "discount", "discount_pct"];
 const DIMS: Dimension[] = ["branch", "brand", "product", "employee", "channel", "payment", "day", "weekday", "hour"];
 
 /** แนะนำชนิดกราฟจากมิติ */
@@ -41,8 +41,9 @@ export function ChartBuilder({ open, onClose, onAdd, rows, prevRows, ctx, branch
   });
 
   // delta เทียบช่วงก่อน (จาก fact pack — ตัวเลขจริง)
-  const deltaKey: Record<Metric, keyof FactPack["totals"]> = { sales: "sales", orders: "orders", aov: "aov", gp: "gp", qty: "units", discount: "discount" };
-  const delta = compare ? facts.totals[deltaKey[w.metric]] : null;
+  const deltaKey: Partial<Record<Metric, keyof FactPack["totals"]>> = { sales: "sales", orders: "orders", aov: "aov", gp: "gp", qty: "units", discount: "discount" };
+  const dk = deltaKey[w.metric];
+  const delta = compare && dk ? facts.totals[dk] : null;
   const deltaPct = delta && typeof delta === "object" && "deltaPct" in delta ? (delta as { deltaPct: number | null }).deltaPct : null;
 
   const recommended = suggestViz(w.dimension);
@@ -91,6 +92,7 @@ export function ChartBuilder({ open, onClose, onAdd, rows, prevRows, ctx, branch
                 <Select value={w.viz} onChange={(e) => patch({ viz: e.target.value as Viz })}><option value="bar">{L("แท่ง", "Bar", "柱状")}</option><option value="hbar">{L("แท่งแนวนอน", "H-Bar", "横向")}</option><option value="donut">{L("โดนัท", "Donut", "环形")}</option><option value="line">{L("เส้น", "Line", "折线")}</option><option value="heatmap">{L("ฮีตแมป (วัน×ชม.)", "Heatmap", "热力图")}</option><option value="table">{L("ตาราง", "Table", "表格")}</option></Select>
               </Field>
               {w.viz !== "heatmap" ? <Field label={L("จำกัดอันดับ (Top-N)", "Top-N", "前N")}><Select value={String(w.limit ?? 0)} onChange={(e) => patch({ limit: Number(e.target.value) || undefined })}><option value="0">{L("ทั้งหมด", "All", "全部")}</option>{[5, 10, 15, 20, 30].map((n) => <option key={n} value={n}>{n}</option>)}</Select></Field> : null}
+              {w.dimension === "day" ? <Field label={L("แปลงอนุกรม", "Transform", "变换")}><Select value={w.transform ?? "none"} onChange={(e) => patch({ transform: e.target.value as Transform })}><option value="none">{L("ไม่แปลง", "None", "无")}</option><option value="cumulative">{L("สะสม", "Cumulative", "累计")}</option><option value="ma7">{L("เฉลี่ยเคลื่อนที่ 7", "Moving avg 7", "移动均7")}</option></Select></Field> : null}
             </>
           ) : null}
           <Field label={L("ฟิลเตอร์สาขา", "Branch filter", "门店筛选")}><Select value={w.branchId ?? ""} onChange={(e) => patch({ branchId: e.target.value || null })}><option value="">{L("ทุกสาขา", "All", "全部")}</option>{branches.map((b) => <option key={b.id} value={b.id}>{locale === "th" ? b.name_th ?? b.name : b.name}</option>)}</Select></Field>

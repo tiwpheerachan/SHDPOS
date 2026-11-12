@@ -17,14 +17,14 @@ import { BorderBeam } from "@/components/ui/border-beam";
 import { ThinkingOrb } from "@/components/ui/thinking-orb";
 import {
   computeWidget, parsePrompt, localSuggestions, METRIC_LABEL, DIM_LABEL,
-  type View, type Widget, type WidgetData, type Ctx, type Metric, type Dimension, type Viz,
+  type View, type Widget, type WidgetData, type Ctx, type Metric, type Dimension, type Viz, type Transform,
 } from "@/lib/ai/engine";
 import { buildFactPack, localInsights, type Insight } from "@/lib/ai/facts";
 import { listViews, saveView, deleteView } from "@/lib/ai/views";
 import { ChartBuilder } from "@/components/admin/chart-builder";
 
 const uid = () => Math.random().toString(36).slice(2, 9);
-const METRICS: Metric[] = ["sales", "qty", "gp", "orders", "aov", "discount"];
+const METRICS: Metric[] = ["sales", "qty", "gp", "gp_pct", "orders", "aov", "discount", "discount_pct"];
 const DIMS: Dimension[] = ["branch", "brand", "product", "employee", "channel", "payment", "day", "weekday", "hour"];
 
 type ChatMsg = { role: "user" | "assistant"; text: string; suggestions?: string[]; insights?: Insight[] };
@@ -431,6 +431,7 @@ function EditPanel({ w, branches, locale, L, onChange, onClose }: {
         <Labeled label={L("มิติ", "Dimension", "维度")}><Select value={w.dimension ?? ""} onChange={(e) => { const v = e.target.value; onChange(v ? { dimension: v as Dimension } : { dimension: null, viz: "kpi" }); }}><option value="">{L("รวม (KPI)", "Total (KPI)", "合计")}</option>{DIMS.map((d) => <option key={d} value={d}>{DIM_LABEL[d][locale]}</option>)}</Select></Labeled>
         {!isKpi ? <Labeled label={L("รูปแบบ", "Chart", "图表")}><Select value={w.viz} onChange={(e) => onChange({ viz: e.target.value as Viz })}><option value="bar">{L("แท่ง", "Bar", "柱状")}</option><option value="hbar">{L("แท่งแนวนอน", "H-Bar", "横向")}</option><option value="donut">{L("โดนัท", "Donut", "环形")}</option><option value="line">{L("เส้น", "Line", "折线")}</option><option value="heatmap">{L("ฮีตแมป (วัน×ชม.)", "Heatmap", "热力图")}</option><option value="table">{L("ตาราง", "Table", "表格")}</option></Select></Labeled> : null}
         {!isKpi && w.viz !== "heatmap" ? <Labeled label={L("จำกัดอันดับ", "Top-N", "前N")}><Select value={String(w.limit ?? 0)} onChange={(e) => onChange({ limit: Number(e.target.value) || undefined })}><option value="0">{L("ทั้งหมด", "All", "全部")}</option>{[5, 10, 15, 20, 30].map((n) => <option key={n} value={n}>{n}</option>)}</Select></Labeled> : null}
+        {w.dimension === "day" ? <Labeled label={L("แปลงอนุกรม", "Transform", "变换")}><Select value={w.transform ?? "none"} onChange={(e) => onChange({ transform: e.target.value as Transform })}><option value="none">{L("ไม่แปลง", "None", "无")}</option><option value="cumulative">{L("สะสม", "Cumulative", "累计")}</option><option value="ma7">{L("เฉลี่ยเคลื่อนที่ 7", "Moving avg 7", "移动均7")}</option></Select></Labeled> : null}
         <Labeled label={L("ฟิลเตอร์สาขา", "Branch filter", "门店筛选")}><Select value={w.branchId ?? ""} onChange={(e) => onChange({ branchId: e.target.value || null })}><option value="">{L("ทุกสาขา", "All branches", "全部门店")}</option>{branches.map((b) => <option key={b.id} value={b.id}>{locale === "th" ? b.name_th ?? b.name : b.name}</option>)}</Select></Labeled>
       </div>
       {w.viz !== "heatmap" ? <label className="flex items-center gap-2 text-sm cursor-pointer"><input type="checkbox" checked={!!w.compare} onChange={(e) => onChange({ compare: e.target.checked })} className="accent-brand" />{L("เทียบช่วงก่อนหน้า", "Compare prev period", "对比上期")}</label> : null}

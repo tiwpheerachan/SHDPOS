@@ -5,9 +5,10 @@
 // =====================================================================
 import type { Order, Branch, Employee } from "../types";
 
-export type Metric = "sales" | "qty" | "gp" | "orders" | "aov" | "discount";
+export type Metric = "sales" | "qty" | "gp" | "orders" | "aov" | "discount" | "gp_pct" | "discount_pct";
 export type Dimension = "branch" | "brand" | "product" | "employee" | "channel" | "payment" | "day" | "weekday" | "hour";
 export type Viz = "kpi" | "bar" | "hbar" | "donut" | "line" | "table" | "heatmap";
+export type Transform = "none" | "cumulative" | "ma7"; // สะสม / ค่าเฉลี่ยเคลื่อนที่ 7 (สำหรับกราฟเวลา)
 export type Locale = "th" | "en" | "zh";
 
 export interface Widget {
@@ -19,6 +20,7 @@ export interface Widget {
   limit?: number;
   branchId?: string | null; // ฟิลเตอร์รายการ์ด: เจาะสาขาเดียว (ว่าง = ทุกสาขาตามตัวกรองหลัก)
   compare?: boolean;         // เทียบช่วงก่อนหน้า (แสดงคู่/เดลต้า)
+  transform?: Transform;     // แปลงอนุกรมเวลา (ใช้กับ dimension=day)
 }
 export interface View {
   id: string;
@@ -43,6 +45,8 @@ export const METRIC_LABEL: Record<Metric, { th: string; en: string; zh: string }
   orders: { th: "จำนวนบิล", en: "Orders", zh: "订单" },
   aov: { th: "เฉลี่ย/บิล", en: "Avg/bill", zh: "客单价" },
   discount: { th: "ส่วนลด", en: "Discount", zh: "折扣" },
+  gp_pct: { th: "อัตรากำไร %", en: "GP margin %", zh: "毛利率%" },
+  discount_pct: { th: "ส่วนลด %", en: "Discount %", zh: "折扣率%" },
 };
 export const DIM_LABEL: Record<Dimension, { th: string; en: string; zh: string }> = {
   branch: { th: "สาขา", en: "Branch", zh: "门店" },
@@ -89,7 +93,10 @@ type Acc = { label: string; sales: number; qty: number; gp: number; orders: Set<
 const pick = (a: Acc, m: Metric): number =>
   m === "sales" ? round2(a.sales) : m === "qty" ? round2(a.qty) : m === "gp" ? round2(a.gp)
   : m === "orders" ? a.orders.size : m === "discount" ? round2(a.discount)
-  : a.orders.size ? round2(a.sales / a.orders.size) : 0;
+  : m === "gp_pct" ? (a.sales ? round2((a.gp / a.sales) * 100) : 0)       // อัตรากำไรขั้นต้น % (กันหารศูนย์)
+  : m === "discount_pct" ? (a.sales ? round2((a.discount / a.sales) * 100) : 0) // ส่วนลด % ของยอด
+  : a.orders.size ? round2(a.sales / a.orders.size) : 0;                  // aov
+export const isPctMetric = (m: Metric) => m === "gp_pct" || m === "discount_pct";
 
 /** คำนวณ widget จาก orders ตาม metric×dimension (prevOrders = ช่วงก่อน สำหรับเทียบ) */
 export function computeWidget(orders: Order[], ctx: Ctx, w: Widget, l: Locale, prevOrders?: Order[]): WidgetData {
@@ -161,8 +168,13 @@ export function computeWidget(orders: Order[], ctx: Ctx, w: Widget, l: Locale, p
   if (dim === "day") rows.sort((a, b) => a.key.localeCompare(b.key));
   else if (dim === "weekday" || dim === "hour") rows.sort((a, b) => Number(a.key) - Number(b.key));
   else rows.sort((a, b) => b.value - a.value);
-  const total = rows.reduce((s, r) => s + r.value, 0);
-  const totalPrev = prevMap ? Array.from(prevMap.values()).reduce((s, a) => s + pick(a, metric), 0) : undefined;
+  const total = isPctMetric(metric) ? pick(aggAll(orders), metric) : rows.reduce((s, r) => s + r.value, 0);
+  const totalPrev = prevMap ? (isPctMetric(metric) ? (prevOrders ? pick(aggAll(prevOrders), metric) : 0) : Array.from(prevMap.values()).reduce((s, a) => s + pick(a, metric), 0)) : undefined;
+  // แปลงอนุกรมเวลา (dimension=day): สะสม / ค่าเฉลี่ยเคลื่อนที่ 7
+  if (w.transform && w.transform !== "none" && dim === "day") {
+    if (w.transform === "cumulative") { let c = 0, cp = 0; for (const r of rows) { c += r.value; r.value = round2(c); if (r.prev != null) { cp += r.prev; r.prev = round2(cp); } } }
+    else if (w.transform === "ma7") { const vals = rows.map((r) => r.value); rows.forEach((r, i) => { const win = vals.slice(Math.max(0, i - 6), i + 1); r.value = round2(win.reduce((a, b) => a + b, 0) / win.length); }); }
+  }
   if (w.limit && w.limit > 0 && dim !== "day" && dim !== "hour" && dim !== "weekday") rows = rows.slice(0, w.limit);
   return { rows, total: round2(total), metric, totalPrev: totalPrev != null ? round2(totalPrev) : undefined };
 }

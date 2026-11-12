@@ -9,7 +9,7 @@ import type { ChartConfig } from "@/components/ui/chart";
 import { formatTHB, formatInt } from "@/lib/money";
 import { METRIC_LABEL, type Widget, type WidgetData, type Metric } from "@/lib/ai/engine";
 
-export const fmtMetric = (m: Metric, n: number) => (m === "orders" || m === "qty") ? formatInt(n) : formatTHB(n, false);
+export const fmtMetric = (m: Metric, n: number) => (m === "gp_pct" || m === "discount_pct") ? `${Math.round(n * 10) / 10}%` : (m === "orders" || m === "qty") ? formatInt(n) : formatTHB(n, false);
 type LFn = (th: string, en: string, zh: string) => string;
 const deltaPct = (cur: number, prev?: number) => (prev == null || prev === 0 ? null : Math.round(((cur - prev) / prev) * 1000) / 10);
 

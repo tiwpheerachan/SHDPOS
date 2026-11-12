@@ -10,7 +10,7 @@ export interface MetricDef {
   th: string; en: string;
   /** นิยามสั้น ภาษาอังกฤษ (ส่งให้ LLM) */
   def: string;
-  unit: "THB" | "count";
+  unit: "THB" | "count" | "pct";
 }
 
 export const METRIC_DEFS: MetricDef[] = [
@@ -20,6 +20,8 @@ export const METRIC_DEFS: MetricDef[] = [
   { id: "qty", th: "จำนวนชิ้น", en: "Units", unit: "count", def: "Sum of item quantities across orders (line items), includes gift items if any." },
   { id: "aov", th: "เฉลี่ยต่อบิล", en: "Avg per bill", unit: "THB", def: "Sales / Orders. Average basket value per bill." },
   { id: "discount", th: "ส่วนลด", en: "Discount", unit: "THB", def: "Sum of discount_total. Higher discount is NOT necessarily good — it reduces margin." },
+  { id: "gp_pct", th: "อัตรากำไรขั้นต้น %", en: "GP margin %", unit: "pct", def: "Gross profit / Sales × 100 (computed at aggregate level, 0 when sales=0). A ratio — do not sum across rows." },
+  { id: "discount_pct", th: "ส่วนลด %", en: "Discount %", unit: "pct", def: "Discount / Sales × 100 (0 when sales=0). A ratio — do not sum across rows." },
 ];
 
 /** ข้อความนิยามสั้นสำหรับใส่ใน system prompt ของ LLM */
