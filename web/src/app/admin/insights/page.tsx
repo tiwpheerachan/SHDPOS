@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Sparkles, Send, Save, Trash2, LayoutDashboard, Wand2, Bookmark, Pencil, Plus, X, Loader2, Download, Share2, GripVertical } from "lucide-react";
+import { Sparkles, Send, Save, Trash2, LayoutDashboard, Wand2, Bookmark, Pencil, Plus, X, Loader2, Download, Share2, GripVertical, BarChart3, Undo2, Redo2 } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { useSession } from "@/lib/store/session";
 import { useToast } from "@/components/toast-host";
@@ -22,6 +22,7 @@ import {
 } from "@/lib/ai/engine";
 import { buildFactPack, localInsights, type Insight } from "@/lib/ai/facts";
 import { listViews, saveView, deleteView } from "@/lib/ai/views";
+import { ChartBuilder } from "@/components/admin/chart-builder";
 
 const uid = () => Math.random().toString(36).slice(2, 9);
 const METRICS: Metric[] = ["sales", "qty", "gp", "orders", "aov", "discount"];
@@ -57,10 +58,28 @@ export default function AdminInsightsPage() {
   const [saved, setSaved] = useState<View[]>([]);
   const [editId, setEditId] = useState<string | null>(null);
   const [leftPct, setLeftPct] = useState(62);
+  const [builderOpen, setBuilderOpen] = useState(false);
+  const [hist, setHist] = useState({ i: -1, len: 0 });
   const threadRef = useRef<HTMLDivElement>(null);
   const contRef = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
+  const histRef = useRef<View[]>([]);
+  const hiRef = useRef(-1);
+  const skipHist = useRef(false);
   const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
+
+  // ── undo/redo: บันทึก snapshot ของ view ทุกครั้งที่เปลี่ยน ──
+  useEffect(() => {
+    if (!view) return;
+    if (skipHist.current) { skipHist.current = false; return; }
+    if (histRef.current[hiRef.current] === view) return;
+    const h = histRef.current.slice(0, hiRef.current + 1);
+    h.push(view); histRef.current = h; hiRef.current = h.length - 1;
+    setHist({ i: hiRef.current, len: h.length });
+  }, [view]);
+  const undo = () => { if (hiRef.current <= 0) return; skipHist.current = true; hiRef.current -= 1; setView(histRef.current[hiRef.current]); setHist({ i: hiRef.current, len: histRef.current.length }); setEditId(null); };
+  const redo = () => { if (hiRef.current >= histRef.current.length - 1) return; skipHist.current = true; hiRef.current += 1; setView(histRef.current[hiRef.current]); setHist({ i: hiRef.current, len: histRef.current.length }); setEditId(null); };
+  const canUndo = hist.i > 0, canRedo = hist.i >= 0 && hist.i < hist.len - 1;
 
   useEffect(() => {
     void listOrders().then(setOrders); void listEmployees().then(setEmployees); setSaved(listViews());
@@ -145,7 +164,9 @@ export default function AdminInsightsPage() {
   const mutate = (fn: (ws: Widget[]) => Widget[]) => setView((v) => (v ? { ...v, widgets: fn(v.widgets) } : v));
   const patchWidget = (id: string, p: Partial<Widget>) => mutate((ws) => ws.map((w) => (w.id === id ? normalize({ ...w, ...p }) : w)));
   const removeWidget = (id: string) => { mutate((ws) => ws.filter((w) => w.id !== id)); if (editId === id) setEditId(null); };
-  const addWidget = () => { const w: Widget = { id: uid(), title: L("การ์ดใหม่", "New card", "新卡片"), viz: "bar", metric: "sales", dimension: "branch" }; mutate((ws) => [...ws, w]); setEditId(w.id); };
+  const addFromBuilder = (w: Widget) => {
+    setView((v) => v ? { ...v, widgets: [...v.widgets, w] } : { id: uid(), name: L("แดชบอร์ดใหม่", "New dashboard", "新仪表盘"), prompt: "", widgets: [w], createdAt: new Date().toISOString() });
+  };
 
   function onSave() {
     if (!view) return;
@@ -155,7 +176,7 @@ export default function AdminInsightsPage() {
     setView(v); setSaved(saveView(v));
   }
   function recall(v: View) { setView(v); setSource(null); setEditId(null); setMessages([{ role: "assistant", text: L(`เปิดมุมมอง “${v.name}” ให้แล้ว`, `Opened “${v.name}”`, `已打开“${v.name}”`), suggestions: localSuggestions(v, locale) }]); }
-  function reset() { setMessages([]); setView(null); setSource(null); setEditId(null); setPrompt(""); if (typeof window !== "undefined" && window.location.hash) history.replaceState(null, "", window.location.pathname); }
+  function reset() { setMessages([]); setView(null); setSource(null); setEditId(null); setPrompt(""); histRef.current = []; hiRef.current = -1; setHist({ i: -1, len: 0 }); if (typeof window !== "undefined" && window.location.hash) history.replaceState(null, "", window.location.pathname); }
 
   function onShare() {
     if (!view) return;
@@ -213,9 +234,12 @@ export default function AdminInsightsPage() {
               <div className="flex items-center justify-between gap-2 flex-wrap">
                 <div className="flex items-center gap-2"><p className="font-semibold truncate max-w-[40vw]">{view.name}</p><Badge tone="brand">{srcLabel}</Badge></div>
                 <div className="flex items-center gap-1.5">
+                  <IconBtn2 onClick={undo} disabled={!canUndo} title={L("ย้อนกลับ", "Undo", "撤销")}><Undo2 size={15} /></IconBtn2>
+                  <IconBtn2 onClick={redo} disabled={!canRedo} title={L("ทำซ้ำ", "Redo", "重做")}><Redo2 size={15} /></IconBtn2>
+                  <span className="w-px h-6 bg-line mx-0.5" />
+                  <ToolBtn onClick={() => setBuilderOpen(true)} icon={<BarChart3 size={14} />} label={L("สร้างกราฟ", "New chart", "建图")} />
                   <ToolBtn onClick={onExport} icon={<Download size={14} />} label="Excel" />
                   <ToolBtn onClick={onShare} icon={<Share2 size={14} />} label={L("แชร์", "Share", "分享")} />
-                  <ToolBtn onClick={addWidget} icon={<Plus size={14} />} label={L("การ์ด", "Card", "卡片")} />
                   <button onClick={onSave} className="h-9 px-3 rounded-xl bg-brand text-white text-sm hover:bg-brandHover inline-flex items-center gap-1.5"><Save size={14} />{L("บันทึก", "Save", "保存")}</button>
                 </div>
               </div>
@@ -263,6 +287,7 @@ export default function AdminInsightsPage() {
                 <div className="flex flex-wrap gap-1.5 justify-center mt-3">
                   {EXAMPLES.map((ex) => <button key={ex} onClick={() => void onAsk(ex)} className="text-xs px-3 py-1.5 rounded-full border border-line text-muted hover:text-brand hover:border-brand/40 transition-colors">{ex}</button>)}
                 </div>
+                <div className="text-center mt-4"><button onClick={() => setBuilderOpen(true)} className="inline-flex items-center gap-1.5 h-9 px-4 rounded-xl border border-line text-sm hover:bg-surface2 hover:text-brand"><BarChart3 size={15} />{L("สร้างกราฟเอง (ไม่ต้องใช้ AI)", "Build a chart yourself", "自己建图")}</button></div>
               </div>
             </Card>
           )}
@@ -342,6 +367,9 @@ export default function AdminInsightsPage() {
           </div>
         </div>
       </div>
+
+      <ChartBuilder open={builderOpen} onClose={() => setBuilderOpen(false)} onAdd={addFromBuilder}
+        rows={rows} ctx={ctx} branches={branches} facts={facts} locale={locale} L={L} />
     </div>
   );
 }
@@ -350,6 +378,9 @@ const fmtMetric = (m: Metric, n: number) => (m === "orders" || m === "qty") ? fo
 function Dot({ d = 0 }: { d?: number }) { return <i className="w-1.5 h-1.5 rounded-full bg-brand/60" style={{ animation: "shd-typ 1.2s infinite", animationDelay: `${d}s` }} />; }
 function ToolBtn({ onClick, icon, label }: { onClick: () => void; icon: React.ReactNode; label: string }) {
   return <button onClick={onClick} className="h-9 px-2.5 rounded-xl border border-line text-sm hover:bg-surface2 hover:text-brand inline-flex items-center gap-1.5">{icon}<span className="hidden sm:inline">{label}</span></button>;
+}
+function IconBtn2({ onClick, disabled, title, children }: { onClick: () => void; disabled?: boolean; title?: string; children: React.ReactNode }) {
+  return <button onClick={onClick} disabled={disabled} title={title} className="h-9 w-9 rounded-xl border border-line grid place-items-center hover:bg-surface2 hover:text-brand disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-current">{children}</button>;
 }
 function IconBtn({ children, onClick, ink }: { children: React.ReactNode; onClick: () => void; ink?: boolean }) {
   return <button onClick={onClick} className={`w-6 h-6 rounded-lg grid place-items-center border transition-colors ${ink ? "bg-brandInk/15 border-brandInk/20 text-brandInk hover:bg-brandInk/25" : "bg-surface border-line text-muted hover:text-brand hover:border-brand/40"}`}>{children}</button>;
