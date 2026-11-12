@@ -20,13 +20,14 @@ import {
   computeWidget, parsePrompt, localSuggestions, METRIC_LABEL, DIM_LABEL,
   type View, type Widget, type WidgetData, type Ctx, type Metric, type Dimension, type Viz,
 } from "@/lib/ai/engine";
+import { buildFactPack, localInsights, type Insight } from "@/lib/ai/facts";
 import { listViews, saveView, deleteView } from "@/lib/ai/views";
 
 const uid = () => Math.random().toString(36).slice(2, 9);
 const METRICS: Metric[] = ["sales", "qty", "gp", "orders", "aov", "discount"];
 const DIMS: Dimension[] = ["branch", "brand", "product", "employee", "channel", "payment", "day", "weekday", "hour"];
 
-type ChatMsg = { role: "user" | "assistant"; text: string; suggestions?: string[] };
+type ChatMsg = { role: "user" | "assistant"; text: string; suggestions?: string[]; insights?: Insight[] };
 
 // ── เข้ารหัสสเปก (ไม่มีข้อมูล) ลง URL สำหรับแชร์ ──
 const b64e = (s: string) => btoa(unescape(encodeURIComponent(s))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
@@ -88,6 +89,13 @@ export default function AdminInsightsPage() {
   }, [orders, employee, branches]);
   const rows = useMemo(() => filterOrders(scoped, { ...filter, branches }), [scoped, filter, branches]);
   const ctx: Ctx = useMemo(() => ({ branches, employees, brands: brands.map((b) => ({ id: b.id, name: b.name })) }), [branches, employees, brands]);
+  // fact pack: ตัวเลขจริง (ปัจจุบัน vs ช่วงก่อน) ให้ AI วิเคราะห์ + โชว์ delta
+  const facts = useMemo(() => buildFactPack(scoped, ctx, { from: filter.from, to: filter.to }, locale), [scoped, ctx, filter.from, filter.to, locale]);
+  const kpiDelta = (m: Metric): number | null => {
+    const t = facts.totals;
+    const map: Record<string, { deltaPct: number | null }> = { sales: t.sales, orders: t.orders, aov: t.aov, gp: t.gp, qty: t.units, discount: t.discount };
+    return map[m]?.deltaPct ?? null;
+  };
 
   const data = useMemo(() => {
     const m = new Map<string, WidgetData>();
@@ -109,27 +117,28 @@ export default function AdminInsightsPage() {
     const history: ChatMsg[] = [...messages, { role: "user", text: q }];
     setMessages(history); setPrompt(""); setThinking(true); setEditId(null);
     const minThink = new Promise((r) => setTimeout(r, 1100));
-    let reply = "", suggestions: string[] = [], newView: View | null = view, src = "local";
+    let reply = "", suggestions: string[] = [], insights: Insight[] = [], newView: View | null = view, src = "local";
     try {
       const r = await fetch("/api/ai/ask", {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ messages: history.map((m) => ({ role: m.role, content: m.text })), currentWidgets: view?.widgets ?? [], locale }),
+        body: JSON.stringify({ messages: history.map((m) => ({ role: m.role, content: m.text })), currentWidgets: view?.widgets ?? [], facts, locale }),
       });
       if (r.ok) {
-        const d = (await r.json()) as { reply: string; suggestions: string[]; widgets: Widget[] | null; provider?: string };
-        reply = d.reply || ""; suggestions = d.suggestions || []; src = d.provider || "ai";
+        const d = (await r.json()) as { reply: string; insights?: Insight[]; suggestions: string[]; widgets: Widget[] | null; provider?: string };
+        reply = d.reply || ""; suggestions = d.suggestions || []; insights = d.insights || []; src = d.provider || "ai";
         if (d.widgets && d.widgets.length) newView = view ? { ...view, widgets: d.widgets } : { id: uid(), name: q.slice(0, 48), prompt: q, widgets: d.widgets, createdAt: new Date().toISOString() };
       }
     } catch { /* fall back */ }
     if (src === "local" && !reply) {
       const v = parsePrompt(q, locale); newView = v; src = "local";
-      reply = L("สร้างแดชบอร์ดให้แล้ว ✨ ลองกดแก้แต่ละการ์ด หรือถามต่อได้เลย", "Built a dashboard ✨", "已生成仪表盘 ✨");
+      reply = L("นี่คือภาพรวมจากข้อมูลจริง ✨", "Here's the picture from live data ✨", "基于实时数据 ✨");
       suggestions = localSuggestions(v, locale);
+      insights = localInsights(facts, locale); // บทวิเคราะห์จากตัวเลขจริง (ออฟไลน์)
     }
     await minThink;
     if (newView) setView(newView);
     setSource(src);
-    setMessages((m) => [...m, { role: "assistant", text: reply || L("เรียบร้อย", "Done", "完成"), suggestions }]);
+    setMessages((m) => [...m, { role: "assistant", text: reply || L("เรียบร้อย", "Done", "完成"), suggestions, insights }]);
     setThinking(false);
   }
 
@@ -211,11 +220,19 @@ export default function AdminInsightsPage() {
                 </div>
               </div>
 
+              <p className="text-[11px] text-muted -mt-1">
+                {L(
+                  `ขอบเขต ${facts.scope.branchesInScope} สาขา (มีขาย ${facts.scope.branchesWithSales}) · เทียบ ${facts.period.days} วันก่อนหน้า · ล่าสุด ${facts.scope.latestOrder ? new Date(facts.scope.latestOrder).toLocaleString("th-TH", { dateStyle: "short", timeStyle: "short" }) : "—"} · เฉพาะข้อมูลที่ซิงก์ในเครื่อง`,
+                  `Scope ${facts.scope.branchesInScope} branches (${facts.scope.branchesWithSales} selling) · vs ${facts.period.days}d prior · latest ${facts.scope.latestOrder ? new Date(facts.scope.latestOrder).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" }) : "—"} · local synced data only`,
+                  `范围 ${facts.scope.branchesInScope} 门店 · 对比前 ${facts.period.days} 天 · 仅本地同步数据`,
+                )}
+              </p>
+
               {view.widgets.some((w) => w.viz === "kpi") ? (
                 <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
                   {view.widgets.filter((w) => w.viz === "kpi").map((w) => (
                     <div key={w.id} className="relative group">
-                      <KpiTile label={w.title || METRIC_LABEL[w.metric][locale]} value={fmtMetric(w.metric, data.get(w.id)?.total ?? 0)} variant="ink" />
+                      <KpiTile label={w.title || METRIC_LABEL[w.metric][locale]} value={fmtMetric(w.metric, data.get(w.id)?.total ?? 0)} delta={kpiDelta(w.metric)} variant="ink" />
                       <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         <IconBtn onClick={() => setEditId(editId === w.id ? null : w.id)} ink><Pencil size={12} /></IconBtn>
                         <IconBtn onClick={() => removeWidget(w.id)} ink><Trash2 size={12} /></IconBtn>
@@ -281,6 +298,16 @@ export default function AdminInsightsPage() {
                 {m.role === "assistant" ? <span className="w-6 h-6 rounded-full grid place-items-center bg-brand/12 text-brand shrink-0 mt-0.5"><Sparkles size={12} /></span> : null}
                 <div className={m.role === "user" ? "max-w-[85%] rounded-2xl rounded-tr-sm bg-brand text-white px-3 py-2 text-sm" : "max-w-[90%]"}>
                   <p className={m.role === "user" ? "" : "text-sm text-ink whitespace-pre-wrap"}>{m.text}</p>
+                  {m.role === "assistant" && m.insights?.length ? (
+                    <ul className="mt-2 space-y-1.5">
+                      {m.insights.map((ins, j) => (
+                        <li key={j} className="flex items-start gap-1.5 text-[12.5px] leading-snug">
+                          <span className={`mt-1.5 w-1.5 h-1.5 rounded-full shrink-0 ${ins.tone === "ok" ? "bg-ok" : ins.tone === "warn" ? "bg-danger" : "bg-brand"}`} />
+                          <span className="text-ink">{ins.text}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
                   {m.role === "assistant" && m.suggestions?.length ? (
                     <div className="flex flex-wrap gap-1.5 mt-2">
                       {m.suggestions.map((s) => <button key={s} onClick={() => void onAsk(s)} disabled={thinking} className="text-[11px] px-2.5 py-1 rounded-full border border-brand/30 text-brand hover:bg-brand/8 disabled:opacity-50 transition-colors">{s}</button>)}

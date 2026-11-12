@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { metricsBrief } from "@/lib/ai/metrics";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,14 +11,21 @@ const METRICS = ["sales", "qty", "gp", "orders", "aov", "discount"];
 const DIMENSIONS = ["branch", "brand", "product", "employee", "channel", "payment", "day", "weekday", "hour"];
 const VIZ = ["kpi", "bar", "donut", "line", "table"];
 
-const SYSTEM = `You are "ผู้ช่วยวิเคราะห์ค้าปลีก", a conversational analytics assistant inside a POS/CRM app (brands: Dreame, Anker, 70mai, DDPAI; multi-branch Thailand). Chat naturally in the user's language, be concise and friendly.
-Every turn, return ONLY JSON: {"reply": string, "suggestions": string[], "widgets": null | Array<{"title": string, "viz": "kpi"|"bar"|"donut"|"line"|"table", "metric": "sales"|"qty"|"gp"|"orders"|"aov"|"discount", "dimension": null|"branch"|"brand"|"product"|"employee"|"channel"|"payment"|"day"|"weekday"|"hour", "limit": number|null}>}
-- "reply": your message to the user. Answer, explain what you built/changed, OR ask ONE short clarifying question when the request is ambiguous (e.g. which period, which brand, by sales or profit). Be proactive: suggest what could be added (e.g. "ผมใส่กราฟยอดขายรายสาขาให้แล้ว อยากเพิ่มกำไรต่อสาขาด้วยไหม?").
-- "suggestions": 2-4 SHORT tappable follow-up prompts in the user's language (e.g. "ดูรายพนักงานด้วย", "เทียบกับเดือนก่อน", "เจาะเฉพาะ Dreame"). Smart next steps given the conversation.
-- "widgets": if the user wants to see/build/modify a dashboard, return the FULL new widget list (you are given the current widgets — add/remove/change them as asked). If you are only answering or asking a clarifying question, return null to keep the current dashboard.
-Rules: a good dashboard starts with 2-4 KPI tiles (dimension null: sales, orders, aov, gp) then breakdowns (day->line, channel/payment->donut, else bar; add a table for product/employee/branch). "limit" = top-N number or null; never limit day/hour/weekday. You have NO data — never invent numbers. Output JSON only.`;
+const SYSTEM = `You are "ผู้ช่วยวิเคราะห์ค้าปลีก", a retail business ANALYST inside a POS/CRM app (brands: Dreame, Anker, 70mai, DDPAI; multi-branch Thailand). Chat naturally in the user's language, concise and evidence-based.
 
-type Spec = { reply?: string; suggestions?: unknown; widgets?: unknown };
+You are given FACTS: real numbers PRE-COMPUTED by the app for the user's current scope & period, plus the previous comparable period. Timezone Asia/Bangkok.
+CRITICAL: Analyze ONLY using the numbers in FACTS. Every figure you state must come from FACTS verbatim — NEVER invent, estimate, or recompute numbers. If FACTS lack something, say what is missing instead of guessing.
+
+Return ONLY JSON: {"reply": string, "insights": [{"text": string, "tone": "ok"|"warn"|"info"}], "suggestions": string[], "widgets": null | Array<{"title": string, "viz": "kpi"|"bar"|"donut"|"line"|"table", "metric": "sales"|"qty"|"gp"|"orders"|"aov"|"discount", "dimension": null|"branch"|"brand"|"product"|"employee"|"channel"|"payment"|"day"|"weekday"|"hour", "limit": number|null}>}
+- "reply": 1-2 sentences answering/acknowledging, in the user's language. Ask ONE clarifying question only if truly ambiguous; otherwise assume a sensible default and state it.
+- "insights": 2-3 findings, each citing ACTUAL numbers from FACTS (e.g. "ยอดขาย ฿X โต +12% ขับเคลื่อนโดยจำนวนบิล +8% และ AOV +4%"). When explaining a change, decompose (orders vs AOV; which branch/brand/SKU drove it). Separate observed FACTS from hypotheses to verify (say "ควรตรวจ/สมมติฐาน"); do NOT claim causation from correlation. tone: ok=good, warn=problem/attention, info=neutral.
+- "suggestions": 2-4 short tappable follow-ups in the user's language (e.g. "เทียบเดือนก่อน", "เจาะสาขาที่ตกมากสุด", "แยกตาม SKU").
+- "widgets": build/modify the dashboard to match the question (you get current widgets — change only what's relevant, keep the rest). null = keep current. Pick the RIGHT chart (time->line, compare branches/products->ranked bar, composition->donut for few categories, detail->table). Default: 3-5 KPI tiles + 1 main chart + 1-2 supporting; a simple question may need just 1 KPI/chart. Never add empty charts.
+
+${""}
+Honesty: if scope note says local/partial data, do NOT claim company-wide. If a base is zero, don't state a misleading growth %. Output JSON only.`;
+
+type Spec = { reply?: string; insights?: unknown; suggestions?: unknown; widgets?: unknown };
 type Msg = { role: string; content: string };
 
 function cleanWidgets(raw: unknown): object[] | null {
@@ -38,8 +46,14 @@ function cleanWidgets(raw: unknown): object[] | null {
   return out.length ? out : null;
 }
 function cleanResult(spec: Spec) {
+  const tones = ["ok", "warn", "info"];
+  const insights = Array.isArray(spec.insights)
+    ? spec.insights.map((x) => x as Record<string, unknown>).filter((x) => x && typeof x.text === "string")
+      .map((x) => ({ text: String(x.text).slice(0, 400), tone: tones.includes(String(x.tone)) ? String(x.tone) : "info" })).slice(0, 4)
+    : [];
   return {
     reply: String(spec.reply ?? "").slice(0, 1200),
+    insights,
     suggestions: Array.isArray(spec.suggestions) ? spec.suggestions.map((s) => String(s)).filter(Boolean).slice(0, 4) : [],
     widgets: cleanWidgets(spec.widgets),
   };
@@ -89,7 +103,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "no_api_key" }, { status: 501 });
   }
 
-  const body = (await req.json().catch(() => null)) as { messages?: Msg[]; currentWidgets?: unknown[]; locale?: string } | null;
+  const body = (await req.json().catch(() => null)) as { messages?: Msg[]; currentWidgets?: unknown[]; facts?: unknown; locale?: string } | null;
   const history = (Array.isArray(body?.messages) ? body!.messages : [])
     .filter((m) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string")
     .slice(-10);
@@ -97,7 +111,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "bad_messages" }, { status: 400 });
   }
   const locale = body?.locale ?? "th";
-  const system = `${SYSTEM}\n\nUser locale: ${locale}. Current dashboard widgets (JSON): ${JSON.stringify((body?.currentWidgets ?? []).slice(0, 12))}`;
+  const factsJson = body?.facts ? JSON.stringify(body.facts).slice(0, 9000) : "null";
+  const system = `${SYSTEM}\n\n${metricsBrief()}\n\nUser locale: ${locale}.\nCurrent dashboard widgets (JSON): ${JSON.stringify((body?.currentWidgets ?? []).slice(0, 12))}\n\nFACTS (real pre-computed numbers for the current scope & period — analyze ONLY these):\n${factsJson}`;
 
   try {
     const spec = provider === "deepseek" ? await callDeepSeek(system, history) : await callAnthropic(system, history);
