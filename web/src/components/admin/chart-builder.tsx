@@ -2,10 +2,8 @@
 
 import { useMemo, useState } from "react";
 import { Sparkles, Loader2, Plus, Lightbulb } from "lucide-react";
-import { Modal, Select, Table, Th, Td, EmptyState, Button } from "@/components/ui";
-import { MixDonut, SalesAreaTrend, InsightBars } from "@/components/charts-rich";
-import type { ChartConfig } from "@/components/ui/chart";
-import { formatTHB, formatInt } from "@/lib/money";
+import { Modal, Select, Button } from "@/components/ui";
+import { WidgetBody, fmtMetric } from "@/components/admin/widget-body";
 import {
   computeWidget, METRIC_LABEL, DIM_LABEL,
   type Widget, type Ctx, type Metric, type Dimension, type Viz, type WidgetData,
@@ -16,23 +14,24 @@ import type { Order, Branch } from "@/lib/types";
 const uid = () => Math.random().toString(36).slice(2, 9);
 const METRICS: Metric[] = ["sales", "qty", "gp", "orders", "aov", "discount"];
 const DIMS: Dimension[] = ["branch", "brand", "product", "employee", "channel", "payment", "day", "weekday", "hour"];
-const fmtMetric = (m: Metric, n: number) => (m === "orders" || m === "qty") ? formatInt(n) : formatTHB(n, false);
 
 /** แนะนำชนิดกราฟจากมิติ */
 const suggestViz = (d: Dimension | null | undefined): Viz => !d ? "kpi" : d === "day" ? "line" : d === "hour" || d === "weekday" ? "bar" : d === "channel" || d === "payment" ? "donut" : "bar";
 
-export function ChartBuilder({ open, onClose, onAdd, rows, ctx, branches, facts, locale, L }: {
+export function ChartBuilder({ open, onClose, onAdd, rows, prevRows, ctx, branches, facts, locale, L }: {
   open: boolean; onClose: () => void; onAdd: (w: Widget) => void;
-  rows: Order[]; ctx: Ctx; branches: Branch[]; facts: FactPack;
+  rows: Order[]; prevRows: Order[]; ctx: Ctx; branches: Branch[]; facts: FactPack;
   locale: "th" | "en" | "zh"; L: (th: string, en: string, zh: string) => string;
 }) {
-  const [w, setW] = useState<Widget>({ id: uid(), title: "", viz: "bar", metric: "sales", dimension: "branch", limit: 10 });
+  const [w0, setW] = useState<Widget>({ id: uid(), title: "", viz: "bar", metric: "sales", dimension: "branch", limit: 10 });
   const [compare, setCompare] = useState(true);
   const [aiText, setAiText] = useState("");
   const [aiBusy, setAiBusy] = useState(false);
+  const w = { ...w0, compare: compare && w0.viz !== "heatmap" };
 
   const wr = useMemo(() => (w.branchId ? rows.filter((o) => o.branch_id === w.branchId) : rows), [rows, w.branchId]);
-  const data: WidgetData = useMemo(() => computeWidget(wr, ctx, w, locale), [wr, ctx, w, locale]);
+  const pwr = useMemo(() => (w.branchId ? prevRows.filter((o) => o.branch_id === w.branchId) : prevRows), [prevRows, w.branchId]);
+  const data: WidgetData = useMemo(() => computeWidget(wr, ctx, w, locale, w.compare ? pwr : undefined), [wr, pwr, ctx, w, locale]);
   const mL = METRIC_LABEL[w.metric][locale];
   const patch = (p: Partial<Widget>) => setW((prev) => {
     const next = { ...prev, ...p };
@@ -65,31 +64,15 @@ export function ChartBuilder({ open, onClose, onAdd, rows, ctx, branches, facts,
     setAiBusy(false);
   }
 
-  const cfg: ChartConfig = { value: { label: mL, color: "rgb(var(--chart-1))" } };
-  let preview: React.ReactNode;
-  if (w.viz === "kpi") {
-    preview = (
-      <div className="grid place-items-center h-full">
-        <div className="text-center">
-          <p className="text-[32px] font-bold tnum">{fmtMetric(w.metric, data.total)}</p>
-          {deltaPct != null ? <p className={`text-sm font-medium ${deltaPct >= 0 ? "text-ok" : "text-danger"}`}>{deltaPct >= 0 ? "↑" : "↓"} {Math.abs(deltaPct)}%</p> : null}
-          <p className="text-xs text-muted mt-1">{w.title || mL}</p>
-        </div>
+  const preview = w.viz === "kpi" ? (
+    <div className="grid place-items-center h-full">
+      <div className="text-center">
+        <p className="text-[32px] font-bold tnum">{fmtMetric(w.metric, data.total)}</p>
+        {deltaPct != null ? <p className={`text-sm font-medium ${deltaPct >= 0 ? "text-ok" : "text-danger"}`}>{deltaPct >= 0 ? "↑" : "↓"} {Math.abs(deltaPct)}%</p> : null}
+        <p className="text-xs text-muted mt-1">{w.title || mL}</p>
       </div>
-    );
-  } else if (!data.rows.length) preview = <EmptyState title={L("ไม่มีข้อมูลในช่วง/ตัวกรองนี้", "No data for this range/filter", "无数据")} />;
-  else if (w.viz === "line") preview = <SalesAreaTrend data={data.rows.map((r) => ({ label: r.label, value: r.value }))} config={cfg} valueFormat={(n) => fmtMetric(w.metric, n)} />;
-  else if (w.viz === "donut") {
-    const dc: ChartConfig = Object.fromEntries(data.rows.map((r, i) => [r.key, { label: r.label, color: `rgb(var(--chart-${(i % 5) + 1}))` }]));
-    preview = <MixDonut data={data.rows.map((r) => ({ key: r.key, value: r.value }))} config={dc} />;
-  } else if (w.viz === "table") {
-    preview = (
-      <div className="overflow-auto max-h-[320px]"><Table>
-        <thead><tr><Th>{L("รายการ", "Item", "项目")}</Th><Th align="right">{mL}</Th><Th align="right">{L("ชิ้น", "Units", "件")}</Th></tr></thead>
-        <tbody>{data.rows.map((r) => <tr key={r.key}><Td className="max-w-[260px] truncate">{r.label}</Td><Td align="right" className="tnum font-medium">{fmtMetric(w.metric, r.value)}</Td><Td align="right" className="tnum text-muted">{formatInt(r.qty)}</Td></tr>)}</tbody>
-      </Table></div>
-    );
-  } else preview = <InsightBars data={data.rows.map((r, i) => ({ label: r.label.length > 12 ? r.label.slice(0, 12) + "…" : r.label, value: r.value, highlight: i === 0 }))} config={cfg} valueFormat={(n) => fmtMetric(w.metric, n)} />;
+    </div>
+  ) : <WidgetBody w={w} data={data} locale={locale} L={L} />;
 
   const Field = ({ label, children }: { label: React.ReactNode; children: React.ReactNode }) => <div><label className="block text-[11px] font-medium text-muted mb-1">{label}</label>{children}</div>;
 
@@ -105,9 +88,9 @@ export function ChartBuilder({ open, onClose, onAdd, rows, ctx, branches, facts,
           {w.dimension ? (
             <>
               <Field label={<span className="flex items-center gap-1">{L("รูปแบบกราฟ", "Chart type", "图表")} <span className="text-[10px] text-brand">({L("แนะนำ", "rec.", "推荐")}: {recommended})</span></span>}>
-                <Select value={w.viz} onChange={(e) => patch({ viz: e.target.value as Viz })}><option value="bar">{L("แท่ง", "Bar", "柱状")}</option><option value="donut">{L("โดนัท", "Donut", "环形")}</option><option value="line">{L("เส้น", "Line", "折线")}</option><option value="table">{L("ตาราง", "Table", "表格")}</option></Select>
+                <Select value={w.viz} onChange={(e) => patch({ viz: e.target.value as Viz })}><option value="bar">{L("แท่ง", "Bar", "柱状")}</option><option value="hbar">{L("แท่งแนวนอน", "H-Bar", "横向")}</option><option value="donut">{L("โดนัท", "Donut", "环形")}</option><option value="line">{L("เส้น", "Line", "折线")}</option><option value="heatmap">{L("ฮีตแมป (วัน×ชม.)", "Heatmap", "热力图")}</option><option value="table">{L("ตาราง", "Table", "表格")}</option></Select>
               </Field>
-              <Field label={L("จำกัดอันดับ (Top-N)", "Top-N", "前N")}><Select value={String(w.limit ?? 0)} onChange={(e) => patch({ limit: Number(e.target.value) || undefined })}><option value="0">{L("ทั้งหมด", "All", "全部")}</option>{[5, 10, 15, 20, 30].map((n) => <option key={n} value={n}>{n}</option>)}</Select></Field>
+              {w.viz !== "heatmap" ? <Field label={L("จำกัดอันดับ (Top-N)", "Top-N", "前N")}><Select value={String(w.limit ?? 0)} onChange={(e) => patch({ limit: Number(e.target.value) || undefined })}><option value="0">{L("ทั้งหมด", "All", "全部")}</option>{[5, 10, 15, 20, 30].map((n) => <option key={n} value={n}>{n}</option>)}</Select></Field> : null}
             </>
           ) : null}
           <Field label={L("ฟิลเตอร์สาขา", "Branch filter", "门店筛选")}><Select value={w.branchId ?? ""} onChange={(e) => patch({ branchId: e.target.value || null })}><option value="">{L("ทุกสาขา", "All", "全部")}</option>{branches.map((b) => <option key={b.id} value={b.id}>{locale === "th" ? b.name_th ?? b.name : b.name}</option>)}</Select></Field>

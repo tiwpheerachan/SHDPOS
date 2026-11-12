@@ -7,13 +7,12 @@ import { useSession } from "@/lib/store/session";
 import { useToast } from "@/components/toast-host";
 import { listOrders, listEmployees } from "@/lib/data/repo";
 import type { Order, Employee } from "@/lib/types";
-import { Card, CardHeader, Table, Th, Td, Badge, EmptyState, KpiTile, Select } from "@/components/ui";
+import { Card, CardHeader, Badge, EmptyState, KpiTile, Select } from "@/components/ui";
 import { FilterBar, useAdminScope, useDefaultFilter } from "@/components/admin/filters";
 import { filterOrders } from "@/lib/analytics";
 import { visibleBranchIds, can } from "@/lib/permissions";
-import { formatTHB, formatInt } from "@/lib/money";
-import { MixDonut, SalesAreaTrend, InsightBars } from "@/components/charts-rich";
-import type { ChartConfig } from "@/components/ui/chart";
+import { Sparkline } from "@/components/charts";
+import { WidgetBody, fmtMetric } from "@/components/admin/widget-body";
 import { BorderBeam } from "@/components/ui/border-beam";
 import { ThinkingOrb } from "@/components/ui/thinking-orb";
 import {
@@ -116,15 +115,21 @@ export default function AdminInsightsPage() {
     return map[m]?.deltaPct ?? null;
   };
 
+  const prevRows = useMemo(() => {
+    const pf = new Date(facts.prevPeriod.from).getTime(), pt = new Date(facts.prevPeriod.to).getTime();
+    return scoped.filter((o) => { const t = new Date(o.created_at).getTime(); return t >= pf && t <= pt; });
+  }, [scoped, facts.prevPeriod.from, facts.prevPeriod.to]);
+
   const data = useMemo(() => {
     const m = new Map<string, WidgetData>();
     if (!view) return m;
     for (const w of view.widgets) {
       const wr = w.branchId ? rows.filter((o) => o.branch_id === w.branchId) : rows;
-      m.set(w.id, computeWidget(wr, ctx, w, locale));
+      const pw = w.compare ? (w.branchId ? prevRows.filter((o) => o.branch_id === w.branchId) : prevRows) : undefined;
+      m.set(w.id, computeWidget(wr, ctx, w, locale, pw));
     }
     return m;
-  }, [view, rows, ctx, locale]);
+  }, [view, rows, prevRows, ctx, locale]);
 
   if (employee && !can(employee, "report.employee_perf")) {
     return <div className="p-6"><EmptyState icon={<Sparkles size={26} />} title={L("ไม่มีสิทธิ์ใช้ผู้ช่วย AI", "No AI access", "无 AI 权限")} /></div>;
@@ -256,7 +261,8 @@ export default function AdminInsightsPage() {
                 <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
                   {view.widgets.filter((w) => w.viz === "kpi").map((w) => (
                     <div key={w.id} className="relative group">
-                      <KpiTile label={w.title || METRIC_LABEL[w.metric][locale]} value={fmtMetric(w.metric, data.get(w.id)?.total ?? 0)} delta={kpiDelta(w.metric)} variant="ink" />
+                      <KpiTile label={w.title || METRIC_LABEL[w.metric][locale]} value={fmtMetric(w.metric, data.get(w.id)?.total ?? 0)} delta={kpiDelta(w.metric)} variant="ink"
+                        spark={(() => { const s = data.get(w.id)?.series; return s && s.length > 2 ? <Sparkline values={s} color="rgba(255,255,255,0.55)" height={28} /> : undefined; })()} />
                       <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         <IconBtn onClick={() => setEditId(editId === w.id ? null : w.id)} ink><Pencil size={12} /></IconBtn>
                         <IconBtn onClick={() => removeWidget(w.id)} ink><Trash2 size={12} /></IconBtn>
@@ -270,7 +276,7 @@ export default function AdminInsightsPage() {
               <div className="grid xl:grid-cols-2 gap-4">
                 {view.widgets.filter((w) => w.viz !== "kpi").map((w) => (
                   <div key={w.id} className="relative group">
-                    <WidgetCard widget={w} data={data.get(w.id)} L={L} />
+                    <WidgetCard widget={w} data={data.get(w.id)} locale={locale} L={L} />
                     <div className="absolute top-3 right-3 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                       <IconBtn onClick={() => setEditId(editId === w.id ? null : w.id)}><Pencil size={13} /></IconBtn>
                       <IconBtn onClick={() => removeWidget(w.id)}><Trash2 size={13} /></IconBtn>
@@ -369,12 +375,11 @@ export default function AdminInsightsPage() {
       </div>
 
       <ChartBuilder open={builderOpen} onClose={() => setBuilderOpen(false)} onAdd={addFromBuilder}
-        rows={rows} ctx={ctx} branches={branches} facts={facts} locale={locale} L={L} />
+        rows={rows} prevRows={prevRows} ctx={ctx} branches={branches} facts={facts} locale={locale} L={L} />
     </div>
   );
 }
 
-const fmtMetric = (m: Metric, n: number) => (m === "orders" || m === "qty") ? formatInt(n) : formatTHB(n, false);
 function Dot({ d = 0 }: { d?: number }) { return <i className="w-1.5 h-1.5 rounded-full bg-brand/60" style={{ animation: "shd-typ 1.2s infinite", animationDelay: `${d}s` }} />; }
 function ToolBtn({ onClick, icon, label }: { onClick: () => void; icon: React.ReactNode; label: string }) {
   return <button onClick={onClick} className="h-9 px-2.5 rounded-xl border border-line text-sm hover:bg-surface2 hover:text-brand inline-flex items-center gap-1.5">{icon}<span className="hidden sm:inline">{label}</span></button>;
@@ -424,37 +429,25 @@ function EditPanel({ w, branches, locale, L, onChange, onClose }: {
       <div className="grid grid-cols-2 gap-2">
         <Labeled label={L("ตัววัด", "Metric", "指标")}><Select value={w.metric} onChange={(e) => onChange({ metric: e.target.value as Metric })}>{METRICS.map((m) => <option key={m} value={m}>{METRIC_LABEL[m][locale]}</option>)}</Select></Labeled>
         <Labeled label={L("มิติ", "Dimension", "维度")}><Select value={w.dimension ?? ""} onChange={(e) => { const v = e.target.value; onChange(v ? { dimension: v as Dimension } : { dimension: null, viz: "kpi" }); }}><option value="">{L("รวม (KPI)", "Total (KPI)", "合计")}</option>{DIMS.map((d) => <option key={d} value={d}>{DIM_LABEL[d][locale]}</option>)}</Select></Labeled>
-        {!isKpi ? <Labeled label={L("รูปแบบ", "Chart", "图表")}><Select value={w.viz} onChange={(e) => onChange({ viz: e.target.value as Viz })}><option value="bar">{L("แท่ง", "Bar", "柱状")}</option><option value="donut">{L("โดนัท", "Donut", "环形")}</option><option value="line">{L("เส้น", "Line", "折线")}</option><option value="table">{L("ตาราง", "Table", "表格")}</option></Select></Labeled> : null}
-        {!isKpi ? <Labeled label={L("จำกัดอันดับ", "Top-N", "前N")}><Select value={String(w.limit ?? 0)} onChange={(e) => onChange({ limit: Number(e.target.value) || undefined })}><option value="0">{L("ทั้งหมด", "All", "全部")}</option>{[5, 10, 15, 20, 30].map((n) => <option key={n} value={n}>{n}</option>)}</Select></Labeled> : null}
+        {!isKpi ? <Labeled label={L("รูปแบบ", "Chart", "图表")}><Select value={w.viz} onChange={(e) => onChange({ viz: e.target.value as Viz })}><option value="bar">{L("แท่ง", "Bar", "柱状")}</option><option value="hbar">{L("แท่งแนวนอน", "H-Bar", "横向")}</option><option value="donut">{L("โดนัท", "Donut", "环形")}</option><option value="line">{L("เส้น", "Line", "折线")}</option><option value="heatmap">{L("ฮีตแมป (วัน×ชม.)", "Heatmap", "热力图")}</option><option value="table">{L("ตาราง", "Table", "表格")}</option></Select></Labeled> : null}
+        {!isKpi && w.viz !== "heatmap" ? <Labeled label={L("จำกัดอันดับ", "Top-N", "前N")}><Select value={String(w.limit ?? 0)} onChange={(e) => onChange({ limit: Number(e.target.value) || undefined })}><option value="0">{L("ทั้งหมด", "All", "全部")}</option>{[5, 10, 15, 20, 30].map((n) => <option key={n} value={n}>{n}</option>)}</Select></Labeled> : null}
         <Labeled label={L("ฟิลเตอร์สาขา", "Branch filter", "门店筛选")}><Select value={w.branchId ?? ""} onChange={(e) => onChange({ branchId: e.target.value || null })}><option value="">{L("ทุกสาขา", "All branches", "全部门店")}</option>{branches.map((b) => <option key={b.id} value={b.id}>{locale === "th" ? b.name_th ?? b.name : b.name}</option>)}</Select></Labeled>
       </div>
+      {w.viz !== "heatmap" ? <label className="flex items-center gap-2 text-sm cursor-pointer"><input type="checkbox" checked={!!w.compare} onChange={(e) => onChange({ compare: e.target.checked })} className="accent-brand" />{L("เทียบช่วงก่อนหน้า", "Compare prev period", "对比上期")}</label> : null}
     </div>
   );
 }
 function Labeled({ label, children }: { label: string; children: React.ReactNode }) { return <div><label className="block text-[10px] font-medium text-muted mb-1">{label}</label>{children}</div>; }
 function normalize(w: Widget): Widget { if (!w.dimension) return { ...w, viz: "kpi", dimension: null }; if (w.viz === "kpi") return { ...w, viz: "bar" }; return w; }
 
-function WidgetCard({ widget: w, data, L }: { widget: Widget; data?: WidgetData; L: (th: string, en: string, zh: string) => string }) {
-  const rows = data?.rows ?? [];
-  const mL = METRIC_LABEL[w.metric][L("th", "en", "zh") as "th" | "en" | "zh"];
-  const fmt = (n: number) => fmtMetric(w.metric, n);
-  const config: ChartConfig = { value: { label: mL, color: "rgb(var(--chart-1))" } };
-  let body: React.ReactNode;
-  if (!rows.length) body = <EmptyState title={L("ไม่มีข้อมูล", "No data", "无数据")} />;
-  else if (w.viz === "line") body = <SalesAreaTrend data={rows.map((r) => ({ label: r.label, value: r.value }))} config={config} valueFormat={fmt} />;
-  else if (w.viz === "donut") {
-    const dd = rows.map((r) => ({ key: r.key, value: r.value }));
-    const dc: ChartConfig = Object.fromEntries(rows.map((r, i) => [r.key, { label: r.label, color: `rgb(var(--chart-${(i % 5) + 1}))` }]));
-    body = <MixDonut data={dd} config={dc} />;
-  } else if (w.viz === "table") {
-    body = (
-      <div className="overflow-x-auto"><Table>
-        <thead><tr><Th>{L("รายการ", "Item", "项目")}</Th><Th align="right">{mL}</Th><Th align="right">{L("ชิ้น", "Units", "件")}</Th><Th align="right">{L("บิล", "Bills", "单")}</Th></tr></thead>
-        <tbody>{rows.map((r) => (<tr key={r.key}><Td className="max-w-[200px] truncate">{r.label}</Td><Td align="right" className="tnum font-medium">{fmt(r.value)}</Td><Td align="right" className="tnum text-muted">{formatInt(r.qty)}</Td><Td align="right" className="tnum text-muted">{formatInt(r.orders)}</Td></tr>))}</tbody>
-      </Table></div>
-    );
-  } else {
-    body = <InsightBars data={rows.map((r, i) => ({ label: r.label.length > 10 ? r.label.slice(0, 10) + "…" : r.label, value: r.value, highlight: i === 0 }))} config={config} valueFormat={fmt} />;
-  }
-  return <Card className="p-4"><CardHeader title={w.title || mL} subtitle={data ? `${L("รวม", "Total", "合计")} ${fmt(data.total)}` : undefined} />{body}</Card>;
+function WidgetCard({ widget: w, data, locale, L }: { widget: Widget; data?: WidgetData; locale: "th" | "en" | "zh"; L: (th: string, en: string, zh: string) => string }) {
+  const mL = METRIC_LABEL[w.metric][locale];
+  const dp = w.compare && data && data.totalPrev != null && data.totalPrev !== 0 ? Math.round(((data.total - data.totalPrev) / data.totalPrev) * 1000) / 10 : null;
+  return (
+    <Card className="p-4">
+      <CardHeader title={w.title || mL}
+        subtitle={data ? <span>{L("รวม", "Total", "合计")} {fmtMetric(w.metric, data.total)}{dp != null ? <span className={dp >= 0 ? "text-ok" : "text-danger"}> · {dp >= 0 ? "+" : ""}{dp}% {L("เทียบช่วงก่อน", "vs prev", "对比上期")}</span> : null}</span> : undefined} />
+      <WidgetBody w={w} data={data} locale={locale} L={L} />
+    </Card>
+  );
 }

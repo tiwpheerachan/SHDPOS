@@ -7,7 +7,7 @@ import type { Order, Branch, Employee } from "../types";
 
 export type Metric = "sales" | "qty" | "gp" | "orders" | "aov" | "discount";
 export type Dimension = "branch" | "brand" | "product" | "employee" | "channel" | "payment" | "day" | "weekday" | "hour";
-export type Viz = "kpi" | "bar" | "donut" | "line" | "table";
+export type Viz = "kpi" | "bar" | "hbar" | "donut" | "line" | "table" | "heatmap";
 export type Locale = "th" | "en" | "zh";
 
 export interface Widget {
@@ -18,6 +18,7 @@ export interface Widget {
   dimension?: Dimension | null; // null = KPI รวม
   limit?: number;
   branchId?: string | null; // ฟิลเตอร์รายการ์ด: เจาะสาขาเดียว (ว่าง = ทุกสาขาตามตัวกรองหลัก)
+  compare?: boolean;         // เทียบช่วงก่อนหน้า (แสดงคู่/เดลต้า)
 }
 export interface View {
   id: string;
@@ -28,8 +29,8 @@ export interface View {
 }
 
 export interface Ctx { branches: Branch[]; employees: Employee[]; brands: { id: string; name: string }[] }
-export interface Row { key: string; label: string; value: number; qty: number; gp: number; orders: number }
-export interface WidgetData { rows: Row[]; total: number; metric: Metric }
+export interface Row { key: string; label: string; value: number; qty: number; gp: number; orders: number; prev?: number }
+export interface WidgetData { rows: Row[]; total: number; metric: Metric; totalPrev?: number; series?: number[]; matrix?: number[][]; cols?: string[]; rowsLabel?: string[] }
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 const live = (o: Order) => o.status !== "voided";
@@ -90,75 +91,80 @@ const pick = (a: Acc, m: Metric): number =>
   : m === "orders" ? a.orders.size : m === "discount" ? round2(a.discount)
   : a.orders.size ? round2(a.sales / a.orders.size) : 0;
 
-/** คำนวณ widget จาก orders ตาม metric×dimension */
-export function computeWidget(orders: Order[], ctx: Ctx, w: Widget, l: Locale): WidgetData {
+/** คำนวณ widget จาก orders ตาม metric×dimension (prevOrders = ช่วงก่อน สำหรับเทียบ) */
+export function computeWidget(orders: Order[], ctx: Ctx, w: Widget, l: Locale, prevOrders?: Order[]): WidgetData {
   const metric = w.metric;
-  // KPI รวม (ไม่มี dimension)
-  if (!w.dimension || w.viz === "kpi") {
-    const a: Acc = { label: "", sales: 0, qty: 0, gp: 0, orders: new Set(), discount: 0 };
-    for (const o of orders) {
-      if (!live(o)) continue;
-      a.sales += o.grand_total; a.gp += o.gross_profit; a.discount += o.discount_total; a.orders.add(o.id);
-      for (const it of o.items) a.qty += it.qty;
-    }
-    return { rows: [], total: pick(a, metric), metric };
-  }
-
-  const dim = w.dimension;
-  const map = new Map<string, Acc>();
-  const get = (key: string, label: string) => {
-    let a = map.get(key);
-    if (!a) { a = { label, sales: 0, qty: 0, gp: 0, orders: new Set(), discount: 0 }; map.set(key, a); }
-    return a;
-  };
   const bName = (id: string) => { const b = ctx.branches.find((x) => x.id === id); return b ? (l === "th" ? b.name_th ?? b.name : b.name) : id; };
   const brandName = (id: string) => ctx.brands.find((x) => x.id === id)?.name ?? id;
   const eName = (id: string) => { const e = ctx.employees.find((x) => x.id === id); return e ? (e.nickname ?? e.first_name ?? e.employee_code) : id; };
   const branchBrand = new Map(ctx.branches.map((b) => [b.id, b.brand_id]));
 
-  for (const o of orders) {
-    if (!live(o)) continue;
-    if (dim === "product" || dim === "employee") {
-      for (const it of o.items) {
-        if (dim === "product") {
-          const key = it.sku || it.product_id || it.name;
-          const a = get(key, it.name);
-          a.sales += it.line_total; a.qty += it.qty; a.gp += it.gross_profit; a.orders.add(o.id);
-        } else {
-          const eid = it.salesperson_id ?? o.salesperson_id ?? o.cashier_id;
-          if (!eid) continue;
-          const a = get(eid, eName(eid));
-          a.sales += it.line_total; a.qty += it.qty; a.gp += it.gross_profit; a.orders.add(o.id);
-        }
-      }
-      continue;
-    }
-    let key = "", label = "";
-    if (dim === "branch") { key = o.branch_id; label = bName(o.branch_id); }
-    else if (dim === "brand") { const bid = branchBrand.get(o.branch_id) ?? "—"; key = bid ?? "—"; label = bid ? brandName(bid) : "—"; }
-    else if (dim === "channel") { key = o.channel; label = (CHAN[o.channel] ?? CHAN.other)[l]; }
-    else if (dim === "day") { const d = new Date(o.created_at).toLocaleDateString("en-CA"); key = d; label = new Date(o.created_at).toLocaleDateString(l === "th" ? "th-TH" : l === "zh" ? "zh-CN" : "en-US", { month: "short", day: "numeric" }); }
-    else if (dim === "weekday") { const wd = new Date(o.created_at).getDay(); key = String(wd); label = WEEKDAYS[l][wd]; }
-    else if (dim === "hour") { const h = new Date(o.created_at).getHours(); key = String(h).padStart(2, "0"); label = `${key}:00`; }
-    if (dim === "payment") {
-      for (const p of o.payments) { const a = get(p.method, (PAY[p.method] ?? PAY.other)[l]); a.sales += p.amount; a.orders.add(o.id); }
-      continue;
-    }
-    const a = get(key, label);
-    a.sales += o.grand_total; a.gp += o.gross_profit; a.discount += o.discount_total; a.orders.add(o.id);
-    for (const it of o.items) a.qty += it.qty;
+  // รวมทั้งหมด (สำหรับ KPI/total)
+  const aggAll = (os: Order[]): Acc => {
+    const a: Acc = { label: "", sales: 0, qty: 0, gp: 0, orders: new Set(), discount: 0 };
+    for (const o of os) { if (!live(o)) continue; a.sales += o.grand_total; a.gp += o.gross_profit; a.discount += o.discount_total; a.orders.add(o.id); for (const it of o.items) a.qty += it.qty; }
+    return a;
+  };
+
+  // ── Heatmap: วัน(คอลัมน์) × ชั่วโมง(แถว) ──
+  if (w.viz === "heatmap") {
+    const mat: number[][] = Array.from({ length: 24 }, () => Array(7).fill(0));
+    for (const o of orders) { if (!live(o)) continue; const d = new Date(o.created_at); mat[d.getHours()][d.getDay()] += (metric === "orders" ? 1 : metric === "qty" ? o.items.reduce((s, it) => s + it.qty, 0) : metric === "gp" ? o.gross_profit : metric === "discount" ? o.discount_total : o.grand_total); }
+    const total = pick(aggAll(orders), metric);
+    return { rows: [], total: round2(total), metric, matrix: mat, cols: WEEKDAYS[l], rowsLabel: Array.from({ length: 24 }, (_, h) => `${String(h).padStart(2, "0")}:00`) };
   }
 
-  let rows: Row[] = Array.from(map.entries()).map(([key, a]) => ({
+  // ── KPI รวม + sparkline ──
+  if (!w.dimension || w.viz === "kpi") {
+    const a = aggAll(orders);
+    // series รายวันสำหรับ sparkline
+    const byDay = new Map<string, Acc>();
+    for (const o of orders) { if (!live(o)) continue; const k = new Date(o.created_at).toLocaleDateString("en-CA"); let d = byDay.get(k); if (!d) { d = { label: k, sales: 0, qty: 0, gp: 0, orders: new Set(), discount: 0 }; byDay.set(k, d); } d.sales += o.grand_total; d.gp += o.gross_profit; d.discount += o.discount_total; d.orders.add(o.id); for (const it of o.items) d.qty += it.qty; }
+    const series = Array.from(byDay.entries()).sort((x, y) => x[0].localeCompare(y[0])).map(([, d]) => pick(d, metric)).slice(-30);
+    return { rows: [], total: pick(a, metric), metric, totalPrev: prevOrders ? pick(aggAll(prevOrders), metric) : undefined, series };
+  }
+
+  const dim = w.dimension;
+  // จัดกลุ่มตามมิติ → Map<key, Acc>
+  const groupBy = (os: Order[]): Map<string, Acc> => {
+    const map = new Map<string, Acc>();
+    const get = (key: string, label: string) => { let a = map.get(key); if (!a) { a = { label, sales: 0, qty: 0, gp: 0, orders: new Set(), discount: 0 }; map.set(key, a); } return a; };
+    for (const o of os) {
+      if (!live(o)) continue;
+      if (dim === "product" || dim === "employee") {
+        for (const it of o.items) {
+          if (dim === "product") { const a = get(it.sku || it.product_id || it.name, it.name); a.sales += it.line_total; a.qty += it.qty; a.gp += it.gross_profit; a.orders.add(o.id); }
+          else { const eid = it.salesperson_id ?? o.salesperson_id ?? o.cashier_id; if (!eid) continue; const a = get(eid, eName(eid)); a.sales += it.line_total; a.qty += it.qty; a.gp += it.gross_profit; a.orders.add(o.id); }
+        }
+        continue;
+      }
+      if (dim === "payment") { for (const p of o.payments) { const a = get(p.method, (PAY[p.method] ?? PAY.other)[l]); a.sales += p.amount; a.orders.add(o.id); } continue; }
+      let key = "", label = "";
+      if (dim === "branch") { key = o.branch_id; label = bName(o.branch_id); }
+      else if (dim === "brand") { const bid = branchBrand.get(o.branch_id) ?? "—"; key = bid ?? "—"; label = bid ? brandName(bid) : "—"; }
+      else if (dim === "channel") { key = o.channel; label = (CHAN[o.channel] ?? CHAN.other)[l]; }
+      else if (dim === "day") { key = new Date(o.created_at).toLocaleDateString("en-CA"); label = new Date(o.created_at).toLocaleDateString(l === "th" ? "th-TH" : l === "zh" ? "zh-CN" : "en-US", { month: "short", day: "numeric" }); }
+      else if (dim === "weekday") { const wd = new Date(o.created_at).getDay(); key = String(wd); label = WEEKDAYS[l][wd]; }
+      else if (dim === "hour") { const h = new Date(o.created_at).getHours(); key = String(h).padStart(2, "0"); label = `${key}:00`; }
+      const a = get(key, label); a.sales += o.grand_total; a.gp += o.gross_profit; a.discount += o.discount_total; a.orders.add(o.id);
+      for (const it of o.items) a.qty += it.qty;
+    }
+    return map;
+  };
+
+  const curMap = groupBy(orders);
+  const prevMap = prevOrders ? groupBy(prevOrders) : null;
+  let rows: Row[] = Array.from(curMap.entries()).map(([key, a]) => ({
     key, label: a.label, value: pick(a, metric), qty: round2(a.qty), gp: round2(a.gp), orders: a.orders.size,
+    prev: prevMap ? (prevMap.has(key) ? pick(prevMap.get(key)!, metric) : 0) : undefined,
   }));
-  // เรียง: เวลา→ตามลำดับ, อื่นๆ→ตามค่า
   if (dim === "day") rows.sort((a, b) => a.key.localeCompare(b.key));
   else if (dim === "weekday" || dim === "hour") rows.sort((a, b) => Number(a.key) - Number(b.key));
   else rows.sort((a, b) => b.value - a.value);
   const total = rows.reduce((s, r) => s + r.value, 0);
+  const totalPrev = prevMap ? Array.from(prevMap.values()).reduce((s, a) => s + pick(a, metric), 0) : undefined;
   if (w.limit && w.limit > 0 && dim !== "day" && dim !== "hour" && dim !== "weekday") rows = rows.slice(0, w.limit);
-  return { rows, total: round2(total), metric };
+  return { rows, total: round2(total), metric, totalPrev: totalPrev != null ? round2(totalPrev) : undefined };
 }
 
 // ── parser ในเครื่อง (เผื่อไม่มี LLM) ──────────────────────────────

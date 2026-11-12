@@ -26,6 +26,54 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart";
 
+/** แท่งคู่ เทียบช่วงปัจจุบัน vs ช่วงก่อน (smart comparison) */
+export function CompareBars({ data, labels, valueFormat, className = "h-[240px] w-full" }: {
+  data: { label: string; cur: number; prev: number }[];
+  labels: { cur: string; prev: string };
+  valueFormat?: (n: number) => string;
+  className?: string;
+}) {
+  const config: ChartConfig = { cur: { label: labels.cur, color: "rgb(var(--chart-1))" }, prev: { label: labels.prev, color: "rgb(var(--chart-1) / 0.3)" } };
+  return (
+    <ChartContainer config={config} className={className}>
+      <BarChart data={data} margin={{ top: 8, right: 6, left: 0, bottom: 4 }}>
+        <CartesianGrid vertical={false} strokeDasharray="4 8" />
+        <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} interval="preserveStartEnd" />
+        <YAxis tickLine={false} axisLine={false} width={44} tickFormatter={valueFormat} />
+        <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
+        <ChartLegend content={<ChartLegendContent />} />
+        <Bar dataKey="prev" fill="var(--color-prev)" radius={[4, 4, 0, 0]} />
+        <Bar dataKey="cur" fill="var(--color-cur)" radius={[4, 4, 0, 0]} />
+      </BarChart>
+    </ChartContainer>
+  );
+}
+
+/** แท่งแนวนอนเรียงอันดับ (เหมาะกับชื่อยาว/เปรียบเทียบหลายรายการ) */
+export function RankedBars({ data, valueFormat, compare, className = "w-full" }: {
+  data: { label: string; value: number; prev?: number; highlight?: boolean }[];
+  valueFormat?: (n: number) => string;
+  compare?: boolean;
+  className?: string;
+}) {
+  const config: ChartConfig = { value: { label: "", color: "rgb(var(--chart-1))" }, prev: { label: "", color: "rgb(var(--chart-1) / 0.3)" } };
+  const h = Math.max(160, data.length * (compare ? 40 : 30) + 20);
+  return (
+    <ChartContainer config={config} className={className} style={{ height: h }}>
+      <BarChart data={data} layout="vertical" margin={{ top: 4, right: 12, left: 4, bottom: 4 }}>
+        <CartesianGrid horizontal={false} strokeDasharray="4 8" />
+        <XAxis type="number" tickLine={false} axisLine={false} tickFormatter={valueFormat} />
+        <YAxis type="category" dataKey="label" tickLine={false} axisLine={false} width={110} tick={{ fontSize: 11 }} interval={0} />
+        <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
+        {compare ? <Bar dataKey="prev" fill="rgb(var(--chart-1) / 0.3)" radius={[0, 3, 3, 0]} /> : null}
+        <Bar dataKey="value" radius={[0, 4, 4, 0]}>
+          {data.map((d, i) => <Cell key={i} fill={d.highlight ? "rgb(var(--chart-1))" : "rgb(var(--chart-1) / 0.65)"} />)}
+        </Bar>
+      </BarChart>
+    </ChartContainer>
+  );
+}
+
 /** กราฟเรดาร์เปรียบเทียบหลายสาขา/มิติ */
 export function BranchRadar({
   data,
