@@ -67,6 +67,7 @@ export default function AdminProductsPage() {
           <Table>
             <thead>
               <tr>
+                <Th className="w-14">{L("รูป", "Image", "图")}</Th>
                 <Th>SKU</Th>
                 <Th>{t.admin.products}</Th>
                 <Th>{t.common.brand}</Th>
@@ -83,6 +84,14 @@ export default function AdminProductsPage() {
                 const gp = base > 0 ? ((base - p.cost) / base) * 100 : 0;
                 return (
                   <tr key={p.id} className="hover:bg-surface2/60">
+                    <Td>
+                      <div className="w-11 h-11 rounded-lg border border-line bg-surface2 overflow-hidden grid place-items-center shrink-0" title={p.image_url ? undefined : L("ยังไม่มีรูป", "No image yet", "暂无图片")}>
+                        {p.image_url
+                          // eslint-disable-next-line @next/next/no-img-element
+                          ? <img src={p.image_url} alt={p.name_th} className="w-full h-full object-cover" />
+                          : <Package size={16} className="text-muted/40" />}
+                      </div>
+                    </Td>
                     <Td className="font-mono text-[11px] text-muted">{p.sku}</Td>
                     <Td>
                       <p className="text-xs font-medium">{pick({ th: p.name_th, en: p.name_en, zh: p.name_zh })}</p>
