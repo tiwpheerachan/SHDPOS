@@ -241,6 +241,10 @@ export async function listTransfersForBranch(branchId: string): Promise<Transfer
 export async function getTransfer(id: string): Promise<Transfer | undefined> {
   return db().transfers.get(id);
 }
+/** ใบโอนทั้งหมด (สำหรับหน้า admin monitor — กรองด้วย visibleBranchIds ฝั่ง UI) */
+export async function listAllTransfers(): Promise<Transfer[]> {
+  return db().transfers.reverse().sortBy("created_at");
+}
 /** timeline ของใบโอน — จาก audit (ref_no = transfer_no) เรียงตามเวลา */
 export async function listTransferTimeline(transferNo: string): Promise<AuditEntry[]> {
   const all = await db().audit.toArray();

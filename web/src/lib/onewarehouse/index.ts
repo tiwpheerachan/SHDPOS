@@ -4,6 +4,7 @@
 // =====================================================================
 export {
   listTransfersForBranch as owList,
+  listAllTransfers as owListAll,
   getTransfer as owGet,
   listTransferTimeline as owTimeline,
   createTransfer as owCreate,
