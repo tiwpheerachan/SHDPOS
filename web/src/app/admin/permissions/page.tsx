@@ -7,7 +7,8 @@ import { useSession } from "@/lib/store/session";
 import { useToast } from "@/components/toast-host";
 import { listBranches } from "@/lib/data/repo";
 import type { Branch, DataScope, EmployeeRole, PermissionEffect } from "@/lib/types";
-import { ROLE_LABEL, ROLE_MATRIX, can, type PermissionKey } from "@/lib/permissions";
+import { ROLE_LABEL, can, type PermissionKey } from "@/lib/permissions";
+import { PERM_GROUPS, PERM_LABEL, STATE_META, baseEffect, ALL_KEYS, CYCLE, type FourState } from "@/lib/permissions-ui";
 import { Button, Card, Input, Field, Select, Table, Th, Td, Badge, Modal, EmptyState } from "@/components/ui";
 
 const ROLES: EmployeeRole[] = ["staff", "supervisor", "manager", "brand_admin", "hq", "auditor", "owner"];
@@ -18,60 +19,6 @@ const SCOPES: { v: DataScope; th: string; en: string; zh: string }[] = [
   { v: "brand", th: "แบรนด์ที่ระบุ", en: "Specific brands", zh: "指定品牌" },
   { v: "company", th: "ทั้งบริษัท", en: "Whole company", zh: "整个公司" },
 ];
-
-const PERM_LABEL: Record<string, { th: string; en: string; zh: string }> = {
-  "pos.sell": { th: "ขายสินค้า", en: "Sell", zh: "销售" },
-  "pos.price_override": { th: "แก้ราคา", en: "Override price", zh: "改价" },
-  "pos.void": { th: "ยกเลิกบิล", en: "Void bill", zh: "作废单据" },
-  "pos.reprint": { th: "พิมพ์ซ้ำ", en: "Reprint", zh: "重新打印" },
-  "pos.open_drawer": { th: "เปิดลิ้นชัก", en: "Open drawer", zh: "打开钱箱" },
-  "pos.quotation": { th: "ใบเสนอราคา", en: "Quotation", zh: "报价单" },
-  "return.create": { th: "รับคืนสินค้า", en: "Accept return", zh: "受理退货" },
-  "return.approve": { th: "อนุมัติคืน", en: "Approve return", zh: "审批退货" },
-  "inventory.view": { th: "ดูสต็อก", en: "View stock", zh: "查看库存" },
-  "inventory.adjust": { th: "ปรับสต็อก", en: "Adjust stock", zh: "库存调整" },
-  "inventory.count": { th: "นับสต็อก", en: "Count stock", zh: "盘点" },
-  "transfer.request": { th: "ขอโอนย้าย", en: "Request transfer", zh: "申请调货" },
-  "transfer.approve": { th: "อนุมัติโอน", en: "Approve transfer", zh: "审批调货" },
-  "transfer.receive": { th: "รับของโอน", en: "Receive transfer", zh: "接收调货" },
-  "shift.open": { th: "เปิดกะ", en: "Open shift", zh: "开班" },
-  "shift.close": { th: "ปิดกะ", en: "Close shift", zh: "交班" },
-  "shift.force_close": { th: "ปิดกะแทน", en: "Force close shift", zh: "强制交班" },
-  "cash.adjust": { th: "ปรับเงินสด", en: "Adjust cash", zh: "现金调整" },
-  "report.employee_perf": { th: "ดู performance", en: "View performance", zh: "查看绩效" },
-  "report.cost": { th: "ดูต้นทุน", en: "View cost", zh: "查看成本" },
-  "report.gross_profit": { th: "ดูกำไร", en: "View profit", zh: "查看利润" },
-  "admin.employee_manage": { th: "จัดการพนักงาน", en: "Manage employees", zh: "管理员工" },
-  "admin.permission_manage": { th: "กำหนดสิทธิ์ (แอดมิน)", en: "Manage permissions (admin)", zh: "权限管理（管理员）" },
-  "admin.product_manage": { th: "จัดการสินค้า", en: "Manage products", zh: "管理商品" },
-  "admin.branch_manage": { th: "จัดการสาขา", en: "Manage branches", zh: "管理门店" },
-  "admin.settings": { th: "ตั้งค่าระบบ", en: "System settings", zh: "系统设置" },
-  "audit.view": { th: "ดู audit log", en: "View audit log", zh: "查看审计日志" },
-  "customer.manage": { th: "จัดการลูกค้า", en: "Manage customers", zh: "管理客户" },
-  "tax.issue_full": { th: "ออกใบกำกับเต็มรูป", en: "Issue full tax invoice", zh: "开具增值税专用发票" },
-};
-
-const PERM_GROUPS: { th: string; en: string; zh: string; keys: PermissionKey[] }[] = [
-  { th: "ขายหน้าร้าน", en: "Store sales", zh: "门店销售", keys: ["pos.sell", "pos.price_override", "pos.void", "pos.reprint", "pos.open_drawer", "pos.quotation"] },
-  { th: "คืนสินค้า", en: "Returns", zh: "退货", keys: ["return.create", "return.approve"] },
-  { th: "สต็อก", en: "Stock", zh: "库存", keys: ["inventory.view", "inventory.adjust", "inventory.count"] },
-  { th: "โอนย้าย", en: "Transfers", zh: "调货", keys: ["transfer.request", "transfer.approve", "transfer.receive"] },
-  { th: "กะ & เงินสด", en: "Shift & cash", zh: "班次与现金", keys: ["shift.open", "shift.close", "shift.force_close", "cash.adjust"] },
-  { th: "รายงาน", en: "Reports", zh: "报表", keys: ["report.employee_perf", "report.cost", "report.gross_profit"] },
-  { th: "แอดมิน", en: "Admin", zh: "管理", keys: ["admin.employee_manage", "admin.permission_manage", "admin.product_manage", "admin.branch_manage", "admin.settings", "audit.view"] },
-  { th: "อื่นๆ", en: "Others", zh: "其他", keys: ["customer.manage", "tax.issue_full"] },
-];
-
-type FourState = "inherit" | PermissionEffect;
-const STATE_META: Record<FourState, { th: string; en: string; zh: string }> = {
-  inherit: { th: "ตาม role", en: "By role", zh: "按角色" },
-  allow: { th: "อนุญาต", en: "Allow", zh: "允许" },
-  approval: { th: "อนุมัติก่อน", en: "Needs approval", zh: "需审批" },
-  deny: { th: "ห้าม", en: "Deny", zh: "禁止" },
-};
-function baseEffect(role: EmployeeRole, key: PermissionKey): PermissionEffect {
-  return ROLE_MATRIX[role]?.[key]?.effect ?? "deny";
-}
 
 interface UserRow {
   id: string; employee_code: string; email: string | null; display_name: string; nickname: string | null;
@@ -411,9 +358,6 @@ export default function AdminUsersUnifiedPage() {
 }
 
 // ── ตารางสิทธิ (คน × สิทธิ) — คลิกช่องวน: ตาม role → อนุญาต → ห้าม → ตาม role ──
-const ALL_KEYS: PermissionKey[] = PERM_GROUPS.flatMap((g) => g.keys);
-const CYCLE: Record<FourState, FourState> = { inherit: "allow", allow: "deny", deny: "inherit", approval: "inherit" };
-
 function PermissionMatrix({ users, locale, L, onToggle }: {
   users: UserRow[];
   locale: "th" | "en" | "zh";

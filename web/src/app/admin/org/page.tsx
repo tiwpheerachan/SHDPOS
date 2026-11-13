@@ -1,22 +1,27 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Network, Building2, Plus, Pencil, Trash2, UserPlus, Search, Check, ChevronDown, RefreshCw, Sparkles, ShieldCheck } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { motion } from "framer-motion";
+import { Network, Plus, Pencil, Trash2, UserPlus, Search, Check, ChevronDown, RefreshCw, Sparkles, ShieldCheck, ChevronLeft, Users, GripVertical } from "lucide-react";
 import clsx from "clsx";
 import { useI18n } from "@/lib/i18n/provider";
 import { useSession } from "@/lib/store/session";
 import { Card, CardHeader, Avatar, Button, Select, Field, Modal, EmptyState, Badge } from "@/components/ui";
 import { useAdminScope } from "@/components/admin/filters";
-import { ROLE_LABEL, visibleBranchIds } from "@/lib/permissions";
+import { ROLE_LABEL, visibleBranchIds, can } from "@/lib/permissions";
+import { TeamFolders } from "@/components/admin/team-folders";
+import { PersonPermissionDrawer } from "@/components/admin/person-permission-drawer";
+import { listEmployees, listBrands } from "@/lib/data/repo";
+import type { Employee, Brand } from "@/lib/types";
 import { useToast } from "@/components/toast-host";
 import { loadOrg, upsertOrg, deleteOrg, type OrgEmp, type OrgPos } from "@/lib/data/org";
 import { refreshDirectory } from "@/lib/data/repo";
 import { positionLabel, searchPositions, type Locale } from "@/lib/positions";
 import { jobTitleToPositionCode } from "@/lib/sso/map-central";
-import { TeamDirectory, type DirMember } from "@/components/admin/team-directory";
 import { BorderBeam } from "@/components/ui/border-beam";
 import type { EmployeeRole } from "@/lib/types";
 
+// สีพื้น pill ตำแหน่ง (ตาม role) — ใช้ในรายชื่อพนักงานในร้าน
 const ROLE_TONE: Record<string, string> = {
   staff: "rgb(var(--c-lavender))",
   supervisor: "rgb(var(--c-aqua))",
@@ -26,6 +31,7 @@ const ROLE_TONE: Record<string, string> = {
   auditor: "rgb(var(--c-surface-2))",
   owner: "rgb(var(--c-brand) / 0.22)",
 };
+
 
 interface TreeNode { emp: OrgEmp; pos: OrgPos | null; children: TreeNode[] }
 
@@ -47,6 +53,50 @@ export default function AdminOrgPage() {
   const [loading, setLoading] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);   // employee_id กำลังแก้
   const [addOpen, setAddOpen] = useState(false);
+  const [view, setView] = useState<"folders" | "chart">("folders"); // landing = โฟลเดอร์
+  const [allEmps, setAllEmps] = useState<Employee[]>([]);
+  const [brandList, setBrandList] = useState<Brand[]>([]);
+  const [permPerson, setPermPerson] = useState<Employee | null>(null);
+  const [pendingAdd, setPendingAdd] = useState<OrgEmp | null>(null); // คนที่สาขา Lark ไม่ตรง รอยืนยัน
+  const canManage = can(employee, "admin.employee_manage");
+  // ความกว้างคอลัมน์ซ้าย (ผังตำแหน่ง) — default ใหญ่กว่า, ลากปรับได้
+  const [leftPct, setLeftPct] = useState(62);
+  const splitRef = useRef<HTMLDivElement>(null);
+  const startResize = useCallback((e: React.PointerEvent) => {
+    e.preventDefault();
+    const el = splitRef.current;
+    if (!el) return;
+    const move = (ev: PointerEvent) => {
+      const r = el.getBoundingClientRect();
+      const pct = ((ev.clientX - r.left) / r.width) * 100;
+      setLeftPct(Math.min(78, Math.max(32, pct)));
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      document.body.style.userSelect = "";
+    };
+    document.body.style.userSelect = "none";
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  }, []);
+
+  useEffect(() => {
+    void listEmployees().then(setAllEmps);
+    void listBrands().then(setBrandList);
+  }, []);
+
+  // คลิกโฟลเดอร์ (ร้าน) → เข้าผังองค์กรของร้านนั้น; ถ้าคลิกการ์ดคน → เปิดตั้งสิทธิ์เลย
+  const openStore = useCallback((bid: string | null, person?: Employee) => {
+    if (bid) setBranchId(bid);
+    setView("chart");
+    if (person) setPermPerson(person);
+  }, []);
+  // คลิกพนักงานในผัง → เปิดแผงตั้งสิทธิ์ (หาข้อมูลเต็มจาก allEmps)
+  const pickPerson = useCallback((empId: string) => {
+    const e = allEmps.find((x) => x.id === empId);
+    if (e) setPermPerson(e);
+  }, [allEmps]);
 
   useEffect(() => { if (!branchId && shopBranches.length) setBranchId(shopBranches[0].id); }, [shopBranches, branchId]);
 
@@ -69,6 +119,18 @@ export default function AdminOrgPage() {
   const posByEmp = useMemo(() => new Map(positions.map((p) => [p.employee_id, p])), [positions]);
   const positioned = useMemo(() => emps.filter((e) => posByEmp.has(e.id)), [emps, posByEmp]);
   const unassigned = useMemo(() => emps.filter((e) => !posByEmp.has(e.id)), [emps, posByEmp]);
+
+  // พนักงานในร้านที่เปิดอยู่ = ผูกสาขา (home_branch/branch_ids) หรืออยู่ในผังตำแหน่งของสาขานี้
+  // รวมสองแบบให้ "คนในร้านนี้" ตรงกับผังองค์กร — โชว์ใน chart + คลิกตั้งสิทธิ์
+  const storeStaff = useMemo(() => {
+    const active = allEmps.filter((e) => e.status === "active");
+    if (branchId) return active.filter((e) => e.home_branch_id === branchId || (e.branch_ids ?? []).includes(branchId) || posByEmp.has(e.id));
+    // ทีมส่วนกลาง (ไม่ผูกร้านไหน)
+    const assigned = new Set(
+      shopBranches.flatMap((b) => active.filter((e) => e.home_branch_id === b.id || (e.branch_ids ?? []).includes(b.id)).map((e) => e.id))
+    );
+    return active.filter((e) => !assigned.has(e.id));
+  }, [allEmps, branchId, shopBranches, posByEmp]);
 
   // สร้างต้นไม้จาก reports_to (root = ไม่มีหัวหน้า หรือหัวหน้าไม่อยู่ในผัง)
   const roots = useMemo<TreeNode[]>(() => {
@@ -115,25 +177,29 @@ export default function AdminOrgPage() {
   const branchLabel = (b: { name_th?: string | null; name: string }) => (locale === "th" ? b.name_th ?? b.name : b.name);
   const editEmp = editId ? emps.find((e) => e.id === editId) ?? null : null;
 
-  // ── ข้อมูลการ์ดไดเรกทอรีทีม ──
-  const toDir = (e: OrgEmp, inChart: boolean): DirMember => {
-    const p = posByEmp.get(e.id);
-    return {
-      id: e.id,
-      name: e.name,
-      photo_url: e.photo_url,
-      roleLabel: roleLabel(e.role),
-      sub: inChart && p?.title ? posLabel(p.title) : (inChart ? L("อยู่ในผัง", "In chart", "在架构中") : L("ยังไม่จัดผัง", "Unassigned", "未安排")),
-      tone: ROLE_TONE[e.role],
-    };
+  // ── เพิ่มคนเข้าผังของสาขานี้ + ตรวจสาขาที่ผูกใน Lark ──
+  const curStoreName = useMemo(() => {
+    const b = shopBranches.find((x) => x.id === branchId);
+    return b ? branchLabel(b) : "";
+  }, [shopBranches, branchId]); // eslint-disable-line react-hooks/exhaustive-deps
+  // สาขาใน Lark (central_branch) ไม่ตรงกับสาขาที่กำลังจะเพิ่มเข้าไหม
+  const larkBranchMismatch = (e: OrgEmp) => {
+    const cb = (e.central_branch ?? "").trim();
+    if (!cb || !curStoreName) return false;
+    const norm = (s: string) => s.toLowerCase().replace(/\s+/g, "");
+    const a = norm(cb), b = norm(curStoreName);
+    return !(a.includes(b) || b.includes(a));
   };
-  const dirFeatured = positioned.map((e) => toDir(e, true));
-  const dirAll = emps.map((e) => toDir(e, posByEmp.has(e.id)));
-  async function handlePick(id: string) {
-    if (posByEmp.has(id)) { setEditId(id); return; }
-    await savePos(id, { title: "", reports_to: null });
-    setEditId(id);
-  }
+  const doAddToChart = async (e: OrgEmp) => {
+    await savePos(e.id, { title: "", reports_to: null });
+    setPendingAdd(null);
+    setAddOpen(false);
+    setEditId(e.id); // เปิดแผงตั้งตำแหน่ง/หัวหน้า (เติมค่าจาก Lark อัตโนมัติ)
+  };
+  const tryAddToChart = (e: OrgEmp) => {
+    if (larkBranchMismatch(e)) setPendingAdd(e); // ถาม "แน่ใจไหมว่าจะลงสาขานี้"
+    else void doAddToChart(e);
+  };
 
   // union_id → employee id (ไว้แปลงหัวหน้าจาก SSO)
   const unionToId = useMemo(() => {
@@ -192,6 +258,14 @@ export default function AdminOrgPage() {
       {/* หัว + เลือกสาขา */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2.5">
+          {view === "chart" ? (
+            <button
+              onClick={() => setView("folders")}
+              className="inline-flex items-center gap-1 h-9 px-2.5 rounded-xl border border-line text-sm text-muted hover:text-brand hover:bg-surface2 transition-colors"
+            >
+              <ChevronLeft size={15} /> {L("โฟลเดอร์ทีม", "Team folders", "团队文件夹")}
+            </button>
+          ) : null}
           <span className="w-9 h-9 rounded-xl bg-brand/12 grid place-items-center"><Network size={18} className="text-brand" /></span>
           <div>
             <h1 className="text-lg font-semibold tracking-tight">{L("ผังองค์กร", "Org chart", "组织架构")}</h1>
@@ -211,68 +285,136 @@ export default function AdminOrgPage() {
         </div>
       </div>
 
-      {/* เลือกสาขา (ชิป) */}
-      <div className="flex gap-2 overflow-x-auto pb-1">
-        {shopBranches.map((b) => (
-          <button
-            key={b.id}
-            onClick={() => setBranchId(b.id)}
-            className={`shrink-0 inline-flex items-center gap-1.5 h-9 px-3 rounded-xl text-sm font-medium border transition-colors ${branchId === b.id ? "bg-brand text-brandInk border-brand" : "bg-surface border-line text-muted hover:text-ink hover:bg-surface2"}`}
-          >
-            <Building2 size={14} /> {branchLabel(b)}
-          </button>
-        ))}
-        {!shopBranches.length ? <p className="text-sm text-muted">{L("ไม่มีสาขาที่คุณดูแล", "No branches in your scope", "没有您负责的门店")}</p> : null}
-      </div>
-
-      <div className="grid xl:grid-cols-[minmax(0,1fr)_440px] gap-4 items-start">
-      <Card>
-        <CardHeader
-          title={L("โครงสร้างทีม", "Team structure", "团队结构")}
-          subtitle={`${positioned.length} ${L("ตำแหน่ง", "positions", "个职位")}${unassigned.length ? ` · ${unassigned.length} ${L("ยังไม่จัดผัง", "unassigned", "未安排")}` : ""}`}
-        />
-        <div className="p-4 overflow-x-auto">
-          {loading ? (
-            <p className="text-sm text-muted py-10 text-center">{L("กำลังโหลด…", "Loading…", "加载中…")}</p>
-          ) : roots.length ? (
-            <div className="shd-org min-w-max mx-auto">
-              <style>{`
-                .shd-org ul { display:flex; justify-content:center; list-style:none; margin:0; padding:24px 0 0; position:relative; }
-                .shd-org li { position:relative; padding:24px 10px 0; }
-                .shd-org li::before, .shd-org li::after { content:''; position:absolute; top:0; right:50%; width:50%; height:24px; border-top:2px solid rgb(var(--c-line)); }
-                .shd-org li::after { right:auto; left:50%; border-left:2px solid rgb(var(--c-line)); }
-                .shd-org li:only-child::before, .shd-org li:only-child::after { display:none; }
-                .shd-org li:first-child::before, .shd-org li:last-child::after { border:0; }
-                .shd-org li:last-child::before { border-right:2px solid rgb(var(--c-line)); }
-                .shd-org ul ul::before { content:''; position:absolute; top:0; left:50%; width:0; height:24px; border-left:2px solid rgb(var(--c-line)); }
-                .shd-org > ul { padding-top:0; }
-                .shd-org > ul > li:only-child { padding-top:0; }
-              `}</style>
-              <OrgLevel nodes={roots} onEdit={setEditId} roleLabel={roleLabel} posLabel={posLabel} />
+      {view === "folders" ? (
+        <TeamFolders branches={shopBranches} brands={brandList} employees={allEmps} locale={locale} L={L} onOpenStore={openStore} />
+      ) : (<>
+      {/* กล่องเนื้อหาร้าน — พื้นหลัง dot เหมือนหน้าโฟลเดอร์ */}
+      <div
+        className="rounded-2xl border border-line p-3 sm:p-4 space-y-3"
+        style={{ backgroundImage: "radial-gradient(rgb(var(--c-muted) / 0.2) 1px, transparent 1.4px)", backgroundSize: "20px 20px" }}
+      >
+        {(() => {
+          const hasTree = !loading && roots.length > 0;
+          const storeName = (() => { const cb = shopBranches.find((b) => b.id === branchId); return cb ? branchLabel(cb) : L("ทีมส่วนกลาง", "Central team", "中央团队"); })();
+          // การ์ดรายชื่อ + ตั้งสิทธิ์ (สไตล์ Access Manager)
+          const roster = (
+            <Card className="h-full">
+              <div className="flex items-center justify-between gap-3 p-4 pb-3 border-b border-line/60">
+                <div className="flex items-center gap-3 min-w-0">
+                  <span className="w-10 h-10 rounded-xl bg-brand/12 grid place-items-center shrink-0"><ShieldCheck size={18} className="text-brand" /></span>
+                  <div className="min-w-0">
+                    <h2 className="text-base font-semibold leading-tight truncate">{storeName}</h2>
+                    <p className="text-xs text-muted truncate">{L("คลิกคนเพื่อกำหนดสิทธิ์การเข้าถึง", "Click a person to set access", "点击设置访问权限")}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 text-muted shrink-0"><Users size={15} /><span className="text-xs whitespace-nowrap">{storeStaff.length} {L("คน", "members", "人")}</span></div>
+              </div>
+              <div className="px-4 pb-3 pt-2">
+                {storeStaff.length ? (
+                  <motion.div
+                    initial="hidden"
+                    animate="visible"
+                    variants={{ visible: { transition: { staggerChildren: 0.04 } } }}
+                    className={`${hasTree ? "space-y-0.5" : "grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-0.5"}`}
+                  >
+                    {storeStaff.map((e) => {
+                      const nm = [e.first_name, e.last_name].filter(Boolean).join(" ").trim() || e.employee_code;
+                      const nOv = Object.keys(e.permission_overrides ?? {}).length;
+                      const pos = posByEmp.get(e.id);
+                      const sub = pos?.title ? posLabel(pos.title) : (ROLE_LABEL[e.role]?.[locale] ?? e.role);
+                      return (
+                        <motion.button
+                          key={e.id}
+                          type="button"
+                          onClick={() => pickPerson(e.id)}
+                          variants={{ hidden: { opacity: 0, x: 10, y: 15 }, visible: { opacity: 1, x: 0, y: 0 } }}
+                          transition={{ type: "spring", stiffness: 400, damping: 35, mass: 0.5 }}
+                          className="flex items-center w-full text-left group py-2.5 px-2 -mx-1 rounded-xl border-b border-line/40 last:border-0 hover:bg-surface2/60 transition-colors"
+                        >
+                          <Avatar name={nm} src={e.photo_url} size={44} className="mr-3 shrink-0" />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold truncate leading-tight">{nm}</p>
+                            <p className="text-xs text-muted truncate mt-0.5 leading-tight">{sub}</p>
+                          </div>
+                          {nOv ? <Badge tone="brand" className="mr-1.5 shrink-0">{nOv}</Badge> : null}
+                          <span
+                            className="shrink-0 text-[10px] font-semibold tracking-wide px-2.5 py-1 rounded-full border border-line/60 text-ink/80 whitespace-nowrap max-w-[110px] truncate"
+                            style={{ background: ROLE_TONE[e.role] }}
+                          >
+                            {ROLE_LABEL[e.role]?.[locale] ?? e.role}
+                          </span>
+                        </motion.button>
+                      );
+                    })}
+                  </motion.div>
+                ) : (
+                  <EmptyState title={L("ยังไม่มีพนักงานผูกกับร้านนี้", "No staff linked to this store", "此门店暂无绑定员工")} />
+                )}
+              </div>
+            </Card>
+          );
+          if (!hasTree) return roster;
+          const tree = (
+            <Card className="h-full">
+              <CardHeader
+                title={L("โครงสร้างทีม (ผังตำแหน่ง)", "Team structure", "团队结构")}
+                subtitle={`${positioned.length} ${L("ตำแหน่ง", "positions", "个职位")}${unassigned.length ? ` · ${unassigned.length} ${L("ยังไม่จัดผัง", "unassigned", "未安排")}` : ""}`}
+              />
+              <div className="p-4 overflow-x-auto">
+                <div className="shd-org min-w-max mx-auto">
+                  <style>{`
+                    .shd-org ul { display:flex; justify-content:center; list-style:none; margin:0; padding:24px 0 0; position:relative; }
+                    .shd-org li { position:relative; padding:24px 10px 0; }
+                    .shd-org li::before, .shd-org li::after { content:''; position:absolute; top:0; right:50%; width:50%; height:24px; border-top:2px solid rgb(var(--c-line)); }
+                    .shd-org li::after { right:auto; left:50%; border-left:2px solid rgb(var(--c-line)); }
+                    .shd-org li:only-child::before, .shd-org li:only-child::after { display:none; }
+                    .shd-org li:first-child::before, .shd-org li:last-child::after { border:0; }
+                    .shd-org li:last-child::before { border-right:2px solid rgb(var(--c-line)); }
+                    .shd-org ul ul::before { content:''; position:absolute; top:0; left:50%; width:0; height:24px; border-left:2px solid rgb(var(--c-line)); }
+                    .shd-org > ul { padding-top:0; }
+                    .shd-org > ul > li:only-child { padding-top:0; }
+                  `}</style>
+                  <OrgLevel nodes={roots} onEdit={setEditId} onPick={pickPerson} roleLabel={roleLabel} posLabel={posLabel} />
+                </div>
+              </div>
+            </Card>
+          );
+          // สองกรอบแนวเดียวกัน (ผังตำแหน่งกว้างกว่า default) · ลากตัวคั่นปรับความกว้างได้
+          return (
+            <div ref={splitRef} className="flex flex-col lg:flex-row items-stretch gap-3 lg:gap-0" style={{ "--lw": `${leftPct}%` } as CSSProperties}>
+              <div className="w-full lg:w-[var(--lw)] lg:shrink-0 min-w-0">{tree}</div>
+              <div
+                onPointerDown={startResize}
+                role="separator"
+                aria-orientation="vertical"
+                title={L("ลากเพื่อปรับความกว้าง", "Drag to resize", "拖动调整宽度")}
+                className="hidden lg:flex items-center justify-center w-4 shrink-0 cursor-col-resize group self-stretch"
+              >
+                <div className="w-5 h-12 rounded-full bg-line/50 group-hover:bg-brand/40 grid place-items-center transition-colors">
+                  <GripVertical size={14} className="text-muted group-hover:text-brand transition-colors" />
+                </div>
+              </div>
+              <div className="w-full lg:flex-1 min-w-0">{roster}</div>
             </div>
-          ) : (
-            <EmptyState
-              title={L("ยังไม่มีผังสำหรับสาขานี้", "No chart for this branch yet", "此门店暂无架构")}
-              body={unassigned.length ? L("กด ‘เพิ่มคนเข้าผัง’ เพื่อเริ่มสร้าง", "Click ‘Add to chart’ to start", "点击“添加成员”开始") : L("ยังไม่มีพนักงานในสาขานี้", "No staff at this branch", "此门店暂无员工")}
-            />
-          )}
-        </div>
-      </Card>
-
-      {/* การ์ดไดเรกทอรีทีม (แอนิเมชัน) */}
-      <TeamDirectory
-        title={L("ในผังองค์กร", "In org chart", "架构内")}
-        featured={dirFeatured}
-        all={dirAll}
-        featuredCount={positioned.length}
-        directoryTitle={L("ไดเรกทอรีพนักงาน", "Staff directory", "员工目录")}
-        directorySub={`${emps.length} ${L("คนในระบบ", "in the system", "人")}`}
-        searchPlaceholder={L("ค้นหาพนักงาน…", "Search staff…", "搜索员工…")}
-        emptyFeatured={L("ยังไม่มีใครในผัง — แตะพนักงานด้านล่างเพื่อเพิ่ม", "No one in the chart — tap staff below to add", "架构中暂无人员 — 点击下方员工添加")}
-        onPick={handlePick}
-        onAdd={unassigned.length ? () => setAddOpen(true) : undefined}
-      />
+          );
+        })()}
       </div>
+      </>)}
+
+      {/* แผงขวา: ตั้งสิทธิ์รายคน (จากผังองค์กร) */}
+      <PersonPermissionDrawer
+        person={permPerson}
+        onClose={() => setPermPerson(null)}
+        canManage={canManage}
+        locale={locale}
+        L={L}
+        branches={branches}
+        footer={permPerson ? (
+          <Button variant="ghost" onClick={() => { const id = permPerson.id; setPermPerson(null); setEditId(id); }}>
+            <Pencil size={14} /> {L("แก้ตำแหน่งในผัง", "Edit position", "编辑职位")}
+          </Button>
+        ) : undefined}
+      />
 
       {/* Modal: เพิ่มคนเข้าผัง */}
       <Modal open={addOpen} onClose={() => setAddOpen(false)} size="sm" title={L("เพิ่มคนเข้าผัง", "Add to chart", "添加成员")}>
@@ -285,14 +427,15 @@ export default function AdminOrgPage() {
                 {unassigned.map((e) => (
                   <button
                     key={e.id}
-                    onClick={async () => { await savePos(e.id, { title: "", reports_to: null }); setAddOpen(false); setEditId(e.id); }}
+                    onClick={() => tryAddToChart(e)}
                     className="flex items-center gap-3 p-2.5 rounded-xl border border-line hover:bg-surface2 text-left transition-colors"
                   >
                     <Avatar name={e.name} src={e.photo_url} size={34} />
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium truncate">{e.name}</p>
-                      <p className="text-[11px] text-muted truncate">{e.code} · {roleLabel(e.role)}</p>
+                      <p className="text-[11px] text-muted truncate">{e.code} · {roleLabel(e.role)}{e.central_branch ? ` · ${e.central_branch}` : ""}</p>
                     </div>
+                    {e.central_branch && larkBranchMismatch(e) ? <span className="text-[10px] text-warn shrink-0">{L("ต่างสาขา", "Diff. branch", "跨门店")}</span> : null}
                     <Plus size={16} className="text-brand shrink-0" />
                   </button>
                 ))}
@@ -343,6 +486,30 @@ export default function AdminOrgPage() {
         </div>
       </Modal>
 
+      {/* Modal: ยืนยันเมื่อสาขาใน Lark ไม่ตรงกับสาขาที่กำลังเพิ่มเข้า */}
+      <Modal open={!!pendingAdd} onClose={() => setPendingAdd(null)} size="sm" title={L("ยืนยันสาขา", "Confirm branch", "确认门店")}>
+        {pendingAdd ? (
+          <div className="space-y-4">
+            <div className="flex items-center gap-3">
+              <Avatar name={pendingAdd.name} src={pendingAdd.photo_url} size={44} />
+              <div className="min-w-0">
+                <p className="text-sm font-semibold truncate">{pendingAdd.name}</p>
+                <p className="text-[11px] text-muted truncate">{pendingAdd.code} · {roleLabel(pendingAdd.role)}</p>
+              </div>
+            </div>
+            <div className="text-sm bg-warn/10 border border-warn/30 rounded-xl p-3 space-y-1.5">
+              <p className="text-muted">{L("สาขาที่ผูกใน Lark", "Branch linked in Lark", "Lark 绑定门店")}: <span className="text-ink font-medium">{pendingAdd.central_branch || "—"}</span></p>
+              <p className="text-muted">{L("กำลังจะเพิ่มเข้า", "Adding into", "将加入")}: <span className="text-ink font-medium">{curStoreName || "—"}</span></p>
+              <p className="text-ink pt-1">{L("สองสาขาไม่ตรงกัน แน่ใจไหมว่าจะให้ลงสาขานี้?", "The two branches differ — are you sure you want to place them here?", "两者不一致，确定要放到此门店吗？")}</p>
+            </div>
+            <div className="flex gap-2 justify-end">
+              <Button variant="ghost" onClick={() => setPendingAdd(null)}>{L("ยกเลิก", "Cancel", "取消")}</Button>
+              <Button variant="primary" onClick={() => void doAddToChart(pendingAdd)}>{L("ยืนยัน ลงสาขานี้", "Confirm, add here", "确认加入")}</Button>
+            </div>
+          </div>
+        ) : null}
+      </Modal>
+
       {/* Modal: แก้ตำแหน่ง/หัวหน้า */}
       <Modal open={!!editId} onClose={() => setEditId(null)} size="sm" title={L("ตั้งตำแหน่ง / หัวหน้า", "Set position / manager", "设置职位 / 上级")}>
         {editEmp ? (
@@ -368,24 +535,34 @@ export default function AdminOrgPage() {
 }
 
 // ---- ระดับหนึ่งของผัง (recursive) ----
-function OrgLevel({ nodes, onEdit, roleLabel, posLabel }: { nodes: TreeNode[]; onEdit: (id: string) => void; roleLabel: (r: string) => string; posLabel: (c: string | null | undefined) => string }) {
+function OrgLevel({ nodes, onEdit, onPick, roleLabel, posLabel }: { nodes: TreeNode[]; onEdit: (id: string) => void; onPick: (id: string) => void; roleLabel: (r: string) => string; posLabel: (c: string | null | undefined) => string }) {
   return (
     <ul>
       {nodes.map((n) => {
         const title = posLabel(n.pos?.title);
         return (
           <li key={n.emp.id}>
-            <button
-              onClick={() => onEdit(n.emp.id)}
-              className="group relative inline-flex flex-col items-center gap-1.5 w-44 rounded-2xl border border-line bg-surface hover:border-brand hover:shadow-pop px-3 py-3 transition-all"
+            <div
+              onClick={() => onPick(n.emp.id)}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onPick(n.emp.id); } }}
+              role="button"
+              tabIndex={0}
+              title={posLabel(n.pos?.title) || roleLabel(n.emp.role)}
+              className="group relative inline-flex flex-col items-center gap-1.5 w-44 rounded-2xl border border-line bg-surface hover:border-brand hover:shadow-pop px-3 py-3 transition-all cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
             >
               <Avatar name={n.emp.name} src={n.emp.photo_url} size={44} />
               <p className="text-sm font-semibold leading-tight text-center line-clamp-1">{n.emp.name}</p>
               {title ? <p className="text-[11px] text-brand font-medium text-center line-clamp-2 leading-snug">{title}</p> : null}
               <Badge tone="brand">{roleLabel(n.emp.role)}</Badge>
-              <Pencil size={12} className="absolute top-2 right-2 text-muted opacity-0 group-hover:opacity-100 transition-opacity" />
-            </button>
-            {n.children.length ? <OrgLevel nodes={n.children} onEdit={onEdit} roleLabel={roleLabel} posLabel={posLabel} /> : null}
+              <button
+                onClick={(e) => { e.stopPropagation(); onEdit(n.emp.id); }}
+                title="แก้ตำแหน่ง / สายบังคับบัญชา"
+                className="absolute top-1.5 right-1.5 p-1 rounded-lg text-muted opacity-0 group-hover:opacity-100 hover:bg-surface2 hover:text-brand transition-all"
+              >
+                <Pencil size={13} />
+              </button>
+            </div>
+            {n.children.length ? <OrgLevel nodes={n.children} onEdit={onEdit} onPick={onPick} roleLabel={roleLabel} posLabel={posLabel} /> : null}
           </li>
         );
       })}
@@ -408,8 +585,8 @@ function EditPanel({
   onSave: (title: string, reports_to: string | null) => Promise<void>;
   onRemove: () => Promise<void>;
 }) {
-  const [code, setCode] = useState(pos?.title ?? "");   // เก็บ code ของตำแหน่ง
-  const [reportsTo, setReportsTo] = useState<string>(pos?.reports_to ?? "");
+  const [code, setCode] = useState(pos?.title || ssoPositionCode || "");   // เก็บ code ของตำแหน่ง (เติมจาก Lark ถ้ายังว่าง)
+  const [reportsTo, setReportsTo] = useState<string>(pos?.reports_to || ssoManagerId || "");
   const [busy, setBusy] = useState(false);
   // dropdown ตำแหน่ง (ค้นหาได้)
   const [posOpen, setPosOpen] = useState(false);
