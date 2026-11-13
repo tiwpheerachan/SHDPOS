@@ -238,41 +238,119 @@ export async function listTransfersForBranch(branchId: string): Promise<Transfer
   const rows = await db().transfers.reverse().sortBy("created_at");
   return rows.filter((r) => r.from_branch_id === branchId || r.to_branch_id === branchId);
 }
+export async function getTransfer(id: string): Promise<Transfer | undefined> {
+  return db().transfers.get(id);
+}
+/** timeline ของใบโอน — จาก audit (ref_no = transfer_no) เรียงตามเวลา */
+export async function listTransferTimeline(transferNo: string): Promise<AuditEntry[]> {
+  const all = await db().audit.toArray();
+  return all.filter((a) => a.ref_no === transferNo && a.ref_table === "transfers")
+    .sort((a, b) => (a.occurred_at ?? "").localeCompare(b.occurred_at ?? ""));
+}
+
+/** จอง/คืนสต๊อก (qty_reserved) — delta บวก=จอง, ลบ=คืน · Available = on_hand − reserved */
+export async function reserveStock(branchId: string, productId: string, delta: number): Promise<void> {
+  const key = stockKey(branchId, productId);
+  const row = await db().stock.get(key);
+  if (!row) {
+    if (delta > 0) await db().stock.put({ key, branch_id: branchId, product_id: productId, qty_on_hand: 0, qty_reserved: delta, reorder_point: 0 });
+    return;
+  }
+  await db().stock.update(key, { qty_reserved: Math.max(0, round2((row.qty_reserved ?? 0) + delta)) });
+}
+
+/** เพิ่ม version + บันทึก + audit (concurrency + timeline) */
+async function writeTransfer(tr: Transfer, patch: Partial<Transfer>, employeeId: string, branchId: string, after: Record<string, unknown>): Promise<Transfer> {
+  const next: Transfer = { ...tr, ...patch, version: (tr.version ?? 1) + 1, sync_state: "pending" };
+  await db().transfers.put(next);
+  await writeAudit({ action: "transfer", actor_id: employeeId, branch_id: branchId, ref_table: "transfers", ref_no: tr.transfer_no, amount: null, after_data: after, is_offline: false });
+  return next;
+}
 
 export async function createTransfer(
   fromBranchId: string, toBranchId: string, employeeId: string,
-  lines: { product_id: string; sku: string; name: string; qty: number }[],
-  note: string, autoApprove: boolean
+  lines: { product_id: string; sku: string; name: string; qty: number; isSerialized?: boolean | null }[],
+  note: string, autoApprove: boolean, fromKind: "branch" | "warehouse" = "branch"
 ): Promise<Transfer> {
   const tr: Transfer = {
-    id: nanoid(),
+    id: uuidv4(),
     transfer_no: `TF-${new Date().toISOString().slice(2, 10).replace(/-/g, "")}-${nanoid(4).toUpperCase()}`,
-    from_branch_id: fromBranchId, to_branch_id: toBranchId,
+    from_branch_id: fromBranchId, to_branch_id: toBranchId, from_kind: fromKind,
     status: autoApprove ? "approved" : "pending_approval",
-    items: lines.map((l) => ({ product_id: l.product_id, sku: l.sku, name: l.name, qty_requested: l.qty, qty_shipped: 0, qty_received: 0 })),
+    items: lines.map((l) => ({ product_id: l.product_id, sku: l.sku, name: l.name, qty_requested: l.qty, qty_shipped: 0, qty_received: 0, isSerialized: l.isSerialized ?? null, shippedSerials: [], receivedSerials: [] })),
     requested_by: employeeId, note: note || null, created_at: new Date().toISOString(),
+    version: 1, sync_state: "pending", jst_allocation_no: null,
   };
   await db().transfers.put(tr);
+  // จองสต๊อกต้นทาง (เฉพาะโอนจากสาขา — คลัง OneWarehouse จัดการเองฝั่งนั้น)
+  if (fromKind === "branch") for (const l of lines) await reserveStock(fromBranchId, l.product_id, l.qty);
   await writeAudit({ action: "transfer", actor_id: employeeId, branch_id: fromBranchId, ref_table: "transfers", ref_no: tr.transfer_no, amount: null, after_data: { status: tr.status, to: toBranchId }, is_offline: false });
   return tr;
 }
 
-/** ต้นทางจัดส่ง → ตัดสต๊อกต้นทาง + set qty_shipped */
-export async function shipTransfer(tr: Transfer, employeeId: string): Promise<void> {
-  const items = tr.items.map((it) => ({ ...it, qty_shipped: it.qty_requested }));
-  for (const it of items) await adjustStock(tr.from_branch_id, it.product_id, -it.qty_shipped);
-  await db().transfers.update(tr.id, { status: "in_transit", items });
-  await writeAudit({ action: "transfer", actor_id: employeeId, branch_id: tr.from_branch_id, ref_table: "transfers", ref_no: tr.transfer_no, amount: null, after_data: { status: "in_transit", shipped: items.reduce((s, i) => s + i.qty_shipped, 0) }, is_offline: false });
+export async function approveTransfer(tr: Transfer, employeeId: string): Promise<Transfer> {
+  return writeTransfer(tr, { status: "approved" }, employeeId, tr.from_branch_id, { status: "approved" });
+}
+/** ปฏิเสธ/ยกเลิก → คืน reserved ที่ต้นทาง */
+export async function rejectTransfer(tr: Transfer, employeeId: string, cancel = false): Promise<Transfer> {
+  if (tr.from_kind !== "warehouse") for (const it of tr.items) await reserveStock(tr.from_branch_id, it.product_id, -it.qty_requested);
+  const status: TransferStatus = cancel ? "cancelled" : "rejected";
+  return writeTransfer(tr, { status }, employeeId, tr.from_branch_id, { status });
 }
 
-/** ปลายทางสแกนรับของจริง → เพิ่มสต๊อกปลายทางตามที่รับ + set qty_received */
-export async function receiveTransfer(tr: Transfer, employeeId: string, received: Record<string, number>): Promise<void> {
-  const items = tr.items.map((it) => ({ ...it, qty_received: received[it.product_id] ?? 0 }));
+/** ต้นทางสแกนออก — บันทึก shippedSerials + qty_shipped (ตรวจ SN ครบ/null=บล็อก) → packed */
+export async function scanOutTransfer(tr: Transfer, employeeId: string, serialsByProduct: Record<string, string[]>): Promise<Transfer> {
+  const now = new Date().toISOString();
+  const items = tr.items.map((it) => {
+    if (it.isSerialized === null) throw new Error("not_serialized");
+    if (it.isSerialized === true) {
+      const sns = serialsByProduct[it.product_id] ?? it.shippedSerials?.map((s) => s.serialNo) ?? [];
+      if (sns.length !== it.qty_requested) throw new Error("serial_count_mismatch");
+      return { ...it, qty_shipped: sns.length, shippedSerials: sns.map((serialNo) => ({ serialNo, at: now })) };
+    }
+    return { ...it, qty_shipped: it.qty_requested };
+  });
+  return writeTransfer(tr, { status: "packed", items }, employeeId, tr.from_branch_id, { status: "packed", shipped: items.reduce((s, i) => s + i.qty_shipped, 0) });
+}
+
+/** ยืนยันส่งออก — ตัด on_hand ต้นทาง + ปล่อย reserved → in_transit (carrier optional) */
+export async function dispatchTransfer(tr: Transfer, employeeId: string, opts: { carrier?: string | null; tracking?: string | null; shippingCost?: number | null } = {}): Promise<Transfer> {
+  if (tr.from_kind !== "warehouse") {
+    for (const it of tr.items) {
+      if (it.qty_shipped > 0) { await adjustStock(tr.from_branch_id, it.product_id, -it.qty_shipped); await reserveStock(tr.from_branch_id, it.product_id, -it.qty_shipped); }
+    }
+  }
+  return writeTransfer(tr, {
+    status: "in_transit", carrier: opts.carrier ?? null, tracking: opts.tracking ?? null, shipping_cost: opts.shippingCost ?? null,
+    jst_allocation_no: tr.jst_allocation_no ?? `JST-${nanoid(6).toUpperCase()}`,
+  }, employeeId, tr.from_branch_id, { status: "in_transit", carrier: opts.carrier ?? null });
+}
+
+export interface ReceiveLineInput { qty?: number; serials?: string[] }
+/** ปลายทางรับเข้า — บันทึก receivedSerials + qty_received, เพิ่ม on_hand ปลายทาง, กระทบ SN → completed/partial */
+export async function receiveTransfer(tr: Transfer, employeeId: string, received: Record<string, ReceiveLineInput>): Promise<Transfer> {
+  const now = new Date().toISOString();
+  const items = tr.items.map((it) => {
+    const inp = received[it.product_id] ?? {};
+    if (it.isSerialized === true) {
+      const sns = inp.serials ?? [];
+      return { ...it, qty_received: sns.length, receivedSerials: sns.map((serialNo) => ({ serialNo, at: now })) };
+    }
+    return { ...it, qty_received: inp.qty ?? 0 };
+  });
   for (const it of items) if (it.qty_received > 0) await adjustStock(tr.to_branch_id, it.product_id, it.qty_received);
-  const complete = items.every((it) => it.qty_received >= (it.qty_shipped || it.qty_requested));
+  // ครบ = ทุกบรรทัดรับ ≥ ส่ง และ (ถ้า serialized) SN ที่รับตรงกับที่ส่งครบ
+  const complete = items.every((it) => {
+    const target = it.qty_shipped || it.qty_requested;
+    if (it.isSerialized === true) {
+      const shipped = new Set((it.shippedSerials ?? []).map((s) => s.serialNo));
+      const recv = (it.receivedSerials ?? []).map((s) => s.serialNo);
+      return recv.length >= target && recv.every((sn) => shipped.has(sn)) && shipped.size <= recv.length;
+    }
+    return it.qty_received >= target;
+  });
   const status: TransferStatus = complete ? "completed" : "partial_received";
-  await db().transfers.update(tr.id, { status, items });
-  await writeAudit({ action: "transfer", actor_id: employeeId, branch_id: tr.to_branch_id, ref_table: "transfers", ref_no: tr.transfer_no, amount: null, after_data: { status, received: items.reduce((s, i) => s + i.qty_received, 0) }, is_offline: false });
+  return writeTransfer(tr, { status, items }, employeeId, tr.to_branch_id, { status, received: items.reduce((s, i) => s + i.qty_received, 0) });
 }
 
 /**

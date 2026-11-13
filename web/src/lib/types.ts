@@ -293,16 +293,44 @@ export interface Shift {
   closed_at?: string | null;
 }
 
+/** Serial ที่สแกน (ออก/เข้า) พร้อมเวลา */
+export interface TransferSerial { serialNo: string; at: string }
+export interface TransferItem {
+  product_id: string;
+  sku: string;
+  name: string;
+  qty_requested: number;
+  qty_shipped: number;
+  qty_received: number;
+  /** true=ต้องสแกน SN ให้ครบ · false=นับจำนวน · null=ยังไม่จัดประเภท → BLOCKED ห้ามส่ง */
+  isSerialized?: boolean | null;
+  shippedSerials?: TransferSerial[];
+  receivedSerials?: TransferSerial[];
+  note?: string | null;
+}
 export interface Transfer {
   id: string;
   transfer_no: string;
   from_branch_id: string;
   to_branch_id: string;
+  /** ต้นทางเป็นคลัง (OneWarehouse) หรือสาขา */
+  from_kind?: "branch" | "warehouse";
   status: TransferStatus;
-  items: { product_id: string; sku: string; name: string; qty_requested: number; qty_shipped: number; qty_received: number }[];
+  items: TransferItem[];
   requested_by?: string | null;
   note?: string | null;
   created_at: string;
+  /** concurrency — เพิ่มทุกการเขียน */
+  version?: number;
+  /** สถานะซิงค์กับ OneWarehouse/JST */
+  sync_state?: "pending" | "synced" | "failed";
+  jst_allocation_no?: string | null;
+  carrier?: string | null;
+  tracking?: string | null;
+  shipping_cost?: number | null;
+  expected_date?: string | null;
+  reference_no?: string | null;
+  priority?: "normal" | "high" | null;
 }
 
 export interface ReturnDoc {
