@@ -13,7 +13,7 @@ import { enqueue } from "../offline/sync";
 import { supabase, isLiveMode } from "../supabase/client";
 import {
   DEMO_BRANDS, DEMO_BRANCHES, DEMO_TERMINALS, DEMO_EMPLOYEES, DEMO_PRODUCTS,
-  DEMO_CATEGORIES, DEMO_CUSTOMERS, buildDemoStock, buildDemoOrders, buildDemoAudit,
+  DEMO_CATEGORIES, DEMO_CUSTOMERS, buildDemoStock, buildDemoOrders, buildDemoAudit, buildDemoOrgPositions,
 } from "../demo-data";
 import { computeTotals, lineTotal, lineDiscount, lineCost, round2, VAT_RATE } from "../money";
 import type {
@@ -22,7 +22,10 @@ import type {
   CountType, StockCountSession, Transfer, TransferStatus,
 } from "../types";
 
-const CATALOG_VERSION = "2026-09-16.1";
+const CATALOG_VERSION = "2026-11-13.1";
+// เวอร์ชันข้อมูลจำลอง (orders/audit/stock/customers/org) — เปลี่ยนเพื่อรีเฟรช demo ให้เป็นวันที่ล่าสุด
+const DEMO_DATA_VERSION = "2026-11-13.3";
+const DEMO_ORDER_ID = /^o-\d+-0000-0000-000000000000$/;
 
 // ---------------------------------------------------------------------
 // BOOTSTRAP
@@ -45,15 +48,47 @@ async function doBootstrap(): Promise<void> {
     if (isLiveMode()) {
       try { await refreshDirectory(); } catch { /* ออฟไลน์: ใช้ของเดิมในเครื่องได้ */ }
     }
-    return;
-  }
-
-  if (isLiveMode()) {
-    await loadCatalogFromSupabase();
   } else {
-    await seedDemo();
+    if (isLiveMode()) {
+      await loadCatalogFromSupabase();
+    } else {
+      await seedDemo();
+    }
+    await kvSet("catalog_version", CATALOG_VERSION);
   }
-  await kvSet("catalog_version", CATALOG_VERSION);
+  // รีเฟรช/สร้างข้อมูลจำลอง (วันที่ล่าสุด) — ทำงานทุกโหมด แต่แตะเฉพาะเมื่อ orders เป็น demo เท่านั้น
+  await ensureDemoData();
+}
+
+// สร้าง/รีเฟรชข้อมูลจำลองให้เป็นวันที่ล่าสุด — ปลอดภัยกับข้อมูลจริง (เช็ค id pattern ก่อน)
+async function ensureDemoData(): Promise<void> {
+  const d = db();
+  if ((await kvGet<string>("demo_data_version", "")) === DEMO_DATA_VERSION) return;
+  // แตะเฉพาะเมื่อ orders ว่าง หรือเป็น demo ล้วน (กันทับข้อมูลจริงใน production)
+  const sample = await d.orders.limit(25).toArray();
+  const onlyDemo = sample.length === 0 || sample.every((o) => DEMO_ORDER_ID.test(o.id));
+  if (!onlyDemo) { await kvSet("demo_data_version", DEMO_DATA_VERSION); return; }
+
+  const orders = buildDemoOrders(90);
+  const audit = buildDemoAudit(orders);
+  const stock = buildDemoStock().map((s) => ({ ...s, key: stockKey(s.branch_id, s.product_id) }));
+  await d.transaction("rw", [d.orders, d.audit, d.stock, d.customers], async () => {
+    await Promise.all([d.orders.clear(), d.audit.clear()]);
+    await d.customers.bulkPut(DEMO_CUSTOMERS);
+    await d.stock.bulkPut(stock);
+    await d.orders.bulkPut(orders);
+    await d.audit.bulkPut(audit);
+  });
+  try {
+    if (typeof localStorage !== "undefined") {
+      for (const { branchId, rows } of buildDemoOrgPositions()) {
+        const k = `shdpos.org.${branchId}`;
+        const existing = localStorage.getItem(k);
+        if (!existing || existing === "[]") localStorage.setItem(k, JSON.stringify(rows));
+      }
+    }
+  } catch { /* private mode */ }
+  await kvSet("demo_data_version", DEMO_DATA_VERSION);
 }
 
 /** ดึงเฉพาะ master data ที่เปลี่ยนบ่อย (brands/branches/terminals/employees) ใหม่ */
@@ -85,7 +120,7 @@ export async function refreshDirectory(): Promise<void> {
 
 async function seedDemo(): Promise<void> {
   const d = db();
-  const orders = buildDemoOrders(60);
+  const orders = buildDemoOrders(90);
   const audit = buildDemoAudit(orders);
   const stock = buildDemoStock().map((s) => ({ ...s, key: stockKey(s.branch_id, s.product_id) }));
 
@@ -110,6 +145,18 @@ async function seedDemo(): Promise<void> {
       await d.audit.bulkPut(audit);
     }
   );
+
+  // ผังองค์กรเริ่มต้นต่อสาขา → localStorage (ไม่ทับของที่ผู้ใช้สร้างไว้)
+  try {
+    if (typeof localStorage !== "undefined") {
+      for (const { branchId, rows } of buildDemoOrgPositions()) {
+        const k = `shdpos.org.${branchId}`;
+        const existing = localStorage.getItem(k);
+        if (!existing || existing === "[]") localStorage.setItem(k, JSON.stringify(rows));
+      }
+    }
+  } catch { /* private mode */ }
+  await kvSet("demo_data_version", DEMO_DATA_VERSION);
 }
 
 async function loadCatalogFromSupabase(): Promise<void> {

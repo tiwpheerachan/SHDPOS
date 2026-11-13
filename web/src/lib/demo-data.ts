@@ -258,6 +258,17 @@ export const DEMO_CUSTOMERS: Customer[] = [
   { id: id("u", 1), member_code: "M-000001", name: "คุณภาคิน วงศ์สว่าง", phone: "085-555-4649", email: null, tax_id: null, tax_name: null, tax_address: null, points: 320, store_credit: 0 },
   { id: id("u", 2), member_code: "M-000002", name: "คุณวรชาติ ศรีสุข", phone: "081-868-2828", email: null, tax_id: "0105556000123", tax_name: "บริษัท วรชาติ ทรานสปอร์ต จำกัด", tax_address: "กรุงเทพมหานคร", points: 1180, store_credit: 500 },
   { id: id("u", 3), member_code: "M-000003", name: "คุณนงนภัส ใจดี", phone: "095-515-4497", email: "nn@example.com", tax_id: null, tax_name: null, tax_address: null, points: 90, store_credit: 0 },
+  { id: id("u", 4), member_code: "M-000004", name: "คุณธนกร เพชรรัตน์", phone: "062-114-7788", email: "thanakorn.p@example.com", tax_id: null, tax_name: null, tax_address: null, points: 540, store_credit: 0 },
+  { id: id("u", 5), member_code: "M-000005", name: "คุณศิริพร มั่งมี", phone: "089-232-1145", email: null, tax_id: null, tax_name: null, tax_address: null, points: 2120, store_credit: 1500 },
+  { id: id("u", 6), member_code: "M-000006", name: "คุณอรรถพล สุขเกษม", phone: "084-909-3321", email: "attapol@example.com", tax_id: "0105560001234", tax_name: "บริษัท สุขเกษม โฮลดิ้ง จำกัด", tax_address: "นนทบุรี", points: 760, store_credit: 0 },
+  { id: id("u", 7), member_code: "M-000007", name: "คุณเมธาวี จันทร์เพ็ญ", phone: "091-554-8890", email: null, tax_id: null, tax_name: null, tax_address: null, points: 45, store_credit: 0 },
+  { id: id("u", 8), member_code: "M-000008", name: "คุณกิตติศักดิ์ ว่องไว", phone: "086-778-2290", email: "kittisak.w@example.com", tax_id: null, tax_name: null, tax_address: null, points: 1890, store_credit: 300 },
+  { id: id("u", 9), member_code: "M-000009", name: "คุณปวีณา แสงทอง", phone: "092-443-1180", email: null, tax_id: null, tax_name: null, tax_address: null, points: 310, store_credit: 0 },
+  { id: id("u", 10), member_code: "M-000010", name: "คุณสมชาย เจริญพร", phone: "081-220-6677", email: null, tax_id: "0105559004567", tax_name: "ร้านเจริญพรอิเล็กทรอนิกส์", tax_address: "สมุทรปราการ", points: 3450, store_credit: 2000 },
+  { id: id("u", 11), member_code: "M-000011", name: "คุณจุฑามาศ ทองดี", phone: "090-116-4432", email: "jutamas@example.com", tax_id: null, tax_name: null, tax_address: null, points: 180, store_credit: 0 },
+  { id: id("u", 12), member_code: "M-000012", name: "คุณวิศรุต ภักดี", phone: "083-667-9900", email: null, tax_id: null, tax_name: null, tax_address: null, points: 920, store_credit: 0 },
+  { id: id("u", 13), member_code: "M-000013", name: "คุณณัฐริกา พูนผล", phone: "088-335-1267", email: "nattarika@example.com", tax_id: null, tax_name: null, tax_address: null, points: 60, store_credit: 0 },
+  { id: id("u", 14), member_code: "M-000014", name: "คุณอภิวัฒน์ รุ่งเรือง", phone: "094-889-5521", email: null, tax_id: "0105561007788", tax_name: "บริษัท รุ่งเรือง เทรดดิ้ง จำกัด", tax_address: "ปทุมธานี", points: 1340, store_credit: 0 },
 ];
 
 // ---------------------------------------------------------------------
@@ -280,7 +291,7 @@ function pickPayment(r: number): PaymentMethod {
   return "cash";
 }
 
-export function buildDemoOrders(days = 60): Order[] {
+export function buildDemoOrders(days = 90): Order[] {
   const rnd = mulberry32(777);
   const orders: Order[] = [];
   const shops = DEMO_BRANCHES.filter((b) => b.branch_type === "brand_shop");
@@ -341,6 +352,8 @@ export function buildDemoOrders(days = 60): Order[] {
         const costTotal = round2(items.reduce((s, it) => s + it.cost_total, 0));
         const method = pickPayment(rnd());
         const sp = items[0].salesperson_id;
+        // ~32% ของบิลผูกกับลูกค้าสมาชิก (ให้หน้า CRM/ลูกค้ามีประวัติซื้อ)
+        const cust = rnd() < 0.32 ? DEMO_CUSTOMERS[Math.floor(rnd() * DEMO_CUSTOMERS.length)] : null;
 
         orders.push({
           id: id("o", seq + 10000),
@@ -349,8 +362,9 @@ export function buildDemoOrders(days = 60): Order[] {
           shift_id: null,
           cashier_id: sp,
           salesperson_id: sp,
-          customer_name: null,
-          customer_phone: null,
+          customer_id: cust?.id ?? null,
+          customer_name: cust?.name ?? null,
+          customer_phone: cust?.phone ?? null,
           status: rnd() > 0.995 ? "voided" : "completed",
           channel: rnd() > 0.92 ? "online_shopee" : "offline",
           subtotal,
@@ -391,5 +405,36 @@ export function buildDemoAudit(orders: Order[]): AuditEntry[] {
       occurred_at: o.created_at,
     });
   });
+  return out;
+}
+
+// ---------------------------------------------------------------------
+// ORG POSITIONS (ผังองค์กรเริ่มต้นต่อสาขา) — ให้หน้าผัง/ตามตำแหน่งมีข้อมูลเลย
+//   โครงสร้าง: คนตำแหน่งสูงสุดของสาขา = หัว, ที่เหลือรายงานตรงต่อหัว
+//   เก็บลง localStorage (shdpos.org.<branchId>) ตอน seed — ผู้ใช้แก้ทับได้
+// ---------------------------------------------------------------------
+const ROLE_POS_CODE: Record<string, string> = {
+  owner: "regional_manager", hq: "operations", brand_admin: "brand_manager",
+  manager: "store_manager", supervisor: "shift_lead", staff: "sales", auditor: "admin",
+};
+const ROLE_RANK: Record<string, number> = { owner: 6, hq: 5, brand_admin: 4, manager: 3, supervisor: 2, staff: 1, auditor: 1 };
+
+export function buildDemoOrgPositions(): { branchId: string; rows: { id: string; employee_id: string; title: string; reports_to: string | null; sort_order: number }[] }[] {
+  const shops = DEMO_BRANCHES.filter((b) => b.branch_type === "brand_shop");
+  const out: { branchId: string; rows: { id: string; employee_id: string; title: string; reports_to: string | null; sort_order: number }[] }[] = [];
+  for (const b of shops) {
+    const staff = DEMO_EMPLOYEES.filter((e) => e.home_branch_id === b.id && e.status === "active");
+    if (!staff.length) continue;
+    const sorted = [...staff].sort((a, z) => (ROLE_RANK[z.role] ?? 0) - (ROLE_RANK[a.role] ?? 0));
+    const root = sorted[0];
+    // ชั้นกลาง: supervisor รายงานหัว, staff รายงาน supervisor คนแรก (ถ้ามี) ไม่งั้นรายงานหัว
+    const firstSup = sorted.find((e) => e.role === "supervisor" && e.id !== root.id);
+    const rows = sorted.map((e, i) => {
+      let reports_to: string | null = null;
+      if (e.id !== root.id) reports_to = e.role === "staff" && firstSup ? firstSup.id : root.id;
+      return { id: `pos-${b.id}-${e.id}`, employee_id: e.id, title: ROLE_POS_CODE[e.role] ?? "sales", reports_to, sort_order: i };
+    });
+    out.push({ branchId: b.id, rows });
+  }
   return out;
 }
