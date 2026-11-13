@@ -11,7 +11,7 @@ import { useSession } from "@/lib/store/session";
 import { useToast } from "@/components/toast-host";
 import { listBranches, listProducts } from "@/lib/data/repo";
 import {
-  owCreate, owApprove, owReject, owScanOut, owDispatch, owReceive, owList, owTimeline, owCarriers,
+  owCreate, owApprove, owReject, owScanOut, owDispatch, owReceive, owList, owGet, owTimeline, owCarriers,
   statusMeta, isActive, isIssue, reconcileSerials, owErrorMessage,
 } from "@/lib/onewarehouse";
 import type { Branch, Product, Transfer, TransferItem, AuditEntry } from "@/lib/types";
@@ -61,6 +61,12 @@ export default function PosTransfersPage() {
     setList(tr); setBranches(b); setProducts(p); setCarriers(c); setLoading(false);
   }
   useEffect(() => { void reload(); /* eslint-disable-next-line */ }, [branchId]);
+  // poll รายการเงียบ ๆ (แทน Pub/Sub จนกว่า events จะพร้อม) — โชว์ของเข้ามาใหม่โดยไม่ต้องรีเฟรช
+  useEffect(() => {
+    if (!branchId) return;
+    const id = setInterval(() => { void owList(branchId).then(setList).catch(() => {}); }, 15000);
+    return () => clearInterval(id);
+  }, [branchId]);
 
   // เปิด detail → เตรียม state ตามทิศ/สถานะ
   useEffect(() => {
@@ -118,7 +124,12 @@ export default function PosTransfersPage() {
   async function run(fn: () => Promise<Transfer>, okTitle: string) {
     if (!employee) return; setBusy(true);
     try { const next = await fn(); await reload(); setDetail(next); toast.push({ tone: "ok", title: okTitle }); }
-    catch (e) { toast.push({ tone: "danger", title: owErrorMessage(e instanceof Error ? e.message : "error", locale) }); }
+    catch (e) {
+      const code = e instanceof Error ? e.message : "error";
+      toast.push({ tone: "danger", title: owErrorMessage(code, locale) });
+      // version ชนกัน → ดึงเอกสารล่าสุดมาแสดง (ไม่ทับของคนอื่น)
+      if (code === "transfer_version_conflict" && detail) { await reload(); const fresh = await owGet(detail.id); if (fresh) setDetail(fresh); }
+    }
     finally { setBusy(false); }
   }
   const approve = (tr: Transfer) => run(() => owApprove(tr, employee!.id), t.transfer.approve);

@@ -43,13 +43,15 @@ export default function AdminInventoryPage() {
         const p = pMap.get(s.product_id);
         if (!p) return null;
         const rp = Math.max(s.reorder_point, p.reorder_point);
-        return { s, p, rp, low: rp > 0 && s.qty_on_hand <= rp, out: s.qty_on_hand <= 0 };
+        const reserved = s.qty_reserved ?? 0;
+        const avail = s.qty_on_hand - reserved; // พร้อมขาย = คงเหลือ − จอง(โอน)
+        return { s, p, rp, reserved, avail, low: rp > 0 && avail <= rp, out: avail <= 0 };
       })
       .filter(Boolean)
       .filter((r) => (!term ? true : r!.p.sku.toLowerCase().includes(term) || r!.p.name_th.toLowerCase().includes(term)))
       .filter((r) => (view === "low" ? r!.low : view === "out" ? r!.out : true))
-      .sort((a, b) => a!.s.qty_on_hand - b!.s.qty_on_hand) as {
-        s: StockLevel & { key: string }; p: Product; rp: number; low: boolean; out: boolean;
+      .sort((a, b) => a!.avail - b!.avail) as {
+        s: StockLevel & { key: string }; p: Product; rp: number; reserved: number; avail: number; low: boolean; out: boolean;
       }[];
   }, [stock, allowed, branchId, pMap, q, view]);
 
@@ -132,6 +134,8 @@ export default function AdminInventoryPage() {
                 <Th>SKU</Th>
                 <Th>{t.admin.products}</Th>
                 <Th align="right">{t.inventory.onHand}</Th>
+                <Th align="right">{L("จอง(โอน)", "Reserved", "预留")}</Th>
+                <Th align="right">{L("พร้อมขาย", "Available", "可售")}</Th>
                 <Th align="right">{t.inventory.reorder}</Th>
                 {showCost ? <Th align="right">{L("มูลค่า", "Value", "价值")}</Th> : null}
                 <Th align="center">{t.common.status}</Th>
@@ -145,7 +149,9 @@ export default function AdminInventoryPage() {
                   </Td>
                   <Td className="font-mono text-[11px] text-muted">{r.p.sku}</Td>
                   <Td className="text-xs font-medium truncate max-w-[220px]">{pick({ th: r.p.name_th, en: r.p.name_en, zh: r.p.name_zh })}</Td>
-                  <Td align="right" className={`font-semibold ${r.out ? "text-danger" : r.low ? "text-warn" : ""}`}>{r.s.qty_on_hand}</Td>
+                  <Td align="right" className="tnum">{r.s.qty_on_hand}</Td>
+                  <Td align="right" className={`tnum text-xs ${r.reserved ? "text-amber-600" : "text-muted"}`}>{r.reserved || "—"}</Td>
+                  <Td align="right" className={`font-semibold tnum ${r.out ? "text-danger" : r.low ? "text-warn" : "text-ok"}`}>{r.avail}</Td>
                   <Td align="right" className="text-xs text-muted">{r.rp || "—"}</Td>
                   {showCost ? <Td align="right" className="text-xs">{formatTHB(r.s.qty_on_hand * r.p.cost, false)}</Td> : null}
                   <Td align="center">

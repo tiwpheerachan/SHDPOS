@@ -259,9 +259,12 @@ export async function reserveStock(branchId: string, productId: string, delta: n
   await db().stock.update(key, { qty_reserved: Math.max(0, round2((row.qty_reserved ?? 0) + delta)) });
 }
 
-/** เพิ่ม version + บันทึก + audit (concurrency + timeline) */
+/** เพิ่ม version + บันทึก + audit (concurrency + timeline) — เช็ค stale version → โยน transfer_version_conflict */
 async function writeTransfer(tr: Transfer, patch: Partial<Transfer>, employeeId: string, branchId: string, after: Record<string, unknown>): Promise<Transfer> {
-  const next: Transfer = { ...tr, ...patch, version: (tr.version ?? 1) + 1, sync_state: "pending" };
+  const fresh = await db().transfers.get(tr.id);
+  if (fresh && (fresh.version ?? 1) !== (tr.version ?? 1)) throw new Error("transfer_version_conflict");
+  const base = fresh ?? tr;
+  const next: Transfer = { ...base, ...patch, version: (base.version ?? 1) + 1, sync_state: "pending" };
   await db().transfers.put(next);
   await writeAudit({ action: "transfer", actor_id: employeeId, branch_id: branchId, ref_table: "transfers", ref_no: tr.transfer_no, amount: null, after_data: after, is_offline: false });
   return next;
