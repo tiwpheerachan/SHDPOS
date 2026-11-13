@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 import clsx from "clsx";
 import {
   LayoutDashboard, TrendingUp, Users, Package, Boxes, ArrowLeftRight,
@@ -17,6 +17,7 @@ import { ROLE_LABEL, can, type PermissionKey } from "@/lib/permissions";
 import { Avatar, LiveDot } from "@/components/ui";
 import { Clock } from "@/components/clock";
 import { ScopeTopbar } from "@/components/admin/scope-topbar";
+import { WorkspaceTabs } from "@/components/admin/workspace-tabs";
 import { BrandReveal } from "@/components/brand-reveal";
 
 type NavItem = { href: string; icon: typeof LayoutDashboard; key: string; perm?: PermissionKey };
@@ -324,6 +325,10 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
         </header>
+
+        <Suspense fallback={null}>
+          <WorkspaceTabs baseLabel={label[currentKey] ?? t.admin.dashboard} />
+        </Suspense>
 
         <main className="flex-1 min-h-0 overflow-y-auto">{children}</main>
       </div>

@@ -2,6 +2,7 @@
 
 // หน้า admin — ติดตาม/อนุมัติใบโอนย้ายทุกสาขา (ใช้ engine + ดีไซน์เดียวกับ /pos/transfers)
 import { useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { nanoid } from "nanoid";
 import { ArrowLeftRight, Plus, Trash2, Check, X, Clock, Barcode, CircleAlert, Printer } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
@@ -51,6 +52,23 @@ export default function AdminTransfersPage() {
     })();
   }, []);
   useEffect(() => { setTab("overview"); if (detail) void owTimeline(detail.transfer_no).then(setTimeline); }, [detail]);
+
+  // ── sync เอกสารที่เปิด ↔ URL (?doc=) เพื่อให้แท็บจำ/กลับมาเปิดเอกสารเดิม ──
+  const pathname = usePathname();
+  const router = useRouter();
+  const sp = useSearchParams();
+  // เปิด/ปิดเอกสาร = ตั้ง ?doc ใน URL ด้วย (แท็บจำ/กลับมาเปิดเอกสารเดิมได้)
+  const openDoc = (tr: Transfer) => { setDetail(tr); router.replace(`${pathname}?doc=${encodeURIComponent(tr.transfer_no)}`, { scroll: false }); };
+  const closeDoc = () => { setDetail(null); router.replace(pathname, { scroll: false }); };
+  const docParam = sp.get("doc");
+  useEffect(() => {
+    if (docParam) {
+      if ((!detail || detail.transfer_no !== docParam) && list.length) {
+        const tr = list.find((x) => x.transfer_no === docParam); if (tr) setDetail(tr);
+      }
+    } else if (detail) setDetail(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [docParam, list]);
 
   const allowed = useMemo(() => visibleBranchIds(employee, branches.map((b) => b.id)), [employee, branches]);
   const bName = (id: string) => { const b = branches.find((x) => x.id === id); return b ? (locale === "th" ? b.name_th ?? b.name : b.name) : id; };
@@ -113,7 +131,7 @@ export default function AdminTransfersPage() {
                 const snTotal = tr.items.filter((i) => i.isSerialized).reduce((s, i) => s + i.qty_requested, 0);
                 const snDone = tr.items.filter((i) => i.isSerialized).reduce((s, i) => s + (i.receivedSerials?.length || i.shippedSerials?.length || 0), 0);
                 return (
-                  <tr key={tr.id} className="hover:bg-surface2/60 cursor-pointer" onClick={() => setDetail(tr)}>
+                  <tr key={tr.id} className="hover:bg-surface2/60 cursor-pointer" onClick={() => openDoc(tr)}>
                     <Td className="font-mono text-xs text-brand">{tr.transfer_no}</Td>
                     <Td className="text-xs truncate max-w-[150px]">{tr.from_kind === "warehouse" ? "🏬 " : ""}{bName(tr.from_branch_id)}</Td>
                     <Td className="text-xs truncate max-w-[150px]">{bName(tr.to_branch_id)}</Td>
@@ -129,7 +147,7 @@ export default function AdminTransfersPage() {
       </Card>
 
       {/* detail drawer (monitor + approve) */}
-      <Drawer open={Boolean(detail)} onClose={() => setDetail(null)} width="lg"
+      <Drawer open={Boolean(detail)} onClose={closeDoc} width="lg"
         title={detail ? <span className="font-mono">{detail.transfer_no}</span> : ""}
         subtitle={detail ? `${detail.from_kind === "warehouse" ? "🏬 " : ""}${bName(detail.from_branch_id)} → ${bName(detail.to_branch_id)}` : ""}
         badge={detail ? <Badge tone={sMeta(detail.status).tone}>{sMeta(detail.status).label}</Badge> : null}
