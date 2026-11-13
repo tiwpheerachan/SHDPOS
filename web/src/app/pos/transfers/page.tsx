@@ -1,27 +1,26 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { nanoid } from "nanoid";
 import {
-  ArrowLeftRight, Plus, Trash2, Truck, PackageCheck, ArrowDownLeft, ArrowUpRight,
-  Barcode, Check, Clock, ScanLine, CircleAlert, X,
+  ArrowLeftRight, Truck, PackageCheck, ArrowDownLeft, ArrowUpRight,
+  Barcode, Check, Clock, ScanLine, CircleAlert, Printer,
 } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { useSession } from "@/lib/store/session";
 import { useToast } from "@/components/toast-host";
-import { listBranches, listProducts } from "@/lib/data/repo";
+import { listBranches } from "@/lib/data/repo";
 import {
-  owCreate, owApprove, owReject, owScanOut, owDispatch, owReceive, owList, owGet, owTimeline, owCarriers,
+  owScanOut, owDispatch, owReceive, owList, owGet, owTimeline, owCarriers,
   statusMeta, isActive, isIssue, reconcileSerials, owErrorMessage,
 } from "@/lib/onewarehouse";
-import type { Branch, Product, Transfer, TransferItem, AuditEntry } from "@/lib/types";
-import { Button, Input, Select, Table, Th, Td, Badge, EmptyState, Modal, Field, Drawer, DrawerTabs, DetailRow, Skeleton } from "@/components/ui";
+import type { Branch, Transfer, TransferItem, AuditEntry } from "@/lib/types";
+import { Button, Input, Select, Table, Th, Td, Badge, EmptyState, Drawer, DrawerTabs, DetailRow, Skeleton } from "@/components/ui";
 import { PosPage, TablePanel, StatChip } from "@/components/pos/page-shell";
 import { SerialModal } from "@/components/pos/sale-modals";
 import { TransferStepper, ItemJourney, TransferTimeline } from "@/components/admin/transfer-ui";
+import { printTransferCO } from "@/lib/transfer/print-co";
 import { can } from "@/lib/permissions";
 
-interface Line { id: string; product_id: string; sku: string; name: string; qty: number; isSerialized: boolean | null }
 type Tab = "overview" | "timeline";
 
 export default function PosTransfersPage() {
@@ -32,7 +31,6 @@ export default function PosTransfersPage() {
 
   const [list, setList] = useState<Transfer[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
   const [carriers, setCarriers] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [dir, setDir] = useState<"all" | "in" | "out">("all");
@@ -48,18 +46,11 @@ export default function PosTransfersPage() {
   const [sn, setSn] = useState<{ pid: string; name: string; qty: number } | null>(null);
   const [busy, setBusy] = useState(false);
 
-  // create
-  const [open, setOpen] = useState(false);
-  const [dest, setDest] = useState("");
-  const [lines, setLines] = useState<Line[]>([]);
-  const [pickId, setPickId] = useState("");
-  const [note, setNote] = useState("");
-
   async function reload() {
     if (!branchId) return;
     setLoading(true);
-    const [tr, b, p, c] = await Promise.all([owList(branchId), listBranches(), listProducts(), owCarriers()]);
-    setList(tr); setBranches(b); setProducts(p); setCarriers(c); setLoading(false);
+    const [tr, b, c] = await Promise.all([owList(branchId), listBranches(), owCarriers()]);
+    setList(tr); setBranches(b); setCarriers(c); setLoading(false);
   }
   useEffect(() => { void reload(); /* eslint-disable-next-line */ }, [branchId]);
   // poll รายการเงียบ ๆ (แทน Pub/Sub จนกว่า events จะพร้อม) — โชว์ของเข้ามาใหม่โดยไม่ต้องรีเฟรช
@@ -105,20 +96,9 @@ export default function PosTransfersPage() {
     issue: list.filter((tr) => isIssue(tr.status)).length,
   }), [list, branchId]);
 
-  // ── create ──
-  function addLine() {
-    const p = products.find((x) => x.id === pickId); if (!p) return;
-    setLines((l) => [...l, { id: nanoid(), product_id: p.id, sku: p.sku, name: p.name_th, qty: 1, isSerialized: p.track_serial ? true : false }]);
-    setPickId("");
-  }
-  async function create() {
-    if (!branchId || !employee || !dest || !lines.length) return;
-    setBusy(true);
-    try {
-      await owCreate(branchId, dest, employee.id, lines, note, can(employee, "transfer.approve"));
-      setOpen(false); setDest(""); setLines([]); setNote(""); await reload();
-      toast.push({ tone: "ok", title: t.transfer.title });
-    } finally { setBusy(false); }
+  // พิมพ์ใบ CO
+  function printCO(tr: Transfer) {
+    printTransferCO(tr, { fromName: bName.get(tr.from_branch_id) ?? tr.from_branch_id, toName: bName.get(tr.to_branch_id) ?? tr.to_branch_id, statusLabel: sMeta(tr.status).label, locale, carrierName: carriers.find((c) => c.id === tr.carrier)?.name ?? tr.carrier });
   }
 
   // ── actions (wrap + reload + error map) ──
@@ -133,8 +113,6 @@ export default function PosTransfersPage() {
     }
     finally { setBusy(false); }
   }
-  const approve = (tr: Transfer) => run(() => owApprove(tr, employee!.id), t.transfer.approve);
-  const reject = (tr: Transfer) => run(() => owReject(tr, employee!.id), L("ปฏิเสธแล้ว", "Rejected", "已拒绝"));
   const scanOut = (tr: Transfer) => run(() => owScanOut(tr, employee!.id, scanned), L("สแกนออกแล้ว", "Scanned out", "已扫出"));
   const dispatch = (tr: Transfer) => run(() => owDispatch(tr, employee!.id, { carrier: disp.carrier || null, tracking: disp.tracking || null, shippingCost: disp.cost ? Number(disp.cost) : null }), t.transfer.ship);
   const receive = (tr: Transfer) => run(() => {
@@ -146,7 +124,6 @@ export default function PosTransfersPage() {
   if (!employee) return null;
 
   const incoming = detail ? detail.to_branch_id === branchId : false;
-  const canApprove = (tr: Transfer) => dirOf(tr) === "out" && tr.status === "pending_approval" && can(employee, "transfer.approve");
   const canScanOut = (tr: Transfer) => dirOf(tr) === "out" && ["approved", "picking", "packed"].includes(tr.status) && can(employee, "transfer.request");
   const canDispatch = (tr: Transfer) => dirOf(tr) === "out" && tr.status === "packed" && can(employee, "transfer.approve");
   const canReceive = (tr: Transfer) => dirOf(tr) === "in" && ["in_transit", "shipped", "partial_received"].includes(tr.status) && can(employee, "transfer.receive");
@@ -170,7 +147,6 @@ export default function PosTransfersPage() {
             <option value="in">{L("ขาเข้า", "Incoming", "入库")}</option>
             <option value="out">{L("ขาออก", "Outgoing", "出库")}</option>
           </Select>
-          {can(employee, "transfer.request") ? <Button variant="primary" onClick={() => setOpen(true)}><Plus size={16} /> {t.transfer.request}</Button> : null}
         </>
       }
     >
@@ -226,7 +202,7 @@ export default function PosTransfersPage() {
         badge={detail ? <Badge tone={sMeta(detail.status).tone}>{sMeta(detail.status).label}</Badge> : null}
         footer={detail ? (
           <div className="flex gap-2 w-full">
-            {canApprove(detail) ? <><Button variant="ghost" loading={busy} onClick={() => void reject(detail)}><X size={15} /> {L("ปฏิเสธ", "Reject", "拒绝")}</Button><Button variant="primary" className="ml-auto" loading={busy} onClick={() => void approve(detail)}><Check size={15} /> {t.transfer.approve}</Button></> : null}
+            <Button variant="soft" onClick={() => printCO(detail)}><Printer size={15} /> {L("พิมพ์ใบ CO", "Print CO", "打印CO")}</Button>
             {canScanOut(detail) ? <Button variant="primary" className="ml-auto" loading={busy} disabled={!scanOutReady(detail) || hasBlocked(detail)} onClick={() => void scanOut(detail)}><ScanLine size={15} /> {L("ยืนยันสแกนออก", "Confirm scan-out", "确认扫出")}</Button> : null}
             {canDispatch(detail) ? <Button variant="primary" className="ml-auto" loading={busy} onClick={() => void dispatch(detail)}><Truck size={15} /> {t.transfer.ship}</Button> : null}
             {canReceive(detail) ? <Button variant="ok" className="ml-auto" loading={busy} onClick={() => void receive(detail)}><PackageCheck size={15} /> {t.transfer.receive}</Button> : null}
@@ -283,36 +259,6 @@ export default function PosTransfersPage() {
       <SerialModal open={Boolean(sn)} onClose={() => setSn(null)} productName={sn?.name ?? ""} qty={sn?.qty ?? 0}
         initial={sn ? scanned[sn.pid] ?? [] : []}
         onSave={(serials) => { if (sn) setScanned((s) => ({ ...s, [sn.pid]: serials })); setSn(null); }} />
-
-      {/* create outgoing */}
-      <Modal open={open} onClose={() => setOpen(false)} title={t.transfer.request} size="lg"
-        footer={<><Button variant="ghost" onClick={() => setOpen(false)}>{t.common.cancel}</Button><Button variant="primary" loading={busy} disabled={!dest || !lines.length} onClick={() => void create()}>{t.transfer.request}</Button></>}>
-        <div className="space-y-4">
-          <Field label={t.transfer.to}>
-            <Select value={dest} onChange={(e) => setDest(e.target.value)}>
-              <option value="">—</option>
-              {branches.filter((b) => b.id !== branchId).map((b) => <option key={b.id} value={b.id}>{bName.get(b.id)}</option>)}
-            </Select>
-          </Field>
-          <div className="flex gap-2">
-            <Select value={pickId} onChange={(e) => setPickId(e.target.value)} className="flex-1"><option value="">{t.common.add}…</option>{products.map((p) => <option key={p.id} value={p.id}>{p.sku} · {pick2(p, locale)}{p.track_serial ? " · SN" : ""}</option>)}</Select>
-            <Button variant="soft" onClick={addLine} disabled={!pickId}><Plus size={16} /></Button>
-          </div>
-          <Table>
-            <thead><tr><Th>{t.admin.products}</Th><Th align="center">{t.common.qty}</Th><Th /></tr></thead>
-            <tbody>
-              {lines.map((l) => (
-                <tr key={l.id}>
-                  <Td className="text-xs">{l.name}{l.isSerialized ? <Barcode size={11} className="inline ml-1 text-brand" /> : null}</Td>
-                  <Td align="center"><Input value={l.qty} inputMode="numeric" onChange={(e) => setLines((list) => list.map((x) => x.id === l.id ? { ...x, qty: Number(e.target.value.replace(/\D/g, "") || 0) } : x))} className="h-8 w-16 text-center tnum" /></Td>
-                  <Td align="right"><button onClick={() => setLines((list) => list.filter((x) => x.id !== l.id))} className="text-muted hover:text-danger"><Trash2 size={14} /></button></Td>
-                </tr>
-              ))}
-            </tbody>
-          </Table>
-          <Field label={t.common.note}><Input value={note} onChange={(e) => setNote(e.target.value)} /></Field>
-        </div>
-      </Modal>
     </PosPage>
   );
 }
@@ -366,8 +312,4 @@ function LineCard({ it, incoming, locale, L, scanned, recvQty, canScanOut, canRe
       {it.isSerialized && !incoming && !canScanOut && it.qty_received ? <p className="text-[11px] text-muted mt-1">{L("รับแล้ว", "Received", "已收")} {it.qty_received}</p> : null}
     </div>
   );
-}
-
-function pick2(p: Product, locale: string) {
-  return locale === "th" ? p.name_th : locale === "zh" ? p.name_zh ?? p.name_th : p.name_en ?? p.name_th;
 }

@@ -3,7 +3,7 @@
 // หน้า admin — ติดตาม/อนุมัติใบโอนย้ายทุกสาขา (ใช้ engine + ดีไซน์เดียวกับ /pos/transfers)
 import { useEffect, useMemo, useState } from "react";
 import { nanoid } from "nanoid";
-import { ArrowLeftRight, Plus, Trash2, Check, X, Clock, Barcode, CircleAlert } from "lucide-react";
+import { ArrowLeftRight, Plus, Trash2, Check, X, Clock, Barcode, CircleAlert, Printer } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { useSession } from "@/lib/store/session";
 import { useToast } from "@/components/toast-host";
@@ -13,6 +13,7 @@ import {
   statusMeta, isActive, isIssue, owErrorMessage,
 } from "@/lib/onewarehouse";
 import { TransferStepper, ItemJourney, TransferTimeline } from "@/components/admin/transfer-ui";
+import { printTransferCO } from "@/lib/transfer/print-co";
 import type { Branch, Product, Transfer, AuditEntry } from "@/lib/types";
 import { Button, Card, Input, Field, Select, Table, Th, Td, Badge, EmptyState, Modal, Drawer, DrawerTabs, DetailRow } from "@/components/ui";
 import { can, visibleBranchIds } from "@/lib/permissions";
@@ -82,6 +83,9 @@ export default function AdminTransfersPage() {
   }
 
   const canApprove = (tr: Transfer) => tr.status === "pending_approval" && can(employee, "transfer.approve");
+  function printCO(tr: Transfer) {
+    printTransferCO(tr, { fromName: bName(tr.from_branch_id), toName: bName(tr.to_branch_id), statusLabel: sMeta(tr.status).label, locale, carrierName: tr.carrier });
+  }
 
   return (
     <div className="p-4 sm:p-6 space-y-4">
@@ -129,10 +133,13 @@ export default function AdminTransfersPage() {
         title={detail ? <span className="font-mono">{detail.transfer_no}</span> : ""}
         subtitle={detail ? `${detail.from_kind === "warehouse" ? "🏬 " : ""}${bName(detail.from_branch_id)} → ${bName(detail.to_branch_id)}` : ""}
         badge={detail ? <Badge tone={sMeta(detail.status).tone}>{sMeta(detail.status).label}</Badge> : null}
-        footer={detail && canApprove(detail) ? (
-          <div className="flex gap-2 w-full">
-            <Button variant="ghost" loading={busy} onClick={() => void act(() => owReject(detail, employee!.id), L("ปฏิเสธแล้ว", "Rejected", "已拒绝"))}><X size={15} /> {L("ปฏิเสธ", "Reject", "拒绝")}</Button>
-            <Button variant="primary" className="ml-auto" loading={busy} onClick={() => void act(() => owApprove(detail, employee!.id), t.transfer.approve)}><Check size={15} /> {t.transfer.approve}</Button>
+        footer={detail ? (
+          <div className="flex gap-2 w-full items-center">
+            <Button variant="soft" onClick={() => printCO(detail)}><Printer size={15} /> {L("พิมพ์ใบ CO", "Print CO", "打印CO")}</Button>
+            {canApprove(detail) ? <>
+              <Button variant="ghost" className="ml-auto" loading={busy} onClick={() => void act(() => owReject(detail, employee!.id), L("ปฏิเสธแล้ว", "Rejected", "已拒绝"))}><X size={15} /> {L("ปฏิเสธ", "Reject", "拒绝")}</Button>
+              <Button variant="primary" loading={busy} onClick={() => void act(() => owApprove(detail, employee!.id), t.transfer.approve)}><Check size={15} /> {t.transfer.approve}</Button>
+            </> : null}
           </div>
         ) : null}>
         {detail ? (
