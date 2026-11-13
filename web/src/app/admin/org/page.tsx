@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Network, Building2, Plus, Pencil, Trash2, UserPlus, Search, Check, ChevronDown, RefreshCw, Sparkles } from "lucide-react";
+import { Network, Building2, Plus, Pencil, Trash2, UserPlus, Search, Check, ChevronDown, RefreshCw, Sparkles, ShieldCheck } from "lucide-react";
 import clsx from "clsx";
 import { useI18n } from "@/lib/i18n/provider";
 import { useSession } from "@/lib/store/session";
@@ -199,6 +199,9 @@ export default function AdminOrgPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <a href="/admin/permissions" className="inline-flex items-center gap-1.5 h-10 px-3 rounded-xl border border-line text-sm text-muted hover:text-brand hover:bg-surface2 transition-colors">
+            <ShieldCheck size={15} /> {L("กำหนดสิทธิ์", "Permissions", "权限")}
+          </a>
           <Button variant="ghost" onClick={() => void syncSSO()} disabled={syncing}>
             <RefreshCw size={15} className={syncing ? "animate-spin" : ""} /> {L("ดึงข้อมูลจาก SSO", "Sync from SSO", "同步 SSO")}
           </Button>

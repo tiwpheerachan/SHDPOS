@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Users, Search, Pencil, Trash2, RotateCcw, ShieldCheck, UserPlus, Eye, EyeOff } from "lucide-react";
+import { Users, Search, Pencil, Trash2, RotateCcw, ShieldCheck, UserPlus, Eye, EyeOff, Grid3x3, Network } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { useSession } from "@/lib/store/session";
 import { useToast } from "@/components/toast-host";
@@ -107,6 +107,23 @@ export default function AdminUsersUnifiedPage() {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [saving, setSaving] = useState(false);
   const [showInactive, setShowInactive] = useState(false);
+  const [view, setView] = useState<"list" | "matrix">("list");
+
+  // บันทึก override ทีละช่องจากตาราง (ส่ง payload เต็มเพื่อคงค่าอื่น; pin ว่าง = คงเดิม)
+  async function saveOverride(u: UserRow, key: PermissionKey, next: FourState) {
+    const overrides = { ...(u.permission_overrides ?? {}) };
+    if (next === "inherit") delete overrides[key]; else overrides[key] = next;
+    setUsers((us) => us.map((x) => (x.id === u.id ? { ...x, permission_overrides: overrides } : x))); // optimistic
+    const r = await fetch("/api/admin/users", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: u.id, display_name: u.display_name, nickname: u.nickname, role: u.role, data_scope: u.data_scope,
+        branch_ids: u.branch_ids, max_discount_percent: u.max_discount_percent, permission_overrides: overrides,
+        pin: "", is_active: u.status === "active",
+      }),
+    }).catch(() => null);
+    if (!r || !r.ok) { toast.push({ tone: "danger", title: L("บันทึกไม่สำเร็จ", "Save failed", "保存失败") }); await load(); }
+  }
 
   async function load() {
     setLoading(true);
@@ -210,9 +227,20 @@ export default function AdminUsersUnifiedPage() {
 
   return (
     <div className="p-4 sm:p-6 space-y-5 w-full">
-      <div>
-        <h1 className="text-lg font-semibold flex items-center gap-2"><Users size={18} className="text-muted" /> {L("ผู้ใช้", "Users", "用户")}</h1>
-        <p className="text-xs text-muted mt-1">{L("เพิ่มคน · ตั้งบทบาท + สิทธิ์ละเอียด + PIN + สาขา ที่เดียว · เข้าได้ทั้ง SSO และ PIN", "Add people · set role + detailed permissions + PIN + branches in one place · works with both SSO and PIN", "添加人员 · 一处设置角色 + 详细权限 + PIN + 门店 · 支持 SSO 和 PIN 登录")}</p>
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h1 className="text-lg font-semibold flex items-center gap-2"><Users size={18} className="text-muted" /> {L("ผู้ใช้ & สิทธิ์", "Users & Permissions", "用户与权限")}</h1>
+          <p className="text-xs text-muted mt-1">{L("เพิ่มคน · ตั้งบทบาท + สิทธิ์ละเอียด + PIN + สาขา ที่เดียว · เข้าได้ทั้ง SSO และ PIN", "Add people · set role + detailed permissions + PIN + branches in one place · works with both SSO and PIN", "添加人员 · 一处设置角色 + 详细权限 + PIN + 门店 · 支持 SSO 和 PIN 登录")}</p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <a href="/admin/org" className="inline-flex items-center gap-1.5 h-9 px-3 rounded-xl border border-line text-xs text-muted hover:text-brand hover:bg-surface2 transition-colors"><Network size={14} />{L("ผังองค์กร", "Org chart", "组织架构")}</a>
+          {!forbidden ? (
+            <div className="flex rounded-xl border border-line overflow-hidden text-xs">
+              <button onClick={() => setView("list")} className={`px-3 h-9 inline-flex items-center gap-1.5 ${view === "list" ? "bg-brand text-white" : "text-muted hover:bg-surface2"}`}><Users size={14} />{L("รายชื่อ", "List", "列表")}</button>
+              <button onClick={() => setView("matrix")} className={`px-3 h-9 inline-flex items-center gap-1.5 ${view === "matrix" ? "bg-brand text-white" : "text-muted hover:bg-surface2"}`}><Grid3x3 size={14} />{L("ตารางสิทธิ", "Matrix", "权限表")}</button>
+            </div>
+          ) : null}
+        </div>
       </div>
 
       {forbidden ? (
@@ -246,6 +274,7 @@ export default function AdminUsersUnifiedPage() {
             ) : null}
           </Card>
 
+          {view === "list" ? (
           <Card className="p-0 overflow-hidden">
             <div className="flex items-center justify-between px-4 py-2.5 border-b border-line">
               <div className="flex items-center gap-3">
@@ -302,6 +331,9 @@ export default function AdminUsersUnifiedPage() {
             ) : <EmptyState icon={<Users size={26} />} title={showInactive ? L("ไม่มีผู้ใช้", "No users", "暂无用户") : L("ยังไม่มีผู้ใช้ที่ใช้งาน", "No active users yet", "暂无活跃用户")} body={L("ค้นหาคนด้านบนเพื่อเพิ่มคน", "Search above to add people", "在上方搜索以添加人员")} />
             ); })()}
           </Card>
+          ) : (
+            <PermissionMatrix users={users.filter((u) => u.status === "active")} locale={locale} L={L} onToggle={saveOverride} />
+          )}
         </>
       )}
 
@@ -375,5 +407,88 @@ export default function AdminUsersUnifiedPage() {
         ) : null}
       </Modal>
     </div>
+  );
+}
+
+// ── ตารางสิทธิ (คน × สิทธิ) — คลิกช่องวน: ตาม role → อนุญาต → ห้าม → ตาม role ──
+const ALL_KEYS: PermissionKey[] = PERM_GROUPS.flatMap((g) => g.keys);
+const CYCLE: Record<FourState, FourState> = { inherit: "allow", allow: "deny", deny: "inherit", approval: "inherit" };
+
+function PermissionMatrix({ users, locale, L, onToggle }: {
+  users: UserRow[];
+  locale: "th" | "en" | "zh";
+  L: (th: string, en: string, zh: string) => string;
+  onToggle: (u: UserRow, key: PermissionKey, next: FourState) => void;
+}) {
+  const kl = (k: PermissionKey) => { const m = PERM_LABEL[k]; return m ? (locale === "th" ? m.th : locale === "zh" ? m.zh : m.en) : k; };
+  const gl = (g: { th: string; en: string; zh: string }) => (locale === "th" ? g.th : locale === "zh" ? g.zh : g.en);
+
+  const glyph = (eff: PermissionEffect) => (eff === "allow" ? "✓" : eff === "deny" ? "✕" : eff === "approval" ? "~" : "–");
+  const cellCls = (eff: PermissionEffect, strong: boolean) => {
+    if (eff === "allow") return strong ? "bg-ok text-white" : "text-ok/45";
+    if (eff === "deny") return strong ? "bg-danger text-white" : "text-danger/40";
+    if (eff === "approval") return strong ? "bg-amber-500 text-white" : "text-amber-500/50";
+    return "text-muted/30";
+  };
+
+  if (!users.length) return <Card className="p-6"><EmptyState icon={<Grid3x3 size={24} />} title={L("ยังไม่มีผู้ใช้", "No users yet", "暂无用户")} /></Card>;
+
+  return (
+    <Card className="p-0 overflow-hidden">
+      <div className="px-4 py-2.5 border-b border-line flex items-center gap-3 flex-wrap text-[11px] text-muted">
+        <span className="font-medium text-ink">{L("คลิกช่องเพื่อกำหนด", "Click a cell to set", "点击单元格设置")}</span>
+        <span className="inline-flex items-center gap-1"><span className="w-4 h-4 rounded bg-ok text-white grid place-items-center text-[10px]">✓</span>{L("อนุญาต", "Allow", "允许")}</span>
+        <span className="inline-flex items-center gap-1"><span className="w-4 h-4 rounded bg-danger text-white grid place-items-center text-[10px]">✕</span>{L("ห้าม", "Deny", "禁止")}</span>
+        <span className="inline-flex items-center gap-1"><span className="w-4 h-4 rounded grid place-items-center text-[10px] text-muted/40 border border-line">–</span>{L("ตาม role (จาง = ค่าปัจจุบัน)", "By role (faint = effective)", "按角色")}</span>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="border-collapse text-xs">
+          <thead>
+            <tr>
+              <th rowSpan={2} className="sticky left-0 z-20 bg-surface2 border-b border-r border-line px-3 py-2 text-left min-w-[180px]">{L("ผู้ใช้", "User", "用户")}</th>
+              {PERM_GROUPS.map((g, i) => (
+                <th key={i} colSpan={g.keys.length} className="border-b border-l border-line px-2 py-1.5 text-center text-[10px] uppercase tracking-wide text-muted bg-surface2/60">{gl(g)}</th>
+              ))}
+            </tr>
+            <tr>
+              {ALL_KEYS.map((k) => (
+                <th key={k} title={kl(k)} className="border-b border-line px-1 py-1.5 align-bottom bg-surface2/30" style={{ minWidth: 42, maxWidth: 52 }}>
+                  <div className="text-[8.5px] leading-tight text-muted truncate">{kl(k)}</div>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {users.map((u) => (
+              <tr key={u.id} className="hover:bg-surface2/40">
+                <td className="sticky left-0 z-10 bg-surface border-r border-b border-line px-3 py-1.5">
+                  <div className="flex items-center gap-2 min-w-0">
+                    {u.photo_url
+                      // eslint-disable-next-line @next/next/no-img-element
+                      ? <img src={u.photo_url} alt="" className="w-6 h-6 rounded-full object-cover shrink-0" />
+                      : <div className="w-6 h-6 rounded-full bg-surface2 grid place-items-center text-[9px] font-semibold shrink-0">{u.display_name.slice(0, 2).toUpperCase()}</div>}
+                    <div className="min-w-0"><p className="text-xs font-medium truncate max-w-[130px]">{u.display_name}</p><p className="text-[9px] text-muted">{ROLE_LABEL[u.role][locale]}</p></div>
+                  </div>
+                </td>
+                {ALL_KEYS.map((k) => {
+                  const ov = u.permission_overrides?.[k] as PermissionEffect | undefined;
+                  const state: FourState = ov ?? "inherit";
+                  const eff: PermissionEffect = ov ?? baseEffect(u.role, k);
+                  return (
+                    <td key={k} className="border-b border-line/60 text-center p-0.5">
+                      <button
+                        onClick={() => onToggle(u, k, CYCLE[state])}
+                        title={`${kl(k)} · ${L(STATE_META[state].th, STATE_META[state].en, STATE_META[state].zh)}`}
+                        className={`w-7 h-7 rounded grid place-items-center mx-auto text-[11px] font-bold transition-colors hover:ring-2 hover:ring-brand/30 ${cellCls(eff, !!ov)}`}
+                      >{glyph(eff)}</button>
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Card>
   );
 }
