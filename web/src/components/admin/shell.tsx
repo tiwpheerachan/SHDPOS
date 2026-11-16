@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, Suspense } from "react";
 import clsx from "clsx";
 import {
-  LayoutDashboard, TrendingUp, Users, Package, Boxes, ArrowLeftRight,
+  LayoutDashboard, TrendingUp, Users, Package, Boxes, ArrowLeftRight, ScanLine,
   ShieldCheck, ScrollText, Settings2, Store, Sun, Moon, Languages, Menu, X, Bell,
   Search, PanelLeftClose, PanelLeftOpen, ChevronDown, Command, Home, Activity, FileText, LogOut, Contact, CalendarClock, Ticket, Network, Landmark, Wand2,
 } from "lucide-react";
@@ -50,6 +50,7 @@ const NAV: NavGroup[] = [
       { href: "/admin/inventory", icon: Boxes, key: "inventory", perm: "inventory.view" },
       { href: "/admin/movement", icon: Activity, key: "movement" },
       { href: "/admin/transfers", icon: ArrowLeftRight, key: "transfers", perm: "transfer.request" },
+      { href: "/admin/serials", icon: ScanLine, key: "serials", perm: "inventory.view" },
       { href: "/admin/products", icon: Package, key: "products" },
     ],
   },
@@ -107,6 +108,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
     inventory: t.admin.inventory, transfers: t.admin.transfers, products: t.admin.products,
     approvals: t.admin.approvals, users: t.admin.users, audit: t.admin.audit, settings: t.admin.settings,
     movement: t.cmd.stockMovement, documents: t.cmd.documentCenter,
+    serials: L("ตามรอย SN", "Serial tracking", "序列追踪"),
     permissions: L("ผู้ใช้", "Users", "用户"),
     customers: L("ลูกค้า", "Customers", "客户"),
     stores: L("ร้าน", "Stores", "店铺"),

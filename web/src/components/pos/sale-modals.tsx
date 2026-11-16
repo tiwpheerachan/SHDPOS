@@ -129,6 +129,8 @@ export function SerialModal({
   open,
   onClose,
   productName,
+  productImage,
+  productSku,
   qty,
   initial,
   onSave,
@@ -136,6 +138,8 @@ export function SerialModal({
   open: boolean;
   onClose: () => void;
   productName: string;
+  productImage?: string | null;
+  productSku?: string | null;
   qty: number;
   initial: string[];
   onSave: (serials: string[]) => void;
@@ -180,7 +184,19 @@ export function SerialModal({
       }
     >
       <div className="space-y-3">
-        <p className="text-sm font-medium">{productName}</p>
+        {/* หัวการ์ด: รูป + ชื่อสินค้า — รู้ทันทีว่ากำลังสแกนอะไร */}
+        <div className="flex items-center gap-3 bg-surface2 border border-line rounded-xl p-2.5">
+          <div className="w-12 h-12 rounded-lg border border-line bg-surface overflow-hidden grid place-items-center shrink-0">
+            {productImage
+              // eslint-disable-next-line @next/next/no-img-element
+              ? <img src={productImage} alt={productName} className="w-full h-full object-cover" />
+              : <Barcode size={20} className="text-muted/40" />}
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold truncate">{productName}</p>
+            {productSku ? <p className="text-[11px] text-muted font-mono truncate">{productSku}</p> : null}
+          </div>
+        </div>
         <p className="text-xs text-muted">{L("ต้องสแกนให้ครบ", "Scan all", "需扫描全部")} {qty} {L("ชิ้น — ใช้เครื่องสแกนยิงต่อกันได้เลย", "items — scan them one after another", "件 — 可连续扫描")}</p>
         <div className="flex gap-2">
           <div className="relative flex-1">

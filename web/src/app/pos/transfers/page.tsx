@@ -8,7 +8,7 @@ import {
 import { useI18n } from "@/lib/i18n/provider";
 import { useSession } from "@/lib/store/session";
 import { useToast } from "@/components/toast-host";
-import { listBranches } from "@/lib/data/repo";
+import { listBranches, listProducts } from "@/lib/data/repo";
 import {
   owScanOut, owDispatch, owReceive, owList, owGet, owTimeline, owCarriers,
   statusMeta, isActive, isIssue, reconcileSerials, owErrorMessage,
@@ -43,7 +43,9 @@ export default function PosTransfersPage() {
   const [scanned, setScanned] = useState<Record<string, string[]>>({});   // serials ต่อ product (out/in ตามสถานะ)
   const [recvQty, setRecvQty] = useState<Record<string, string>>({});     // qty สำหรับบรรทัดไม่ใช้ SN
   const [disp, setDisp] = useState({ carrier: "", tracking: "", cost: "" });
-  const [sn, setSn] = useState<{ pid: string; name: string; qty: number } | null>(null);
+  const [sn, setSn] = useState<{ pid: string; name: string; qty: number; sku?: string; image?: string | null } | null>(null);
+  const [prodImg, setProdImg] = useState<Map<string, { image_url?: string | null; sku: string }>>(new Map());
+  useEffect(() => { void listProducts().then((ps) => setProdImg(new Map(ps.map((p) => [p.id, { image_url: p.image_url, sku: p.sku }])))); }, []);
   const [busy, setBusy] = useState(false);
 
   async function reload() {
@@ -231,7 +233,7 @@ export default function PosTransfersPage() {
                     <LineCard key={it.product_id} it={it} incoming={incoming} locale={locale} L={L}
                       scanned={scanned[it.product_id] ?? []} recvQty={recvQty[it.product_id] ?? ""}
                       canScanOut={canScanOut(detail)} canReceive={canReceive(detail)}
-                      onScan={() => setSn({ pid: it.product_id, name: it.name, qty: incoming ? (it.qty_shipped || it.qty_requested) : it.qty_requested })}
+                      onScan={() => setSn({ pid: it.product_id, name: it.name, qty: incoming ? (it.qty_shipped || it.qty_requested) : it.qty_requested, sku: it.sku, image: prodImg.get(it.product_id)?.image_url ?? null })}
                       onQty={(v) => setRecvQty((r) => ({ ...r, [it.product_id]: v }))}
                       snChip={snChip} />
                   ))}
@@ -256,7 +258,7 @@ export default function PosTransfersPage() {
       </Drawer>
 
       {/* SN scan modal (out/in) */}
-      <SerialModal open={Boolean(sn)} onClose={() => setSn(null)} productName={sn?.name ?? ""} qty={sn?.qty ?? 0}
+      <SerialModal open={Boolean(sn)} onClose={() => setSn(null)} productName={sn?.name ?? ""} productImage={sn?.image} productSku={sn?.sku} qty={sn?.qty ?? 0}
         initial={sn ? scanned[sn.pid] ?? [] : []}
         onSave={(serials) => { if (sn) setScanned((s) => ({ ...s, [sn.pid]: serials })); setSn(null); }} />
     </PosPage>
