@@ -4,19 +4,21 @@
 import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { nanoid } from "nanoid";
-import { ArrowLeftRight, Plus, Trash2, Check, X, Clock, Barcode, CircleAlert, Printer } from "lucide-react";
+import { ArrowLeftRight, Plus, Trash2, Check, X, Clock, Barcode, CircleAlert, Printer, ScanLine, Truck, PackageCheck, Upload, FileText, Boxes } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { useSession } from "@/lib/store/session";
 import { useToast } from "@/components/toast-host";
 import { listBranches, listProducts } from "@/lib/data/repo";
 import {
   owListAll, owCreate, owApprove, owReject, owGet, owTimeline,
+  owScanOut, owDispatch, owReceive, owCarriers, owSetAttachments,
   statusMeta, isActive, isIssue, owErrorMessage,
 } from "@/lib/onewarehouse";
 import { TransferStepper, ItemJourney, TransferTimeline } from "@/components/admin/transfer-ui";
+import { SerialScanDrawer } from "@/components/admin/serial-scan-drawer";
 import { printTransferCO } from "@/lib/transfer/print-co";
-import type { Branch, Product, Transfer, AuditEntry } from "@/lib/types";
-import { Button, Card, Input, Field, Select, Table, Th, Td, Badge, EmptyState, Modal, Drawer, DrawerTabs, DetailRow } from "@/components/ui";
+import type { Branch, Product, Transfer, TransferStatus, TransferAttachment, AuditEntry } from "@/lib/types";
+import { Button, Card, Input, Field, Select, Table, Th, Td, Badge, EmptyState, Drawer, DrawerTabs, DetailRow } from "@/components/ui";
 import { can, visibleBranchIds } from "@/lib/permissions";
 
 type Tab = "overview" | "timeline";
@@ -35,23 +37,42 @@ export default function AdminTransfersPage() {
   const [tab, setTab] = useState<Tab>("overview");
   const [timeline, setTimeline] = useState<AuditEntry[]>([]);
   const [busy, setBusy] = useState(false);
+  // สแกน SN (out/in) + จัดส่ง
+  const [scanned, setScanned] = useState<Record<string, string[]>>({});
+  const [recvQty, setRecvQty] = useState<Record<string, string>>({});
+  const [carriers, setCarriers] = useState<{ id: string; name: string }[]>([]);
+  const [carrier, setCarrier] = useState("");
+  const [scan, setScan] = useState<{ pid: string; mode: "out" | "in" } | null>(null);
   // create
   const [open, setOpen] = useState(false);
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
-  const [lines, setLines] = useState<{ id: string; product_id: string; qty: number }[]>([]);
+  const [lines, setLines] = useState<{ id: string; product_id: string; qty: number; serials: string[] }[]>([]);
   const [pickId, setPickId] = useState("");
   const [note, setNote] = useState("");
+  const [createScan, setCreateScan] = useState<string | null>(null); // lineId ที่กำลังสแกนตอนเปิดบิล
 
   async function reload() { setList(await owListAll()); }
   useEffect(() => {
     void (async () => {
-      const [b, p] = await Promise.all([listBranches(), listProducts()]);
-      setBranches(b); setProducts(p); setFrom(b[0]?.id ?? ""); setTo(b[1]?.id ?? "");
+      const [b, p, c] = await Promise.all([listBranches(), listProducts(), owCarriers()]);
+      setBranches(b); setProducts(p); setCarriers(c); setFrom(b[0]?.id ?? ""); setTo(b[1]?.id ?? "");
       await reload();
     })();
   }, []);
-  useEffect(() => { setTab("overview"); if (detail) void owTimeline(detail.transfer_no).then(setTimeline); }, [detail]);
+  // เปิดเอกสาร → เตรียม state สแกนตามสถานะ (≤packed=สแกนออก, in_transit=สแกนรับ)
+  useEffect(() => {
+    setTab("overview"); setCarrier("");
+    if (!detail) { setScanned({}); setRecvQty({}); return; }
+    void owTimeline(detail.transfer_no).then(setTimeline);
+    const receiving = detail.status === "in_transit";
+    const sc: Record<string, string[]> = {}; const rq: Record<string, string> = {};
+    for (const it of detail.items) {
+      if (it.isSerialized) sc[it.product_id] = (receiving ? it.receivedSerials : it.shippedSerials)?.map((s) => s.serialNo) ?? [];
+      else rq[it.product_id] = String(receiving ? (it.qty_shipped || it.qty_requested) : it.qty_requested);
+    }
+    setScanned(sc); setRecvQty(rq);
+  }, [detail]);
 
   // ── sync เอกสารที่เปิด ↔ URL (?doc=) เพื่อให้แท็บจำ/กลับมาเปิดเอกสารเดิม ──
   const pathname = usePathname();
@@ -83,7 +104,10 @@ export default function AdminTransfersPage() {
     if (!employee || !from || !to || from === to || !lines.length) return;
     setBusy(true);
     try {
-      const ls = lines.map((l) => { const p = products.find((x) => x.id === l.product_id)!; return { product_id: p.id, sku: p.sku, name: p.name_th, qty: l.qty, isSerialized: p.track_serial ? true : false }; });
+      const ls = lines
+        .map((l) => { const p = products.find((x) => x.id === l.product_id)!; const serialized = !!p.track_serial; return { product_id: p.id, sku: p.sku, name: p.name_th, qty: serialized ? l.serials.length : l.qty, isSerialized: serialized, serials: serialized ? l.serials : undefined }; })
+        .filter((l) => l.qty > 0);
+      if (!ls.length) { toast.push({ tone: "warn", title: L("เพิ่มสินค้า/สแกน SN อย่างน้อย 1 ชิ้น", "Add at least 1 item / scan a SN", "至少添加/扫描 1 件") }); return; }
       await owCreate(from, to, employee.id, ls, note, can(employee, "transfer.approve"));
       setOpen(false); setLines([]); setNote(""); await reload();
       toast.push({ tone: "ok", title: t.transfer.title });
@@ -100,7 +124,69 @@ export default function AdminTransfersPage() {
     finally { setBusy(false); }
   }
 
-  const canApprove = (tr: Transfer) => tr.status === "pending_approval" && can(employee, "transfer.approve");
+  const canApprove = (tr: Transfer) => tr.status === "pending_approval" && can(employee, "transfer.approve") && atSource(tr);
+  // ── แยกสิทธิ์ตามสาขา: ต้นทางทำสแกนออก/จัดส่ง · ปลายทางเท่านั้นที่รับเข้า ──
+  //   atSource/atDest = สาขานั้นอยู่ในขอบเขตที่คนนี้ดูแล (owner/hq = ทุกสาขา → ทำได้ทั้งคู่)
+  const atSource = (tr: Transfer) => allowed.includes(tr.from_branch_id);
+  const atDest = (tr: Transfer) => allowed.includes(tr.to_branch_id);
+  const canOut = can(employee, "transfer.request") || can(employee, "transfer.approve");
+  const canRecv = can(employee, "transfer.receive") || can(employee, "transfer.approve");
+  const canScanOut = (tr: Transfer) => canOut && atSource(tr) && ["approved", "picking", "packed"].includes(tr.status);
+  const canReceive = (tr: Transfer) => canRecv && atDest(tr) && tr.status === "in_transit";
+  // รออีกฝั่งทำ (โชว์ป้ายบอกว่าใครต้องทำต่อ)
+  const waitingSide = (tr: Transfer): "dest" | "source" | null =>
+    tr.status === "in_transit" && !atDest(tr) ? "dest" : ["approved", "picking", "packed"].includes(tr.status) && !atSource(tr) ? "source" : null;
+  const scanModeOf = (tr: Transfer): "out" | "in" => (tr.status === "in_transit" ? "in" : "out");
+  const prodImg = (pid: string) => products.find((p) => p.id === pid)?.image_url ?? null;
+
+  // สถานะสต๊อก — ของนับเป็นอะไรตอนนี้ (ตามสเปกบัญชีสต๊อก Reserved Out → OTWO → On Hand)
+  const stockStatus = (s: TransferStatus): { label: string; tone: "warn" | "info" | "ok" | "neutral" } => {
+    if (["draft", "pending_approval", "approved", "picking"].includes(s)) return { label: L("จองออก (Reserved Out) · ยังอยู่ในสต๊อกต้นทาง", "Reserved Out · still source stock", "调出预留·仍在源库存"), tone: "warn" };
+    if (["packed", "shipped", "in_transit"].includes(s)) return { label: L("กำลังส่งออก (On the Way Out) · ออกจากคลังต้นทางแล้ว ยังไม่ถึงปลายทาง", "On the Way Out · left source, not yet received", "在途出库"), tone: "info" };
+    if (["completed", "received"].includes(s)) return { label: L("เข้าสต๊อกปลายทางแล้ว (On Hand)", "On Hand at destination", "已入目的地库存"), tone: "ok" };
+    if (s === "partial_received") return { label: L("รับบางส่วน · ปรับสต๊อกตามที่รับจริง", "Partially received", "部分入库"), tone: "warn" };
+    return { label: L("ยกเลิก · คืนจอง", "Cancelled · reservation released", "已取消·释放预留"), tone: "neutral" };
+  };
+
+  // แนบไฟล์/รูป (ไม่จำกัดจำนวน · เก็บ data URL ในโหมด demo)
+  async function onUploadFiles(files: FileList | null) {
+    if (!detail || !files || !files.length) return;
+    const read = await Promise.all([...files].slice(0, 20).map((f) => new Promise<TransferAttachment>((res) => {
+      const r = new FileReader();
+      r.onload = () => res({ id: nanoid(8), name: f.name, type: f.type || "application/octet-stream", url: String(r.result), size: f.size, at: new Date().toISOString(), by: employee?.id ?? null });
+      r.readAsDataURL(f);
+    })));
+    const ok = read.filter((a) => a.size <= 8 * 1024 * 1024);
+    if (ok.length < read.length) toast.push({ tone: "warn", title: L("บางไฟล์ใหญ่เกิน 8MB ถูกข้าม", "Files >8MB skipped", "超过8MB已跳过") });
+    if (!ok.length) return;
+    const updated = await owSetAttachments(detail.id, [...(detail.attachments ?? []), ...ok]);
+    if (updated) { setDetail(updated); await reload(); toast.push({ tone: "ok", title: L("แนบไฟล์แล้ว", "Files attached", "已附加") }); }
+  }
+  async function removeAttachment(id: string) {
+    if (!detail) return;
+    const updated = await owSetAttachments(detail.id, (detail.attachments ?? []).filter((a) => a.id !== id));
+    if (updated) { setDetail(updated); await reload(); }
+  }
+
+  // สแกนออกครบทุก serialized line แล้วหรือยัง
+  const scanOutReady = (tr: Transfer) => tr.items.every((it) => !it.isSerialized || (scanned[it.product_id]?.length ?? 0) === it.qty_requested);
+
+  // บันทึก SN จากป๊อปอัป
+  function saveScan(serials: string[]) {
+    if (scan) setScanned((s) => ({ ...s, [scan.pid]: serials }));
+    setScan(null);
+  }
+  // สแกนออก → packed
+  const doScanOut = (tr: Transfer) => void act(() => owScanOut(tr, employee!.id, scanned), L("สแกนออกแล้ว", "Scanned out", "已扫描出库"));
+  // จัดส่ง → in_transit
+  const doDispatch = (tr: Transfer) => void act(() => owDispatch(tr, employee!.id, { carrier: carrier || null }), L("จัดส่งแล้ว", "Dispatched", "已发货"));
+  // รับเข้า → completed/partial
+  const doReceive = (tr: Transfer) => {
+    const received: Record<string, { serials?: string[]; qty?: number }> = {};
+    for (const it of tr.items) received[it.product_id] = it.isSerialized ? { serials: scanned[it.product_id] ?? [] } : { qty: Number(recvQty[it.product_id] || 0) };
+    void act(() => owReceive(tr, employee!.id, received), L("รับเข้าแล้ว", "Received", "已入库"));
+  };
+
   function printCO(tr: Transfer) {
     printTransferCO(tr, { fromName: bName(tr.from_branch_id), toName: bName(tr.to_branch_id), statusLabel: sMeta(tr.status).label, locale, carrierName: tr.carrier });
   }
@@ -152,12 +238,27 @@ export default function AdminTransfersPage() {
         subtitle={detail ? `${detail.from_kind === "warehouse" ? "🏬 " : ""}${bName(detail.from_branch_id)} → ${bName(detail.to_branch_id)}` : ""}
         badge={detail ? <Badge tone={sMeta(detail.status).tone}>{sMeta(detail.status).label}</Badge> : null}
         footer={detail ? (
-          <div className="flex gap-2 w-full items-center">
+          <div className="flex gap-2 w-full items-center flex-wrap">
             <Button variant="soft" onClick={() => printCO(detail)}><Printer size={15} /> {L("พิมพ์ใบ CO", "Print CO", "打印CO")}</Button>
-            {canApprove(detail) ? <>
-              <Button variant="ghost" className="ml-auto" loading={busy} onClick={() => void act(() => owReject(detail, employee!.id), L("ปฏิเสธแล้ว", "Rejected", "已拒绝"))}><X size={15} /> {L("ปฏิเสธ", "Reject", "拒绝")}</Button>
-              <Button variant="primary" loading={busy} onClick={() => void act(() => owApprove(detail, employee!.id), t.transfer.approve)}><Check size={15} /> {t.transfer.approve}</Button>
-            </> : null}
+            <div className="ml-auto flex items-center gap-2 flex-wrap">
+              {/* รออีกฝั่ง: บอกว่าใครต้องทำต่อ (ฝั่งนี้กดไม่ได้) */}
+              {waitingSide(detail) === "dest" ? <span className="text-xs text-muted inline-flex items-center gap-1.5"><Clock size={13} /> {L("รอปลายทางรับเข้า", "Waiting for destination to receive", "等待目的地入库")} ({bName(detail.to_branch_id)})</span> : null}
+              {waitingSide(detail) === "source" ? <span className="text-xs text-muted inline-flex items-center gap-1.5"><Clock size={13} /> {L("รอต้นทางสแกนออก/จัดส่ง", "Waiting for source to ship", "等待调出方发货")} ({bName(detail.from_branch_id)})</span> : null}
+              {canApprove(detail) ? <>
+                <Button variant="ghost" loading={busy} onClick={() => void act(() => owReject(detail, employee!.id), L("ปฏิเสธแล้ว", "Rejected", "已拒绝"))}><X size={15} /> {L("ปฏิเสธ", "Reject", "拒绝")}</Button>
+                <Button variant="primary" loading={busy} onClick={() => void act(() => owApprove(detail, employee!.id), t.transfer.approve)}><Check size={15} /> {t.transfer.approve}</Button>
+              </> : null}
+              {canScanOut(detail) && detail.status !== "packed" ? (
+                <Button variant="primary" loading={busy} disabled={!scanOutReady(detail)} onClick={() => doScanOut(detail)}><ScanLine size={15} /> {L("ยืนยันสแกนออก", "Confirm scan-out", "确认出库")}</Button>
+              ) : null}
+              {canScanOut(detail) && detail.status === "packed" ? <>
+                <Select value={carrier} onChange={(e) => setCarrier(e.target.value)} className="h-10 w-36"><option value="">{L("ขนส่ง…", "Carrier…", "承运…")}</option>{carriers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</Select>
+                <Button variant="primary" loading={busy} onClick={() => doDispatch(detail)}><Truck size={15} /> {L("จัดส่ง", "Dispatch", "发货")}</Button>
+              </> : null}
+              {canReceive(detail) ? (
+                <Button variant="primary" loading={busy} onClick={() => doReceive(detail)}><PackageCheck size={15} /> {L("ยืนยันรับเข้า", "Confirm receive", "确认入库")}</Button>
+              ) : null}
+            </div>
           </div>
         ) : null}>
         {detail ? (
@@ -172,7 +273,7 @@ export default function AdminTransfersPage() {
                   {detail.jst_allocation_no ? <DetailRow label="JST">{detail.jst_allocation_no}</DetailRow> : null}
                   {detail.note ? <DetailRow label={t.common.note}>{detail.note}</DetailRow> : null}
                 </div>
-                <p className="text-[11px] text-muted flex items-center gap-1.5"><CircleAlert size={12} /> {L("หน้านี้ใช้ติดตาม/อนุมัติ · การสแกนออก-รับเข้าทำที่ POS ของสาขา", "Monitor/approve here · scan-out & receive happen at branch POS", "此页用于监控/审批")}</p>
+                <p className="text-[11px] text-muted flex items-center gap-1.5"><CircleAlert size={12} /> {L("สแกนออก/รับเข้าได้จากหน้านี้ (กดสแกน SN — ป๊อปอัปขวา) หรือที่ POS สาขา", "Scan-out/receive here (tap Scan SN — right popup) or at branch POS", "可在此扫描出入库（右侧弹窗）")}</p>
                 <div className="space-y-2">
                   {detail.items.map((it) => (
                     <div key={it.product_id} className="rounded-2xl border border-line p-3">
@@ -181,10 +282,48 @@ export default function AdminTransfersPage() {
                           <p className="font-medium text-sm truncate">{it.name}{it.isSerialized === null ? <Badge tone="danger" className="ml-1">{L("ยังไม่จัดประเภท", "Unclassified", "未分类")}</Badge> : it.isSerialized ? <Barcode size={12} className="inline ml-1 text-brand" /> : null}</p>
                           <p className="font-mono text-[10px] text-muted">{it.sku}</p>
                         </div>
+                        {it.isSerialized && (canScanOut(detail) || canReceive(detail)) ? (
+                          <button
+                            onClick={() => setScan({ pid: it.product_id, mode: scanModeOf(detail) })}
+                            className="shrink-0 inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-brand/40 text-brand text-xs font-medium hover:bg-brand/10 transition-colors"
+                          >
+                            <ScanLine size={14} /> {L("สแกน SN", "Scan SN", "扫码")} <span className="tnum">({scanned[it.product_id]?.length ?? 0}/{detail.status === "in_transit" ? (it.qty_shipped || it.qty_requested) : it.qty_requested})</span>
+                          </button>
+                        ) : null}
                       </div>
                       <ItemJourney req={it.qty_requested} shipped={it.qty_shipped} received={it.qty_received} L={L} />
                     </div>
                   ))}
+                </div>
+
+                {/* สถานะสต๊อก — ของนับเป็นอะไรตอนนี้ */}
+                <div className="rounded-2xl border border-line p-3 flex items-center justify-between gap-3">
+                  <span className="text-sm text-muted inline-flex items-center gap-1.5 shrink-0"><Boxes size={15} /> {L("สถานะสต๊อก", "Stock status", "库存状态")}</span>
+                  <Badge tone={stockStatus(detail.status).tone} className="text-right">{stockStatus(detail.status).label}</Badge>
+                </div>
+
+                {/* เอกสาร / รูปแนบ (ไม่จำกัด) */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-sm font-medium">{L("เอกสาร / รูปแนบ", "Files / images", "文件/图片")} <span className="text-muted font-normal">({detail.attachments?.length ?? 0})</span></p>
+                    <label className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-brand/40 text-brand text-xs font-medium hover:bg-brand/10 cursor-pointer transition-colors">
+                      <Upload size={14} /> {L("เพิ่มไฟล์", "Add files", "添加")}
+                      <input type="file" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.csv" className="hidden" onChange={(e) => { void onUploadFiles(e.target.files); e.currentTarget.value = ""; }} />
+                    </label>
+                  </div>
+                  {detail.attachments?.length ? (
+                    <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                      {detail.attachments.map((a) => (
+                        <div key={a.id} className="relative group rounded-xl border border-line overflow-hidden bg-surface2">
+                          {a.type.startsWith("image/")
+                            // eslint-disable-next-line @next/next/no-img-element
+                            ? <a href={a.url} target="_blank" rel="noreferrer"><img src={a.url} alt={a.name} className="w-full h-20 object-cover" /></a>
+                            : <a href={a.url} download={a.name} className="flex flex-col items-center justify-center h-20 gap-1 p-2 text-center"><FileText size={22} className="text-muted" /><span className="text-[9px] text-muted truncate w-full">{a.name}</span></a>}
+                          <button onClick={() => void removeAttachment(a.id)} className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/55 text-white grid place-items-center opacity-0 group-hover:opacity-100 transition-opacity"><X size={11} /></button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : <p className="text-xs text-muted">{L("ยังไม่มีไฟล์แนบ — เพิ่มรูปสินค้า/เอกสารได้ไม่จำกัด", "No files yet — add product photos / documents", "暂无附件")}</p>}
                 </div>
               </div>
             ) : <TransferTimeline rows={timeline} locale={locale} L={L} />}
@@ -192,10 +331,31 @@ export default function AdminTransfersPage() {
         ) : null}
       </Drawer>
 
-      {/* create */}
-      <Modal open={open} onClose={() => setOpen(false)} title={t.transfer.request} size="lg"
-        footer={<><Button variant="ghost" onClick={() => setOpen(false)}>{t.common.cancel}</Button><Button variant="primary" loading={busy} disabled={!lines.length || from === to} onClick={() => void create()}>{t.common.save}</Button></>}>
-        <div className="space-y-4">
+      {/* ป๊อปอัปขวา: สแกน SN (ออก/เข้า) */}
+      {detail && scan ? (() => {
+        const it = detail.items.find((x) => x.product_id === scan.pid);
+        if (!it) return null;
+        const qty = scan.mode === "in" ? (it.qty_shipped || it.qty_requested) : it.qty_requested;
+        return (
+          <SerialScanDrawer
+            open
+            onClose={() => setScan(null)}
+            mode={scan.mode}
+            product={{ name: it.name, sku: it.sku, image: prodImg(it.product_id) }}
+            qty={qty}
+            shipped={(it.shippedSerials ?? []).map((s) => s.serialNo)}
+            initial={scanned[it.product_id] ?? []}
+            onSave={saveScan}
+            locale={locale as "th" | "en" | "zh"}
+          />
+        );
+      })() : null}
+
+      {/* create (slide-over ขวา) */}
+      <Drawer open={open} onClose={() => setOpen(false)} title={t.transfer.request} width="lg"
+        subtitle={from && to && from !== to ? `${bName(from)} → ${bName(to)}` : undefined}
+        footer={<><Button variant="ghost" onClick={() => setOpen(false)}>{t.common.cancel}</Button><Button variant="primary" className="ml-auto" loading={busy} disabled={from === to || !lines.some((l) => { const p = products.find((x) => x.id === l.product_id); return p?.track_serial ? l.serials.length > 0 : l.qty > 0; })} onClick={() => void create()}>{L("ส่งคำขออนุมัติ", "Send for approval", "提交审批")}</Button></>}>
+        <div className="p-5 space-y-4">
           <div className="grid sm:grid-cols-2 gap-3">
             <Field label={t.transfer.from}><Select value={from} onChange={(e) => setFrom(e.target.value)}>{branches.map((b) => <option key={b.id} value={b.id}>{bName(b.id)}</option>)}</Select></Field>
             <Field label={t.transfer.to}><Select value={to} onChange={(e) => setTo(e.target.value)}>{branches.map((b) => <option key={b.id} value={b.id}>{bName(b.id)}</option>)}</Select></Field>
@@ -203,23 +363,50 @@ export default function AdminTransfersPage() {
           {from === to ? <p className="text-xs text-danger">{L("ต้นทางและปลายทางต้องไม่ใช่สาขาเดียวกัน", "Source and destination must differ", "调出调入不能相同")}</p> : null}
           <div className="flex gap-2">
             <Select value={pickId} onChange={(e) => setPickId(e.target.value)} className="flex-1"><option value="">{t.common.add}...</option>{products.filter((p) => p.is_stocked).map((p) => <option key={p.id} value={p.id}>{p.sku} · {pick({ th: p.name_th, en: p.name_en, zh: p.name_zh })}{p.track_serial ? " · SN" : ""}</option>)}</Select>
-            <Button variant="soft" disabled={!pickId} onClick={() => { setLines((l) => [...l, { id: nanoid(), product_id: pickId, qty: 1 }]); setPickId(""); }}><Plus size={16} /></Button>
+            <Button variant="soft" disabled={!pickId} onClick={() => { setLines((l) => [...l, { id: nanoid(), product_id: pickId, qty: 1, serials: [] }]); setPickId(""); }}><Plus size={16} /></Button>
           </div>
           <Table>
-            <thead><tr><Th>{t.admin.products}</Th><Th align="center">{t.common.qty}</Th><Th /></tr></thead>
+            <thead><tr><Th>{t.admin.products}</Th><Th align="center">{L("จำนวน / สแกน SN", "Qty / Scan SN", "数量/扫码")}</Th><Th /></tr></thead>
             <tbody>
               {lines.map((l) => { const p = products.find((x) => x.id === l.product_id); return (
                 <tr key={l.id}>
                   <Td className="text-xs">{p?.name_th}{p?.track_serial ? <Barcode size={11} className="inline ml-1 text-brand" /> : null}</Td>
-                  <Td align="center"><Input value={l.qty} inputMode="numeric" onChange={(e) => setLines((list) => list.map((x) => x.id === l.id ? { ...x, qty: Number(e.target.value.replace(/\D/g, "") || 0) } : x))} className="h-8 w-20 text-center tnum" /></Td>
+                  <Td align="center">
+                    {p?.track_serial ? (
+                      <button onClick={() => setCreateScan(l.id)} className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-brand/40 text-brand text-xs font-medium hover:bg-brand/10 transition-colors">
+                        <ScanLine size={14} /> {L("สแกน SN", "Scan SN", "扫码")} <span className="tnum">({l.serials.length})</span>
+                      </button>
+                    ) : (
+                      <Input value={l.qty} inputMode="numeric" onChange={(e) => setLines((list) => list.map((x) => x.id === l.id ? { ...x, qty: Number(e.target.value.replace(/\D/g, "") || 0) } : x))} className="h-8 w-20 text-center tnum" />
+                    )}
+                  </Td>
                   <Td align="right"><button onClick={() => setLines((list) => list.filter((x) => x.id !== l.id))} className="text-muted hover:text-danger"><Trash2 size={14} /></button></Td>
                 </tr>
               ); })}
             </tbody>
           </Table>
-          <Field label={t.common.note}><Input value={note} onChange={(e) => setNote(e.target.value)} /></Field>
+          <Field label={L("เหตุผล / หมายเหตุ", "Reason / note", "原因/备注")}><Input value={note} onChange={(e) => setNote(e.target.value)} placeholder={L("เช่น เติมสต๊อกสาขา, ย้ายตามคำสั่งซื้อ", "e.g. restock branch, move per order", "例如：补货")} /></Field>
         </div>
-      </Modal>
+      </Drawer>
+
+      {/* ป๊อปอัปขวา: สแกน SN ตอนเปิดบิล (จำนวน = จำนวน SN ที่ยิง) */}
+      {createScan ? (() => {
+        const l = lines.find((x) => x.id === createScan); if (!l) return null;
+        const p = products.find((x) => x.id === l.product_id); if (!p) return null;
+        return (
+          <SerialScanDrawer
+            open
+            onClose={() => setCreateScan(null)}
+            mode="out"
+            product={{ name: p.name_th, sku: p.sku, image: p.image_url }}
+            qty={0}
+            shipped={[]}
+            initial={l.serials}
+            onSave={(serials) => { setLines((list) => list.map((x) => x.id === l.id ? { ...x, serials, qty: serials.length } : x)); setCreateScan(null); }}
+            locale={locale as "th" | "en" | "zh"}
+          />
+        );
+      })() : null}
     </div>
   );
 }

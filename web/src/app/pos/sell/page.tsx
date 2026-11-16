@@ -18,6 +18,7 @@ import {
 } from "@/lib/data/repo";
 import { computeCampaignGifts, giftSig } from "@/lib/promo/gifts";
 import type { Branch, CartLine, Category, Employee, Order, Product, StockLevel, PaymentEntry } from "@/lib/types";
+import { availableQty } from "@/lib/stock";
 import { formatTHB, lineTotal, round2 } from "@/lib/money";
 import { can, discountLimit, discountApprovalLevel, needsApproval } from "@/lib/permissions";
 import { Button, Card, EmptyState, Input, Select, Badge, Modal, Segmented, Avatar } from "@/components/ui";
@@ -169,7 +170,7 @@ export default function SellPage() {
       saleLines,
       giftCampaigns,
       (sku) => productBySku.get(sku),
-      (pid) => stock.get(pid)?.qty_on_hand ?? 0,
+      (pid) => availableQty(stock.get(pid)),
     );
     if (giftSig(gifts) !== giftSig(cart.lines)) cart.setCampaignGifts(gifts);
     setGiftWarns((prev) => (prev.join("|") === warnings.join("|") ? prev : warnings));
@@ -221,7 +222,7 @@ export default function SellPage() {
   const addProduct = useCallback(
     (p: Product) => {
       const sl = stock.get(p.id);
-      if (p.is_stocked && sl && sl.qty_on_hand <= 0) {
+      if (p.is_stocked && sl && availableQty(sl) <= 0) {
         toast.push({ tone: "warn", title: t.pos.outOfStock, body: p.name_th });
       }
       cart.addProduct(p);
@@ -539,7 +540,7 @@ export default function SellPage() {
             <div className="grid grid-cols-3 sm:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-2.5">
               {visible.map((p) => {
                 const sl = stock.get(p.id);
-                const qty = sl?.qty_on_hand ?? 0;
+                const qty = availableQty(sl); // พร้อมขาย (หัก reserved/OTWO แล้ว)
                 const low = p.is_stocked && qty > 0 && qty <= (sl?.reorder_point ?? p.reorder_point);
                 const out = p.is_stocked && qty <= 0;
                 const name = pick({ th: p.name_th, en: p.name_en, zh: p.name_zh });
