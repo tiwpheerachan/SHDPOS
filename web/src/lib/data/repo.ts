@@ -404,8 +404,14 @@ export async function dispatchTransfer(tr: Transfer, employeeId: string, opts: {
   }
   return writeTransfer(tr, {
     status: "in_transit", carrier: opts.carrier ?? null, tracking: opts.tracking ?? null, shipping_cost: opts.shippingCost ?? null,
+    ship_stage: "requested", // เริ่มที่ "เรียกรถแล้ว"
     jst_allocation_no: tr.jst_allocation_no ?? `JST-${nanoid(6).toUpperCase()}`,
   }, employeeId, tr.from_branch_id, { status: "in_transit", carrier: opts.carrier ?? null });
+}
+
+/** อัปเดตสถานะขนส่งย่อย (เรียกรถ → รถรับของ → กำลังส่ง → ถึงปลายทาง) */
+export async function advanceShipStage(tr: Transfer, employeeId: string, stage: NonNullable<Transfer["ship_stage"]>): Promise<Transfer> {
+  return writeTransfer(tr, { ship_stage: stage }, employeeId, tr.from_branch_id, { ship_stage: stage });
 }
 
 /** แนบ/ลบไฟล์เอกสาร-รูปในใบโอน (metadata — ไม่ bump version กันชนกับ action อื่น) */

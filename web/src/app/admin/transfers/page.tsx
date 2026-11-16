@@ -4,14 +4,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { nanoid } from "nanoid";
-import { ArrowLeftRight, Plus, Trash2, Check, X, Clock, Barcode, CircleAlert, Printer, ScanLine, Truck, PackageCheck, Upload, FileText, Boxes } from "lucide-react";
+import { ArrowLeftRight, Plus, Trash2, Check, X, Clock, Barcode, CircleAlert, Printer, ScanLine, Truck, PackageCheck, Upload, FileText, Boxes, ChevronRight } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { useSession } from "@/lib/store/session";
 import { useToast } from "@/components/toast-host";
 import { listBranches, listProducts } from "@/lib/data/repo";
 import {
   owListAll, owCreate, owApprove, owReject, owGet, owTimeline,
-  owScanOut, owDispatch, owReceive, owCarriers, owSetAttachments,
+  owScanOut, owDispatch, owReceive, owCarriers, owSetAttachments, owShipStage,
   statusMeta, isActive, isIssue, owErrorMessage,
 } from "@/lib/onewarehouse";
 import { TransferStepper, ItemJourney, TransferTimeline } from "@/components/admin/transfer-ui";
@@ -22,6 +22,13 @@ import { Button, Card, Input, Field, Select, Table, Th, Td, Badge, EmptyState, D
 import { can, visibleBranchIds } from "@/lib/permissions";
 
 type Tab = "overview" | "timeline";
+type ShipStage = NonNullable<Transfer["ship_stage"]>;
+const SHIP_STAGES: { key: ShipStage; th: string; en: string; zh: string }[] = [
+  { key: "requested", th: "เรียกรถแล้ว", en: "Pickup requested", zh: "已叫车" },
+  { key: "picked_up", th: "รถรับของแล้ว", en: "Picked up", zh: "已取货" },
+  { key: "in_delivery", th: "กำลังจัดส่ง", en: "In delivery", zh: "配送中" },
+  { key: "arrived", th: "ถึงปลายทาง", en: "Arrived", zh: "已到达" },
+];
 
 export default function AdminTransfersPage() {
   const { t, locale, pick } = useI18n();
@@ -167,6 +174,7 @@ export default function AdminTransfersPage() {
     const updated = await owSetAttachments(detail.id, (detail.attachments ?? []).filter((a) => a.id !== id));
     if (updated) { setDetail(updated); await reload(); }
   }
+  const doShipStage = (tr: Transfer, stage: ShipStage) => void act(() => owShipStage(tr, employee!.id, stage), L("อัปเดตสถานะขนส่งแล้ว", "Shipping updated", "已更新物流"));
 
   // สแกนออกครบทุก serialized line แล้วหรือยัง
   const scanOutReady = (tr: Transfer) => tr.items.every((it) => !it.isSerialized || (scanned[it.product_id]?.length ?? 0) === it.qty_requested);
@@ -295,6 +303,36 @@ export default function AdminTransfersPage() {
                     </div>
                   ))}
                 </div>
+
+                {/* สถานะขนส่ง (ย่อย) — เฉพาะช่วงระหว่างทาง */}
+                {detail.status === "in_transit" ? (() => {
+                  const curIdx = Math.max(0, SHIP_STAGES.findIndex((s) => s.key === (detail.ship_stage ?? "requested")));
+                  const next = SHIP_STAGES[curIdx + 1];
+                  const carrierName = carriers.find((c) => c.id === detail.carrier)?.name ?? detail.carrier;
+                  return (
+                    <div className="rounded-2xl border border-line p-3">
+                      <div className="flex items-center justify-between gap-2 mb-2.5">
+                        <span className="text-sm text-muted inline-flex items-center gap-1.5"><Truck size={15} /> {L("สถานะขนส่ง", "Shipping status", "物流状态")}{carrierName ? <span className="text-ink font-medium">· {carrierName}</span> : null}</span>
+                      </div>
+                      <div className="flex items-center gap-1 overflow-x-auto pb-1">
+                        {SHIP_STAGES.map((st, i) => {
+                          const reached = i <= curIdx, isCur = i === curIdx;
+                          return (
+                            <div key={st.key} className="flex items-center gap-1 shrink-0">
+                              <span className={`inline-flex items-center gap-1.5 h-7 px-2.5 rounded-full text-[11px] font-medium border ${isCur ? "bg-brand text-brandInk border-brand" : reached ? "bg-brand/10 text-brand border-brand/30" : "bg-surface border-line text-muted"}`}>
+                                {reached ? <Check size={11} /> : <span className="w-1.5 h-1.5 rounded-full bg-current opacity-40" />}{L(st.th, st.en, st.zh)}
+                              </span>
+                              {i < SHIP_STAGES.length - 1 ? <ChevronRight size={13} className="text-muted/50" /> : null}
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {canOut && atSource(detail) && next ? (
+                        <Button variant="soft" className="mt-2.5" loading={busy} onClick={() => doShipStage(detail, next.key)}><Truck size={14} /> {L(`อัปเดตเป็น “${next.th}”`, `Mark “${next.en}”`, next.zh)}</Button>
+                      ) : null}
+                    </div>
+                  );
+                })() : null}
 
                 {/* สถานะสต๊อก — ของนับเป็นอะไรตอนนี้ */}
                 <div className="rounded-2xl border border-line p-3 flex items-center justify-between gap-3">

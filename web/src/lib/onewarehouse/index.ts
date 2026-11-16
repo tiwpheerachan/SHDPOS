@@ -13,6 +13,7 @@ export {
   scanOutTransfer as owScanOut,
   dispatchTransfer as owDispatch,
   receiveTransfer as owReceive,
+  advanceShipStage as owShipStage,
   reserveStock as owReserve,
   setTransferAttachments as owSetAttachments,
 } from "@/lib/data/repo";
