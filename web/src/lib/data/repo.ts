@@ -19,7 +19,7 @@ import { computeTotals, lineTotal, lineDiscount, lineCost, round2, VAT_RATE } fr
 import type {
   Branch, Brand, Category, Employee, Order, OrderDraft, OrderItem, Product,
   Shift, StockLevel, Terminal, AuditEntry, Customer, ReturnDoc, ApprovalRequest,
-  CountType, StockCountSession, Transfer, TransferStatus,
+  CountType, StockCountSession, Transfer, TransferStatus, TransferAttachment,
 } from "../types";
 
 const CATALOG_VERSION = "2026-11-13.1";
@@ -310,6 +310,28 @@ export async function reserveStock(branchId: string, productId: string, delta: n
   await db().stock.update(key, { qty_reserved: Math.max(0, round2((row.qty_reserved ?? 0) + delta)) });
 }
 
+/** ปรับ On-the-Way-Out (สแกนออกแล้วแต่ยังไม่ถึงปลายทาง) */
+export async function adjustOtwo(branchId: string, productId: string, delta: number): Promise<void> {
+  const key = stockKey(branchId, productId);
+  const row = await db().stock.get(key);
+  if (!row) {
+    if (delta > 0) await db().stock.put({ key, branch_id: branchId, product_id: productId, qty_on_hand: 0, qty_reserved: 0, qty_otwo: delta, reorder_point: 0 });
+    return;
+  }
+  await db().stock.update(key, { qty_otwo: Math.max(0, round2((row.qty_otwo ?? 0) + delta)) });
+}
+
+/** ปรับ Reserved Order (จองตาม order/พักบิล ที่ยังไม่สแกนออก) */
+export async function reserveOrderStock(branchId: string, productId: string, delta: number): Promise<void> {
+  const key = stockKey(branchId, productId);
+  const row = await db().stock.get(key);
+  if (!row) {
+    if (delta > 0) await db().stock.put({ key, branch_id: branchId, product_id: productId, qty_on_hand: 0, qty_reserved: 0, qty_reserved_order: delta, reorder_point: 0 });
+    return;
+  }
+  await db().stock.update(key, { qty_reserved_order: Math.max(0, round2((row.qty_reserved_order ?? 0) + delta)) });
+}
+
 /** เพิ่ม version + บันทึก + audit (concurrency + timeline) — เช็ค stale version → โยน transfer_version_conflict */
 async function writeTransfer(tr: Transfer, patch: Partial<Transfer>, employeeId: string, branchId: string, after: Record<string, unknown>): Promise<Transfer> {
   const fresh = await db().transfers.get(tr.id);
@@ -323,16 +345,21 @@ async function writeTransfer(tr: Transfer, patch: Partial<Transfer>, employeeId:
 
 export async function createTransfer(
   fromBranchId: string, toBranchId: string, employeeId: string,
-  lines: { product_id: string; sku: string; name: string; qty: number; isSerialized?: boolean | null }[],
+  lines: { product_id: string; sku: string; name: string; qty: number; isSerialized?: boolean | null; serials?: string[] }[],
   note: string, autoApprove: boolean, fromKind: "branch" | "warehouse" = "branch"
 ): Promise<Transfer> {
+  const now = new Date().toISOString();
   const tr: Transfer = {
     id: uuidv4(),
     transfer_no: `TF-${new Date().toISOString().slice(2, 10).replace(/-/g, "")}-${nanoid(4).toUpperCase()}`,
     from_branch_id: fromBranchId, to_branch_id: toBranchId, from_kind: fromKind,
     status: autoApprove ? "approved" : "pending_approval",
-    items: lines.map((l) => ({ product_id: l.product_id, sku: l.sku, name: l.name, qty_requested: l.qty, qty_shipped: 0, qty_received: 0, isSerialized: l.isSerialized ?? null, shippedSerials: [], receivedSerials: [] })),
-    requested_by: employeeId, note: note || null, created_at: new Date().toISOString(),
+    // ถ้าสแกน SN มาตั้งแต่เปิดบิล → เก็บเป็น shippedSerials เลย (ไม่ต้องสแกนซ้ำตอนส่งออก)
+    items: lines.map((l) => {
+      const sns = l.serials ?? [];
+      return { product_id: l.product_id, sku: l.sku, name: l.name, qty_requested: l.qty, qty_shipped: sns.length, qty_received: 0, isSerialized: l.isSerialized ?? null, shippedSerials: sns.map((serialNo) => ({ serialNo, at: now })), receivedSerials: [] };
+    }),
+    requested_by: employeeId, note: note || null, created_at: now,
     version: 1, sync_state: "pending", jst_allocation_no: null,
   };
   await db().transfers.put(tr);
@@ -367,17 +394,27 @@ export async function scanOutTransfer(tr: Transfer, employeeId: string, serialsB
   return writeTransfer(tr, { status: "packed", items }, employeeId, tr.from_branch_id, { status: "packed", shipped: items.reduce((s, i) => s + i.qty_shipped, 0) });
 }
 
-/** ยืนยันส่งออก — ตัด on_hand ต้นทาง + ปล่อย reserved → in_transit (carrier optional) */
+/** ยืนยันส่งออก — ย้าย on_hand → On-the-Way-Out (Stock คงที่, ยัง Reserved Out ไว้) → in_transit */
 export async function dispatchTransfer(tr: Transfer, employeeId: string, opts: { carrier?: string | null; tracking?: string | null; shippingCost?: number | null } = {}): Promise<Transfer> {
   if (tr.from_kind !== "warehouse") {
     for (const it of tr.items) {
-      if (it.qty_shipped > 0) { await adjustStock(tr.from_branch_id, it.product_id, -it.qty_shipped); await reserveStock(tr.from_branch_id, it.product_id, -it.qty_shipped); }
+      // On Hand ลด, OTWO เพิ่ม (Stock = on_hand+otwo คงที่); ยังไม่ปล่อย reserved → Available คงที่จนรับเข้า
+      if (it.qty_shipped > 0) { await adjustStock(tr.from_branch_id, it.product_id, -it.qty_shipped); await adjustOtwo(tr.from_branch_id, it.product_id, it.qty_shipped); }
     }
   }
   return writeTransfer(tr, {
     status: "in_transit", carrier: opts.carrier ?? null, tracking: opts.tracking ?? null, shipping_cost: opts.shippingCost ?? null,
     jst_allocation_no: tr.jst_allocation_no ?? `JST-${nanoid(6).toUpperCase()}`,
   }, employeeId, tr.from_branch_id, { status: "in_transit", carrier: opts.carrier ?? null });
+}
+
+/** แนบ/ลบไฟล์เอกสาร-รูปในใบโอน (metadata — ไม่ bump version กันชนกับ action อื่น) */
+export async function setTransferAttachments(id: string, attachments: TransferAttachment[]): Promise<Transfer | undefined> {
+  const tr = await db().transfers.get(id);
+  if (!tr) return undefined;
+  const next: Transfer = { ...tr, attachments };
+  await db().transfers.put(next);
+  return next;
 }
 
 export interface ReceiveLineInput { qty?: number; serials?: string[] }
@@ -392,7 +429,15 @@ export async function receiveTransfer(tr: Transfer, employeeId: string, received
     }
     return { ...it, qty_received: inp.qty ?? 0 };
   });
+  // ปลายทาง: On Hand เพิ่มตามจำนวนที่รับจริง
   for (const it of items) if (it.qty_received > 0) await adjustStock(tr.to_branch_id, it.product_id, it.qty_received);
+  // ต้นทาง: ของออกจากคลังจริงแล้ว → เคลียร์ OTWO + ปล่อย Reserved Out (Stock ต้นทางลดลงตอนนี้)
+  if (tr.from_kind !== "warehouse") {
+    for (const it of items) {
+      if (it.qty_shipped > 0) await adjustOtwo(tr.from_branch_id, it.product_id, -it.qty_shipped);
+      if (it.qty_requested > 0) await reserveStock(tr.from_branch_id, it.product_id, -it.qty_requested);
+    }
+  }
   // ครบ = ทุกบรรทัดรับ ≥ ส่ง และ (ถ้า serialized) SN ที่รับตรงกับที่ส่งครบ
   const complete = items.every((it) => {
     const target = it.qty_shipped || it.qty_requested;

@@ -14,6 +14,7 @@ export {
   dispatchTransfer as owDispatch,
   receiveTransfer as owReceive,
   reserveStock as owReserve,
+  setTransferAttachments as owSetAttachments,
 } from "@/lib/data/repo";
 
 export * from "./reconcile";

@@ -137,8 +137,14 @@ export interface Category {
 export interface StockLevel {
   branch_id: string;
   product_id: string;
+  /** On Hand — จำนวนที่อยู่จริงในคลังตอนนี้ */
   qty_on_hand: number;
+  /** Reserved Out [CO OUT] — จองไว้เพื่อโอนออก (ตั้งแต่สร้าง CO จนรับเข้าปลายทาง) */
   qty_reserved: number;
+  /** On the Way Out — สแกนออกจากคลังแล้วแต่ยังไม่ถึงปลายทาง (ยังนับเป็น Stock ต้นทาง) */
+  qty_otwo?: number;
+  /** Reserved Order — จองตาม order/พักบิล ที่ยังไม่สแกนออก */
+  qty_reserved_order?: number;
   reorder_point: number;
 }
 
@@ -331,6 +337,19 @@ export interface Transfer {
   expected_date?: string | null;
   reference_no?: string | null;
   priority?: "normal" | "high" | null;
+  /** ไฟล์/รูปแนบ (รูปสินค้า, เอกสาร) — ไม่จำกัดจำนวน */
+  attachments?: TransferAttachment[];
+}
+
+/** ไฟล์แนบในใบโอนย้าย (รูป/เอกสาร) — เก็บ data URL ในโหมด demo */
+export interface TransferAttachment {
+  id: string;
+  name: string;
+  type: string;       // MIME
+  url: string;        // data URL (หรือ URL จริงเมื่อต่อ storage)
+  size: number;
+  at: string;
+  by?: string | null;
 }
 
 export interface ReturnDoc {
