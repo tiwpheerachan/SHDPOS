@@ -8,7 +8,7 @@ import { ArrowLeftRight, Plus, Trash2, Check, X, Clock, Barcode, CircleAlert, Pr
 import { useI18n } from "@/lib/i18n/provider";
 import { useSession } from "@/lib/store/session";
 import { useToast } from "@/components/toast-host";
-import { listBranches, listProducts } from "@/lib/data/repo";
+import { listBranches, listProducts, listEmployees } from "@/lib/data/repo";
 import {
   owListAll, owCreate, owApprove, owReject, owGet, owTimeline,
   owScanOut, owDispatch, owReceive, owCarriers, owSetAttachments, owShipStage,
@@ -17,9 +17,9 @@ import {
 import { TransferStepper, ItemJourney, TransferTimeline } from "@/components/admin/transfer-ui";
 import { SerialScanDrawer } from "@/components/admin/serial-scan-drawer";
 import { printTransferCO } from "@/lib/transfer/print-co";
-import type { Branch, Product, Transfer, TransferStatus, TransferAttachment, AuditEntry } from "@/lib/types";
+import type { Branch, Product, Transfer, TransferStatus, TransferAttachment, AuditEntry, Employee } from "@/lib/types";
 import { Button, Card, Input, Field, Select, Table, Th, Td, Badge, EmptyState, Drawer, DrawerTabs, DetailRow } from "@/components/ui";
-import { can, visibleBranchIds } from "@/lib/permissions";
+import { can, visibleBranchIds, ROLE_LABEL } from "@/lib/permissions";
 
 type Tab = "overview" | "timeline";
 type ShipStage = NonNullable<Transfer["ship_stage"]>;
@@ -50,6 +50,8 @@ export default function AdminTransfersPage() {
   const [carriers, setCarriers] = useState<{ id: string; name: string }[]>([]);
   const [carrier, setCarrier] = useState("");
   const [scan, setScan] = useState<{ pid: string; mode: "out" | "in" } | null>(null);
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [approveNote, setApproveNote] = useState("");
   // create
   const [open, setOpen] = useState(false);
   const [from, setFrom] = useState("");
@@ -62,14 +64,14 @@ export default function AdminTransfersPage() {
   async function reload() { setList(await owListAll()); }
   useEffect(() => {
     void (async () => {
-      const [b, p, c] = await Promise.all([listBranches(), listProducts(), owCarriers()]);
-      setBranches(b); setProducts(p); setCarriers(c); setFrom(b[0]?.id ?? ""); setTo(b[1]?.id ?? "");
+      const [b, p, c, e] = await Promise.all([listBranches(), listProducts(), owCarriers(), listEmployees()]);
+      setBranches(b); setProducts(p); setCarriers(c); setEmployees(e); setFrom(b[0]?.id ?? ""); setTo(b[1]?.id ?? "");
       await reload();
     })();
   }, []);
   // เปิดเอกสาร → เตรียม state สแกนตามสถานะ (≤packed=สแกนออก, in_transit=สแกนรับ)
   useEffect(() => {
-    setTab("overview"); setCarrier("");
+    setTab("overview"); setCarrier(""); setApproveNote("");
     if (!detail) { setScanned({}); setRecvQty({}); return; }
     void owTimeline(detail.transfer_no).then(setTimeline);
     const receiving = detail.status === "in_transit";
@@ -131,6 +133,16 @@ export default function AdminTransfersPage() {
     finally { setBusy(false); }
   }
 
+  const empName = (id?: string | null) => { const e = employees.find((x) => x.id === id); return e ? (e.nickname || [e.first_name, e.last_name].filter(Boolean).join(" ") || e.employee_code) : (id ?? "—"); };
+  // ผู้มีสิทธิ์อนุมัติใบนี้ = active + มีสิทธิ์ transfer.approve + ขอบเขตครอบคลุมสาขาต้นทาง
+  //   primary = ผูกสาขาต้นทางโดยตรง · backup = ขอบเขตกว้าง (แบรนด์/บริษัท) ใช้อนุมัติแทนเมื่อคนหลักไม่อยู่
+  const eligibleApprovers = (tr: Transfer) => {
+    const allIds = branches.map((b) => b.id);
+    return employees
+      .filter((e) => e.status === "active" && can(e, "transfer.approve") && visibleBranchIds(e, allIds).includes(tr.from_branch_id))
+      .map((e) => ({ e, primary: e.home_branch_id === tr.from_branch_id })) // primary = ประจำสาขาต้นทาง · อื่น = สำรอง
+      .sort((a, b) => Number(b.primary) - Number(a.primary));
+  };
   const canApprove = (tr: Transfer) => tr.status === "pending_approval" && can(employee, "transfer.approve") && atSource(tr);
   // ── แยกสิทธิ์ตามสาขา: ต้นทางทำสแกนออก/จัดส่ง · ปลายทางเท่านั้นที่รับเข้า ──
   //   atSource/atDest = สาขานั้นอยู่ในขอบเขตที่คนนี้ดูแล (owner/hq = ทุกสาขา → ทำได้ทั้งคู่)
@@ -253,8 +265,8 @@ export default function AdminTransfersPage() {
               {waitingSide(detail) === "dest" ? <span className="text-xs text-muted inline-flex items-center gap-1.5"><Clock size={13} /> {L("รอปลายทางรับเข้า", "Waiting for destination to receive", "等待目的地入库")} ({bName(detail.to_branch_id)})</span> : null}
               {waitingSide(detail) === "source" ? <span className="text-xs text-muted inline-flex items-center gap-1.5"><Clock size={13} /> {L("รอต้นทางสแกนออก/จัดส่ง", "Waiting for source to ship", "等待调出方发货")} ({bName(detail.from_branch_id)})</span> : null}
               {canApprove(detail) ? <>
-                <Button variant="ghost" loading={busy} onClick={() => void act(() => owReject(detail, employee!.id), L("ปฏิเสธแล้ว", "Rejected", "已拒绝"))}><X size={15} /> {L("ปฏิเสธ", "Reject", "拒绝")}</Button>
-                <Button variant="primary" loading={busy} onClick={() => void act(() => owApprove(detail, employee!.id), t.transfer.approve)}><Check size={15} /> {t.transfer.approve}</Button>
+                <Button variant="ghost" loading={busy} onClick={() => void act(() => owReject(detail, employee!.id, false, approveNote), L("ปฏิเสธแล้ว", "Rejected", "已拒绝"))}><X size={15} /> {L("ปฏิเสธ", "Reject", "拒绝")}</Button>
+                <Button variant="primary" loading={busy} onClick={() => void act(() => owApprove(detail, employee!.id, approveNote), t.transfer.approve)}><Check size={15} /> {t.transfer.approve}</Button>
               </> : null}
               {canScanOut(detail) && detail.status !== "packed" ? (
                 <Button variant="primary" loading={busy} disabled={!scanOutReady(detail)} onClick={() => doScanOut(detail)}><ScanLine size={15} /> {L("ยืนยันสแกนออก", "Confirm scan-out", "确认出库")}</Button>
@@ -281,6 +293,34 @@ export default function AdminTransfersPage() {
                   {detail.jst_allocation_no ? <DetailRow label="JST">{detail.jst_allocation_no}</DetailRow> : null}
                   {detail.note ? <DetailRow label={t.common.note}>{detail.note}</DetailRow> : null}
                 </div>
+                {/* อนุมัติ: ผู้มีสิทธิ์ (รวมผู้สำรองเมื่อคนหลักไม่อยู่) + เหตุผล */}
+                {detail.status === "pending_approval" ? (
+                  <div className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-3 space-y-2.5">
+                    <p className="text-sm font-medium inline-flex items-center gap-1.5"><Clock size={14} className="text-amber-600" /> {L("รออนุมัติ (สาขาต้นทาง)", "Pending approval (source)", "待审批")}</p>
+                    <div>
+                      <p className="text-[11px] text-muted mb-1.5">{L("ผู้มีสิทธิ์อนุมัติ — สาขาต้นทาง + ผู้สำรอง", "Eligible approvers — source + backup", "可审批人 — 源店+备用")}</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {eligibleApprovers(detail).slice(0, 10).map(({ e, primary }) => (
+                          <span key={e.id} className={`inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-lg border ${primary ? "border-brand/40 text-brand bg-brand/5" : "border-line text-muted bg-surface"}`}>
+                            {e.nickname || e.first_name} <span className="opacity-60">· {ROLE_LABEL[e.role]?.[locale] ?? e.role}</span>{primary ? null : <span className="text-[9px] opacity-70">({L("สำรอง", "backup", "备")})</span>}
+                          </span>
+                        ))}
+                        {!eligibleApprovers(detail).length ? <span className="text-[11px] text-muted">{L("ไม่พบผู้มีสิทธิ์ — ติดต่อแอดมิน/แบรนด์", "No eligible approver — contact admin", "无")}</span> : null}
+                      </div>
+                    </div>
+                    {canApprove(detail) ? (
+                      <Input value={approveNote} onChange={(e) => setApproveNote(e.target.value)} placeholder={L("เหตุผล/หมายเหตุอนุมัติ-ปฏิเสธ (ถ้ามี)", "Approval / rejection note (optional)", "审批备注")} className="h-9" />
+                    ) : null}
+                  </div>
+                ) : null}
+                {/* ผลอนุมัติ (หลังอนุมัติ/ปฏิเสธ) */}
+                {detail.approved_by && detail.status !== "pending_approval" && detail.status !== "draft" ? (
+                  <div className="rounded-2xl border border-line p-3 text-sm flex items-center gap-2 flex-wrap">
+                    <span className="text-muted">{["rejected", "cancelled"].includes(detail.status) ? L("ปฏิเสธโดย", "Rejected by", "拒绝人") : L("อนุมัติโดย", "Approved by", "审批人")}:</span>
+                    <span className="font-medium">{empName(detail.approved_by)}</span>
+                    {detail.approval_note ? <span className="text-muted">· “{detail.approval_note}”</span> : null}
+                  </div>
+                ) : null}
                 <p className="text-[11px] text-muted flex items-center gap-1.5"><CircleAlert size={12} /> {L("สแกนออก/รับเข้าได้จากหน้านี้ (กดสแกน SN — ป๊อปอัปขวา) หรือที่ POS สาขา", "Scan-out/receive here (tap Scan SN — right popup) or at branch POS", "可在此扫描出入库（右侧弹窗）")}</p>
                 <div className="space-y-2">
                   {detail.items.map((it) => (

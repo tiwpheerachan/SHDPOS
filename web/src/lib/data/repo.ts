@@ -369,14 +369,14 @@ export async function createTransfer(
   return tr;
 }
 
-export async function approveTransfer(tr: Transfer, employeeId: string): Promise<Transfer> {
-  return writeTransfer(tr, { status: "approved" }, employeeId, tr.from_branch_id, { status: "approved" });
+export async function approveTransfer(tr: Transfer, employeeId: string, note?: string): Promise<Transfer> {
+  return writeTransfer(tr, { status: "approved", approved_by: employeeId, approval_note: note || null }, employeeId, tr.from_branch_id, { status: "approved", note: note || null });
 }
-/** ปฏิเสธ/ยกเลิก → คืน reserved ที่ต้นทาง */
-export async function rejectTransfer(tr: Transfer, employeeId: string, cancel = false): Promise<Transfer> {
+/** ปฏิเสธ/ยกเลิก → คืน reserved ที่ต้นทาง + บันทึกเหตุผล */
+export async function rejectTransfer(tr: Transfer, employeeId: string, cancel = false, reason?: string): Promise<Transfer> {
   if (tr.from_kind !== "warehouse") for (const it of tr.items) await reserveStock(tr.from_branch_id, it.product_id, -it.qty_requested);
   const status: TransferStatus = cancel ? "cancelled" : "rejected";
-  return writeTransfer(tr, { status }, employeeId, tr.from_branch_id, { status });
+  return writeTransfer(tr, { status, approved_by: employeeId, approval_note: reason || null }, employeeId, tr.from_branch_id, { status, note: reason || null });
 }
 
 /** ต้นทางสแกนออก — บันทึก shippedSerials + qty_shipped (ตรวจ SN ครบ/null=บล็อก) → packed */

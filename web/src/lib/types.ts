@@ -324,6 +324,9 @@ export interface Transfer {
   status: TransferStatus;
   items: TransferItem[];
   requested_by?: string | null;
+  /** ผู้อนุมัติ + เหตุผล/หมายเหตุการอนุมัติ-ปฏิเสธ */
+  approved_by?: string | null;
+  approval_note?: string | null;
   note?: string | null;
   created_at: string;
   /** concurrency — เพิ่มทุกการเขียน */
