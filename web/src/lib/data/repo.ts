@@ -936,11 +936,16 @@ export async function closeShift(shiftId: string, countedCash: number, employeeI
 // ---------------------------------------------------------------------
 export async function holdBill(bill: HeldBill): Promise<void> {
   await db().holds.put(bill);
+  // พักบิล = จองออเดอร์ (Reserved Order) กันขายซ้ำ — เฉพาะสินค้าจริง (goods)
+  for (const l of bill.lines) if (l.product_id && l.kind === "goods") await reserveOrderStock(bill.branch_id, l.product_id, l.qty);
 }
 export async function listHolds(branchId: string): Promise<HeldBill[]> {
   return db().holds.where("branch_id").equals(branchId).reverse().toArray();
 }
 export async function removeHold(id: string): Promise<void> {
+  // คืนจองออเดอร์ตอนเอาบิลพักออก (เรียกคืน/ยกเลิก) — ของกลับไปพร้อมขาย/อยู่ในตะกร้า
+  const h = await db().holds.get(id);
+  if (h) for (const l of h.lines) if (l.product_id && l.kind === "goods") await reserveOrderStock(h.branch_id, l.product_id, -l.qty);
   await db().holds.delete(id);
 }
 
