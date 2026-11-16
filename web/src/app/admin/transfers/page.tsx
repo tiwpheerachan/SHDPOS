@@ -231,7 +231,12 @@ export default function AdminTransfersPage() {
   };
 
   function printCO(tr: Transfer) {
-    printTransferCO(tr, { fromName: bName(tr.from_branch_id), toName: bName(tr.to_branch_id), statusLabel: sMeta(tr.status).label, locale, carrierName: tr.carrier });
+    printTransferCO(tr, {
+      fromName: bName(tr.from_branch_id), toName: bName(tr.to_branch_id), statusLabel: sMeta(tr.status).label, locale, carrierName: tr.carrier,
+      requesterName: empLabel(actorEmp(tr.requested_by, "requester", tr)),
+      approverName: tr.approved_by ? empLabel(actorEmp(tr.approved_by, "approver", tr)) : null,
+      note: tr.approval_note || tr.note || null,
+    });
   }
 
   return (
