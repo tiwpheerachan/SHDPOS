@@ -39,7 +39,7 @@ export default function AdminTransfersPage() {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [list, setList] = useState<Transfer[]>([]);
-  const [bucket, setBucket] = useState<"active" | "issue" | "done" | "all">("active");
+  const [bucket, setBucket] = useState<"mine" | "active" | "issue" | "done" | "all">("active");
   const [detail, setDetail] = useState<Transfer | null>(null);
   const [tab, setTab] = useState<Tab>("overview");
   const [timeline, setTimeline] = useState<AuditEntry[]>([]);
@@ -101,13 +101,24 @@ export default function AdminTransfersPage() {
   }, [docParam, list]);
 
   const allowed = useMemo(() => visibleBranchIds(employee, branches.map((b) => b.id)), [employee, branches]);
+  // "รอฉันทำ" — ใบที่ขั้นปัจจุบันเป็นหน้าที่ของคนนี้ (อนุมัติ/สแกนออก/จัดส่ง = ต้นทาง · รับเข้า = ปลายทาง)
+  const needsMyAction = (tr: Transfer): boolean => {
+    const src = allowed.includes(tr.from_branch_id), dst = allowed.includes(tr.to_branch_id);
+    const cOut = can(employee, "transfer.request") || can(employee, "transfer.approve");
+    const cRecv = can(employee, "transfer.receive") || can(employee, "transfer.approve");
+    if (tr.status === "pending_approval") return src && can(employee, "transfer.approve");
+    if (["approved", "picking", "packed"].includes(tr.status)) return src && cOut;
+    if (tr.status === "in_transit") return dst && cRecv;
+    return false;
+  };
+  const mineCount = useMemo(() => list.filter((x) => (allowed.includes(x.from_branch_id) || allowed.includes(x.to_branch_id)) && needsMyAction(x)).length, [list, allowed, employee]); // eslint-disable-line react-hooks/exhaustive-deps
   const bName = (id: string) => { const b = branches.find((x) => x.id === id); return b ? (locale === "th" ? b.name_th ?? b.name : b.name) : id; };
   const sMeta = (s: Transfer["status"]) => statusMeta(s, locale);
 
   const visible = useMemo(() => list
     .filter((x) => allowed.includes(x.from_branch_id) || allowed.includes(x.to_branch_id))
-    .filter((x) => bucket === "all" ? true : bucket === "active" ? isActive(x.status) : bucket === "issue" ? isIssue(x.status) : x.status === "completed"),
-    [list, allowed, bucket]);
+    .filter((x) => bucket === "all" ? true : bucket === "mine" ? needsMyAction(x) : bucket === "active" ? isActive(x.status) : bucket === "issue" ? isIssue(x.status) : x.status === "completed"),
+    [list, allowed, bucket]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function create() {
     if (!employee || !from || !to || from === to || !lines.length) return;
@@ -244,6 +255,10 @@ export default function AdminTransfersPage() {
       <div className="flex items-center gap-3 flex-wrap">
         <h2 className="text-sm font-semibold flex items-center gap-2"><ArrowLeftRight size={16} className="text-brand" /> {t.transfer.title}</h2>
         <div className="flex gap-1.5 ml-auto">
+          <button onClick={() => setBucket("mine")} className={`text-xs px-3 py-1.5 rounded-full border transition-colors inline-flex items-center gap-1.5 ${bucket === "mine" ? "bg-brand text-white border-brand" : mineCount ? "border-amber-400/60 text-amber-600 bg-amber-500/5 hover:bg-amber-500/10" : "border-line text-muted hover:text-brand"}`}>
+            <Clock size={12} /> {L("รอฉันทำ", "My queue", "待我处理")}
+            {mineCount ? <span className={`min-w-[18px] h-[18px] px-1 grid place-items-center rounded-full text-[10px] font-bold ${bucket === "mine" ? "bg-white/25 text-white" : "bg-amber-500 text-white"}`}>{mineCount}</span> : null}
+          </button>
           {(["active", "issue", "done", "all"] as const).map((b) => (
             <button key={b} onClick={() => setBucket(b)} className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${bucket === b ? "bg-brand text-white border-brand" : "border-line text-muted hover:text-brand"}`}>
               {b === "active" ? L("กำลังดำเนินการ", "Active", "进行中") : b === "issue" ? L("มีปัญหา", "Issues", "异常") : b === "done" ? L("เสร็จแล้ว", "Done", "完成") : t.common.all}
