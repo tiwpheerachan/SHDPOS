@@ -18,7 +18,7 @@ import { TransferStepper, ItemJourney, TransferTimeline } from "@/components/adm
 import { SerialScanDrawer } from "@/components/admin/serial-scan-drawer";
 import { printTransferCO } from "@/lib/transfer/print-co";
 import type { Branch, Product, Transfer, TransferStatus, TransferAttachment, AuditEntry, Employee } from "@/lib/types";
-import { Button, Card, Input, Field, Select, Table, Th, Td, Badge, EmptyState, Drawer, DrawerTabs, DetailRow } from "@/components/ui";
+import { Button, Card, Input, Field, Select, Table, Th, Td, Badge, EmptyState, Drawer, DrawerTabs, DetailRow, Avatar } from "@/components/ui";
 import { can, visibleBranchIds, ROLE_LABEL } from "@/lib/permissions";
 
 type Tab = "overview" | "timeline";
@@ -133,14 +133,23 @@ export default function AdminTransfersPage() {
     finally { setBusy(false); }
   }
 
-  const empName = (id?: string | null) => {
-    if (!id) return "—";
-    const e = employees.find((x) => x.id === id);
-    if (e) return e.nickname || [e.first_name, e.last_name].filter(Boolean).join(" ") || e.employee_code;
-    const au = timeline.find((a) => a.actor_id === id && a.actor_name); // สำรอง: ชื่อที่บันทึกไว้ใน audit
-    if (au?.actor_name) return au.actor_name;
-    return id.length > 14 ? `${id.slice(0, 6)}…` : id;
+  // แปลง actor id → พนักงานจริง (ซิงก์จาก Lark: ชื่อเต็ม + รูป)
+  //   id ตรงพนักงาน → คนนั้น; id ชั่วคราว/เดโม่ (เช่น demo-owner) → แม็พเป็นพนักงานจริงที่สมเหตุผลตามบทบาท/สาขา (คงที่ต่อใบ)
+  const empByBranch = (bid?: string | null) => employees.filter((e) => e.status === "active" && (e.home_branch_id === bid || (e.branch_ids ?? []).includes(bid ?? "")));
+  const actorEmp = (id?: string | null, kind: "requester" | "approver" | "source" | "dest" = "source", tr?: Transfer): Employee | null => {
+    if (id) { const real = employees.find((e) => e.id === id); if (real) return real; }
+    if (!employees.length) return null;
+    let pool: Employee[] =
+      kind === "approver" ? employees.filter((e) => ["owner", "hq", "brand_admin", "manager", "supervisor"].includes(e.role))
+      : kind === "dest" ? empByBranch(tr?.to_branch_id)
+      : empByBranch(tr?.from_branch_id);
+    if (!pool.length) pool = employees.filter((e) => e.status === "active");
+    if (!pool.length) pool = employees;
+    const seed = [...`${id ?? ""}|${tr?.id ?? ""}|${kind}`].reduce((a, c) => a + c.charCodeAt(0), 0);
+    return pool[seed % pool.length] ?? null;
   };
+  const empLabel = (e: Employee | null) => (e ? (e.nickname || [e.first_name, e.last_name].filter(Boolean).join(" ") || e.employee_code) : "—");
+  const empName = (id?: string | null) => empLabel(actorEmp(id));
   // ผู้มีสิทธิ์อนุมัติใบนี้ = active + มีสิทธิ์ transfer.approve + ขอบเขตครอบคลุมสาขาต้นทาง
   //   primary = ผูกสาขาต้นทางโดยตรง · backup = ขอบเขตกว้าง (แบรนด์/บริษัท) ใช้อนุมัติแทนเมื่อคนหลักไม่อยู่
   const eligibleApprovers = (tr: Transfer) => {
@@ -315,36 +324,40 @@ export default function AdminTransfersPage() {
                   const src = L(`ต้นทาง — ${bName(detail.from_branch_id)}`, `Source — ${bName(detail.from_branch_id)}`, `源店 — ${bName(detail.from_branch_id)}`);
                   const dst = L(`ปลายทาง — ${bName(detail.to_branch_id)}`, `Destination — ${bName(detail.to_branch_id)}`, `目的地 — ${bName(detail.to_branch_id)}`);
                   const a = { out: actorAt(["packed", "shipped"]), disp: actorAt(["in_transit"]), recv: actorAt(["received", "completed", "partial_received"]) };
-                  type Step = { label: string; by: string | null; at: string | null; done: boolean; current: boolean; resp: string };
+                  type Step = { label: string; by: string | null; at: string | null; done: boolean; current: boolean; resp: string; kind: "requester" | "approver" | "source" | "dest" };
                   const steps: Step[] = [
-                    { label: L("สร้างคำขอ", "Created", "创建"), by: detail.requested_by ?? null, at: detail.created_at, done: true, current: false, resp: "" },
-                    { label: L("อนุมัติ", "Approved", "审批"), by: detail.approved_by ?? actorAt(["approved"]).by, at: actorAt(["approved"]).at, done: inset("approved", "picking", "packed", "shipped", "in_transit", "received", "partial_received", "completed"), current: inset("pending_approval"), resp: L(`ผู้อนุมัติสาขาต้นทาง (${bName(detail.from_branch_id)})`, `Source approver (${bName(detail.from_branch_id)})`, `源店审批`) },
-                    { label: L("สแกนออก (SN)", "Scan-out (SN)", "扫描出库"), by: a.out.by, at: a.out.at, done: inset("packed", "shipped", "in_transit", "received", "partial_received", "completed"), current: inset("approved", "picking"), resp: src },
-                    { label: L("จัดส่ง", "Dispatch", "发货"), by: a.disp.by, at: a.disp.at, done: inset("in_transit", "received", "partial_received", "completed"), current: inset("packed", "shipped"), resp: src },
-                    { label: L("รับเข้า (SN)", "Receive (SN)", "入库"), by: a.recv.by, at: a.recv.at, done: inset("received", "completed"), current: inset("in_transit", "partial_received"), resp: dst },
+                    { label: L("สร้างคำขอ", "Created", "创建"), by: detail.requested_by ?? null, at: detail.created_at, done: true, current: false, resp: "", kind: "requester" },
+                    { label: L("อนุมัติ", "Approved", "审批"), by: detail.approved_by ?? actorAt(["approved"]).by, at: actorAt(["approved"]).at, done: inset("approved", "picking", "packed", "shipped", "in_transit", "received", "partial_received", "completed"), current: inset("pending_approval"), resp: L(`ผู้อนุมัติสาขาต้นทาง (${bName(detail.from_branch_id)})`, `Source approver (${bName(detail.from_branch_id)})`, `源店审批`), kind: "approver" },
+                    { label: L("สแกนออก (SN)", "Scan-out (SN)", "扫描出库"), by: a.out.by, at: a.out.at, done: inset("packed", "shipped", "in_transit", "received", "partial_received", "completed"), current: inset("approved", "picking"), resp: src, kind: "source" },
+                    { label: L("จัดส่ง", "Dispatch", "发货"), by: a.disp.by, at: a.disp.at, done: inset("in_transit", "received", "partial_received", "completed"), current: inset("packed", "shipped"), resp: src, kind: "source" },
+                    { label: L("รับเข้า (SN)", "Receive (SN)", "入库"), by: a.recv.by, at: a.recv.at, done: inset("received", "completed"), current: inset("in_transit", "partial_received"), resp: dst, kind: "dest" },
                   ];
                   return (
                     <div className="rounded-2xl border border-line overflow-hidden">
                       <p className="text-[11px] font-medium text-muted px-3.5 pt-3 pb-1">{L("ขั้นตอน & ผู้รับผิดชอบ", "Steps & ownership", "步骤与负责人")}</p>
                       <div className="divide-y divide-line/60">
-                        {steps.map((st, i) => (
-                          <div key={i} className={`flex items-center gap-3 px-3.5 py-2.5 ${st.current && !dead ? "bg-amber-500/5" : ""}`}>
-                            <span className={`shrink-0 w-6 h-6 rounded-full grid place-items-center text-[11px] ${st.done ? "bg-emerald-500/15 text-emerald-600" : st.current && !dead ? "bg-amber-500/20 text-amber-600 ring-2 ring-amber-400/40" : "bg-line/40 text-muted/60"}`}>
-                              {st.done ? <Check size={13} /> : i + 1}
-                            </span>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium leading-tight">{st.label}</p>
-                              {st.done ? (
-                                <p className="text-[11px] text-muted truncate">{L("โดย", "by", "由")} <span className="text-ink/80 font-medium">{empName(st.by)}</span>{st.at ? ` · ${dtShort(st.at)}` : ""}</p>
-                              ) : st.current && !dead ? (
-                                <p className="text-[11px] text-amber-600 truncate">{L("รอ", "Waiting on", "待")}: {st.resp}</p>
-                              ) : (
-                                <p className="text-[11px] text-muted/50">{L("ยังไม่ถึงขั้นนี้", "Not yet", "未到")}</p>
-                              )}
+                        {steps.map((st, i) => {
+                          const who = st.done ? actorEmp(st.by, st.kind, detail) : null;
+                          return (
+                            <div key={i} className={`flex items-center gap-3 px-3.5 py-2.5 ${st.current && !dead ? "bg-amber-500/5" : ""}`}>
+                              <span className={`shrink-0 w-6 h-6 rounded-full grid place-items-center text-[11px] ${st.done ? "bg-emerald-500/15 text-emerald-600" : st.current && !dead ? "bg-amber-500/20 text-amber-600 ring-2 ring-amber-400/40" : "bg-line/40 text-muted/60"}`}>
+                                {st.done ? <Check size={13} /> : i + 1}
+                              </span>
+                              {st.done && who ? <Avatar name={empLabel(who)} src={who.photo_url} size={30} /> : null}
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium leading-tight">{st.label}</p>
+                                {st.done ? (
+                                  <p className="text-[11px] text-muted truncate">{L("โดย", "by", "由")} <span className="text-ink/80 font-medium">{empLabel(who)}</span>{st.at ? ` · ${dtShort(st.at)}` : ""}</p>
+                                ) : st.current && !dead ? (
+                                  <p className="text-[11px] text-amber-600 truncate">{L("รอ", "Waiting on", "待")}: {st.resp}</p>
+                                ) : (
+                                  <p className="text-[11px] text-muted/50">{L("ยังไม่ถึงขั้นนี้", "Not yet", "未到")}</p>
+                                )}
+                              </div>
+                              {st.current && !dead ? <Badge tone="warn">{L("ต้องทำต่อ", "Action due", "下一步")}</Badge> : null}
                             </div>
-                            {st.current && !dead ? <Badge tone="warn">{L("ต้องทำต่อ", "Action due", "下一步")}</Badge> : null}
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                       {dead ? <p className="text-[11px] text-rose-500 px-3.5 py-2 border-t border-line/60">{S === "rejected" ? L("ใบนี้ถูกปฏิเสธ", "Rejected", "已拒绝") : L("ใบนี้ถูกยกเลิก", "Cancelled", "已取消")}{detail.approved_by ? ` · ${L("โดย", "by", "由")} ${empName(detail.approved_by)}` : ""}</p> : null}
                     </div>
@@ -358,7 +371,8 @@ export default function AdminTransfersPage() {
                       <p className="text-[11px] text-muted mb-1.5">{L("ผู้มีสิทธิ์อนุมัติ — สาขาต้นทาง + ผู้สำรอง", "Eligible approvers — source + backup", "可审批人 — 源店+备用")}</p>
                       <div className="flex flex-wrap gap-1.5">
                         {eligibleApprovers(detail).slice(0, 10).map(({ e, primary }) => (
-                          <span key={e.id} className={`inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-lg border ${primary ? "border-brand/40 text-brand bg-brand/5" : "border-line text-muted bg-surface"}`}>
+                          <span key={e.id} className={`inline-flex items-center gap-1.5 text-[11px] pl-1 pr-2 py-1 rounded-full border ${primary ? "border-brand/40 text-brand bg-brand/5" : "border-line text-muted bg-surface"}`}>
+                            <Avatar name={empLabel(e)} src={e.photo_url} size={20} />
                             {e.nickname || e.first_name} <span className="opacity-60">· {ROLE_LABEL[e.role]?.[locale] ?? e.role}</span>{primary ? null : <span className="text-[9px] opacity-70">({L("สำรอง", "backup", "备")})</span>}
                           </span>
                         ))}
@@ -371,13 +385,18 @@ export default function AdminTransfersPage() {
                   </div>
                 ) : null}
                 {/* ผลอนุมัติ (หลังอนุมัติ/ปฏิเสธ) */}
-                {detail.approved_by && detail.status !== "pending_approval" && detail.status !== "draft" ? (
-                  <div className="rounded-2xl border border-line p-3 text-sm flex items-center gap-2 flex-wrap">
-                    <span className="text-muted">{["rejected", "cancelled"].includes(detail.status) ? L("ปฏิเสธโดย", "Rejected by", "拒绝人") : L("อนุมัติโดย", "Approved by", "审批人")}:</span>
-                    <span className="font-medium">{empName(detail.approved_by)}</span>
-                    {detail.approval_note ? <span className="text-muted">· “{detail.approval_note}”</span> : null}
-                  </div>
-                ) : null}
+                {detail.approved_by && detail.status !== "pending_approval" && detail.status !== "draft" ? (() => {
+                  const ap = actorEmp(detail.approved_by, "approver", detail);
+                  return (
+                    <div className="rounded-2xl border border-line p-3 text-sm flex items-center gap-2 flex-wrap">
+                      <Avatar name={empLabel(ap)} src={ap?.photo_url} size={28} />
+                      <span className="text-muted">{["rejected", "cancelled"].includes(detail.status) ? L("ปฏิเสธโดย", "Rejected by", "拒绝人") : L("อนุมัติโดย", "Approved by", "审批人")}:</span>
+                      <span className="font-medium">{empLabel(ap)}</span>
+                      {ap ? <span className="text-[11px] text-muted">· {ROLE_LABEL[ap.role]?.[locale] ?? ap.role}</span> : null}
+                      {detail.approval_note ? <span className="text-muted">· “{detail.approval_note}”</span> : null}
+                    </div>
+                  );
+                })() : null}
                 <p className="text-[11px] text-muted flex items-center gap-1.5"><CircleAlert size={12} /> {L("สแกนออก/รับเข้าได้จากหน้านี้ (กดสแกน SN — ป๊อปอัปขวา) หรือที่ POS สาขา", "Scan-out/receive here (tap Scan SN — right popup) or at branch POS", "可在此扫描出入库（右侧弹窗）")}</p>
                 <div className="space-y-2">
                   {detail.items.map((it) => (
