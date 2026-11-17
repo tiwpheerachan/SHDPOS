@@ -42,7 +42,7 @@ export default function AdminTransfersPage() {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [list, setList] = useState<Transfer[]>([]);
-  const [bucket, setBucket] = useState<"mine" | "active" | "issue" | "done" | "all">("active");
+  const [bucket, setBucket] = useState<"mine" | "overdue" | "active" | "issue" | "done" | "all">("active");
   const [detail, setDetail] = useState<Transfer | null>(null);
   const [tab, setTab] = useState<Tab>("overview");
   const [timeline, setTimeline] = useState<AuditEntry[]>([]);
@@ -124,6 +124,14 @@ export default function AdminTransfersPage() {
     return false;
   };
   const mineCount = useMemo(() => list.filter((x) => (allowed.includes(x.from_branch_id) || allowed.includes(x.to_branch_id)) && needsMyAction(x)).length, [list, allowed, employee]); // eslint-disable-line react-hooks/exhaustive-deps
+  // งานค้างเกินเวลา (SLA): ใบ active ที่ค้างในสถานะนานผิดปกติ (อิงอายุใบ vs เพดานต่อสถานะ)
+  const SLA_HOURS: Record<string, number> = { pending_approval: 24, approved: 48, picking: 48, packed: 48, shipped: 72, in_transit: 72, partial_received: 72 };
+  const overdueInfo = (tr: Transfer): { over: boolean; days: number } | null => {
+    const limitH = SLA_HOURS[tr.status]; if (limitH === undefined) return null;
+    const hrs = (Date.now() - new Date(tr.created_at).getTime()) / 3600000;
+    return { over: hrs > limitH, days: Math.floor(hrs / 24) };
+  };
+  const overdueCount = useMemo(() => list.filter((x) => (allowed.includes(x.from_branch_id) || allowed.includes(x.to_branch_id)) && overdueInfo(x)?.over).length, [list, allowed]); // eslint-disable-line react-hooks/exhaustive-deps
   const bName = (id: string) => { const b = branches.find((x) => x.id === id); return b ? (locale === "th" ? b.name_th ?? b.name : b.name) : id; };
 
   // ── คำขอสินค้าเข้าสาขา: เลือกสินค้า → แนะนำสาขาที่มีของ เรียงใกล้สุด → ส่งคำขอ (สร้าง transfer source→dest, รออนุมัติต้นทาง) ──
@@ -160,7 +168,7 @@ export default function AdminTransfersPage() {
 
   const visible = useMemo(() => list
     .filter((x) => allowed.includes(x.from_branch_id) || allowed.includes(x.to_branch_id))
-    .filter((x) => bucket === "all" ? true : bucket === "mine" ? needsMyAction(x) : bucket === "active" ? isActive(x.status) : bucket === "issue" ? isIssue(x.status) : x.status === "completed"),
+    .filter((x) => bucket === "all" ? true : bucket === "mine" ? needsMyAction(x) : bucket === "overdue" ? !!overdueInfo(x)?.over : bucket === "active" ? isActive(x.status) : bucket === "issue" ? isIssue(x.status) : x.status === "completed"),
     [list, allowed, bucket]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // เพิ่มสินค้าเข้าบิล (รวม line เดิมถ้ามี; serialized + มี SN → แนบ SN กันซ้ำ)
@@ -345,6 +353,12 @@ export default function AdminTransfersPage() {
             <Clock size={12} /> {L("รอฉันทำ", "My queue", "待我处理")}
             {mineCount ? <span className={`min-w-[18px] h-[18px] px-1 grid place-items-center rounded-full text-[10px] font-bold ${bucket === "mine" ? "bg-white/25 text-white" : "bg-amber-500 text-white"}`}>{mineCount}</span> : null}
           </button>
+          {overdueCount ? (
+            <button onClick={() => setBucket("overdue")} className={`text-xs px-3 py-1.5 rounded-full border transition-colors inline-flex items-center gap-1.5 ${bucket === "overdue" ? "bg-rose-600 text-white border-rose-600" : "border-rose-400/60 text-rose-600 bg-rose-500/5 hover:bg-rose-500/10"}`}>
+              <Clock size={12} /> {L("เกินเวลา", "Overdue", "逾期")}
+              <span className={`min-w-[18px] h-[18px] px-1 grid place-items-center rounded-full text-[10px] font-bold ${bucket === "overdue" ? "bg-white/25 text-white" : "bg-rose-600 text-white"}`}>{overdueCount}</span>
+            </button>
+          ) : null}
           {(["active", "issue", "done", "all"] as const).map((b) => (
             <button key={b} onClick={() => setBucket(b)} className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${bucket === b ? "bg-brand text-white border-brand" : "border-line text-muted hover:text-brand"}`}>
               {b === "active" ? L("กำลังดำเนินการ", "Active", "进行中") : b === "issue" ? L("มีปัญหา", "Issues", "异常") : b === "done" ? L("เสร็จแล้ว", "Done", "完成") : t.common.all}
@@ -372,7 +386,12 @@ export default function AdminTransfersPage() {
                     <Td className="text-xs truncate max-w-[150px]">{tr.from_kind === "warehouse" ? "🏬 " : ""}{bName(tr.from_branch_id)}</Td>
                     <Td className="text-xs truncate max-w-[150px]">{bName(tr.to_branch_id)}</Td>
                     <Td align="center" className="text-[11px] tnum text-muted">{snTotal ? `${snDone}/${snTotal}` : "—"}</Td>
-                    <Td align="center"><Badge tone={sMeta(tr.status).tone}>{sMeta(tr.status).label}</Badge></Td>
+                    <Td align="center">
+                      <span className="inline-flex items-center gap-1.5">
+                        <Badge tone={sMeta(tr.status).tone}>{sMeta(tr.status).label}</Badge>
+                        {overdueInfo(tr)?.over ? <span className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-600 bg-rose-500/12 border border-rose-500/30 rounded-full px-1.5 py-0.5"><Clock size={10} /> {L(`ค้าง ${overdueInfo(tr)!.days} วัน`, `${overdueInfo(tr)!.days}d overdue`, `逾期${overdueInfo(tr)!.days}天`)}</span> : null}
+                      </span>
+                    </Td>
                     <Td className="text-xs text-muted">{new Date(tr.created_at).toLocaleDateString("th-TH", { day: "2-digit", month: "short" })}</Td>
                   </tr>
                 );
