@@ -24,7 +24,7 @@ import type {
 
 const CATALOG_VERSION = "2026-11-13.1";
 // เวอร์ชันข้อมูลจำลอง (orders/audit/stock/customers/org) — เปลี่ยนเพื่อรีเฟรช demo ให้เป็นวันที่ล่าสุด
-const DEMO_DATA_VERSION = "2026-11-13.3";
+const DEMO_DATA_VERSION = "2026-11-17.1";
 const DEMO_ORDER_ID = /^o-\d+-0000-0000-000000000000$/;
 
 // ---------------------------------------------------------------------

@@ -341,7 +341,8 @@ export function buildDemoOrders(days = 90): Order[] {
             unit_cost: p.cost,
             cost_total: costTotal,
             gross_profit: round2(total / 1.07 - costTotal),
-            serials: [],
+            // สินค้าที่มี SN → แนบ serial รายชิ้น (ตามรอย SN หน้า /admin/serials ใช้ได้จริง)
+            serials: p.track_serial ? Array.from({ length: qty }, (_, si) => `${p.sku}-${String(100000 + seq).slice(-5)}${si ? "-" + (si + 1) : ""}`) : [],
             salesperson_id: staff.length ? staff[Math.floor(rnd() * staff.length)].id : null,
             returned_qty: 0,
           });
