@@ -11,6 +11,7 @@ import { useToast } from "@/components/toast-host";
 import { listBranches, listProducts, listEmployees, stockAll } from "@/lib/data/repo";
 import { availableQty } from "@/lib/stock";
 import { coordOf, haversineKm, fmtKm } from "@/lib/geo";
+import { resolveSerial } from "@/lib/data/serials";
 import {
   owListAll, owCreate, owApprove, owReject, owGet, owTimeline,
   owScanOut, owDispatch, owReceive, owCarriers, owSetAttachments, owShipStage,
@@ -60,6 +61,7 @@ export default function AdminTransfersPage() {
   const [to, setTo] = useState("");
   const [lines, setLines] = useState<{ id: string; product_id: string; qty: number; serials: string[] }[]>([]);
   const [pickId, setPickId] = useState("");
+  const [addQ, setAddQ] = useState(""); // ช่องค้นหา/สแกน: พิมพ์ชื่อ หรือ ยิงบาร์โค้ด/SN
   const [note, setNote] = useState("");
   const [createScan, setCreateScan] = useState<string | null>(null); // lineId ที่กำลังสแกนตอนเปิดบิล
   // คำขอสินค้าเข้าสาขา (destination-initiated): เลือกสินค้า → แนะนำสาขาที่มีของ+ใกล้สุด → ส่งคำขอ
@@ -160,6 +162,39 @@ export default function AdminTransfersPage() {
     .filter((x) => allowed.includes(x.from_branch_id) || allowed.includes(x.to_branch_id))
     .filter((x) => bucket === "all" ? true : bucket === "mine" ? needsMyAction(x) : bucket === "active" ? isActive(x.status) : bucket === "issue" ? isIssue(x.status) : x.status === "completed"),
     [list, allowed, bucket]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // เพิ่มสินค้าเข้าบิล (รวม line เดิมถ้ามี; serialized + มี SN → แนบ SN กันซ้ำ)
+  function addLine(productId: string, sn?: string) {
+    const p = products.find((x) => x.id === productId); if (!p) return;
+    const snU = sn?.trim().toUpperCase();
+    setLines((l) => {
+      const ex = l.find((x) => x.product_id === productId);
+      if (ex && p.track_serial && snU) {
+        if (ex.serials.includes(snU)) return l;
+        return l.map((x) => x.id === ex.id ? { ...x, serials: [...x.serials, snU], qty: x.serials.length + 1 } : x);
+      }
+      if (ex && !p.track_serial) return l.map((x) => x.id === ex.id ? { ...x, qty: x.qty + 1 } : x);
+      return [...l, { id: nanoid(), product_id: productId, qty: 1, serials: snU && p.track_serial ? [snU] : [] }];
+    });
+  }
+  // ค้นหา/สแกน: บาร์โค้ด/SKU ตรง → เพิ่ม · ไม่งั้นลองเป็น SN → รู้ว่าสินค้าอะไร + แนบ SN
+  async function addByCode(raw: string) {
+    const code = raw.trim(); if (!code) return;
+    const up = code.toUpperCase();
+    const byCode = products.find((p) => p.is_stocked && (p.sku.toUpperCase() === up || (p.barcodes ?? []).some((b) => String(b).toUpperCase() === up)));
+    if (byCode) { addLine(byCode.id); setAddQ(""); return; }
+    const info = await resolveSerial(code);
+    if (info.product?.id || info.product?.sku) {
+      const p = products.find((x) => x.id === info.product!.id) || products.find((x) => x.sku === info.product!.sku);
+      if (p) { addLine(p.id, p.track_serial ? code : undefined); setAddQ(""); toast.push({ tone: "ok", title: L(`เพิ่ม ${p.name_th}${p.track_serial ? ` · SN ${up}` : ""}`, `Added ${p.name_th}`, "已添加") }); return; }
+    }
+    toast.push({ tone: "warn", title: L("ไม่พบสินค้าจากรหัส/SN นี้", "No product for this code/SN", "未找到") });
+  }
+  // รายการที่ตรงกับคำค้น (ชื่อ/SKU/บาร์โค้ด) สำหรับ dropdown
+  const addMatches = useMemo(() => {
+    const q = addQ.trim().toLowerCase(); if (!q) return [] as Product[];
+    return products.filter((p) => p.is_stocked && (p.name_th.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q) || (p.barcodes ?? []).some((b) => String(b).toLowerCase().includes(q)))).slice(0, 8);
+  }, [addQ, products]);
 
   async function create() {
     if (!employee || !from || !to || from === to || !lines.length) return;
@@ -651,9 +686,23 @@ export default function AdminTransfersPage() {
             <Field label={t.transfer.to}><Select value={to} onChange={(e) => setTo(e.target.value)}>{branches.map((b) => <option key={b.id} value={b.id}>{bName(b.id)}</option>)}</Select></Field>
           </div>
           {from === to ? <p className="text-xs text-danger">{L("ต้นทางและปลายทางต้องไม่ใช่สาขาเดียวกัน", "Source and destination must differ", "调出调入不能相同")}</p> : null}
-          <div className="flex gap-2">
-            <Select value={pickId} onChange={(e) => setPickId(e.target.value)} className="flex-1"><option value="">{t.common.add}...</option>{products.filter((p) => p.is_stocked).map((p) => <option key={p.id} value={p.id}>{p.sku} · {pick({ th: p.name_th, en: p.name_en, zh: p.name_zh })}{p.track_serial ? " · SN" : ""}</option>)}</Select>
-            <Button variant="soft" disabled={!pickId} onClick={() => { setLines((l) => [...l, { id: nanoid(), product_id: pickId, qty: 1, serials: [] }]); setPickId(""); }}><Plus size={16} /></Button>
+          <div>
+            <form onSubmit={(e) => { e.preventDefault(); void addByCode(addQ); }} className="relative">
+              <ScanLine size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-brand" />
+              <Input value={addQ} onChange={(e) => setAddQ(e.target.value)} placeholder={L("พิมพ์ชื่อสินค้า / ยิงบาร์โค้ด / สแกน SN แล้ว Enter", "Type name / scan barcode / SN, then Enter", "输入名称/扫条码/SN 回车")} className="pl-9 pr-9 h-11" />
+              {addQ ? <button type="button" onClick={() => setAddQ("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-ink"><X size={15} /></button> : null}
+            </form>
+            {addMatches.length ? (
+              <div className="mt-1.5 rounded-xl border border-line divide-y divide-line/60 overflow-hidden max-h-64 overflow-y-auto">
+                {addMatches.map((p) => (
+                  <button key={p.id} type="button" onClick={() => { addLine(p.id); setAddQ(""); }} className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-brand/5 text-left">
+                    {p.image_url ? <img src={p.image_url} alt="" className="w-8 h-8 rounded-lg object-cover border border-line bg-white shrink-0" /> : <div className="w-8 h-8 rounded-lg border border-line bg-surface grid place-items-center shrink-0 text-muted/40"><Boxes size={13} /></div>}
+                    <div className="min-w-0 flex-1"><p className="text-sm font-medium truncate">{p.name_th}{p.track_serial ? <Barcode size={11} className="inline ml-1 text-brand" /> : null}</p><p className="font-mono text-[10px] text-muted truncate">{p.sku} · {(p.barcodes ?? [])[0] ?? "—"}</p></div>
+                    <Plus size={15} className="text-brand shrink-0" />
+                  </button>
+                ))}
+              </div>
+            ) : addQ.trim() ? <p className="mt-1.5 text-[11px] text-muted px-1">{L("ไม่พบชื่อที่ตรง — กด Enter เพื่อค้นด้วยบาร์โค้ด/SN", "No name match — press Enter to look up barcode/SN", "回车按条码/SN 查")}</p> : null}
           </div>
           <Table>
             <thead><tr><Th>{t.admin.products}</Th><Th align="center">{L("จำนวน / สแกน SN", "Qty / Scan SN", "数量/扫码")}</Th><Th /></tr></thead>
