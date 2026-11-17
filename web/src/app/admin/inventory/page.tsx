@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Boxes, Search, AlertTriangle, Download, MapPin } from "lucide-react";
+import { Boxes, Search, AlertTriangle, Download, MapPin, ArrowLeft } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { useSession } from "@/lib/store/session";
 import { listProducts, stockAll, listBranches, listBrands, listCategories } from "@/lib/data/repo";
@@ -244,6 +244,9 @@ export default function AdminInventoryPage() {
               </>
             ) : (
               <>
+                <button onClick={() => setXProductId("")} className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border border-line text-sm text-muted hover:text-brand hover:border-brand/40 transition-colors w-fit">
+                  <ArrowLeft size={15} /> {L("ย้อนกลับ", "Back", "返回")}
+                </button>
                 <div className="flex items-center gap-3 rounded-xl border border-line p-3">
                   {xProduct.image_url ? <img src={xProduct.image_url} alt="" className="w-12 h-12 rounded-lg object-cover border border-line bg-white" /> : <div className="w-12 h-12 rounded-lg border border-line bg-surface grid place-items-center text-muted/40"><Boxes size={18} /></div>}
                   <div className="min-w-0 flex-1"><p className="text-sm font-semibold truncate">{pick({ th: xProduct.name_th, en: xProduct.name_en, zh: xProduct.name_zh })}</p><p className="font-mono text-[10px] text-muted">{xProduct.sku}</p></div>
