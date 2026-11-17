@@ -14,7 +14,7 @@ import { coordOf, haversineKm, fmtKm } from "@/lib/geo";
 import { resolveSerial } from "@/lib/data/serials";
 import {
   owListAll, owCreate, owApprove, owReject, owGet, owTimeline,
-  owScanOut, owDispatch, owReceive, owCarriers, owSetAttachments, owShipStage,
+  owScanOut, owDispatch, owReceive, owCloseShort, owRecordDisc, owResolveDisc, owCarriers, owSetAttachments, owShipStage,
   statusMeta, isActive, isIssue, owErrorMessage,
 } from "@/lib/onewarehouse";
 import { TransferStepper, ItemJourney, TransferTimeline } from "@/components/admin/transfer-ui";
@@ -86,11 +86,11 @@ export default function AdminTransfersPage() {
     setTab("overview"); setCarrier(""); setApproveNote("");
     if (!detail) { setScanned({}); setRecvQty({}); return; }
     void owTimeline(detail.transfer_no).then(setTimeline);
-    const receiving = detail.status === "in_transit";
+    const receiving = ["in_transit", "partial_received"].includes(detail.status); // รับหลายรอบ
     const sc: Record<string, string[]> = {}; const rq: Record<string, string> = {};
     for (const it of detail.items) {
       if (it.isSerialized) sc[it.product_id] = (receiving ? it.receivedSerials : it.shippedSerials)?.map((s) => s.serialNo) ?? [];
-      else rq[it.product_id] = String(receiving ? (it.qty_shipped || it.qty_requested) : it.qty_requested);
+      else rq[it.product_id] = String(receiving ? Math.max(0, (it.qty_shipped || it.qty_requested) - (it.qty_received || 0)) : it.qty_requested); // คงเหลือที่ยังไม่รับ
     }
     setScanned(sc); setRecvQty(rq);
   }, [detail]);
@@ -279,11 +279,11 @@ export default function AdminTransfersPage() {
   const canOut = can(employee, "transfer.request") || can(employee, "transfer.approve");
   const canRecv = can(employee, "transfer.receive") || can(employee, "transfer.approve");
   const canScanOut = (tr: Transfer) => canOut && atSource(tr) && ["approved", "picking", "packed"].includes(tr.status);
-  const canReceive = (tr: Transfer) => canRecv && atDest(tr) && tr.status === "in_transit";
+  const canReceive = (tr: Transfer) => canRecv && atDest(tr) && ["in_transit", "partial_received"].includes(tr.status);
   // รออีกฝั่งทำ (โชว์ป้ายบอกว่าใครต้องทำต่อ)
   const waitingSide = (tr: Transfer): "dest" | "source" | null =>
     tr.status === "in_transit" && !atDest(tr) ? "dest" : ["approved", "picking", "packed"].includes(tr.status) && !atSource(tr) ? "source" : null;
-  const scanModeOf = (tr: Transfer): "out" | "in" => (tr.status === "in_transit" ? "in" : "out");
+  const scanModeOf = (tr: Transfer): "out" | "in" => (["in_transit", "partial_received"].includes(tr.status) ? "in" : "out");
   const prodImg = (pid: string) => products.find((p) => p.id === pid)?.image_url ?? null;
 
   // สถานะสต๊อก — ของนับเป็นอะไรตอนนี้ (ตามสเปกบัญชีสต๊อก Reserved Out → OTWO → On Hand)
@@ -332,8 +332,10 @@ export default function AdminTransfersPage() {
   const doReceive = (tr: Transfer) => {
     const received: Record<string, { serials?: string[]; qty?: number }> = {};
     for (const it of tr.items) received[it.product_id] = it.isSerialized ? { serials: scanned[it.product_id] ?? [] } : { qty: Number(recvQty[it.product_id] || 0) };
-    void act(() => owReceive(tr, employee!.id, received), L("รับเข้าแล้ว", "Received", "已入库"));
+    void act(() => owReceive(tr, employee!.id, received), L("บันทึกการรับรอบนี้แล้ว", "Receipt recorded", "已记录本次收货"));
   };
+  const doCloseShort = (tr: Transfer) => void act(() => owCloseShort(tr, employee!.id), L("ปิดรับแล้ว (ยอมรับส่วนขาด)", "Closed with shortage", "已结单(接受缺量)"));
+  const doResolveDisc = (tr: Transfer, discId: string) => void act(() => owResolveDisc(tr, discId, employee!.id), L("ปิดเรื่องผลต่างแล้ว", "Discrepancy resolved", "已关闭差异"));
 
   function printCO(tr: Transfer) {
     printTransferCO(tr, {
@@ -582,6 +584,57 @@ export default function AdminTransfersPage() {
                     </div>
                   );
                 })() : null}
+
+                {/* รอบรับเข้า (รับหลายรอบ) */}
+                {detail.receipts?.length ? (
+                  <div className="rounded-2xl border border-line overflow-hidden">
+                    <p className="text-[11px] font-medium text-muted px-3.5 pt-3 pb-1">{L("รอบรับเข้า", "Receipt rounds", "收货记录")} ({detail.receipts.length})</p>
+                    <div className="divide-y divide-line/60">
+                      {detail.receipts.map((r, i) => (
+                        <div key={r.id} className="px-3.5 py-2.5 flex items-center gap-3">
+                          <span className="w-6 h-6 rounded-full bg-brand/12 text-brand grid place-items-center text-[11px] font-bold shrink-0">{i + 1}</span>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium">{L("รอบที่", "Round", "第")} {i + 1} · {r.lines.reduce((s, l) => s + l.qty, 0)} {L("ชิ้น", "pcs", "件")}</p>
+                            <p className="text-[11px] text-muted truncate">{L("โดย", "by", "由")} {empName(r.by)} · {dtShort(r.at)}{r.note ? ` · ${r.note}` : ""}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+
+                {/* ผลต่างการรับ (ขาด/เกิน) + ปิดรับส่วนขาด + ปิดเรื่อง */}
+                {(() => {
+                  const DISC_LABEL: Record<string, string> = { short: L("ขาด", "Short", "缺"), over: L("เกิน", "Over", "超"), damaged: L("ชำรุด", "Damaged", "损坏"), lost: L("สูญหาย", "Lost", "丢失"), wrong_sn: L("ผิด SN", "Wrong SN", "SN错误") };
+                  const pName = (pid: string) => products.find((p) => p.id === pid)?.name_th ?? detail.items.find((i) => i.product_id === pid)?.sku ?? pid;
+                  const diffs = detail.items.map((it) => { const target = it.qty_shipped || it.qty_requested; return { pid: it.product_id, target, recv: it.qty_received || 0, diff: (it.qty_received || 0) - target }; }).filter((d) => d.diff !== 0);
+                  const discs = detail.discrepancies ?? [];
+                  if (!diffs.length && !discs.length) return null;
+                  const canClose = canReceive(detail) && detail.status === "partial_received";
+                  const canResolve = can(employee, "transfer.approve");
+                  return (
+                    <div className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-3 space-y-2.5">
+                      <p className="text-sm font-medium inline-flex items-center gap-1.5"><CircleAlert size={14} className="text-amber-600" /> {L("ผลต่างการรับ", "Receipt discrepancy", "收货差异")}</p>
+                      {diffs.map((d) => (
+                        <div key={d.pid} className="text-xs flex items-center justify-between gap-2">
+                          <span className="truncate flex-1">{pName(d.pid)}</span>
+                          <span className={`shrink-0 ${d.diff < 0 ? "text-rose-600 font-medium" : "text-amber-600 font-medium"}`}>{L("ส่ง", "ship", "发")} {d.target} · {L("รับ", "recv", "收")} {d.recv} · {d.diff < 0 ? `${L("ขาด", "short", "缺")} ${-d.diff}` : `${L("เกิน", "over", "超")} ${d.diff}`}</span>
+                        </div>
+                      ))}
+                      {canClose ? <Button variant="ghost" className="w-full" loading={busy} onClick={() => doCloseShort(detail)}><CircleAlert size={14} /> {L("ปิดรับ (ยอมรับส่วนขาด + บันทึกผลต่าง)", "Close with shortage", "结单·接受缺量")}</Button> : null}
+                      {discs.length ? (
+                        <div className="space-y-1.5 pt-2 border-t border-amber-500/20">
+                          {discs.map((dc) => (
+                            <div key={dc.id} className="flex items-center justify-between gap-2 text-[11px]">
+                              <span className="truncate flex-1"><b className="text-ink/80">{DISC_LABEL[dc.kind]}</b> · {pName(dc.product_id)} × {dc.qty}{dc.responsible_by ? ` · ${L("ผู้รับผิดชอบ", "resp.", "负责")} ${empName(dc.responsible_by)}` : ""}</span>
+                              {dc.status === "resolved" ? <Badge tone="ok">{L("ปิดแล้ว", "Resolved", "已关闭")}</Badge> : canResolve ? <button onClick={() => doResolveDisc(detail, dc.id)} className="shrink-0 text-brand hover:underline font-medium">{L("ปิดเรื่อง", "Resolve", "关闭")}</button> : <Badge tone="warn">{L("ค้าง", "Open", "待")}</Badge>}
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })()}
 
                 {/* สถานะสต๊อก — ของนับเป็นอะไรตอนนี้ */}
                 <div className="rounded-2xl border border-line p-3 flex items-center justify-between gap-3">

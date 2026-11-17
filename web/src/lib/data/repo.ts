@@ -19,7 +19,7 @@ import { computeTotals, lineTotal, lineDiscount, lineCost, round2, VAT_RATE } fr
 import type {
   Branch, Brand, Category, Employee, Order, OrderDraft, OrderItem, Product,
   Shift, StockLevel, Terminal, AuditEntry, Customer, ReturnDoc, ApprovalRequest,
-  CountType, StockCountSession, Transfer, TransferStatus, TransferAttachment,
+  CountType, StockCountSession, Transfer, TransferStatus, TransferAttachment, TransferReceipt, TransferDiscrepancy,
 } from "../types";
 
 const CATALOG_VERSION = "2026-11-13.1";
@@ -428,37 +428,69 @@ export async function setTransferAttachments(id: string, attachments: TransferAt
 
 export interface ReceiveLineInput { qty?: number; serials?: string[] }
 /** ปลายทางรับเข้า — บันทึก receivedSerials + qty_received, เพิ่ม on_hand ปลายทาง, กระทบ SN → completed/partial */
-export async function receiveTransfer(tr: Transfer, employeeId: string, received: Record<string, ReceiveLineInput>): Promise<Transfer> {
+export async function receiveTransfer(tr: Transfer, employeeId: string, received: Record<string, ReceiveLineInput>, note?: string): Promise<Transfer> {
   const now = new Date().toISOString();
+  const receiptLines: TransferReceipt["lines"] = [];
+  // รับหลายรอบ: สะสม (append) ไม่ทับของเดิม — รับเฉพาะส่วนใหม่ของรอบนี้
   const items = tr.items.map((it) => {
     const inp = received[it.product_id] ?? {};
     if (it.isSerialized === true) {
-      const sns = inp.serials ?? [];
-      return { ...it, qty_received: sns.length, receivedSerials: sns.map((serialNo) => ({ serialNo, at: now })) };
+      const prev = new Set((it.receivedSerials ?? []).map((s) => s.serialNo));
+      const batch = (inp.serials ?? []).filter((sn) => !prev.has(sn)); // SN ใหม่รอบนี้
+      if (batch.length) receiptLines.push({ product_id: it.product_id, qty: batch.length, serials: batch });
+      const merged = [...(it.receivedSerials ?? []), ...batch.map((serialNo) => ({ serialNo, at: now }))];
+      return { ...it, qty_received: merged.length, receivedSerials: merged };
     }
-    return { ...it, qty_received: inp.qty ?? 0 };
+    const batchQty = Math.max(0, Math.round(inp.qty ?? 0)); // จำนวนที่รับ "รอบนี้"
+    if (batchQty) receiptLines.push({ product_id: it.product_id, qty: batchQty });
+    return { ...it, qty_received: (it.qty_received ?? 0) + batchQty };
   });
-  // ปลายทาง: On Hand เพิ่มตามจำนวนที่รับจริง
-  for (const it of items) if (it.qty_received > 0) await adjustStock(tr.to_branch_id, it.product_id, it.qty_received);
-  // ต้นทาง: ของออกจากคลังจริงแล้ว → เคลียร์ OTWO + ปล่อย Reserved Out (Stock ต้นทางลดลงตอนนี้)
-  if (tr.from_kind !== "warehouse") {
-    for (const it of items) {
-      if (it.qty_shipped > 0) await adjustOtwo(tr.from_branch_id, it.product_id, -it.qty_shipped);
-      if (it.qty_requested > 0) await reserveStock(tr.from_branch_id, it.product_id, -it.qty_requested);
-    }
+  // สต๊อกต่อรอบ: ปลายทาง += ที่รับรอบนี้ · ต้นทาง otwo/reserved -= ที่รับรอบนี้ (ของที่มาถึงแล้ว)
+  for (const rl of receiptLines) {
+    await adjustStock(tr.to_branch_id, rl.product_id, rl.qty);
+    if (tr.from_kind !== "warehouse") { await adjustOtwo(tr.from_branch_id, rl.product_id, -rl.qty); await reserveStock(tr.from_branch_id, rl.product_id, -rl.qty); }
   }
-  // ครบ = ทุกบรรทัดรับ ≥ ส่ง และ (ถ้า serialized) SN ที่รับตรงกับที่ส่งครบ
+  // ครบ = ทุกบรรทัดรับ ≥ ส่ง และ (ถ้า serialized) SN ที่รับอยู่ในชุดที่ส่งครบ
   const complete = items.every((it) => {
     const target = it.qty_shipped || it.qty_requested;
     if (it.isSerialized === true) {
       const shipped = new Set((it.shippedSerials ?? []).map((s) => s.serialNo));
       const recv = (it.receivedSerials ?? []).map((s) => s.serialNo);
-      return recv.length >= target && recv.every((sn) => shipped.has(sn)) && shipped.size <= recv.length;
+      return recv.length >= target && recv.every((sn) => shipped.has(sn));
     }
     return it.qty_received >= target;
   });
+  const receipts: TransferReceipt[] = [...(tr.receipts ?? []), { id: nanoid(8), at: now, by: employeeId, note: note ?? null, lines: receiptLines }];
   const status: TransferStatus = complete ? "completed" : "partial_received";
-  return writeTransfer(tr, { status, items }, employeeId, tr.to_branch_id, { status, received: items.reduce((s, i) => s + i.qty_received, 0) });
+  return writeTransfer(tr, { status, items, receipts }, employeeId, tr.to_branch_id, { status, received: receiptLines.reduce((s, r) => s + r.qty, 0), round: receipts.length });
+}
+
+/** ปิดรับโดยยอมรับส่วนขาด (partial → completed) — ปล่อย otwo/reserved ส่วนที่ไม่มาถึง + บันทึกผลต่าง short */
+export async function closeTransferShort(tr: Transfer, employeeId: string, note?: string): Promise<Transfer> {
+  const now = new Date().toISOString();
+  const discs: TransferDiscrepancy[] = [...(tr.discrepancies ?? [])];
+  for (const it of tr.items) {
+    const target = it.qty_shipped || it.qty_requested;
+    const short = Math.max(0, target - (it.qty_received ?? 0));
+    if (short > 0) {
+      if (tr.from_kind !== "warehouse") { await adjustOtwo(tr.from_branch_id, it.product_id, -short); await reserveStock(tr.from_branch_id, it.product_id, -short); }
+      discs.push({ id: nanoid(8), product_id: it.product_id, kind: "short", qty: short, status: "open", at: now, by: employeeId, note: note ?? null });
+    }
+  }
+  return writeTransfer(tr, { status: "completed", discrepancies: discs }, employeeId, tr.to_branch_id, { status: "completed", closed_short: true });
+}
+
+/** บันทึกผลต่าง (ชำรุด/หาย/ผิด SN/ขาด/เกิน) + ผู้รับผิดชอบ */
+export async function recordDiscrepancy(tr: Transfer, employeeId: string, disc: Omit<TransferDiscrepancy, "id" | "status" | "at" | "by">): Promise<Transfer> {
+  const d: TransferDiscrepancy = { ...disc, id: nanoid(8), status: "open", at: new Date().toISOString(), by: employeeId };
+  return writeTransfer(tr, { discrepancies: [...(tr.discrepancies ?? []), d] }, employeeId, tr.to_branch_id, { discrepancy: d.kind });
+}
+
+/** ปิดเรื่องผลต่าง (อนุมัติปิด) */
+export async function resolveDiscrepancy(tr: Transfer, discId: string, employeeId: string): Promise<Transfer> {
+  const now = new Date().toISOString();
+  const discrepancies = (tr.discrepancies ?? []).map((d) => d.id === discId ? { ...d, status: "resolved" as const, resolved_by: employeeId, resolved_at: now } : d);
+  return writeTransfer(tr, { discrepancies }, employeeId, tr.to_branch_id, { resolved_discrepancy: discId });
 }
 
 /**

@@ -332,6 +332,10 @@ export interface Transfer {
   /** ผู้อนุมัติ + เหตุผล/หมายเหตุการอนุมัติ-ปฏิเสธ */
   approved_by?: string | null;
   approval_note?: string | null;
+  /** ประวัติการรับเข้าหลายรอบ (ใบรับย่อย) */
+  receipts?: TransferReceipt[];
+  /** ผลต่าง (ขาด/เกิน/ชำรุด/หาย/ผิด SN) + ผู้รับผิดชอบ + สถานะปิดเรื่อง */
+  discrepancies?: TransferDiscrepancy[];
   note?: string | null;
   created_at: string;
   /** concurrency — เพิ่มทุกการเขียน */
@@ -360,6 +364,32 @@ export interface TransferAttachment {
   size: number;
   at: string;
   by?: string | null;
+}
+
+/** ใบรับย่อยหนึ่งรอบ (รับหลายรอบต่อ 1 ใบโอน) */
+export interface TransferReceipt {
+  id: string;
+  at: string;
+  by?: string | null;
+  note?: string | null;
+  lines: { product_id: string; qty: number; serials?: string[] }[];
+}
+
+export type DiscrepancyKind = "short" | "over" | "damaged" | "lost" | "wrong_sn";
+/** ผลต่าง 1 รายการ — มีผู้รับผิดชอบ + ขั้นปิดเรื่อง */
+export interface TransferDiscrepancy {
+  id: string;
+  product_id: string;
+  kind: DiscrepancyKind;
+  qty: number;
+  serialNo?: string | null;
+  note?: string | null;
+  responsible_by?: string | null;   // ผู้รับผิดชอบ
+  status: "open" | "resolved";
+  resolved_by?: string | null;
+  resolved_at?: string | null;
+  at: string;
+  by?: string | null;               // ผู้บันทึก
 }
 
 export interface ReturnDoc {
