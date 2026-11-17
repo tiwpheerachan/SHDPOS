@@ -9,6 +9,7 @@ import { Card, Badge, Button, EmptyState } from "@/components/ui";
 import { resolveSerial, recentSerials, type SerialInfo, type SerialEventKind } from "@/lib/data/serials";
 import { coordOf } from "@/lib/geo";
 import { formatTHB } from "@/lib/money";
+import { AnimatedScan } from "@/components/animated-icons";
 
 const KIND_META: Record<SerialEventKind, { icon: typeof ArrowDownLeft; th: string; en: string; zh: string; color: string }> = {
   received: { icon: ArrowDownLeft, th: "รับเข้า", en: "Received", zh: "入库", color: "rgb(var(--c-mint))" },
@@ -105,7 +106,7 @@ export default function AdminSerialsPage() {
       {/* ───────── LEFT: สแกน + ประวัติ ───────── */}
       <aside className="w-full lg:w-[348px] lg:shrink-0 space-y-4 lg:sticky lg:top-4">
         <div className="flex items-center gap-2.5">
-          <span className="w-10 h-10 rounded-xl bg-brand/12 grid place-items-center"><ScanLine size={20} className="text-brand" /></span>
+          <span className="w-10 h-10 rounded-xl bg-brand/12 grid place-items-center"><AnimatedScan size={20} className="text-brand" /></span>
           <div>
             <h1 className="text-lg font-semibold tracking-tight">{L("ตามรอย Serial (SN)", "Serial tracking", "序列追踪")}</h1>
             <p className="text-[11px] text-muted">{L("สแกน SN เพื่อรู้สินค้า + เส้นทาง + ประกัน", "Scan a SN for product, journey & warranty", "扫描 SN 查看商品、流转与保修")}</p>
@@ -169,7 +170,7 @@ export default function AdminSerialsPage() {
         {!info ? (
           <div className="rounded-3xl border border-dashed border-line min-h-[60vh] grid place-items-center text-center p-8">
             <div>
-              <div className="w-20 h-20 rounded-3xl bg-brand/10 grid place-items-center mx-auto mb-4"><ScanLine size={36} className="text-brand" /></div>
+              <div className="w-20 h-20 rounded-3xl bg-brand/10 grid place-items-center mx-auto mb-4"><AnimatedScan size={36} className="text-brand" /></div>
               <h2 className="text-xl font-semibold">{L("ยิงบาร์โค้ด SN เพื่อเริ่ม", "Scan a SN to start", "扫描 SN 开始")}</h2>
               <p className="text-sm text-muted mt-1 max-w-sm mx-auto">{L("ระบบจะบอกทันทีว่าเป็นสินค้าอะไร อยู่ที่ไหน เดินทางมายังไง และสถานะประกัน", "Instantly see the product, where it is, its journey and warranty", "立即查看商品、位置、流转与保修")}</p>
             </div>
