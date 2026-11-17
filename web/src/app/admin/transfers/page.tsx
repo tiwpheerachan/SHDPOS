@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { nanoid } from "nanoid";
-import { ArrowLeftRight, Plus, Trash2, Check, X, Clock, Barcode, CircleAlert, Printer, ScanLine, Truck, PackageCheck, Upload, FileText, Boxes, ChevronRight, RotateCcw } from "lucide-react";
+import { ArrowLeftRight, Plus, Trash2, Check, X, Clock, Barcode, CircleAlert, Printer, ScanLine, Truck, PackageCheck, Upload, FileText, Boxes, ChevronRight, RotateCcw, Download, ExternalLink } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { useSession } from "@/lib/store/session";
 import { useToast } from "@/components/toast-host";
@@ -44,6 +44,7 @@ export default function AdminTransfersPage() {
   const [list, setList] = useState<Transfer[]>([]);
   const [bucket, setBucket] = useState<"mine" | "overdue" | "active" | "issue" | "done" | "all">("active");
   const [showEvidence, setShowEvidence] = useState(false); // คลังหลักฐานกลาง
+  const [evidenceTr, setEvidenceTr] = useState<Transfer | null>(null); // ป๊อปอัปดูหลักฐานของใบ
   const [detail, setDetail] = useState<Transfer | null>(null);
   const [tab, setTab] = useState<Tab>("overview");
   const [timeline, setTimeline] = useState<AuditEntry[]>([]);
@@ -171,9 +172,13 @@ export default function AdminTransfersPage() {
     .filter((x) => allowed.includes(x.from_branch_id) || allowed.includes(x.to_branch_id))
     .filter((x) => bucket === "all" ? true : bucket === "mine" ? needsMyAction(x) : bucket === "overdue" ? !!overdueInfo(x)?.over : bucket === "active" ? isActive(x.status) : bucket === "issue" ? isIssue(x.status) : x.status === "completed"),
     [list, allowed, bucket]); // eslint-disable-line react-hooks/exhaustive-deps
-  // คลังหลักฐานกลาง: รวมไฟล์แนบทุกใบในมุมมอง + หาใบที่ยังไม่มีหลักฐาน
-  const evidenceItems = useMemo(() => visible.flatMap((tr) => (tr.attachments ?? []).map((a) => ({ tr, a }))).sort((x, y) => (x.a.at < y.a.at ? 1 : -1)), [visible]);
+  // คลังหลักฐานกลาง: จัดกลุ่มตามใบ (ใบละแถว) + หาใบที่ยังไม่มีหลักฐาน
+  const evidenceGroups = useMemo(() => visible.filter((tr) => tr.attachments?.length).map((tr) => ({ tr, atts: tr.attachments ?? [] })).sort((a, b) => ((a.atts[0]?.at ?? "") < (b.atts[0]?.at ?? "") ? 1 : -1)), [visible]);
+  const evidenceCount = useMemo(() => evidenceGroups.reduce((s, g) => s + g.atts.length, 0), [evidenceGroups]);
   const noEvidence = useMemo(() => visible.filter((tr) => !(tr.attachments?.length) && !["draft", "rejected", "cancelled"].includes(tr.status)), [visible]);
+  function downloadAtt(a: TransferAttachment) {
+    try { const link = document.createElement("a"); link.href = a.url; link.download = a.name || "evidence"; link.target = "_blank"; document.body.appendChild(link); link.click(); link.remove(); } catch { /* ignore */ }
+  }
 
   // เพิ่มสินค้าเข้าบิล (รวม line เดิมถ้ามี; serialized + มี SN → แนบ SN กันซ้ำ)
   function addLine(productId: string, sn?: string) {
@@ -381,7 +386,7 @@ export default function AdminTransfersPage() {
             </button>
           ))}
         </div>
-        <Button variant={showEvidence ? "primary" : "ghost"} className="h-9" onClick={() => setShowEvidence((v) => !v)} title={L("หลักฐานส่ง-รับกลาง", "Central evidence", "凭证")}><FileText size={15} /> {L("หลักฐาน", "Evidence", "凭证")}{evidenceItems.length ? <span className="ml-1 text-[11px] opacity-80">({evidenceItems.length})</span> : null}</Button>
+        <Button variant={showEvidence ? "primary" : "ghost"} className="h-9" onClick={() => setShowEvidence((v) => !v)} title={L("หลักฐานส่ง-รับกลาง", "Central evidence", "凭证")}><FileText size={15} /> {L("หลักฐาน", "Evidence", "凭证")}{evidenceCount ? <span className="ml-1 text-[11px] opacity-80">({evidenceCount})</span> : null}</Button>
         {can(employee, "transfer.request") ? <Button variant="ghost" className="h-9" onClick={() => openRequest()}><Boxes size={15} /> {L("ขอสินค้าเข้า", "Request stock", "申请调入")}</Button> : null}
         {can(employee, "transfer.request") ? <Button variant="primary" className="h-9" onClick={() => setOpen(true)}><Plus size={15} /> {t.transfer.request}</Button> : null}
       </div>
@@ -389,18 +394,24 @@ export default function AdminTransfersPage() {
       {showEvidence ? (
         <Card>
           <div className="p-4 space-y-4">
-            <div className="flex items-center gap-2 text-sm font-semibold"><FileText size={16} className="text-brand" /> {L("หลักฐานส่ง-รับ (รวมทุกใบในมุมมอง)", "Send-receive evidence (all in view)", "收发凭证")}<span className="text-muted font-normal">· {evidenceItems.length} {L("ไฟล์", "files", "个")}</span></div>
-            {evidenceItems.length ? (
-              <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-6 xl:grid-cols-8 gap-2.5">
-                {evidenceItems.slice(0, 160).map(({ tr, a }) => (
-                  <button key={a.id} onClick={() => openDoc(tr)} title={`${tr.transfer_no} · ${a.name} · ${empName(a.by)} · ${dtShort(a.at)}`} className="text-left rounded-lg border border-line overflow-hidden hover:border-brand/50 hover:shadow-sm transition-all group">
-                    <div className="aspect-square bg-surface2 grid place-items-center overflow-hidden">
-                      {a.type?.startsWith("image/") ? <img src={a.url} alt="" loading="lazy" className="w-full h-full object-cover group-hover:scale-105 transition-transform" /> : <FileText size={20} className="text-muted/40" />}
+            <div className="flex items-center gap-2 text-sm font-semibold"><FileText size={16} className="text-brand" /> {L("หลักฐานส่ง-รับ (รวมทุกใบในมุมมอง)", "Send-receive evidence (all in view)", "收发凭证")}<span className="text-muted font-normal">· {evidenceGroups.length} {L("ใบ", "docs", "单")} · {evidenceCount} {L("ไฟล์", "files", "个")}</span></div>
+            {evidenceGroups.length ? (
+              <div className="space-y-2">
+                {evidenceGroups.map(({ tr, atts }) => (
+                  <button key={tr.id} onClick={() => setEvidenceTr(tr)} className="w-full flex items-center gap-3 rounded-xl border border-line p-2.5 hover:border-brand/40 hover:bg-brand/5 transition-all text-left">
+                    <div className="flex -space-x-2 shrink-0">
+                      {atts.slice(0, 4).map((a) => (
+                        <div key={a.id} className="w-14 h-14 rounded-lg border-2 border-surface bg-surface2 overflow-hidden grid place-items-center">
+                          {a.type?.startsWith("image/") ? <img src={a.url} alt="" loading="lazy" className="w-full h-full object-cover" /> : <FileText size={18} className="text-muted/40" />}
+                        </div>
+                      ))}
+                      {atts.length > 4 ? <div className="w-14 h-14 rounded-lg border-2 border-surface bg-ink/75 text-white grid place-items-center text-xs font-bold">+{atts.length - 4}</div> : null}
                     </div>
-                    <div className="px-1.5 py-1">
-                      <p className="text-[10px] font-mono text-brand truncate leading-tight">{tr.transfer_no}</p>
-                      <p className="text-[9px] text-muted truncate">{a.name}</p>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-mono text-brand inline-flex items-center gap-1.5">{tr.transfer_no} <Badge tone={sMeta(tr.status).tone}>{sMeta(tr.status).label}</Badge></p>
+                      <p className="text-xs text-muted truncate mt-0.5">{bName(tr.from_branch_id)} → {bName(tr.to_branch_id)} · {atts.length} {L("ไฟล์", "files", "个")}</p>
                     </div>
+                    <ChevronRight size={16} className="text-muted shrink-0" />
                   </button>
                 ))}
               </div>
@@ -450,6 +461,27 @@ export default function AdminTransfersPage() {
         ) : <EmptyState icon={<ArrowLeftRight size={26} />} title={t.common.empty} body={L("สร้างใบโอนย้ายเพื่อย้ายสินค้าระหว่างสาขา/คลัง", "Create a transfer to move stock", "创建调货单")} />}
       </Card>
       )}
+
+      {/* ป๊อปอัปหลักฐาน (slide-over ขวา) — เลื่อนดู + เปิด/ดาวน์โหลด */}
+      <Drawer open={Boolean(evidenceTr)} onClose={() => setEvidenceTr(null)} width="lg"
+        title={evidenceTr ? <span className="inline-flex items-center gap-1.5"><FileText size={16} className="text-brand" /> {L("หลักฐาน", "Evidence", "凭证")} · <span className="font-mono">{evidenceTr.transfer_no}</span></span> : ""}
+        subtitle={evidenceTr ? `${bName(evidenceTr.from_branch_id)} → ${bName(evidenceTr.to_branch_id)} · ${evidenceTr.attachments?.length ?? 0} ${L("ไฟล์", "files", "个")}` : ""}>
+        <div className="p-4 space-y-3">
+          {(evidenceTr?.attachments ?? []).map((a) => (
+            <div key={a.id} className="rounded-xl border border-line overflow-hidden bg-surface">
+              {a.type?.startsWith("image/") ? <img src={a.url} alt={a.name} className="w-full max-h-[62vh] object-contain bg-surface2" /> : <div className="h-40 grid place-items-center bg-surface2"><FileText size={44} className="text-muted/40" /></div>}
+              <div className="flex items-center justify-between gap-2 p-3">
+                <div className="min-w-0"><p className="text-sm font-medium truncate">{a.name}</p><p className="text-[11px] text-muted">{empName(a.by)} · {dtShort(a.at)}{a.size ? ` · ${(a.size / 1024).toFixed(0)} KB` : ""}</p></div>
+                <div className="flex gap-1.5 shrink-0">
+                  <a href={a.url} target="_blank" rel="noopener noreferrer" className="h-8 px-2.5 rounded-lg border border-line text-xs text-muted hover:text-brand hover:border-brand/40 inline-flex items-center gap-1"><ExternalLink size={13} /> {L("เปิด", "Open", "打开")}</a>
+                  <button onClick={() => downloadAtt(a)} className="h-8 px-2.5 rounded-lg border border-brand/40 text-brand text-xs font-medium hover:bg-brand/10 inline-flex items-center gap-1"><Download size={13} /> {L("ดาวน์โหลด", "Download", "下载")}</button>
+                </div>
+              </div>
+            </div>
+          ))}
+          {!(evidenceTr?.attachments?.length) ? <div className="p-8 text-center text-sm text-muted">{L("ไม่มีไฟล์แนบ", "No files", "无附件")}</div> : null}
+        </div>
+      </Drawer>
 
       {/* detail drawer (monitor + approve) */}
       <Drawer open={Boolean(detail)} onClose={closeDoc} width="lg"
