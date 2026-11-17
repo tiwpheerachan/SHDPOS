@@ -174,6 +174,13 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
           background:rgb(var(--c-lavender));
           box-shadow:inset 0 0 0 1px rgb(var(--c-brand) / .35);
         }
+        /* ไอคอนเมนู "วาดเส้นเข้า" ตอนถูกเลือก (re-mount ด้วย key → เล่นใหม่ทุกครั้งที่จิ้ม) */
+        @keyframes shdNavDraw { from { stroke-dashoffset: 100; } to { stroke-dashoffset: 0; } }
+        .shd-nav-draw path, .shd-nav-draw line, .shd-nav-draw polyline,
+        .shd-nav-draw polygon, .shd-nav-draw circle, .shd-nav-draw rect, .shd-nav-draw ellipse {
+          stroke-dasharray: 100;
+          animation: shdNavDraw .5s cubic-bezier(.4,0,.2,1) forwards;
+        }
       `}</style>
       {/* ============ Sidebar ============ */}
       <aside
@@ -217,9 +224,9 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
                         )}
                       >
                         {active && <motion.span layoutId="navActivePill" className="absolute inset-0 rounded-xl shd-nav-glass" transition={{ type: "spring", stiffness: 480, damping: 36 }} />}
-                        <motion.span initial={false} animate={active ? { scale: [1, 1.18, 1] } : { scale: 1 }} transition={{ duration: 0.3 }} className="relative z-10 shrink-0">
-                          <Icon size={18} className={clsx("shrink-0", active && "text-brand")} />
-                        </motion.span>
+                        <span className="relative z-10 shrink-0">
+                          <Icon key={active ? "on" : "off"} size={18} className={clsx("shrink-0", active ? "text-brand shd-nav-draw" : "")} />
+                        </span>
                         {!collapsed && <span className="relative z-10 truncate">{label[n.key]}</span>}
                         {badge > 0 ? (
                           <span className={clsx("relative z-10 inline-flex items-center justify-center", collapsed ? "lg:absolute lg:top-1 lg:right-1" : "ml-auto")}>
@@ -259,7 +266,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
                 : "text-muted hover:text-ink hover:bg-surface2"
             )}
           >
-            <Settings2 size={18} className={clsx("shrink-0", pathname === "/admin/settings" && "text-brand")} />
+            <Settings2 key={pathname === "/admin/settings" ? "on" : "off"} size={18} className={clsx("shrink-0", pathname === "/admin/settings" && "text-brand shd-nav-draw")} />
             {!collapsed && t.admin.settings}
           </Link>
           <Link
