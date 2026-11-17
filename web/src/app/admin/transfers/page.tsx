@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { nanoid } from "nanoid";
-import { ArrowLeftRight, Plus, Trash2, Check, X, Clock, Barcode, CircleAlert, Printer, ScanLine, Truck, PackageCheck, Upload, FileText, Boxes, ChevronRight, RotateCcw } from "lucide-react";
+import { ArrowLeftRight, Plus, Trash2, Check, X, Clock, Barcode, CircleAlert, Printer, ScanLine, Truck, PackageCheck, Upload, FileText, Boxes, ChevronRight, ChevronLeft, RotateCcw, Share2, Link as LinkIcon, ExternalLink, FileDown, Download, Copy } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { useSession } from "@/lib/store/session";
 import { useToast } from "@/components/toast-host";
@@ -55,6 +55,9 @@ export default function AdminTransfersPage() {
   const [scan, setScan] = useState<{ pid: string; mode: "out" | "in" } | null>(null);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [approveNote, setApproveNote] = useState("");
+  const [lbIdx, setLbIdx] = useState<number | null>(null); // lightbox รูปแนบ
+  const [copied, setCopied] = useState<"" | "img" | "link">("");
+  const [shareOpen, setShareOpen] = useState(false); // เมนูแชร์ฟอร์ม
   // create
   const [open, setOpen] = useState(false);
   const [from, setFrom] = useState("");
@@ -355,6 +358,22 @@ export default function AdminTransfersPage() {
       note: tr.approval_note || tr.note || null,
     });
   }
+  // ── ไฟล์แนบ: ดาวน์โหลด / คัดลอกรูป ──
+  function downloadAtt(a: TransferAttachment) {
+    try { const l = document.createElement("a"); l.href = a.url; l.download = a.name || "file"; l.target = "_blank"; document.body.appendChild(l); l.click(); l.remove(); } catch { /* ignore */ }
+  }
+  async function copyImage(a: TransferAttachment) {
+    try {
+      const blob = await (await fetch(a.url)).blob();
+      await navigator.clipboard.write([new ClipboardItem({ [blob.type || "image/png"]: blob })]);
+      setCopied("img"); setTimeout(() => setCopied(""), 1500);
+    } catch {
+      try { await navigator.clipboard.writeText(a.url); setCopied("img"); setTimeout(() => setCopied(""), 1500); } catch { /* ignore */ }
+    }
+  }
+  // ── แชร์ฟอร์ม: ลิงก์ (เห็นแค่ฟอร์มนั้น) ──
+  const shareUrl = (tr: Transfer) => (typeof window !== "undefined" ? `${window.location.origin}/share/transfer/${encodeURIComponent(tr.transfer_no)}` : "");
+  async function copyShareLink(tr: Transfer) { try { await navigator.clipboard.writeText(shareUrl(tr)); setCopied("link"); setTimeout(() => setCopied(""), 1500); } catch { /* ignore */ } }
 
   return (
     <div className="p-4 sm:p-6 space-y-4">
@@ -421,6 +440,18 @@ export default function AdminTransfersPage() {
         footer={detail ? (
           <div className="flex gap-2 w-full items-center flex-wrap">
             <Button variant="soft" onClick={() => printCO(detail)}><Printer size={15} /> {L("พิมพ์ใบ CO", "Print CO", "打印CO")}</Button>
+            <div className="relative">
+              <Button variant="soft" onClick={() => setShareOpen((v) => !v)}><Share2 size={15} /> {L("แชร์ฟอร์ม", "Share", "分享")}</Button>
+              {shareOpen ? <>
+                <div className="fixed inset-0 z-40" onClick={() => setShareOpen(false)} />
+                <div className="absolute z-50 bottom-full mb-2 left-0 w-72 rounded-2xl border border-line bg-surface shadow-2xl p-2 space-y-1">
+                  <p className="px-2 pt-1 pb-1.5 text-[11px] text-muted">{L("แชร์ใบนี้ · เห็นเฉพาะฟอร์มนี้เท่านั้น", "Share this form only", "仅此单")}</p>
+                  <button onClick={() => { void copyShareLink(detail); }} className="w-full flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-sm hover:bg-brand/5 text-left"><span className="w-8 h-8 rounded-lg bg-brand/10 text-brand grid place-items-center">{copied === "link" ? <Check size={15} /> : <LinkIcon size={15} />}</span><span className="min-w-0"><span className="block font-medium">{copied === "link" ? L("คัดลอกลิงก์แล้ว", "Link copied", "已复制") : L("คัดลอกลิงก์", "Copy link", "复制链接")}</span><span className="block text-[11px] text-muted truncate">{shareUrl(detail)}</span></span></button>
+                  <a href={shareUrl(detail)} target="_blank" rel="noreferrer" onClick={() => setShareOpen(false)} className="w-full flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-sm hover:bg-brand/5 text-left"><span className="w-8 h-8 rounded-lg bg-brand/10 text-brand grid place-items-center"><ExternalLink size={15} /></span><span className="font-medium">{L("เปิดหน้าแชร์ (ลิงก์)", "Open share page", "打开分享页")}</span></a>
+                  <button onClick={() => { setShareOpen(false); printCO(detail); }} className="w-full flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-sm hover:bg-brand/5 text-left"><span className="w-8 h-8 rounded-lg bg-brand/10 text-brand grid place-items-center"><FileDown size={15} /></span><span className="min-w-0"><span className="block font-medium">{L("ดาวน์โหลด PDF", "Download PDF", "下载PDF")}</span><span className="block text-[11px] text-muted">{L("หน้าต่างพิมพ์ → บันทึกเป็น PDF", "Print dialog → Save as PDF", "打印→另存PDF")}</span></span></button>
+                </div>
+              </> : null}
+            </div>
             <div className="ml-auto flex items-center gap-2 flex-wrap">
               {/* รออีกฝั่ง: บอกว่าใครต้องทำต่อ (ฝั่งนี้กดไม่ได้) */}
               {waitingSide(detail) === "dest" ? <span className="text-xs text-muted inline-flex items-center gap-1.5"><Clock size={13} /> {L("รอปลายทางรับเข้า", "Waiting for destination to receive", "等待目的地入库")} ({bName(detail.to_branch_id)})</span> : null}
@@ -669,12 +700,11 @@ export default function AdminTransfersPage() {
                   </div>
                   {detail.attachments?.length ? (
                     <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-                      {detail.attachments.map((a) => (
+                      {detail.attachments.map((a, idx) => (
                         <div key={a.id} className="relative group rounded-xl border border-line overflow-hidden bg-surface2">
                           {a.type.startsWith("image/")
-                            // eslint-disable-next-line @next/next/no-img-element
-                            ? <a href={a.url} target="_blank" rel="noreferrer"><img src={a.url} alt={a.name} className="w-full h-20 object-cover" /></a>
-                            : <a href={a.url} download={a.name} className="flex flex-col items-center justify-center h-20 gap-1 p-2 text-center"><FileText size={22} className="text-muted" /><span className="text-[9px] text-muted truncate w-full">{a.name}</span></a>}
+                            ? <button onClick={() => setLbIdx(idx)} className="block w-full"><img src={a.url} alt={a.name} className="w-full h-20 object-cover" /></button>
+                            : <button onClick={() => downloadAtt(a)} className="flex flex-col items-center justify-center h-20 gap-1 p-2 text-center w-full"><FileText size={22} className="text-muted" /><span className="text-[9px] text-muted truncate w-full">{a.name}</span></button>}
                           <button onClick={() => void removeAttachment(a.id)} className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/55 text-white grid place-items-center opacity-0 group-hover:opacity-100 transition-opacity"><X size={11} /></button>
                         </div>
                       ))}
@@ -840,6 +870,38 @@ export default function AdminTransfersPage() {
             onSave={(serials) => { setLines((list) => list.map((x) => x.id === l.id ? { ...x, serials, qty: serials.length } : x)); setCreateScan(null); }}
             locale={locale as "th" | "en" | "zh"}
           />
+        );
+      })() : null}
+
+      {/* Lightbox รูปแนบ — เลื่อนซ้าย-ขวา + บันทึก + คัดลอก */}
+      {lbIdx !== null && detail?.attachments?.length ? (() => {
+        const atts = detail.attachments;
+        const i = Math.min(lbIdx, atts.length - 1); const a = atts[i];
+        const go = (d: number) => setLbIdx((i + d + atts.length) % atts.length);
+        const isImg = a.type?.startsWith("image/");
+        return (
+          <div className="fixed inset-0 z-[70] bg-black/85 backdrop-blur-sm flex flex-col" onClick={() => setLbIdx(null)}>
+            <div className="flex items-center gap-2 p-3 text-white/90" onClick={(e) => e.stopPropagation()}>
+              <span className="font-mono text-sm">{detail.transfer_no}</span>
+              <span className="text-white/45 text-xs truncate hidden sm:block">· {a.name}</span>
+              <span className="ml-auto text-xs tabular-nums text-white/60">{i + 1}/{atts.length}</span>
+              <button onClick={() => setLbIdx(null)} className="w-9 h-9 rounded-full hover:bg-white/10 grid place-items-center text-white"><X size={18} /></button>
+            </div>
+            <div className="flex-1 relative flex items-center justify-center px-4 min-h-0" onClick={(e) => e.stopPropagation()}>
+              {isImg ? <img src={a.url} alt={a.name} className="max-w-full max-h-full object-contain rounded-lg" /> : <div className="text-white/60 flex flex-col items-center gap-2"><FileText size={56} /><span className="text-sm">{a.name}</span></div>}
+              {atts.length > 1 ? <>
+                <button onClick={() => go(-1)} className="absolute left-3 top-1/2 -translate-y-1/2 w-11 h-11 rounded-full bg-white/10 hover:bg-white/25 text-white grid place-items-center"><ChevronLeft size={22} /></button>
+                <button onClick={() => go(1)} className="absolute right-3 top-1/2 -translate-y-1/2 w-11 h-11 rounded-full bg-white/10 hover:bg-white/25 text-white grid place-items-center"><ChevronRight size={22} /></button>
+              </> : null}
+            </div>
+            <div className="p-3 space-y-2" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-center gap-2">
+                {isImg ? <button onClick={() => void copyImage(a)} className="h-9 px-3 rounded-lg bg-white/10 hover:bg-white/20 text-white text-sm inline-flex items-center gap-1.5">{copied === "img" ? <Check size={15} /> : <Copy size={15} />} {copied === "img" ? L("คัดลอกแล้ว", "Copied", "已复制") : L("คัดลอกรูป", "Copy image", "复制图片")}</button> : null}
+                <button onClick={() => downloadAtt(a)} className="h-9 px-3 rounded-lg bg-white/10 hover:bg-white/20 text-white text-sm inline-flex items-center gap-1.5"><Download size={15} /> {L("บันทึก", "Save", "保存")}</button>
+              </div>
+              {atts.length > 1 ? <div className="flex gap-1.5 overflow-x-auto justify-center pb-1">{atts.map((t, ti) => (<button key={t.id} onClick={() => setLbIdx(ti)} className={`w-12 h-12 rounded-md overflow-hidden border-2 shrink-0 ${ti === i ? "border-white" : "border-transparent opacity-50 hover:opacity-100"}`}>{t.type?.startsWith("image/") ? <img src={t.url} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full grid place-items-center bg-white/10"><FileText size={14} className="text-white/60" /></div>}</button>))}</div> : null}
+            </div>
+          </div>
         );
       })() : null}
     </div>
