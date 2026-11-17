@@ -8,7 +8,9 @@ import { ArrowLeftRight, Plus, Trash2, Check, X, Clock, Barcode, CircleAlert, Pr
 import { useI18n } from "@/lib/i18n/provider";
 import { useSession } from "@/lib/store/session";
 import { useToast } from "@/components/toast-host";
-import { listBranches, listProducts, listEmployees } from "@/lib/data/repo";
+import { listBranches, listProducts, listEmployees, stockAll } from "@/lib/data/repo";
+import { availableQty } from "@/lib/stock";
+import { coordOf, haversineKm, fmtKm } from "@/lib/geo";
 import {
   owListAll, owCreate, owApprove, owReject, owGet, owTimeline,
   owScanOut, owDispatch, owReceive, owCarriers, owSetAttachments, owShipStage,
@@ -17,7 +19,7 @@ import {
 import { TransferStepper, ItemJourney, TransferTimeline } from "@/components/admin/transfer-ui";
 import { SerialScanDrawer } from "@/components/admin/serial-scan-drawer";
 import { printTransferCO } from "@/lib/transfer/print-co";
-import type { Branch, Product, Transfer, TransferStatus, TransferAttachment, AuditEntry, Employee } from "@/lib/types";
+import type { Branch, Product, Transfer, TransferStatus, TransferAttachment, AuditEntry, Employee, StockLevel } from "@/lib/types";
 import { Button, Card, Input, Field, Select, Table, Th, Td, Badge, EmptyState, Drawer, DrawerTabs, DetailRow, Avatar } from "@/components/ui";
 import { can, visibleBranchIds, ROLE_LABEL } from "@/lib/permissions";
 
@@ -34,7 +36,7 @@ export default function AdminTransfersPage() {
   const { t, locale, pick } = useI18n();
   const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
   const toast = useToast();
-  const { employee } = useSession();
+  const { employee, branchId: sessionBranchId } = useSession();
 
   const [branches, setBranches] = useState<Branch[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -60,12 +62,20 @@ export default function AdminTransfersPage() {
   const [pickId, setPickId] = useState("");
   const [note, setNote] = useState("");
   const [createScan, setCreateScan] = useState<string | null>(null); // lineId ที่กำลังสแกนตอนเปิดบิล
+  // คำขอสินค้าเข้าสาขา (destination-initiated): เลือกสินค้า → แนะนำสาขาที่มีของ+ใกล้สุด → ส่งคำขอ
+  const [reqOpen, setReqOpen] = useState(false);
+  const [reqDest, setReqDest] = useState("");
+  const [reqQ, setReqQ] = useState("");
+  const [reqProductId, setReqProductId] = useState("");
+  const [reqSource, setReqSource] = useState("");
+  const [reqQty, setReqQty] = useState(1);
+  const [stock, setStock] = useState<StockLevel[]>([]);
 
   async function reload() { setList(await owListAll()); }
   useEffect(() => {
     void (async () => {
-      const [b, p, c, e] = await Promise.all([listBranches(), listProducts(), owCarriers(), listEmployees()]);
-      setBranches(b); setProducts(p); setCarriers(c); setEmployees(e); setFrom(b[0]?.id ?? ""); setTo(b[1]?.id ?? "");
+      const [b, p, c, e, st] = await Promise.all([listBranches(), listProducts(), owCarriers(), listEmployees(), stockAll()]);
+      setBranches(b); setProducts(p); setCarriers(c); setEmployees(e); setStock(st); setFrom(b[0]?.id ?? ""); setTo(b[1]?.id ?? "");
       await reload();
     })();
   }, []);
@@ -113,6 +123,37 @@ export default function AdminTransfersPage() {
   };
   const mineCount = useMemo(() => list.filter((x) => (allowed.includes(x.from_branch_id) || allowed.includes(x.to_branch_id)) && needsMyAction(x)).length, [list, allowed, employee]); // eslint-disable-line react-hooks/exhaustive-deps
   const bName = (id: string) => { const b = branches.find((x) => x.id === id); return b ? (locale === "th" ? b.name_th ?? b.name : b.name) : id; };
+
+  // ── คำขอสินค้าเข้าสาขา: เลือกสินค้า → แนะนำสาขาที่มีของ เรียงใกล้สุด → ส่งคำขอ (สร้าง transfer source→dest, รออนุมัติต้นทาง) ──
+  const stockMap = useMemo(() => { const m = new Map<string, StockLevel>(); for (const s of stock) m.set(`${s.branch_id}:${s.product_id}`, s); return m; }, [stock]);
+  const availAt = (bid: string, pid: string) => { const s = stockMap.get(`${bid}:${pid}`); return s ? availableQty(s) : 0; };
+  const reqProduct = products.find((p) => p.id === reqProductId) || null;
+  const reqSources = useMemo(() => {
+    if (!reqProductId || !reqDest) return [] as { b: Branch; avail: number; km: number | null }[];
+    const dest = branches.find((b) => b.id === reqDest);
+    const dc = coordOf(dest); const seen = new Set<string>();
+    return branches
+      .filter((b) => b.id !== reqDest && b.is_active && !seen.has(b.id) && (seen.add(b.id), true))
+      .map((b) => { const bc = coordOf(b); return { b, avail: availAt(b.id, reqProductId), km: dc && bc ? haversineKm(dc, bc) : null }; })
+      .filter((x) => x.avail > 0)
+      .sort((a, b) => (a.km ?? 1e9) - (b.km ?? 1e9) || b.avail - a.avail);
+  }, [reqProductId, reqDest, branches, stockMap]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function openRequest(destId?: string, productId?: string) {
+    const dest = destId || sessionBranchId || employee?.home_branch_id || allowed[0] || branches[0]?.id || "";
+    setReqDest(dest); setReqProductId(productId || ""); setReqQ(""); setReqSource(""); setReqQty(1); setReqOpen(true);
+  }
+  async function submitRequest() {
+    if (!employee || !reqProduct || !reqSource || !reqDest || reqSource === reqDest || reqQty < 1) return;
+    const srcB = branches.find((b) => b.id === reqSource);
+    setBusy(true);
+    try {
+      // คำขอ = โอนจาก source → dest แบบ "รออนุมัติ" (ต้นทางต้องกดอนุมัติก่อน) — ไม่ auto-approve
+      await owCreate(reqSource, reqDest, employee.id, [{ product_id: reqProduct.id, sku: reqProduct.sku, name: reqProduct.name_th, qty: reqQty, isSerialized: !!reqProduct.track_serial }], L(`คำขอจาก ${bName(reqDest)}`, `Request from ${bName(reqDest)}`, `申请`), false, srcB?.branch_type === "warehouse" ? "warehouse" : "branch");
+      setReqOpen(false); await reload();
+      toast.push({ tone: "ok", title: L("ส่งคำขอแล้ว — รอต้นทางอนุมัติ", "Request sent — awaiting source approval", "已发送申请") });
+    } finally { setBusy(false); }
+  }
   const sMeta = (s: Transfer["status"]) => statusMeta(s, locale);
 
   const visible = useMemo(() => list
@@ -267,6 +308,7 @@ export default function AdminTransfersPage() {
             </button>
           ))}
         </div>
+        {can(employee, "transfer.request") ? <Button variant="ghost" className="h-9" onClick={() => openRequest()}><Boxes size={15} /> {L("ขอสินค้าเข้า", "Request stock", "申请调入")}</Button> : null}
         {can(employee, "transfer.request") ? <Button variant="primary" className="h-9" onClick={() => setOpen(true)}><Plus size={15} /> {t.transfer.request}</Button> : null}
       </div>
 
@@ -533,6 +575,71 @@ export default function AdminTransfersPage() {
           />
         );
       })() : null}
+
+      {/* คำขอสินค้าเข้าสาขา (slide-over ขวา) — ปลายทางเปิดคำขอ ระบบแนะนำสาขาที่มีของ+ใกล้สุด */}
+      <Drawer open={reqOpen} onClose={() => setReqOpen(false)} title={L("ขอสินค้าเข้าสาขา", "Request stock in", "申请调入")} width="lg"
+        subtitle={reqDest ? `${L("เข้าสาขา", "To", "调入")} ${bName(reqDest)}` : undefined}
+        footer={<><Button variant="ghost" onClick={() => setReqOpen(false)}>{t.common.cancel}</Button>
+          <Button variant="primary" className="ml-auto" loading={busy} disabled={!reqSource || !reqProduct || reqQty < 1} onClick={() => void submitRequest()}>{L("ส่งคำขอ → รอต้นทางอนุมัติ", "Send request", "发送申请")}</Button></>}>
+        <div className="p-5 space-y-4">
+          <Field label={L("สาขาของฉัน (ปลายทางที่รับเข้า)", "My branch (destination)", "我的门店（收货）")}>
+            <Select value={reqDest} onChange={(e) => { setReqDest(e.target.value); setReqSource(""); }}>{branches.filter((b) => b.is_active).map((b) => <option key={b.id} value={b.id}>{bName(b.id)}</option>)}</Select>
+          </Field>
+          {/* เลือกสินค้า */}
+          {!reqProduct ? (
+            <div>
+              <div className="relative mb-2"><Barcode size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+                <Input value={reqQ} onChange={(e) => setReqQ(e.target.value)} placeholder={L("ค้นหาสินค้าที่ต้องการ (ชื่อ/SKU)", "Search product (name/SKU)", "搜索商品")} className="pl-9 h-10" autoFocus /></div>
+              <div className="max-h-72 overflow-auto rounded-xl border border-line divide-y divide-line/60">
+                {products.filter((p) => p.kind !== "service").filter((p) => { const q = reqQ.trim().toLowerCase(); return !q || p.name_th.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q); }).slice(0, 30).map((p) => (
+                  <button key={p.id} onClick={() => { setReqProductId(p.id); setReqSource(""); setReqQty(1); }} className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-brand/5 text-left">
+                    {p.image_url ? <img src={p.image_url} alt="" className="w-9 h-9 rounded-lg object-cover border border-line bg-white shrink-0" /> : <div className="w-9 h-9 rounded-lg border border-line bg-surface grid place-items-center shrink-0 text-muted/40"><Boxes size={15} /></div>}
+                    <div className="min-w-0 flex-1"><p className="text-sm font-medium truncate">{p.name_th}</p><p className="font-mono text-[10px] text-muted">{p.sku}</p></div>
+                    <span className="text-[11px] text-muted">{L("มี", "in", "")} {branches.filter((b) => availAt(b.id, p.id) > 0).length} {L("สาขา", "branches", "店")}</span>
+                  </button>
+                ))}
+                {!products.filter((p) => p.kind !== "service").some((p) => { const q = reqQ.trim().toLowerCase(); return !q || p.name_th.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q); }) ? <div className="p-4 text-center text-xs text-muted">{t.common.empty}</div> : null}
+              </div>
+            </div>
+          ) : (
+            <>
+              {/* สินค้าที่เลือก */}
+              <div className="flex items-center gap-3 rounded-xl border border-line p-3">
+                {reqProduct.image_url ? <img src={reqProduct.image_url} alt="" className="w-12 h-12 rounded-lg object-cover border border-line bg-white" /> : <div className="w-12 h-12 rounded-lg border border-line bg-surface grid place-items-center text-muted/40"><Boxes size={18} /></div>}
+                <div className="min-w-0 flex-1"><p className="text-sm font-semibold truncate">{reqProduct.name_th}</p><p className="font-mono text-[10px] text-muted">{reqProduct.sku}</p></div>
+                <button onClick={() => { setReqProductId(""); setReqSource(""); }} className="text-xs text-brand hover:underline">{L("เปลี่ยน", "Change", "更换")}</button>
+              </div>
+              {/* สาขาที่มีของ — เรียงใกล้สุด */}
+              <div>
+                <p className="text-[11px] text-muted mb-1.5">{L("เลือกสาขาต้นทาง — เรียงตามใกล้ที่สุดที่มีของ", "Pick source — nearest with stock first", "选择调出门店（最近且有货）")}</p>
+                {reqSources.length ? (
+                  <div className="space-y-1.5 max-h-72 overflow-auto">
+                    {reqSources.map(({ b, avail, km }, i) => (
+                      <button key={b.id} onClick={() => { setReqSource(b.id); setReqQty((q) => Math.min(Math.max(1, q), avail)); }}
+                        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border text-left transition-colors ${reqSource === b.id ? "border-brand bg-brand/5 ring-1 ring-brand/30" : "border-line hover:border-brand/40"}`}>
+                        <span className={`shrink-0 w-7 h-7 rounded-full grid place-items-center text-[11px] font-bold ${reqSource === b.id ? "bg-brand text-white" : "bg-line/50 text-muted"}`}>{i + 1}</span>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium truncate flex items-center gap-1.5">{b.branch_type === "warehouse" ? "🏬 " : ""}{bName(b.id)}{i === 0 ? <Badge tone="ok">{L("ใกล้สุด", "Nearest", "最近")}</Badge> : null}</p>
+                          <p className="text-[11px] text-muted">{b.province ?? ""} · {fmtKm(km)}</p>
+                        </div>
+                        <div className="text-right shrink-0"><p className="text-sm font-bold text-ok tnum">{avail}</p><p className="text-[10px] text-muted">{L("พร้อมโอน", "available", "可调")}</p></div>
+                      </button>
+                    ))}
+                  </div>
+                ) : <div className="rounded-xl border border-dashed border-line p-4 text-center text-xs text-muted">{L("ยังไม่มีสาขาใดมีสินค้านี้พร้อมโอน", "No branch has available stock", "暂无门店有货")}</div>}
+              </div>
+              {/* จำนวน */}
+              {reqSource ? (
+                <Field label={L("จำนวนที่ขอ", "Quantity", "数量")}>
+                  <Input type="number" min={1} max={availAt(reqSource, reqProduct.id)} value={reqQty} onChange={(e) => setReqQty(Math.max(1, Math.min(availAt(reqSource, reqProduct.id), Number(e.target.value) || 1)))} className="h-10 w-40" />
+                  <span className="text-[11px] text-muted ml-2">{L("สูงสุด", "max", "最多")} {availAt(reqSource, reqProduct.id)}</span>
+                </Field>
+              ) : null}
+            </>
+          )}
+          <p className="text-[11px] text-muted flex items-center gap-1.5"><CircleAlert size={12} /> {L("ส่งคำขอแล้ว สาขาต้นทางจะเห็นใน \"รอฉันทำ\" และกดอนุมัติเพื่อเริ่มโอน", "Source branch sees it in \"My queue\" and approves to start the transfer", "源店将在\"待我处理\"中审批")}</p>
+        </div>
+      </Drawer>
 
       {/* create (slide-over ขวา) */}
       <Drawer open={open} onClose={() => setOpen(false)} title={t.transfer.request} width="lg"

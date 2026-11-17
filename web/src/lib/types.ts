@@ -42,6 +42,9 @@ export interface Branch {
   branch_type: string;
   province?: string | null;
   tax_branch_no?: string | null;
+  /** พิกัดที่ตั้ง (ใช้แนะนำสาขาใกล้สุดตอนขอโอน) — ถ้าไม่มีจะ fallback lib/geo seed ตาม code */
+  lat?: number | null;
+  lng?: number | null;
   is_active: boolean;
 }
 

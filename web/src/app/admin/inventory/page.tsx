@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Boxes, Search, AlertTriangle, Download } from "lucide-react";
+import { Boxes, Search, AlertTriangle, Download, MapPin } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { useSession } from "@/lib/store/session";
 import { listProducts, stockAll, listBranches } from "@/lib/data/repo";
@@ -10,17 +10,21 @@ import { Card, CardHeader, Table, Th, Td, Badge, Input, Button, EmptyState, KpiT
 import { formatTHB, formatInt } from "@/lib/money";
 import { stockView } from "@/lib/stock";
 import { can, visibleBranchIds } from "@/lib/permissions";
+import { coordOf, haversineKm, fmtKm } from "@/lib/geo";
 
 export default function AdminInventoryPage() {
   const { t, locale, pick } = useI18n();
   const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
-  const { employee } = useSession();
+  const { employee, branchId: sessionBranchId } = useSession();
   const [products, setProducts] = useState<Product[]>([]);
   const [stock, setStock] = useState<(StockLevel & { key: string })[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [q, setQ] = useState("");
   const [view, setView] = useState<"all" | "low" | "out">("all");
   const [branchId, setBranchId] = useState<string>("all");
+  const [scope, setScope] = useState<"byBranch" | "crossBranch">("byBranch"); // รายสาขา | ค้นหาข้ามสาขา
+  const [xProductId, setXProductId] = useState("");
+  const [xRef, setXRef] = useState(""); // สาขาอ้างอิงสำหรับวัดระยะทาง
 
   useEffect(() => {
     void (async () => {
@@ -34,6 +38,21 @@ export default function AdminInventoryPage() {
   const allowed = useMemo(() => visibleBranchIds(employee, branches.map((b) => b.id)), [employee, branches]);
   const pMap = useMemo(() => new Map(products.map((p) => [p.id, p])), [products]);
   const bMap = useMemo(() => new Map(branches.map((b) => [b.id, b])), [branches]);
+
+  // ค้นหาข้ามสาขา: สินค้า 1 ตัว → สต๊อกทุกสาขา เรียงตามใกล้สาขาฉัน
+  const myBranch = useMemo(() => branches.find((b) => b.id === (xRef || sessionBranchId)) || branches.find((b) => b.id === employee?.home_branch_id) || branches.find((b) => allowed.includes(b.id)) || null, [branches, xRef, sessionBranchId, employee, allowed]);
+  useEffect(() => { if (!xRef && myBranch) setXRef(myBranch.id); }, [myBranch, xRef]);
+  const stockMap = useMemo(() => { const m = new Map<string, StockLevel>(); for (const s of stock) m.set(`${s.branch_id}:${s.product_id}`, s); return m; }, [stock]);
+  const xProduct = products.find((p) => p.id === xProductId) || null;
+  const xRows = useMemo(() => {
+    if (!xProduct) return [] as { b: Branch; onHand: number; avail: number; km: number | null }[];
+    const mc = coordOf(myBranch); const seen = new Set<string>();
+    return branches
+      .filter((b) => b.is_active && allowed.includes(b.id) && !seen.has(b.id) && (seen.add(b.id), true))
+      .map((b) => { const s = stockMap.get(`${b.id}:${xProduct.id}`); const sv = s ? stockView(s) : null; const bc = coordOf(b); return { b, onHand: sv?.onHand ?? 0, avail: sv?.available ?? 0, km: mc && bc ? haversineKm(mc, bc) : null }; })
+      .sort((a, b) => (a.km ?? 1e9) - (b.km ?? 1e9));
+  }, [xProduct, branches, allowed, stockMap, myBranch]);
+  const xTotalAvail = xRows.reduce((s, r) => s + r.avail, 0);
 
   const rows = useMemo(() => {
     const term = q.trim().toLowerCase();
@@ -100,6 +119,11 @@ export default function AdminInventoryPage() {
             </Button>
           }
         />
+        <div className="px-4 pt-3">
+          <Segmented size="sm" value={scope} onChange={setScope}
+            options={[{ value: "byBranch" as const, label: L("รายสาขา", "By branch", "按门店") }, { value: "crossBranch" as const, label: L("ค้นหาข้ามสาขา", "Across branches", "跨店查询") }]} />
+        </div>
+        {scope === "byBranch" ? (<>
         <div className="p-4 flex flex-wrap gap-2">
           <Segmented
             size="sm"
@@ -170,6 +194,59 @@ export default function AdminInventoryPage() {
           </Table>
         ) : (
           <EmptyState icon={<Boxes size={26} />} title={t.common.empty} />
+        )}
+        </>) : (
+          /* ── ค้นหาข้ามสาขา: เลือกสินค้า → สต๊อกทุกสาขา เรียงใกล้สาขาฉัน ── */
+          <div className="p-4 space-y-3">
+            {!xProduct ? (
+              <>
+                <div className="relative"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+                  <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={L("ค้นหาสินค้าเพื่อดูสต๊อกทุกสาขา (ชื่อ/SKU)", "Search a product to see stock across all branches", "搜索商品查看各店库存")} className="pl-9 h-10" /></div>
+                <div className="max-h-[480px] overflow-auto rounded-xl border border-line divide-y divide-line/60">
+                  {products.filter((p) => p.kind !== "service").filter((p) => { const term = q.trim().toLowerCase(); return !term || p.name_th.toLowerCase().includes(term) || p.sku.toLowerCase().includes(term); }).slice(0, 50).map((p) => {
+                    const total = branches.filter((b) => allowed.includes(b.id)).reduce((s, b) => { const r = stockMap.get(`${b.id}:${p.id}`); return s + (r ? stockView(r).available : 0); }, 0);
+                    const nb = branches.filter((b) => allowed.includes(b.id) && (() => { const r = stockMap.get(`${b.id}:${p.id}`); return r && stockView(r).available > 0; })()).length;
+                    return (
+                      <button key={p.id} onClick={() => setXProductId(p.id)} className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-brand/5 text-left">
+                        {p.image_url ? <img src={p.image_url} alt="" className="w-9 h-9 rounded-lg object-cover border border-line bg-white shrink-0" /> : <div className="w-9 h-9 rounded-lg border border-line bg-surface grid place-items-center shrink-0 text-muted/40"><Boxes size={15} /></div>}
+                        <div className="min-w-0 flex-1"><p className="text-sm font-medium truncate">{pick({ th: p.name_th, en: p.name_en, zh: p.name_zh })}</p><p className="font-mono text-[10px] text-muted">{p.sku}</p></div>
+                        <div className="text-right shrink-0"><p className={`text-sm font-bold tnum ${total > 0 ? "text-ok" : "text-muted"}`}>{total}</p><p className="text-[10px] text-muted">{L("มี", "in", "")} {nb} {L("สาขา", "br.", "店")}</p></div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="flex items-center gap-3 rounded-xl border border-line p-3">
+                  {xProduct.image_url ? <img src={xProduct.image_url} alt="" className="w-12 h-12 rounded-lg object-cover border border-line bg-white" /> : <div className="w-12 h-12 rounded-lg border border-line bg-surface grid place-items-center text-muted/40"><Boxes size={18} /></div>}
+                  <div className="min-w-0 flex-1"><p className="text-sm font-semibold truncate">{pick({ th: xProduct.name_th, en: xProduct.name_en, zh: xProduct.name_zh })}</p><p className="font-mono text-[10px] text-muted">{xProduct.sku}</p></div>
+                  <div className="text-right"><p className="text-lg font-bold text-ok tnum">{xTotalAvail}</p><p className="text-[10px] text-muted">{L("พร้อมขายรวมทุกสาขา", "available all branches", "全店可售")}</p></div>
+                  <button onClick={() => setXProductId("")} className="text-xs text-brand hover:underline ml-1">{L("เปลี่ยน", "Change", "更换")}</button>
+                </div>
+                <div className="flex items-center gap-2 text-xs text-muted">
+                  <MapPin size={14} className="text-brand" /> {L("วัดระยะจากสาขา", "Distance from", "距离起点")}:
+                  <select value={xRef} onChange={(e) => setXRef(e.target.value)} className="input h-8 w-56">
+                    {branches.filter((b) => allowed.includes(b.id) && b.is_active).map((b) => <option key={b.id} value={b.id}>{locale === "th" ? b.name_th ?? b.name : b.name}</option>)}
+                  </select>
+                </div>
+                <Table>
+                  <thead><tr><Th>{t.common.branch}</Th><Th>{L("จังหวัด", "Province", "省")}</Th><Th align="right">{L("ระยะทาง", "Distance", "距离")}</Th><Th align="right">{t.inventory.onHand}</Th><Th align="right">{L("พร้อมขาย", "Available", "可售")}</Th></tr></thead>
+                  <tbody>
+                    {xRows.map((r, i) => (
+                      <tr key={r.b.id} className={r.b.id === myBranch?.id ? "bg-brand/5" : ""}>
+                        <Td className="text-xs font-medium truncate max-w-[200px]">{r.b.branch_type === "warehouse" ? "🏬 " : ""}{locale === "th" ? r.b.name_th ?? r.b.name : r.b.name}{r.b.id === myBranch?.id ? <Badge tone="brand" className="ml-1">{L("สาขาฉัน", "Mine", "本店")}</Badge> : i === xRows.findIndex((x) => x.avail > 0 && x.b.id !== myBranch?.id) && r.avail > 0 ? <Badge tone="ok" className="ml-1">{L("ใกล้สุด+มีของ", "Nearest", "最近")}</Badge> : null}</Td>
+                        <Td className="text-xs text-muted">{r.b.province ?? "—"}</Td>
+                        <Td align="right" className="text-xs text-muted tnum">{r.b.id === myBranch?.id ? "—" : fmtKm(r.km)}</Td>
+                        <Td align="right" className="tnum text-xs text-muted">{r.onHand || "—"}</Td>
+                        <Td align="right" className={`font-bold tnum ${r.avail > 0 ? "text-ok" : "text-muted"}`}>{r.avail || "0"}</Td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </Table>
+              </>
+            )}
+          </div>
         )}
       </Card>
     </div>
