@@ -46,7 +46,7 @@ const GLASS_CSS = `
   width: 100%; height: 46px; padding: 0 16px 0 42px; border-radius: 15px; font-size: 15px;
   background: rgba(118,118,128,.12); border: 1px solid transparent; color: rgb(var(--c-ink)); outline: none;
 }
-.cxp-search:focus { background: rgba(255,255,255,.9); border-color: rgba(121,80,216,.5); box-shadow: 0 0 0 4px rgba(121,80,216,.14); }
+.cxp-search:focus { background: rgba(255,255,255,.9); border-color: rgba(224,90,41,.5); box-shadow: 0 0 0 4px rgba(224,90,41,.14); }
 :root[data-theme="dark"] .cxp-search:focus { background: rgba(0,0,0,.35); }
 .cxp-search-ic { position:absolute; left: 32px; top: 13px; color: rgb(var(--c-muted)); pointer-events:none; }
 .cxp-list { overflow-y: auto; padding: 2px 10px 10px; }
@@ -55,9 +55,9 @@ const GLASS_CSS = `
   border: 0; background: transparent; cursor: pointer; color: rgb(var(--c-ink)); transition: background .12s;
 }
 .cxp-row:hover, .cxp-row:focus-visible { background: rgba(118,118,128,.12); outline: none; }
-.cxp-row.active { background: rgba(121,80,216,.12); }
+.cxp-row.active { background: rgba(224,90,41,.12); }
 .cxp-ava { width: 42px; height: 42px; border-radius: 99px; flex-shrink:0; display:grid; place-items:center; font-weight:700; font-size:15px;
-  color:#fff; background: linear-gradient(145deg,#7950D8,#9D80F0); box-shadow: 0 3px 10px rgba(121,80,216,.3); }
+  color:#fff; background: linear-gradient(145deg,#E05A29,#F2824E); box-shadow: 0 3px 10px rgba(224,90,41,.3); }
 .cxp-nm { font-size: 15px; font-weight: 600; line-height: 1.2; }
 .cxp-meta { font-size: 12.5px; color: rgb(var(--c-muted)); display:flex; align-items:center; gap: 10px; margin-top: 2px; }
 .cxp-chip { display:inline-flex; align-items:center; gap:3px; font-size: 11px; font-weight:600; padding: 2px 8px; border-radius:99px;
@@ -65,9 +65,9 @@ const GLASS_CSS = `
 :root[data-theme="dark"] .cxp-chip { color:#ffd48a; }
 .cxp-create {
   display:flex; align-items:center; gap: 12px; width: 100%; padding: 13px 14px; margin: 4px 0 2px; border-radius: 16px;
-  border: 0; cursor: pointer; background: rgba(121,80,216,.1); color:#7950D8; font-weight:600; font-size: 14.5px;
+  border: 0; cursor: pointer; background: rgba(224,90,41,.1); color:#E05A29; font-weight:600; font-size: 14.5px;
 }
-.cxp-create:hover { background: rgba(121,80,216,.18); }
+.cxp-create:hover { background: rgba(224,90,41,.18); }
 .cxp-empty { text-align:center; color: rgb(var(--c-muted)); font-size: 13.5px; padding: 26px 10px 10px; }
 .cxp-form { padding: 4px 18px 6px; display:flex; flex-direction:column; gap: 10px; }
 .cxp-field { position: relative; }
@@ -75,13 +75,13 @@ const GLASS_CSS = `
   width:100%; height: 46px; padding: 0 14px; border-radius: 14px; font-size: 15px;
   background: rgba(118,118,128,.1); border: 1px solid rgba(120,120,128,.2); color: rgb(var(--c-ink)); outline:none;
 }
-.cxp-inp:focus { border-color: rgba(121,80,216,.55); box-shadow: 0 0 0 4px rgba(121,80,216,.13); background: rgba(255,255,255,.8); }
+.cxp-inp:focus { border-color: rgba(224,90,41,.55); box-shadow: 0 0 0 4px rgba(224,90,41,.13); background: rgba(255,255,255,.8); }
 :root[data-theme="dark"] .cxp-inp:focus { background: rgba(0,0,0,.3); }
 .cxp-inp2 { padding-left: 40px; }
 .cxp-inp-ic { position:absolute; left: 13px; top: 14px; color: rgb(var(--c-muted)); }
 .cxp-foot { padding: 12px 18px calc(16px + env(safe-area-inset-bottom)); display:flex; gap: 10px; }
 .cxp-btn { flex:1; height: 50px; border-radius: 15px; font-weight: 700; font-size: 15.5px; border:0; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:7px; }
-.cxp-btn-primary { background: linear-gradient(180deg,#7950D8,#6840C4); color:#fff; box-shadow: 0 6px 18px rgba(121,80,216,.35); }
+.cxp-btn-primary { background: linear-gradient(180deg,#E05A29,#C2481C); color:#fff; box-shadow: 0 6px 18px rgba(224,90,41,.35); }
 .cxp-btn-primary:disabled { opacity:.5; cursor:not-allowed; box-shadow:none; }
 .cxp-btn-ghost { background: rgba(118,118,128,.14); color: rgb(var(--c-ink)); flex: 0 0 110px; }
 .cxp-grow { display:flex; flex-direction:column; min-height: 0; }
@@ -219,7 +219,7 @@ export function CustomerPicker({
             <div className="cxp-list cxp-grow">
               {q.trim() && (
                 <button className="cxp-create" onClick={startCreate}>
-                  <span className="cxp-ava" style={{ width: 34, height: 34, fontSize: 0, background: "rgba(121,80,216,.18)", boxShadow: "none", color: "#7950D8" }}>
+                  <span className="cxp-ava" style={{ width: 34, height: 34, fontSize: 0, background: "rgba(224,90,41,.18)", boxShadow: "none", color: "#E05A29" }}>
                     <UserPlus size={17} />
                   </span>
                   {L("สร้างลูกค้าใหม่", "Create new customer", "创建新客户")} “{q.trim()}”
@@ -241,7 +241,7 @@ export function CustomerPicker({
                       {!!c.points && <span className="cxp-chip"><Star size={11} />{c.points} {L("แต้ม", "pts", "积分")}</span>}
                     </span>
                   </span>
-                  <Check size={18} style={{ opacity: 0, color: "#7950D8" }} />
+                  <Check size={18} style={{ opacity: 0, color: "#E05A29" }} />
                 </button>
               ))}
 

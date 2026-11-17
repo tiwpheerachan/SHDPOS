@@ -167,12 +167,12 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
       {/* กรอบแก้ว (liquid glass) สำหรับเมนูที่เลือก — โทนเดียวกับ navbar ของ POS */}
       <style>{`
         .shd-nav-glass{
-          background:rgb(var(--c-lavender));
-          box-shadow:inset 0 0 0 1px rgb(var(--c-brand) / .14);
+          background:rgb(var(--c-brand) / .12);
+          box-shadow:inset 0 0 0 1px rgb(var(--c-brand) / .22);
         }
         :root[data-theme="dark"] .shd-nav-glass{
-          background:rgb(var(--c-lavender));
-          box-shadow:inset 0 0 0 1px rgb(var(--c-brand) / .35);
+          background:rgb(var(--c-brand) / .18);
+          box-shadow:inset 0 0 0 1px rgb(var(--c-brand) / .4);
         }
         /* ไอคอนเมนู "วาดเส้นเข้า" ตอนถูกเลือก (re-mount ด้วย key → เล่นใหม่ทุกครั้งที่จิ้ม) */
         @keyframes shdNavDraw { from { stroke-dashoffset: 100; } to { stroke-dashoffset: 0; } }
