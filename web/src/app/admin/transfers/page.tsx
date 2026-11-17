@@ -147,17 +147,19 @@ export default function AdminTransfersPage() {
   // แปลง actor id → พนักงานจริง (ซิงก์จาก Lark: ชื่อเต็ม + รูป)
   //   id ตรงพนักงาน → คนนั้น; id ชั่วคราว/เดโม่ (เช่น demo-owner) → แม็พเป็นพนักงานจริงที่สมเหตุผลตามบทบาท/สาขา (คงที่ต่อใบ)
   const empByBranch = (bid?: string | null) => employees.filter((e) => e.status === "active" && (e.home_branch_id === bid || (e.branch_ids ?? []).includes(bid ?? "")));
+  // "ฉัน" = ผู้ใช้ปัจจุบัน (ถ้าอยู่ใน Lark) ไม่งั้นจับคู่ชื่อ Tiw — ไว้ใช้เป็นคนทำในเดโม่
+  const meEmp = useMemo(() => employees.find((e) => e.id === employee?.id) || employees.find((e) => /\btiw\b/i.test(`${e.nickname ?? ""} ${e.first_name ?? ""}`)) || null, [employees, employee]);
   const actorEmp = (id?: string | null, kind: "requester" | "approver" | "source" | "dest" = "source", tr?: Transfer): Employee | null => {
-    if (id) { const real = employees.find((e) => e.id === id); if (real) return real; }
+    if (id) { const real = employees.find((e) => e.id === id); if (real) return real; } // id จริง → คนนั้น
     if (!employees.length) return null;
-    let pool: Employee[] =
-      kind === "approver" ? employees.filter((e) => ["owner", "hq", "brand_admin", "manager", "supervisor"].includes(e.role))
-      : kind === "dest" ? empByBranch(tr?.to_branch_id)
-      : empByBranch(tr?.from_branch_id);
-    if (!pool.length) pool = employees.filter((e) => e.status === "active");
-    if (!pool.length) pool = employees;
-    const seed = [...`${id ?? ""}|${tr?.id ?? ""}|${kind}`].reduce((a, c) => a + c.charCodeAt(0), 0);
-    return pool[seed % pool.length] ?? null;
+    // เดโม่ (id ชั่วคราว): คนขอ/คนอนุมัติ = ฉัน (ทดลองเป็นคนทำ) · สแกนออก/ส่ง/รับ = คนในสาขาที่มีรูปโปรไฟล์จริง
+    if ((kind === "requester" || kind === "approver") && meEmp) return meEmp;
+    let pool: Employee[] = kind === "dest" ? empByBranch(tr?.to_branch_id) : empByBranch(tr?.from_branch_id);
+    const photo = pool.filter((e) => e.photo_url); // เลี่ยงคนไม่มีรูป → โชว์รูปจริงจาก Lark
+    pool = photo.length ? photo : pool.length ? pool : employees.filter((e) => e.status === "active" && e.photo_url);
+    if (!pool.length) pool = [meEmp, ...employees].filter(Boolean) as Employee[];
+    const seed = [...`${tr?.id ?? ""}|${kind}`].reduce((a, c) => a + c.charCodeAt(0), 0);
+    return pool[seed % pool.length] ?? meEmp;
   };
   const empLabel = (e: Employee | null) => (e ? (e.nickname || [e.first_name, e.last_name].filter(Boolean).join(" ") || e.employee_code) : "—");
   const empName = (id?: string | null) => empLabel(actorEmp(id));
@@ -422,9 +424,16 @@ export default function AdminTransfersPage() {
                   {detail.items.map((it) => (
                     <div key={it.product_id} className="rounded-2xl border border-line p-3">
                       <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <p className="font-medium text-sm truncate">{it.name}{it.isSerialized === null ? <Badge tone="danger" className="ml-1">{L("ยังไม่จัดประเภท", "Unclassified", "未分类")}</Badge> : it.isSerialized ? <Barcode size={12} className="inline ml-1 text-brand" /> : null}</p>
-                          <p className="font-mono text-[10px] text-muted">{it.sku}</p>
+                        <div className="min-w-0 flex items-center gap-2.5">
+                          {prodImg(it.product_id) ? (
+                            <img src={prodImg(it.product_id)!} alt="" className="w-11 h-11 rounded-xl object-cover border border-line bg-white shrink-0" loading="lazy" />
+                          ) : (
+                            <div className="w-11 h-11 rounded-xl border border-line bg-surface grid place-items-center shrink-0 text-muted/40"><Boxes size={18} /></div>
+                          )}
+                          <div className="min-w-0">
+                            <p className="font-medium text-sm truncate">{it.name}{it.isSerialized === null ? <Badge tone="danger" className="ml-1">{L("ยังไม่จัดประเภท", "Unclassified", "未分类")}</Badge> : it.isSerialized ? <Barcode size={12} className="inline ml-1 text-brand" /> : null}</p>
+                            <p className="font-mono text-[10px] text-muted">{it.sku}</p>
+                          </div>
                         </div>
                         {it.isSerialized && (canScanOut(detail) || canReceive(detail)) ? (
                           <button
