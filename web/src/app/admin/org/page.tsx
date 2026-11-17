@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { motion } from "framer-motion";
-import { Network, Plus, Pencil, Trash2, UserPlus, Search, Check, ChevronDown, RefreshCw, Sparkles, ShieldCheck, ChevronLeft, Users, GripVertical } from "lucide-react";
+import { Network, Plus, Pencil, Trash2, UserPlus, Search, Check, ChevronDown, RefreshCw, Sparkles, ShieldCheck, ChevronLeft, Users, GripVertical, ArrowLeftRight } from "lucide-react";
 import clsx from "clsx";
 import { useI18n } from "@/lib/i18n/provider";
 import { useSession } from "@/lib/store/session";
@@ -10,6 +10,7 @@ import { Card, CardHeader, Avatar, Button, Select, Field, Modal, EmptyState, Bad
 import { useAdminScope } from "@/components/admin/filters";
 import { ROLE_LABEL, visibleBranchIds, can } from "@/lib/permissions";
 import { TeamFolders } from "@/components/admin/team-folders";
+import { ApprovalRules } from "@/components/admin/approval-rules";
 import { PersonPermissionDrawer } from "@/components/admin/person-permission-drawer";
 import { listEmployees, listBrands } from "@/lib/data/repo";
 import type { Employee, Brand } from "@/lib/types";
@@ -53,7 +54,7 @@ export default function AdminOrgPage() {
   const [loading, setLoading] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);   // employee_id กำลังแก้
   const [addOpen, setAddOpen] = useState(false);
-  const [view, setView] = useState<"folders" | "chart">("folders"); // landing = โฟลเดอร์
+  const [view, setView] = useState<"folders" | "chart" | "approvals">("folders"); // landing = โฟลเดอร์
   const [allEmps, setAllEmps] = useState<Employee[]>([]);
   const [brandList, setBrandList] = useState<Brand[]>([]);
   const [permPerson, setPermPerson] = useState<Employee | null>(null);
@@ -258,7 +259,7 @@ export default function AdminOrgPage() {
       {/* หัว + เลือกสาขา */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2.5">
-          {view === "chart" ? (
+          {view !== "folders" ? (
             <button
               onClick={() => setView("folders")}
               className="inline-flex items-center gap-1 h-9 px-2.5 rounded-xl border border-line text-sm text-muted hover:text-brand hover:bg-surface2 transition-colors"
@@ -273,6 +274,9 @@ export default function AdminOrgPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <button onClick={() => setView((v) => (v === "approvals" ? "folders" : "approvals"))} className={`inline-flex items-center gap-1.5 h-10 px-3 rounded-xl border text-sm transition-colors ${view === "approvals" ? "border-brand bg-brand/10 text-brand" : "border-line text-muted hover:text-brand hover:bg-surface2"}`}>
+            <ArrowLeftRight size={15} /> {L("สายอนุมัติ", "Approval line", "审批线")}
+          </button>
           <a href="/admin/permissions" className="inline-flex items-center gap-1.5 h-10 px-3 rounded-xl border border-line text-sm text-muted hover:text-brand hover:bg-surface2 transition-colors">
             <ShieldCheck size={15} /> {L("กำหนดสิทธิ์", "Permissions", "权限")}
           </a>
@@ -285,7 +289,9 @@ export default function AdminOrgPage() {
         </div>
       </div>
 
-      {view === "folders" ? (
+      {view === "approvals" ? (
+        <ApprovalRules brands={brandList} branches={branches} employees={allEmps} meId={employee?.id} L={L} />
+      ) : view === "folders" ? (
         <TeamFolders branches={shopBranches} brands={brandList} employees={allEmps} locale={locale} L={L} onOpenStore={openStore} />
       ) : (<>
       {/* กล่องเนื้อหาร้าน — พื้นหลัง dot เหมือนหน้าโฟลเดอร์ */}

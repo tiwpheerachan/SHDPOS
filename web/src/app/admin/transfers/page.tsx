@@ -12,6 +12,7 @@ import { listBranches, listProducts, listEmployees, stockAll } from "@/lib/data/
 import { availableQty } from "@/lib/stock";
 import { coordOf, haversineKm, fmtKm } from "@/lib/geo";
 import { resolveSerial } from "@/lib/data/serials";
+import { listApprovalRules, resolveApprovers, type ApprovalRule } from "@/lib/data/approval-rules";
 import {
   owListAll, owCreate, owApprove, owReject, owReverse, owGet, owTimeline,
   owScanOut, owDispatch, owReceive, owCloseShort, owRecordDisc, owResolveDisc, owCarriers, owSetAttachments, owShipStage,
@@ -54,6 +55,7 @@ export default function AdminTransfersPage() {
   const [carrier, setCarrier] = useState("");
   const [scan, setScan] = useState<{ pid: string; mode: "out" | "in" } | null>(null);
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [rules, setRules] = useState<ApprovalRule[]>([]); // สายอนุมัติที่ตั้งไว้ (ตามแบรนด์/สาขา)
   const [approveNote, setApproveNote] = useState("");
   const [lbIdx, setLbIdx] = useState<number | null>(null); // lightbox รูปแนบ
   const [copied, setCopied] = useState<"" | "img" | "link">("");
@@ -79,8 +81,8 @@ export default function AdminTransfersPage() {
   async function reload() { setList(await owListAll()); }
   useEffect(() => {
     void (async () => {
-      const [b, p, c, e, st] = await Promise.all([listBranches(), listProducts(), owCarriers(), listEmployees(), stockAll()]);
-      setBranches(b); setProducts(p); setCarriers(c); setEmployees(e); setStock(st); setFrom(b[0]?.id ?? ""); setTo(b[1]?.id ?? "");
+      const [b, p, c, e, st, ar] = await Promise.all([listBranches(), listProducts(), owCarriers(), listEmployees(), stockAll(), listApprovalRules()]);
+      setBranches(b); setProducts(p); setCarriers(c); setEmployees(e); setStock(st); setRules(ar); setFrom(b[0]?.id ?? ""); setTo(b[1]?.id ?? "");
       await reload();
     })();
   }, []);
@@ -223,7 +225,10 @@ export default function AdminTransfersPage() {
         .map((l) => { const p = products.find((x) => x.id === l.product_id)!; const serialized = !!p.track_serial; return { product_id: p.id, sku: p.sku, name: p.name_th, qty: serialized ? l.serials.length : l.qty, isSerialized: serialized, serials: serialized ? l.serials : undefined }; })
         .filter((l) => l.qty > 0);
       if (!ls.length) { toast.push({ tone: "warn", title: L("เพิ่มสินค้า/สแกน SN อย่างน้อย 1 ชิ้น", "Add at least 1 item / scan a SN", "至少添加/扫描 1 件") }); return; }
-      await owCreate(from, to, employee.id, ls, note, can(employee, "transfer.approve"));
+      // auto-approve ถ้าผู้สร้างมีสิทธิ์อนุมัติ หรือเป็นคนในสายอนุมัติที่ตั้งไว้ของสาขาต้นทาง
+      const cfg = resolveApprovers(rules, { process: "transfer", branchId: from, brandId: branches.find((b) => b.id === from)?.brand_id ?? null });
+      const auto = cfg ? cfg.includes(employee.id) : can(employee, "transfer.approve");
+      await owCreate(from, to, employee.id, ls, note, auto);
       setOpen(false); setLines([]); setNote(""); await reload();
       toast.push({ tone: "ok", title: t.transfer.title });
     } finally { setBusy(false); }
@@ -258,9 +263,18 @@ export default function AdminTransfersPage() {
   };
   const empLabel = (e: Employee | null) => (e ? (e.nickname || [e.first_name, e.last_name].filter(Boolean).join(" ") || e.employee_code) : "—");
   const empName = (id?: string | null) => empLabel(actorEmp(id));
-  // ผู้มีสิทธิ์อนุมัติใบนี้ = active + มีสิทธิ์ transfer.approve + ขอบเขตครอบคลุมสาขาต้นทาง
-  //   primary = ผูกสาขาต้นทางโดยตรง · backup = ขอบเขตกว้าง (แบรนด์/บริษัท) ใช้อนุมัติแทนเมื่อคนหลักไม่อยู่
+  // สายอนุมัติที่ตั้งไว้สำหรับใบนี้ (ตามสาขาต้นทาง + แบรนด์ของสาขา) — null = ไม่ได้ตั้ง → ใช้สิทธิ์เดิม
+  const brandOfBranch = (branchId: string) => branches.find((b) => b.id === branchId)?.brand_id ?? null;
+  const ruleApproverIds = (tr: Transfer): string[] | null => resolveApprovers(rules, { process: "transfer", branchId: tr.from_branch_id, brandId: brandOfBranch(tr.from_branch_id) });
+  // ผู้มีสิทธิ์อนุมัติใบนี้: ถ้าตั้งสายอนุมัติไว้ = ใช้รายชื่อนั้น (ที่ยัง active) · ถ้าไม่ตั้ง = ผู้มีสิทธิ์ transfer.approve + ขอบเขตครอบคลุมสาขาต้นทาง
   const eligibleApprovers = (tr: Transfer) => {
+    const configured = ruleApproverIds(tr);
+    if (configured) {
+      return employees
+        .filter((e) => e.status === "active" && configured.includes(e.id))
+        .map((e) => ({ e, primary: e.home_branch_id === tr.from_branch_id }))
+        .sort((a, b) => Number(b.primary) - Number(a.primary));
+    }
     const allIds = branches.map((b) => b.id);
     return employees
       .filter((e) => e.status === "active" && can(e, "transfer.approve") && visibleBranchIds(e, allIds).includes(tr.from_branch_id))
@@ -274,7 +288,13 @@ export default function AdminTransfersPage() {
     return hit ? { by: hit.actor_id ?? null, at: hit.occurred_at } : { by: null, at: null };
   };
   const dtShort = (iso?: string | null) => (iso ? new Date(iso).toLocaleString(locale === "th" ? "th-TH" : "en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "");
-  const canApprove = (tr: Transfer) => tr.status === "pending_approval" && can(employee, "transfer.approve") && atSource(tr);
+  // อนุมัติได้ไหม: ถ้าตั้งสายอนุมัติไว้ → ต้องเป็นคนในรายชื่อ (รายชื่อคือการให้สิทธิ์ ไม่ต้องเช็ค scope เดิม) · ถ้าไม่ตั้ง → สิทธิ์เดิม
+  const canApprove = (tr: Transfer) => {
+    if (tr.status !== "pending_approval" || !employee) return false;
+    const configured = ruleApproverIds(tr);
+    if (configured) return configured.includes(employee.id);
+    return can(employee, "transfer.approve") && atSource(tr);
+  };
   // ── แยกสิทธิ์ตามสาขา: ต้นทางทำสแกนออก/จัดส่ง · ปลายทางเท่านั้นที่รับเข้า ──
   //   atSource/atDest = สาขานั้นอยู่ในขอบเขตที่คนนี้ดูแล (owner/hq = ทุกสาขา → ทำได้ทั้งคู่)
   const atSource = (tr: Transfer) => allowed.includes(tr.from_branch_id);
@@ -396,8 +416,9 @@ export default function AdminTransfersPage() {
             </button>
           ))}
         </div>
-        {can(employee, "transfer.request") ? <Button variant="ghost" className="h-9" onClick={() => openRequest()}><Boxes size={15} /> {L("ขอสินค้าเข้า", "Request stock", "申请调入")}</Button> : null}
-        {can(employee, "transfer.request") ? <Button variant="primary" className="h-9" onClick={() => setOpen(true)}><Plus size={15} /> {t.transfer.request}</Button> : null}
+        {/* คำร้อง (ขอโอน/ขอสินค้าเข้า) — ใครก็สร้างได้ (แค่ล็อกอิน) · การเคลื่อนไหวจริงยังคุมด้วยสิทธิ์+สายอนุมัติ */}
+        {employee ? <Button variant="ghost" className="h-9" onClick={() => openRequest()}><Boxes size={15} /> {L("ขอสินค้าเข้า", "Request stock", "申请调入")}</Button> : null}
+        {employee ? <Button variant="primary" className="h-9" onClick={() => setOpen(true)}><Plus size={15} /> {t.transfer.request}</Button> : null}
       </div>
 
       <Card>
