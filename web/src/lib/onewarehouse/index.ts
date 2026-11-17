@@ -10,6 +10,7 @@ export {
   createTransfer as owCreate,
   approveTransfer as owApprove,
   rejectTransfer as owReject,
+  createReverseTransfer as owReverse,
   scanOutTransfer as owScanOut,
   dispatchTransfer as owDispatch,
   receiveTransfer as owReceive,

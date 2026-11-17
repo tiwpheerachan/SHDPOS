@@ -377,9 +377,23 @@ export async function approveTransfer(tr: Transfer, employeeId: string, note?: s
 }
 /** ปฏิเสธ/ยกเลิก → คืน reserved ที่ต้นทาง + บันทึกเหตุผล */
 export async function rejectTransfer(tr: Transfer, employeeId: string, cancel = false, reason?: string): Promise<Transfer> {
+  // ยกเลิก/ปฏิเสธได้เฉพาะก่อนสแกนออก (ของยังไม่ออกจากคลัง) → ปล่อยจอง; หลังส่งใช้ "โอนกลับ" แทน
+  const preShip = ["draft", "pending_approval", "approved", "picking"].includes(tr.status);
+  if (!preShip) throw new Error("transfer_wrong_status");
   if (tr.from_kind !== "warehouse") for (const it of tr.items) await reserveStock(tr.from_branch_id, it.product_id, -it.qty_requested);
   const status: TransferStatus = cancel ? "cancelled" : "rejected";
   return writeTransfer(tr, { status, approved_by: employeeId, approval_note: reason || null }, employeeId, tr.from_branch_id, { status, note: reason || null });
+}
+
+/** โอนกลับ — สร้างใบโอนใหม่ (ปลายทางเดิม → ต้นทางเดิม) สำหรับคืนของหลังรับเข้าแล้ว */
+export async function createReverseTransfer(tr: Transfer, employeeId: string): Promise<Transfer> {
+  const toBranch = await db().branches.get(tr.to_branch_id);
+  const lines = tr.items.map((it) => {
+    const serials = it.isSerialized ? (it.receivedSerials ?? []).map((s) => s.serialNo) : undefined;
+    const qty = it.isSerialized ? (serials?.length ?? 0) : (it.qty_received || it.qty_requested);
+    return { product_id: it.product_id, sku: it.sku, name: it.name, qty, isSerialized: it.isSerialized, serials };
+  }).filter((l) => l.qty > 0);
+  return createTransfer(tr.to_branch_id, tr.from_branch_id, employeeId, lines, `โอนกลับจาก ${tr.transfer_no}`, false, toBranch?.branch_type === "warehouse" ? "warehouse" : "branch");
 }
 
 /** ต้นทางสแกนออก — บันทึก shippedSerials + qty_shipped (ตรวจ SN ครบ/null=บล็อก) → packed */

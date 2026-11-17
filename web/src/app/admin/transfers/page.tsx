@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { nanoid } from "nanoid";
-import { ArrowLeftRight, Plus, Trash2, Check, X, Clock, Barcode, CircleAlert, Printer, ScanLine, Truck, PackageCheck, Upload, FileText, Boxes, ChevronRight } from "lucide-react";
+import { ArrowLeftRight, Plus, Trash2, Check, X, Clock, Barcode, CircleAlert, Printer, ScanLine, Truck, PackageCheck, Upload, FileText, Boxes, ChevronRight, RotateCcw } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { useSession } from "@/lib/store/session";
 import { useToast } from "@/components/toast-host";
@@ -13,7 +13,7 @@ import { availableQty } from "@/lib/stock";
 import { coordOf, haversineKm, fmtKm } from "@/lib/geo";
 import { resolveSerial } from "@/lib/data/serials";
 import {
-  owListAll, owCreate, owApprove, owReject, owGet, owTimeline,
+  owListAll, owCreate, owApprove, owReject, owReverse, owGet, owTimeline,
   owScanOut, owDispatch, owReceive, owCloseShort, owRecordDisc, owResolveDisc, owCarriers, owSetAttachments, owShipStage,
   statusMeta, isActive, isIssue, owErrorMessage,
 } from "@/lib/onewarehouse";
@@ -336,6 +336,16 @@ export default function AdminTransfersPage() {
   };
   const doCloseShort = (tr: Transfer) => void act(() => owCloseShort(tr, employee!.id), L("ปิดรับแล้ว (ยอมรับส่วนขาด)", "Closed with shortage", "已结单(接受缺量)"));
   const doResolveDisc = (tr: Transfer, discId: string) => void act(() => owResolveDisc(tr, discId, employee!.id), L("ปิดเรื่องผลต่างแล้ว", "Discrepancy resolved", "已关闭差异"));
+  // ยกเลิกตามสถานะ: ก่อนสแกนออกยกเลิกได้ (ปล่อยจอง) · หลังส่ง/เสร็จ → โอนกลับ
+  const canCancelTr = (tr: Transfer) => ["approved", "picking"].includes(tr.status) && atSource(tr) && canOut;
+  const canReverse = (tr: Transfer) => ["completed", "partial_received"].includes(tr.status) && atDest(tr) && canOut && tr.items.some((it) => (it.qty_received || 0) > 0);
+  const doCancel = (tr: Transfer) => void act(() => owReject(tr, employee!.id, true, approveNote), L("ยกเลิกใบแล้ว (คืนจอง)", "Cancelled (released)", "已取消"));
+  async function doReverse(tr: Transfer) {
+    if (!employee) return; setBusy(true);
+    try { const rev = await owReverse(tr, employee.id); await reload(); openDoc(rev); toast.push({ tone: "ok", title: L("สร้างใบโอนกลับแล้ว — รอต้นทางใหม่อนุมัติ", "Reverse transfer created", "已建退回单") }); }
+    catch (e) { toast.push({ tone: "danger", title: owErrorMessage(e instanceof Error ? e.message : "error", locale) }); }
+    finally { setBusy(false); }
+  }
 
   function printCO(tr: Transfer) {
     printTransferCO(tr, {
@@ -428,6 +438,12 @@ export default function AdminTransfersPage() {
               </> : null}
               {canReceive(detail) ? (
                 <Button variant="primary" loading={busy} onClick={() => doReceive(detail)}><PackageCheck size={15} /> {L("ยืนยันรับเข้า", "Confirm receive", "确认入库")}</Button>
+              ) : null}
+              {canCancelTr(detail) ? (
+                <Button variant="ghost" loading={busy} onClick={() => doCancel(detail)} className="text-rose-600"><X size={15} /> {L("ยกเลิกใบ", "Cancel", "取消单")}</Button>
+              ) : null}
+              {canReverse(detail) ? (
+                <Button variant="soft" loading={busy} onClick={() => doReverse(detail)} title={L("ของออกจากต้นทางแล้ว — คืนด้วยการสร้างใบโอนกลับ", "Goods already shipped — return via reverse transfer", "退回需建反向单")}><RotateCcw size={15} /> {L("โอนกลับ", "Reverse", "退回")}</Button>
               ) : null}
             </div>
           </div>

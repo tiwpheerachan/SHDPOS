@@ -24,6 +24,7 @@ import { can, discountLimit, discountApprovalLevel, needsApproval } from "@/lib/
 import { Button, Card, EmptyState, Input, Select, Badge, Modal, Segmented, Avatar } from "@/components/ui";
 import { PaymentModal } from "@/components/pos/payment-modal";
 import { DiscountModal, SerialModal, type PrintStatus } from "@/components/pos/sale-modals";
+import { resolveSerial } from "@/lib/data/serials";
 import { ReceiptPreview } from "@/components/pos/receipt-preview";
 import { ApprovalModal, type ApprovalRequestInput } from "@/components/pos/approval-modal";
 import { pushDisplay } from "@/lib/customer-display";
@@ -898,8 +899,17 @@ export default function SellPage() {
         productName={activeLine?.name ?? ""}
         qty={activeLine?.qty ?? 1}
         initial={activeLine?.serials ?? []}
-        onSave={(serials) => {
-          if (serialLineId) cart.setLineSerials(serialLineId, serials);
+        onSave={async (serials) => {
+          if (!serialLineId) { setSerialLineId(null); return; }
+          // จอง SN กลาง: กันขายเครื่องที่กำลังอยู่ระหว่างโอน หรือขายไปแล้ว
+          const ok: string[] = [];
+          for (const sn of serials) {
+            const info = await resolveSerial(sn);
+            if (info.status === "in_transit") { toast.push({ tone: "danger", title: L(`SN ${sn} กำลังอยู่ระหว่างโอน — ขายไม่ได้`, `SN ${sn} is in transit — cannot sell`, `${sn} 在途中，不能售出`) }); continue; }
+            if (info.status === "sold") { toast.push({ tone: "danger", title: L(`SN ${sn} ขายออกไปแล้ว`, `SN ${sn} already sold`, `${sn} 已售出`) }); continue; }
+            ok.push(sn);
+          }
+          cart.setLineSerials(serialLineId, ok);
           setSerialLineId(null);
         }}
       />
