@@ -12,7 +12,7 @@ import { useI18n } from "@/lib/i18n/provider";
 
 /** จานสีสำหรับข้อมูลแบบหมวดหมู่ — โทน warm/accent อ่านออกทั้งโหมดสว่าง/มืด */
 export const SERIES_COLORS = [
-  "#FF725E", "#A898F5", "#3BB98C", "#F2B705", "#6D5DD3", "#EC6B9D", "#2AA7B8", "#E0894F",
+  "#132436", "#9C90FC", "#E05A29", "#3BB98C", "#2AA7B8", "#F2B705", "#EC6B9D", "#6D5DD3",
 ];
 
 /** อ้างสี accent จาก CSS variable (ปรับตามธีมอัตโนมัติ) */
@@ -315,7 +315,7 @@ export function HeroChart({
   height = 300,
   target,
   valueFormat = (n: number) => formatTHB(n),
-  accent = "#FF725E",
+  accent = "#132436",
 }: {
   data: HeroPoint[];
   height?: number;
@@ -452,7 +452,7 @@ export function RadialGauge({
   value, // 0..100
   size = 150,
   thickness = 14,
-  color = "#FF725E",
+  color = "#132436",
   label,
   sub,
 }: {
@@ -493,7 +493,7 @@ export function Heatmap({
   rows,           // label แถว (ชั่วโมง)
   cols,           // label คอลัมน์ (วัน)
   values,         // values[row][col]
-  color = "#FF725E",
+  color = "#132436",
   valueFormat = (n: number) => formatCompact(n),
 }: {
   rows: string[];

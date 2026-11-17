@@ -14,19 +14,20 @@
   --c-line: 227 231 237;        /* #E3E7ED hairline */
   --c-ink: 29 29 36;            /* #1D1D24 */
   --c-muted: 98 103 115;        /* #626773 */
-  --c-brand: 224 90 41;         /* #E05A29 bright orange (primary) */
-  --c-brand-hover: 194 72 28;   /* #C2481C */
+  --c-brand: 19 36 54;          /* #132436 deep navy (primary — ปุ่ม/active/ลิงก์) */
+  --c-brand-hover: 33 54 80;    /* #213650 */
   --c-brand-ink: 255 255 255;
 
-  /* accent palette — ใช้เน้นข้อมูลสำคัญ (ห้ามใช้เหลืองแทนสถานะเตือน) */
-  --c-violet: 156 144 252;      /* #9C90FC secondary purple */
-  --c-navy: 19 36 54;           /* #132436 deep navy accent */
+  /* accent palette — navy เน้นหลัก, purple สีรอง, orange เป็น pop ประกอบ */
+  --c-violet: 156 144 252;      /* #9C90FC main color accent */
+  --c-navy: 19 36 54;           /* #132436 (= brand) */
+  --c-orange: 224 90 41;        /* #E05A29 accent/pop เท่านั้น */
   --c-beige: 242 236 236;       /* #F2ECEC warm light */
   --c-lavender: 233 222 255;    /* #E9DEFF soft purple */
   --c-mint: 188 238 219;        /* #BCEEDB */
   --c-aqua: 189 236 240;        /* #BDECF0 */
   --c-yellow: 244 237 86;       /* #F4ED56 highlight only */
-  --c-coral: 255 114 94;
+  --c-coral: 156 144 252;       /* ชี้ไป purple #9C90FC — accent หลักแดชบอร์ดเป็นม่วง (ไม่ใช่ส้ม) */
   --c-lime: 215 243 90;
   --c-peach: 245 213 200;
 
@@ -56,10 +57,10 @@
   --ring: var(--c-brand);
   --destructive: var(--c-danger);
   --destructive-foreground: 255 255 255;
-  /* chart palette (5 สี) — โทนพาเลตใหม่: orange → purple → navy → aqua → peach */
+  /* chart palette (5 สี) — navy → purple → orange(pop) → aqua → peach */
   --chart-1: var(--c-brand);
   --chart-2: var(--c-violet);
-  --chart-3: var(--c-navy);
+  --chart-3: var(--c-orange);
   --chart-4: var(--c-aqua);
   --chart-5: var(--c-peach);
 
@@ -75,18 +76,19 @@
   --c-line: 44 46 54;
   --c-ink: 236 236 242;
   --c-muted: 150 154 165;
-  --c-brand: 240 110 70;        /* #F06E46 lighter orange on dark */
-  --c-brand-hover: 224 90 41;
+  --c-brand: 156 144 252;       /* #9C90FC purple — primary บนพื้นมืด (navy มองไม่เห็น) */
+  --c-brand-hover: 133 120 240;
   --c-brand-ink: 255 255 255;
 
   --c-violet: 178 168 255;      /* lighter purple on dark */
-  --c-navy: 52 74 102;          /* #344A66 lighter navy on dark */
+  --c-navy: 90 116 150;         /* #5A7496 navy อ่อนบนพื้นมืด */
+  --c-orange: 240 110 70;       /* #F06E46 accent */
   --c-beige: 60 54 54;
   --c-lavender: 70 54 112;
   --c-mint: 38 92 70;
   --c-aqua: 36 86 96;
   --c-yellow: 120 114 48;
-  --c-coral: 255 126 107;
+  --c-coral: 178 168 255;       /* purple accent บนพื้นมืด */
   --c-lime: 199 226 79;
   --c-peach: 226 191 176;
 

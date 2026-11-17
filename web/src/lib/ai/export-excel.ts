@@ -16,7 +16,7 @@ export function exportExcel(view: View, dataMap: Map<string, WidgetData>, locale
   const mLW = (w: Widget) => w.formula?.name || METRIC_LABEL[w.metric][locale];
   const DAYS = L(locale, "อา,จ,อ,พ,พฤ,ศ,ส", "Sun,Mon,Tue,Wed,Thu,Fri,Sat", "日,一,二,三,四,五,六").split(",");
 
-  let h = `<html xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="utf-8"><style>table{border-collapse:collapse;margin:0 0 18px}td,th{border:1px solid #d8d8d8;padding:4px 10px;font-family:'Noto Sans Thai',sans-serif;font-size:12px}th{background:#E05A29;color:#fff;text-align:left;font-weight:600}h2{font-family:sans-serif}h3{font-family:sans-serif;margin:14px 0 6px}</style></head><body>`;
+  let h = `<html xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="utf-8"><style>table{border-collapse:collapse;margin:0 0 18px}td,th{border:1px solid #d8d8d8;padding:4px 10px;font-family:'Noto Sans Thai',sans-serif;font-size:12px}th{background:#132436;color:#fff;text-align:left;font-weight:600}h2{font-family:sans-serif}h3{font-family:sans-serif;margin:14px 0 6px}</style></head><body>`;
   h += `<h2>${esc(view.name)}</h2>`;
   h += `<p style="font-family:sans-serif;font-size:11px;color:#777">${esc(L(locale, "ส่งออกเมื่อ", "Exported", "导出于"))} ${new Date().toLocaleString(locale === "th" ? "th-TH" : locale === "zh" ? "zh-CN" : "en-GB")}</p>`;
 

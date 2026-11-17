@@ -429,7 +429,7 @@ export default function CommandCenter() {
               ]} />
             </div>
           </div>
-          <HeroChart data={heroData} target={heroTarget} valueFormat={heroFmt} accent="#FF725E" />
+          <HeroChart data={heroData} target={heroTarget} valueFormat={heroFmt} accent="#9C90FC" />
           <div className="flex items-center gap-4 mt-4 text-[11px] text-muted">
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-[3px] bg-coral" /> {t.common.today}</span>
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-[3px] bg-surface2" /> {t.admin.compareLast}</span>
@@ -668,7 +668,7 @@ export default function CommandCenter() {
         <Card className="col-span-12 lg:col-span-6 p-5">
           <SectionTitle>{t.cmd.salesHeatmap}</SectionTitle>
           <div className="mt-4">
-            <Heatmap rows={heat.rows} cols={weekdays} values={heat.grid} color="#FF725E" />
+            <Heatmap rows={heat.rows} cols={weekdays} values={heat.grid} color="#132436" />
           </div>
         </Card>
 

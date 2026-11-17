@@ -71,7 +71,7 @@ export function printTransferCO(tr: Transfer, meta: CoDocMeta): void {
   body{font-family:"Noto Sans Thai","Sarabun","Inter",-apple-system,"Segoe UI",sans-serif;color:#1b1b1f;font-size:12px;line-height:1.5;background:#fff}
   .sheet{max-width:760px;margin:0 auto;padding:30px 36px 40px;position:relative}
   .wm{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;z-index:0}
-  .wm span{font-size:120px;font-weight:800;letter-spacing:8px;color:#E05A29;opacity:.045;transform:rotate(-22deg);white-space:nowrap}
+  .wm span{font-size:120px;font-weight:800;letter-spacing:8px;color:#132436;opacity:.045;transform:rotate(-22deg);white-space:nowrap}
   .doc{position:relative;z-index:1}
   /* หัวจดหมาย */
   .lh{display:flex;align-items:center;gap:18px;padding-bottom:16px;border-bottom:2.5px solid #1b1b1f}
@@ -86,7 +86,7 @@ export function printTransferCO(tr: Transfer, meta: CoDocMeta): void {
   .title h1{font-family:"Noto Serif Thai",Georgia,serif;font-size:21px;margin:0;font-weight:700;letter-spacing:.4px}
   .title .sub{font-size:10.5px;color:#86868f;letter-spacing:.14em;text-transform:uppercase;margin-top:2px}
   .title .st{text-align:right}
-  .badge{display:inline-block;border:1.4px solid #E05A29;color:#E05A29;border-radius:999px;padding:3px 13px;font-size:10.5px;font-weight:700;letter-spacing:.03em}
+  .badge{display:inline-block;border:1.4px solid #132436;color:#132436;border-radius:999px;padding:3px 13px;font-size:10.5px;font-weight:700;letter-spacing:.03em}
   .docno{font-size:11px;color:#6b6b74;margin-top:5px}
   .docno b{color:#1b1b1f;font-family:ui-monospace,monospace;letter-spacing:.02em}
   /* กล่องเส้นทาง */
@@ -94,7 +94,7 @@ export function printTransferCO(tr: Transfer, meta: CoDocMeta): void {
   .route .side{flex:1;min-width:0}
   .route .lab{font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:#9a94b4;font-weight:600}
   .route .b{font-weight:700;font-size:14px;margin-top:1px}
-  .route .arr{color:#E05A29;font-size:22px;font-weight:300;flex:0 0 auto}
+  .route .arr{color:#132436;font-size:22px;font-weight:300;flex:0 0 auto}
   /* เมตา */
   .grid{display:grid;grid-template-columns:1fr 1fr;gap:7px 28px;margin:4px 2px 16px}
   .f{font-size:11px;display:flex;gap:6px;border-bottom:1px dotted #e4e2ea;padding-bottom:5px}
@@ -108,13 +108,13 @@ export function printTransferCO(tr: Transfer, meta: CoDocMeta): void {
   .num{text-align:right;font-variant-numeric:tabular-nums;width:52px}
   thead th.num{text-align:right}
   .pname{font-weight:600;font-size:12px} .sku{font-size:10px;color:#9a9aa2;font-family:ui-monospace,monospace;margin-top:1px}
-  .sn-tag{color:#E05A29;font-weight:700}
+  .sn-tag{color:#132436;font-weight:700}
   .sns{margin-top:5px;display:flex;flex-wrap:wrap;gap:4px}
   .sns span{font-size:9px;color:#5b4b9e;font-family:ui-monospace,monospace;background:#f1eefb;border:1px solid #e3def5;border-radius:5px;padding:1px 6px}
   /* รวม */
   .totes{display:flex;justify-content:flex-end;gap:26px;margin-top:12px;padding:10px 12px;background:#faf9fc;border-radius:8px;font-size:11px}
   .totes .t .k{color:#8a8a93;font-size:9.5px;letter-spacing:.04em} .totes .t .v{font-weight:700;font-size:15px}
-  .note{margin-top:12px;font-size:11px;padding:10px 13px;border-left:3px solid #E05A29;background:#faf9fe;border-radius:0 8px 8px 0}
+  .note{margin-top:12px;font-size:11px;padding:10px 13px;border-left:3px solid #132436;background:#faf9fe;border-radius:0 8px 8px 0}
   .note .k{color:#8a8a93;font-size:9.5px;letter-spacing:.06em;text-transform:uppercase}
   /* ลายเซ็น + ตรา */
   .auth{display:flex;gap:18px;margin-top:38px;align-items:flex-end}

@@ -167,12 +167,12 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
       {/* กรอบแก้ว (liquid glass) สำหรับเมนูที่เลือก — โทนเดียวกับ navbar ของ POS */}
       <style>{`
         .shd-nav-glass{
-          background:rgb(var(--c-brand) / .12);
-          box-shadow:inset 0 0 0 1px rgb(var(--c-brand) / .22);
+          background:rgb(var(--c-violet) / .2);
+          box-shadow:inset 0 0 0 1px rgb(var(--c-violet) / .35);
         }
         :root[data-theme="dark"] .shd-nav-glass{
-          background:rgb(var(--c-brand) / .18);
-          box-shadow:inset 0 0 0 1px rgb(var(--c-brand) / .4);
+          background:rgb(var(--c-violet) / .2);
+          box-shadow:inset 0 0 0 1px rgb(var(--c-violet) / .45);
         }
         /* ไอคอนเมนู "วาดเส้นเข้า" ตอนถูกเลือก (re-mount ด้วย key → เล่นใหม่ทุกครั้งที่จิ้ม) */
         @keyframes shdNavDraw { from { stroke-dashoffset: 100; } to { stroke-dashoffset: 0; } }
@@ -230,8 +230,8 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
                         {!collapsed && <span className="relative z-10 truncate">{label[n.key]}</span>}
                         {badge > 0 ? (
                           <span className={clsx("relative z-10 inline-flex items-center justify-center", collapsed ? "lg:absolute lg:top-1 lg:right-1" : "ml-auto")}>
-                            <span className="absolute inline-flex h-full w-full rounded-full bg-coral/60 animate-ping" />
-                            <span className="relative inline-flex min-w-[18px] h-[18px] px-1 items-center justify-center rounded-full bg-coral text-white text-[10px] font-bold tabular-nums">{badge}</span>
+                            <span className="absolute inline-flex h-full w-full rounded-full bg-rose-500/60 animate-ping" />
+                            <span className="relative inline-flex min-w-[18px] h-[18px] px-1 items-center justify-center rounded-full bg-rose-500 text-white text-[10px] font-bold tabular-nums">{badge}</span>
                           </span>
                         ) : null}
                       </Link>
@@ -336,8 +336,8 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
                 </motion.span>
                 {queueCount > 0 ? (
                   <span className="absolute -top-0.5 -right-0.5 inline-flex items-center justify-center">
-                    <span className="absolute inline-flex h-full w-full rounded-full bg-coral/60 animate-ping" />
-                    <span className="relative inline-flex min-w-[16px] h-[16px] px-1 items-center justify-center rounded-full bg-coral text-white text-[9px] font-bold tabular-nums">{queueCount}</span>
+                    <span className="absolute inline-flex h-full w-full rounded-full bg-rose-500/60 animate-ping" />
+                    <span className="relative inline-flex min-w-[16px] h-[16px] px-1 items-center justify-center rounded-full bg-rose-500 text-white text-[9px] font-bold tabular-nums">{queueCount}</span>
                   </span>
                 ) : null}
               </Link>
