@@ -94,30 +94,54 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  // แจ้งเตือนงานค้าง (badge แดง): นับใบโอนที่ "รอฉันทำ" ตามสิทธิ+สาขา
-  const [queueCount, setQueueCount] = useState(0);
+  // ── การแจ้งเตือนจริง (จากข้อมูลใบโอน): รอฉันทำ / เกินเวลา / ผลต่างรอปิด ──
+  type Notif = { id: string; title: string; sub: string; href: string; at: string; tone: "brand" | "warn" | "danger"; mine: boolean };
+  const [notifs, setNotifs] = useState<Notif[]>([]);
+  const [notifOpen, setNotifOpen] = useState(false);
   useEffect(() => {
     let cancelled = false;
-    if (!employee) { setQueueCount(0); return; }
+    if (!employee) { setNotifs([]); return; }
     void (async () => {
       try {
         const [trs, brs] = await Promise.all([listAllTransfers(), listBranches()]);
         const allowed = visibleBranchIds(employee, brs.map((b) => b.id));
-        const cOut = can(employee, "transfer.request") || can(employee, "transfer.approve");
-        const cRecv = can(employee, "transfer.receive") || can(employee, "transfer.approve");
-        const need = (tr: Transfer) => {
+        const bn = (id: string) => { const b = brs.find((x) => x.id === id); return b ? (locale === "th" ? b.name_th ?? b.name : b.name) : id; };
+        const cApprove = can(employee, "transfer.approve");
+        const cOut = can(employee, "transfer.request") || cApprove;
+        const cRecv = can(employee, "transfer.receive") || cApprove;
+        const SLA: Record<string, number> = { pending_approval: 24, approved: 48, picking: 48, packed: 48, shipped: 72, in_transit: 72, partial_received: 72 };
+        const out: Notif[] = [];
+        for (const tr of trs) {
           const src = allowed.includes(tr.from_branch_id), dst = allowed.includes(tr.to_branch_id);
-          if (tr.status === "pending_approval") return src && can(employee, "transfer.approve");
-          if (["approved", "picking", "packed"].includes(tr.status)) return src && cOut;
-          if (tr.status === "in_transit") return dst && cRecv;
-          return false;
-        };
-        if (!cancelled) setQueueCount(trs.filter(need).length);
+          if (!src && !dst) continue;
+          const mine = tr.status === "pending_approval" ? (src && cApprove) : ["approved", "picking", "packed"].includes(tr.status) ? (src && cOut) : ["in_transit", "partial_received"].includes(tr.status) ? (dst && cRecv) : false;
+          const limitH = SLA[tr.status]; const over = limitH !== undefined && (Date.now() - new Date(tr.created_at).getTime()) / 3600000 > limitH;
+          const route = `${bn(tr.from_branch_id)} → ${bn(tr.to_branch_id)}`;
+          const href = `/admin/transfers?doc=${tr.transfer_no}`;
+          if (mine) {
+            const act = tr.status === "pending_approval" ? L("รออนุมัติ", "Needs approval", "待审批") : ["approved", "picking"].includes(tr.status) ? L("รอสแกนออก", "Scan out", "待扫出") : tr.status === "packed" ? L("รอจัดส่ง", "Dispatch", "待发货") : L("รอรับเข้า", "Receive", "待入库");
+            out.push({ id: tr.id + ":act", title: `${act} · ${tr.transfer_no}`, sub: route, href, at: tr.created_at, tone: over ? "danger" : "brand", mine: true });
+          } else if (over) {
+            out.push({ id: tr.id + ":sla", title: `${L("ค้างเกินเวลา", "Overdue", "逾期")} · ${tr.transfer_no}`, sub: route, href, at: tr.created_at, tone: "danger", mine: false });
+          }
+          if (cApprove) for (const dc of tr.discrepancies ?? []) if (dc.status === "open") out.push({ id: dc.id, title: `${L("ผลต่างรอปิด", "Discrepancy open", "差异待关")} · ${tr.transfer_no}`, sub: route, href, at: dc.at, tone: "warn", mine: false });
+        }
+        out.sort((a, b) => (a.at < b.at ? 1 : -1));
+        if (!cancelled) setNotifs(out);
       } catch { /* ignore */ }
     })();
     return () => { cancelled = true; };
-  }, [employee, pathname]);
-  const badges: Record<string, number> = { transfers: queueCount };
+  }, [employee, pathname, locale]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => setNotifOpen(false), [pathname]);
+  const mineCount = notifs.filter((n) => n.mine).length;
+  const queueCount = notifs.length;
+  const badges: Record<string, number> = { transfers: mineCount };
+  const timeAgo = (iso: string) => {
+    const m = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+    if (m < 60) return `${Math.max(1, m)} ${L("นาที", "m", "分")}`;
+    const h = Math.floor(m / 60); if (h < 24) return `${h} ${L("ชม.", "h", "时")}`;
+    return `${Math.floor(h / 24)} ${L("วัน", "d", "天")}`;
+  };
 
   const toggleCollapse = () => {
     setCollapsed((v) => {
@@ -330,17 +354,47 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
                 <Home size={17} />
               </Link>
 
-              <Link href="/admin/transfers" className="relative p-2 rounded-xl hover:bg-surface2 text-muted" title={queueCount > 0 ? L(`มี ${queueCount} งานรอคุณทำ`, `${queueCount} tasks waiting`, `${queueCount} 待办`) : undefined}>
-                <motion.span animate={queueCount > 0 ? { rotate: [0, -12, 12, -8, 8, 0] } : {}} transition={{ duration: 0.6, repeat: queueCount > 0 ? Infinity : 0, repeatDelay: 2.5 }} style={{ display: "inline-block", transformOrigin: "50% 10%" }}>
-                  <Bell size={17} />
-                </motion.span>
-                {queueCount > 0 ? (
-                  <span className="absolute -top-0.5 -right-0.5 inline-flex items-center justify-center">
-                    <span className="absolute inline-flex h-full w-full rounded-full bg-rose-500/60 animate-ping" />
-                    <span className="relative inline-flex min-w-[16px] h-[16px] px-1 items-center justify-center rounded-full bg-rose-500 text-white text-[9px] font-bold tabular-nums">{queueCount}</span>
-                  </span>
+              <div className="relative">
+                <button onClick={() => setNotifOpen((v) => !v)} className="relative p-2 rounded-xl hover:bg-surface2 text-muted" aria-label="notifications" title={L("การแจ้งเตือน", "Notifications", "通知")}>
+                  <motion.span animate={queueCount > 0 && !notifOpen ? { rotate: [0, -12, 12, -8, 8, 0] } : {}} transition={{ duration: 0.6, repeat: queueCount > 0 && !notifOpen ? Infinity : 0, repeatDelay: 2.5 }} style={{ display: "inline-block", transformOrigin: "50% 10%" }}>
+                    <Bell size={17} />
+                  </motion.span>
+                  {queueCount > 0 ? (
+                    <span className="absolute -top-0.5 -right-0.5 inline-flex items-center justify-center">
+                      {!notifOpen ? <span className="absolute inline-flex h-full w-full rounded-full bg-rose-500/60 animate-ping" /> : null}
+                      <span className="relative inline-flex min-w-[16px] h-[16px] px-1 items-center justify-center rounded-full bg-rose-500 text-white text-[9px] font-bold tabular-nums">{queueCount}</span>
+                    </span>
+                  ) : null}
+                </button>
+                {notifOpen ? (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setNotifOpen(false)} />
+                    <div className="absolute right-0 mt-2 w-[340px] max-h-[72vh] overflow-auto rounded-2xl border border-line bg-surface shadow-xl z-50">
+                      <div className="flex items-center justify-between px-4 py-3 border-b border-line sticky top-0 bg-surface z-10">
+                        <span className="text-sm font-semibold inline-flex items-center gap-1.5"><Bell size={14} className="text-brand" /> {L("การแจ้งเตือน", "Notifications", "通知")}</span>
+                        {queueCount > 0 ? <span className="text-[11px] text-muted">{queueCount} {L("รายการ", "items", "项")}</span> : null}
+                      </div>
+                      {notifs.length ? (
+                        <div className="divide-y divide-line/60">
+                          {notifs.slice(0, 40).map((n) => (
+                            <Link key={n.id} href={n.href} onClick={() => setNotifOpen(false)} className="flex items-start gap-2.5 px-4 py-2.5 hover:bg-surface2 transition-colors">
+                              <span className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${n.tone === "danger" ? "bg-rose-500" : n.tone === "warn" ? "bg-amber-500" : "bg-brand"}`} />
+                              <div className="min-w-0 flex-1">
+                                <p className="text-sm font-medium leading-tight truncate">{n.title}</p>
+                                <p className="text-[11px] text-muted truncate">{n.sub}</p>
+                              </div>
+                              <span className="text-[10px] text-muted shrink-0 mt-0.5">{timeAgo(n.at)}</span>
+                            </Link>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="px-4 py-12 text-center"><Bell size={26} className="mx-auto text-muted/30 mb-2" /><p className="text-sm text-muted">{L("ไม่มีการแจ้งเตือน", "No notifications", "暂无通知")}</p></div>
+                      )}
+                      <Link href="/admin/transfers" onClick={() => setNotifOpen(false)} className="block text-center text-xs text-brand font-medium py-2.5 border-t border-line hover:bg-surface2 sticky bottom-0 bg-surface">{L("ไปที่โอนย้ายทั้งหมด", "Go to transfers", "查看全部")}</Link>
+                    </div>
+                  </>
                 ) : null}
-              </Link>
+              </div>
               <button
                 onClick={() => setLocale(LOCALES[(LOCALES.indexOf(locale) + 1) % LOCALES.length])}
                 className="hidden sm:flex px-2 h-9 rounded-xl hover:bg-surface2 text-muted text-xs items-center gap-1.5"
