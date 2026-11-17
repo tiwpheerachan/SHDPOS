@@ -4,8 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { Boxes, Search, AlertTriangle, Download, MapPin } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { useSession } from "@/lib/store/session";
-import { listProducts, stockAll, listBranches } from "@/lib/data/repo";
-import type { Branch, Product, StockLevel } from "@/lib/types";
+import { listProducts, stockAll, listBranches, listBrands, listCategories } from "@/lib/data/repo";
+import type { Branch, Brand, Category, Product, StockLevel } from "@/lib/types";
 import { Card, CardHeader, Table, Th, Td, Badge, Input, Button, EmptyState, KpiTile, Segmented } from "@/components/ui";
 import { formatTHB, formatInt } from "@/lib/money";
 import { stockView } from "@/lib/stock";
@@ -25,13 +25,19 @@ export default function AdminInventoryPage() {
   const [scope, setScope] = useState<"byBranch" | "crossBranch">("byBranch"); // รายสาขา | ค้นหาข้ามสาขา
   const [xProductId, setXProductId] = useState("");
   const [xRef, setXRef] = useState(""); // สาขาอ้างอิงสำหรับวัดระยะทาง
+  const [brands, setBrands] = useState<Brand[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [xBrand, setXBrand] = useState("all");
+  const [xCat, setXCat] = useState("all");
 
   useEffect(() => {
     void (async () => {
-      const [p, s, b] = await Promise.all([listProducts(), stockAll(), listBranches()]);
+      const [p, s, b, br, cat] = await Promise.all([listProducts(), stockAll(), listBranches(), listBrands(), listCategories()]);
       setProducts(p);
       setStock(s);
       setBranches(b);
+      setBrands(br);
+      setCategories(cat);
     })();
   }, []);
 
@@ -43,15 +49,26 @@ export default function AdminInventoryPage() {
   const myBranch = useMemo(() => branches.find((b) => b.id === (xRef || sessionBranchId)) || branches.find((b) => b.id === employee?.home_branch_id) || branches.find((b) => allowed.includes(b.id)) || null, [branches, xRef, sessionBranchId, employee, allowed]);
   useEffect(() => { if (!xRef && myBranch) setXRef(myBranch.id); }, [myBranch, xRef]);
   const stockMap = useMemo(() => { const m = new Map<string, StockLevel>(); for (const s of stock) m.set(`${s.branch_id}:${s.product_id}`, s); return m; }, [stock]);
+  const uniqBranches = useMemo(() => { const seen = new Set<string>(); return branches.filter((b) => b.is_active && allowed.includes(b.id) && !seen.has(b.id) && (seen.add(b.id), true)); }, [branches, allowed]);
+  const brandName = (id?: string | null) => { const b = brands.find((x) => x.id === id); return b ? (locale === "th" ? b.name_th ?? b.name : b.name) : null; };
   const xProduct = products.find((p) => p.id === xProductId) || null;
+  // รายการสินค้า (กรองแบรนด์/หมวด/ค้นหา + dedupe) พร้อมยอด available รวมทุกสาขา
+  const xProductList = useMemo(() => {
+    const term = q.trim().toLowerCase(); const seen = new Set<string>();
+    return products
+      .filter((p) => p.kind !== "service" && p.is_active !== false && !seen.has(p.id) && (seen.add(p.id), true))
+      .filter((p) => xBrand === "all" || p.brand_id === xBrand)
+      .filter((p) => xCat === "all" || p.category_id === xCat)
+      .filter((p) => { if (!term) return true; return p.name_th.toLowerCase().includes(term) || p.sku.toLowerCase().includes(term) || (brandName(p.brand_id)?.toLowerCase().includes(term) ?? false); })
+      .map((p) => { let total = 0, nb = 0; for (const b of uniqBranches) { const r = stockMap.get(`${b.id}:${p.id}`); const av = r ? stockView(r).available : 0; total += av; if (av > 0) nb++; } return { p, total, nb }; });
+  }, [products, q, xBrand, xCat, uniqBranches, stockMap, brands, locale]); // eslint-disable-line react-hooks/exhaustive-deps
   const xRows = useMemo(() => {
     if (!xProduct) return [] as { b: Branch; onHand: number; avail: number; km: number | null }[];
-    const mc = coordOf(myBranch); const seen = new Set<string>();
-    return branches
-      .filter((b) => b.is_active && allowed.includes(b.id) && !seen.has(b.id) && (seen.add(b.id), true))
+    const mc = coordOf(myBranch);
+    return uniqBranches
       .map((b) => { const s = stockMap.get(`${b.id}:${xProduct.id}`); const sv = s ? stockView(s) : null; const bc = coordOf(b); return { b, onHand: sv?.onHand ?? 0, avail: sv?.available ?? 0, km: mc && bc ? haversineKm(mc, bc) : null }; })
       .sort((a, b) => (a.km ?? 1e9) - (b.km ?? 1e9));
-  }, [xProduct, branches, allowed, stockMap, myBranch]);
+  }, [xProduct, uniqBranches, stockMap, myBranch]);
   const xTotalAvail = xRows.reduce((s, r) => s + r.avail, 0);
 
   const rows = useMemo(() => {
@@ -200,20 +217,29 @@ export default function AdminInventoryPage() {
           <div className="p-4 space-y-3">
             {!xProduct ? (
               <>
-                <div className="relative"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
-                  <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={L("ค้นหาสินค้าเพื่อดูสต๊อกทุกสาขา (ชื่อ/SKU)", "Search a product to see stock across all branches", "搜索商品查看各店库存")} className="pl-9 h-10" /></div>
-                <div className="max-h-[480px] overflow-auto rounded-xl border border-line divide-y divide-line/60">
-                  {products.filter((p) => p.kind !== "service").filter((p) => { const term = q.trim().toLowerCase(); return !term || p.name_th.toLowerCase().includes(term) || p.sku.toLowerCase().includes(term); }).slice(0, 50).map((p) => {
-                    const total = branches.filter((b) => allowed.includes(b.id)).reduce((s, b) => { const r = stockMap.get(`${b.id}:${p.id}`); return s + (r ? stockView(r).available : 0); }, 0);
-                    const nb = branches.filter((b) => allowed.includes(b.id) && (() => { const r = stockMap.get(`${b.id}:${p.id}`); return r && stockView(r).available > 0; })()).length;
-                    return (
-                      <button key={p.id} onClick={() => setXProductId(p.id)} className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-brand/5 text-left">
-                        {p.image_url ? <img src={p.image_url} alt="" className="w-9 h-9 rounded-lg object-cover border border-line bg-white shrink-0" /> : <div className="w-9 h-9 rounded-lg border border-line bg-surface grid place-items-center shrink-0 text-muted/40"><Boxes size={15} /></div>}
-                        <div className="min-w-0 flex-1"><p className="text-sm font-medium truncate">{pick({ th: p.name_th, en: p.name_en, zh: p.name_zh })}</p><p className="font-mono text-[10px] text-muted">{p.sku}</p></div>
-                        <div className="text-right shrink-0"><p className={`text-sm font-bold tnum ${total > 0 ? "text-ok" : "text-muted"}`}>{total}</p><p className="text-[10px] text-muted">{L("มี", "in", "")} {nb} {L("สาขา", "br.", "店")}</p></div>
-                      </button>
-                    );
-                  })}
+                {/* ตัวกรอง: แบรนด์ + หมวด + ค้นหา */}
+                <div className="flex flex-wrap gap-2">
+                  <select value={xBrand} onChange={(e) => setXBrand(e.target.value)} className="input h-9 w-auto min-w-[150px]">
+                    <option value="all">{L("ทุกแบรนด์", "All brands", "所有品牌")}</option>
+                    {brands.map((b) => <option key={b.id} value={b.id}>{locale === "th" ? b.name_th ?? b.name : b.name}</option>)}
+                  </select>
+                  <select value={xCat} onChange={(e) => setXCat(e.target.value)} className="input h-9 w-auto min-w-[150px]">
+                    <option value="all">{L("ทุกหมวด", "All categories", "所有分类")}</option>
+                    {categories.map((c) => <option key={c.id} value={c.id}>{locale === "th" ? c.name_th : c.name_en ?? c.name_th}</option>)}
+                  </select>
+                  <div className="relative flex-1 min-w-[180px]"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+                    <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={L("ค้นหาสินค้า (ชื่อ/SKU/แบรนด์)", "Search product (name/SKU/brand)", "搜索商品")} className="pl-9 h-9" /></div>
+                </div>
+                <p className="text-[11px] text-muted">{L("พบ", "Found", "找到")} {xProductList.length} {L("รายการ", "items", "项")}{(xBrand !== "all" || xCat !== "all" || q.trim()) ? <button onClick={() => { setXBrand("all"); setXCat("all"); setQ(""); }} className="ml-2 text-brand hover:underline">{L("ล้างตัวกรอง", "Clear", "清除")}</button> : null}</p>
+                <div className="max-h-[520px] overflow-auto rounded-xl border border-line divide-y divide-line/60">
+                  {xProductList.slice(0, 120).map(({ p, total, nb }) => (
+                    <button key={p.id} onClick={() => setXProductId(p.id)} className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-brand/5 text-left">
+                      {p.image_url ? <img src={p.image_url} alt="" className="w-9 h-9 rounded-lg object-cover border border-line bg-white shrink-0" /> : <div className="w-9 h-9 rounded-lg border border-line bg-surface grid place-items-center shrink-0 text-muted/40"><Boxes size={15} /></div>}
+                      <div className="min-w-0 flex-1"><p className="text-sm font-medium truncate">{pick({ th: p.name_th, en: p.name_en, zh: p.name_zh })}</p><p className="text-[10px] text-muted truncate"><span className="font-mono">{p.sku}</span>{brandName(p.brand_id) ? ` · ${brandName(p.brand_id)}` : ""}</p></div>
+                      <div className="text-right shrink-0"><p className={`text-sm font-bold tnum ${total > 0 ? "text-ok" : "text-muted"}`}>{total}</p><p className="text-[10px] text-muted">{L("มี", "in", "")} {nb} {L("สาขา", "br.", "店")}</p></div>
+                    </button>
+                  ))}
+                  {!xProductList.length ? <div className="p-6 text-center text-xs text-muted">{t.common.empty}</div> : null}
                 </div>
               </>
             ) : (
