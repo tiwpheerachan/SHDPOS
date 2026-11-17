@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, Suspense } from "react";
+import { motion } from "framer-motion";
 import clsx from "clsx";
 import {
   LayoutDashboard, TrendingUp, Users, Package, Boxes, ArrowLeftRight, ScanLine,
@@ -13,7 +14,9 @@ import { useI18n } from "@/lib/i18n/provider";
 import { useTheme } from "@/lib/theme";
 import { useSession } from "@/lib/store/session";
 import { LOCALES, LOCALE_LABEL } from "@/lib/i18n/dict";
-import { ROLE_LABEL, can, type PermissionKey } from "@/lib/permissions";
+import { ROLE_LABEL, can, visibleBranchIds, type PermissionKey } from "@/lib/permissions";
+import { listAllTransfers, listBranches } from "@/lib/data/repo";
+import type { Transfer } from "@/lib/types";
 import { Avatar, LiveDot } from "@/components/ui";
 import { Clock } from "@/components/clock";
 import { ScopeTopbar } from "@/components/admin/scope-topbar";
@@ -90,6 +93,31 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
       /* ignore */
     }
   }, []);
+
+  // แจ้งเตือนงานค้าง (badge แดง): นับใบโอนที่ "รอฉันทำ" ตามสิทธิ+สาขา
+  const [queueCount, setQueueCount] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    if (!employee) { setQueueCount(0); return; }
+    void (async () => {
+      try {
+        const [trs, brs] = await Promise.all([listAllTransfers(), listBranches()]);
+        const allowed = visibleBranchIds(employee, brs.map((b) => b.id));
+        const cOut = can(employee, "transfer.request") || can(employee, "transfer.approve");
+        const cRecv = can(employee, "transfer.receive") || can(employee, "transfer.approve");
+        const need = (tr: Transfer) => {
+          const src = allowed.includes(tr.from_branch_id), dst = allowed.includes(tr.to_branch_id);
+          if (tr.status === "pending_approval") return src && can(employee, "transfer.approve");
+          if (["approved", "picking", "packed"].includes(tr.status)) return src && cOut;
+          if (tr.status === "in_transit") return dst && cRecv;
+          return false;
+        };
+        if (!cancelled) setQueueCount(trs.filter(need).length);
+      } catch { /* ignore */ }
+    })();
+    return () => { cancelled = true; };
+  }, [employee, pathname]);
+  const badges: Record<string, number> = { transfers: queueCount };
 
   const toggleCollapse = () => {
     setCollapsed((v) => {
@@ -176,20 +204,31 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
                 {g.items.map((n) => {
                   const active = pathname === n.href;
                   const Icon = n.icon;
+                  const badge = badges[n.key] ?? 0;
                   return (
-                    <Link
-                      key={n.href}
-                      href={n.href}
-                      title={collapsed ? label[n.key] : undefined}
-                      className={clsx(
-                        "flex items-center gap-3 h-10 rounded-xl text-sm transition-colors",
-                        collapsed ? "lg:justify-center lg:px-0 px-3" : "px-3",
-                        active ? "shd-nav-glass text-brand font-semibold" : "text-muted font-medium hover:text-ink hover:bg-surface2"
-                      )}
-                    >
-                      <Icon size={18} className={clsx("shrink-0", active && "text-brand")} />
-                      {!collapsed && <span className="truncate">{label[n.key]}</span>}
-                    </Link>
+                    <motion.div key={n.href} whileTap={{ scale: 0.95 }} transition={{ type: "spring", stiffness: 500, damping: 30 }}>
+                      <Link
+                        href={n.href}
+                        title={collapsed ? label[n.key] : undefined}
+                        className={clsx(
+                          "relative flex items-center gap-3 h-10 rounded-xl text-sm transition-colors",
+                          collapsed ? "lg:justify-center lg:px-0 px-3" : "px-3",
+                          active ? "text-brand font-semibold" : "text-muted font-medium hover:text-ink hover:bg-surface2"
+                        )}
+                      >
+                        {active && <motion.span layoutId="navActivePill" className="absolute inset-0 rounded-xl shd-nav-glass" transition={{ type: "spring", stiffness: 480, damping: 36 }} />}
+                        <motion.span initial={false} animate={active ? { scale: [1, 1.18, 1] } : { scale: 1 }} transition={{ duration: 0.3 }} className="relative z-10 shrink-0">
+                          <Icon size={18} className={clsx("shrink-0", active && "text-brand")} />
+                        </motion.span>
+                        {!collapsed && <span className="relative z-10 truncate">{label[n.key]}</span>}
+                        {badge > 0 ? (
+                          <span className={clsx("relative z-10 inline-flex items-center justify-center", collapsed ? "lg:absolute lg:top-1 lg:right-1" : "ml-auto")}>
+                            <span className="absolute inline-flex h-full w-full rounded-full bg-coral/60 animate-ping" />
+                            <span className="relative inline-flex min-w-[18px] h-[18px] px-1 items-center justify-center rounded-full bg-coral text-white text-[10px] font-bold tabular-nums">{badge}</span>
+                          </span>
+                        ) : null}
+                      </Link>
+                    </motion.div>
                   );
                 })}
               </div>
@@ -284,9 +323,16 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
                 <Home size={17} />
               </Link>
 
-              <Link href="/admin/approvals" className="relative p-2 rounded-xl hover:bg-surface2 text-muted">
-                <Bell size={17} />
-                <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-coral" />
+              <Link href="/admin/transfers" className="relative p-2 rounded-xl hover:bg-surface2 text-muted" title={queueCount > 0 ? L(`มี ${queueCount} งานรอคุณทำ`, `${queueCount} tasks waiting`, `${queueCount} 待办`) : undefined}>
+                <motion.span animate={queueCount > 0 ? { rotate: [0, -12, 12, -8, 8, 0] } : {}} transition={{ duration: 0.6, repeat: queueCount > 0 ? Infinity : 0, repeatDelay: 2.5 }} style={{ display: "inline-block", transformOrigin: "50% 10%" }}>
+                  <Bell size={17} />
+                </motion.span>
+                {queueCount > 0 ? (
+                  <span className="absolute -top-0.5 -right-0.5 inline-flex items-center justify-center">
+                    <span className="absolute inline-flex h-full w-full rounded-full bg-coral/60 animate-ping" />
+                    <span className="relative inline-flex min-w-[16px] h-[16px] px-1 items-center justify-center rounded-full bg-coral text-white text-[9px] font-bold tabular-nums">{queueCount}</span>
+                  </span>
+                ) : null}
               </Link>
               <button
                 onClick={() => setLocale(LOCALES[(LOCALES.indexOf(locale) + 1) % LOCALES.length])}

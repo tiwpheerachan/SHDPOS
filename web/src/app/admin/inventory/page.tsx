@@ -51,6 +51,13 @@ export default function AdminInventoryPage() {
   const stockMap = useMemo(() => { const m = new Map<string, StockLevel>(); for (const s of stock) m.set(`${s.branch_id}:${s.product_id}`, s); return m; }, [stock]);
   const uniqBranches = useMemo(() => { const seen = new Set<string>(); return branches.filter((b) => b.is_active && allowed.includes(b.id) && !seen.has(b.id) && (seen.add(b.id), true)); }, [branches, allowed]);
   const brandName = (id?: string | null) => { const b = brands.find((x) => x.id === id); return b ? (locale === "th" ? b.name_th ?? b.name : b.name) : null; };
+  // อายุสต๊อก: เข้ามากี่วันแล้ว + สี (ยิ่งนานยิ่งแดง = ค้างนาน/ขายช้า)
+  const stockAge = (iso?: string | null) => {
+    if (!iso) return null;
+    const days = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 86400000));
+    const tone = days > 150 ? "text-rose-500 font-semibold" : days > 90 ? "text-amber-600 font-medium" : days > 30 ? "text-ink/70" : "text-ok";
+    return { days, dateLabel: new Date(iso).toLocaleDateString(locale === "th" ? "th-TH" : "en-GB", { day: "2-digit", month: "short", year: "2-digit" }), tone };
+  };
   const xProduct = products.find((p) => p.id === xProductId) || null;
   // รายการสินค้า (กรองแบรนด์/หมวด/ค้นหา + dedupe) พร้อมยอด available รวมทุกสาขา
   const xProductList = useMemo(() => {
@@ -181,6 +188,7 @@ export default function AdminInventoryPage() {
                 <Th align="right">{L("จอง(โอน)", "Reserved out", "调出预留")}</Th>
                 <Th align="right">{L("จอง(ออเดอร์)", "Reserved order", "订单预留")}</Th>
                 <Th align="right">{L("พร้อมขาย", "Available", "可售")}</Th>
+                <Th align="right">{L("อายุสต๊อก", "Stock age", "库龄")}</Th>
                 <Th align="right">{t.inventory.reorder}</Th>
                 {showCost ? <Th align="right">{L("มูลค่า", "Value", "价值")}</Th> : null}
                 <Th align="center">{t.common.status}</Th>
@@ -200,6 +208,7 @@ export default function AdminInventoryPage() {
                   <Td align="right" className={`tnum text-xs ${r.sv.reservedOut ? "text-amber-600" : "text-muted"}`}>{r.sv.reservedOut || "—"}</Td>
                   <Td align="right" className={`tnum text-xs ${r.sv.reservedOrder ? "text-violet-600" : "text-muted"}`}>{r.sv.reservedOrder || "—"}</Td>
                   <Td align="right" className={`font-semibold tnum ${r.out ? "text-danger" : r.low ? "text-warn" : "text-ok"}`}>{r.avail}</Td>
+                  <Td align="right" className="text-xs">{(() => { const a = stockAge(r.s.last_in_at); return a ? <span className={`${a.tone} tnum`} title={`${L("เข้าคลังเมื่อ", "received", "入库")} ${a.dateLabel}`}>{a.days} {L("วัน", "d", "天")}</span> : <span className="text-muted/40">—</span>; })()}</Td>
                   <Td align="right" className="text-xs text-muted">{r.rp || "—"}</Td>
                   {showCost ? <Td align="right" className="text-xs">{formatTHB(r.s.qty_on_hand * r.p.cost, false)}</Td> : null}
                   <Td align="center">

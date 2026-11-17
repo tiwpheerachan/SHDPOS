@@ -239,12 +239,15 @@ export function buildDemoStock(): StockLevel[] {
       const ankerShop = b.code.startsWith("ANKER") && p.brand_id === bId("SOUNDCORE");
       if (!sameBrand && !ankerShop) continue;
       const qty = Math.floor(rnd() * 45);
+      // อายุสต๊อก: สุ่มวันเข้าคลัง 2–210 วันก่อน (ของที่เยอะ-ใกล้หมดต่างกัน)
+      const ageDays = 2 + Math.floor(rnd() * 208);
       out.push({
         branch_id: b.id,
         product_id: p.id,
         qty_on_hand: qty,
         qty_reserved: 0,
         reorder_point: p.reorder_point,
+        last_in_at: qty > 0 ? new Date(Date.now() - ageDays * 86400000).toISOString() : null,
       });
     }
   }

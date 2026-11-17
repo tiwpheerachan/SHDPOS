@@ -24,7 +24,7 @@ import type {
 
 const CATALOG_VERSION = "2026-11-13.1";
 // เวอร์ชันข้อมูลจำลอง (orders/audit/stock/customers/org) — เปลี่ยนเพื่อรีเฟรช demo ให้เป็นวันที่ล่าสุด
-const DEMO_DATA_VERSION = "2026-11-17.1";
+const DEMO_DATA_VERSION = "2026-11-17.2";
 const DEMO_ORDER_ID = /^o-\d+-0000-0000-000000000000$/;
 
 // ---------------------------------------------------------------------
@@ -266,15 +266,18 @@ export async function adjustStock(
   delta: number
 ): Promise<void> {
   const key = stockKey(branchId, productId);
+  const now = new Date().toISOString();
   const row = await db().stock.get(key);
   if (!row) {
     await db().stock.put({
       key, branch_id: branchId, product_id: productId,
       qty_on_hand: delta, qty_reserved: 0, reorder_point: 0,
+      last_in_at: delta > 0 ? now : null,
     });
     return;
   }
-  await db().stock.update(key, { qty_on_hand: round2(row.qty_on_hand + delta) });
+  // ของเข้าใหม่ (delta>0) → รีเซ็ตอายุสต๊อก (ล็อตล่าสุดเข้าวันนี้)
+  await db().stock.update(key, { qty_on_hand: round2(row.qty_on_hand + delta), ...(delta > 0 ? { last_in_at: now } : {}) });
 }
 
 /**

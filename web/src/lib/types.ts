@@ -149,6 +149,8 @@ export interface StockLevel {
   /** Reserved Order — จองตาม order/พักบิล ที่ยังไม่สแกนออก */
   qty_reserved_order?: number;
   reorder_point: number;
+  /** วันที่สต๊อกล็อตล่าสุดเข้าคลัง — ใช้คำนวณ "อายุสต๊อก" (เข้ามากี่วันแล้ว) */
+  last_in_at?: string | null;
 }
 
 export interface CartLine {
