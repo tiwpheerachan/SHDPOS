@@ -11,6 +11,7 @@ import { formatTHB, formatInt } from "@/lib/money";
 import { stockView } from "@/lib/stock";
 import { can, visibleBranchIds } from "@/lib/permissions";
 import { coordOf, haversineKm, fmtKm } from "@/lib/geo";
+import { AnimatedBox } from "@/components/animated-icons";
 
 export default function AdminInventoryPage() {
   const { t, locale, pick } = useI18n();
@@ -128,7 +129,7 @@ export default function AdminInventoryPage() {
   return (
     <div className="p-4 sm:p-6 space-y-4">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <KpiTile label="SKU" value={formatInt(rows.length)} icon={<Boxes size={15} />} />
+        <KpiTile label="SKU" value={formatInt(rows.length)} icon={<AnimatedBox size={16} />} />
         <KpiTile label={t.inventory.lowStock} value={formatInt(lowCount)} tone="warn" icon={<AlertTriangle size={15} />} />
         <KpiTile label={t.pos.outOfStock} value={formatInt(outCount)} tone="danger" />
         {showCost ? <KpiTile label={L("มูลค่าสต๊อก (ต้นทุน)", "Stock value (cost)", "库存价值（成本）")} value={formatTHB(stockValue)} tone="brand" /> : <KpiTile label={t.common.branch} value={formatInt(allowed.length)} />}
