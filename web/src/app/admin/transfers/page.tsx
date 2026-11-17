@@ -391,21 +391,20 @@ export default function AdminTransfersPage() {
           <div className="p-4 space-y-4">
             <div className="flex items-center gap-2 text-sm font-semibold"><FileText size={16} className="text-brand" /> {L("หลักฐานส่ง-รับ (รวมทุกใบในมุมมอง)", "Send-receive evidence (all in view)", "收发凭证")}<span className="text-muted font-normal">· {evidenceItems.length} {L("ไฟล์", "files", "个")}</span></div>
             {evidenceItems.length ? (
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-                {evidenceItems.slice(0, 120).map(({ tr, a }) => (
-                  <button key={a.id} onClick={() => openDoc(tr)} className="text-left rounded-xl border border-line overflow-hidden hover:border-brand/40 hover:shadow-sm transition-all group">
-                    <div className="aspect-[4/3] bg-surface2 grid place-items-center overflow-hidden">
-                      {a.type?.startsWith("image/") ? <img src={a.url} alt={a.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" /> : <FileText size={28} className="text-muted/40" />}
+              <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-6 xl:grid-cols-8 gap-2.5">
+                {evidenceItems.slice(0, 160).map(({ tr, a }) => (
+                  <button key={a.id} onClick={() => openDoc(tr)} title={`${tr.transfer_no} · ${a.name} · ${empName(a.by)} · ${dtShort(a.at)}`} className="text-left rounded-lg border border-line overflow-hidden hover:border-brand/50 hover:shadow-sm transition-all group">
+                    <div className="aspect-square bg-surface2 grid place-items-center overflow-hidden">
+                      {a.type?.startsWith("image/") ? <img src={a.url} alt="" loading="lazy" className="w-full h-full object-cover group-hover:scale-105 transition-transform" /> : <FileText size={20} className="text-muted/40" />}
                     </div>
-                    <div className="p-2">
-                      <p className="text-[11px] font-mono text-brand truncate">{tr.transfer_no}</p>
-                      <p className="text-[10px] text-muted truncate">{a.name}</p>
-                      <p className="text-[10px] text-muted/70 truncate">{empName(a.by)} · {dtShort(a.at)}</p>
+                    <div className="px-1.5 py-1">
+                      <p className="text-[10px] font-mono text-brand truncate leading-tight">{tr.transfer_no}</p>
+                      <p className="text-[9px] text-muted truncate">{a.name}</p>
                     </div>
                   </button>
                 ))}
               </div>
-            ) : <div className="rounded-xl border border-dashed border-line p-8 text-center text-sm text-muted">{L("ยังไม่มีไฟล์แนบในใบที่กรองอยู่", "No attachments in current view", "无附件")}</div>}
+            ) : <div className="rounded-xl border border-dashed border-line p-6 text-center text-sm text-muted">{L("ยังไม่มีไฟล์แนบในใบที่กรองอยู่", "No attachments in current view", "无附件")}</div>}
             {noEvidence.length ? (
               <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-3">
                 <p className="text-xs font-medium text-amber-700 mb-1.5 inline-flex items-center gap-1.5"><CircleAlert size={13} /> {L("ใบที่ยังไม่มีหลักฐาน", "Transfers missing evidence", "缺凭证")} ({noEvidence.length})</p>
