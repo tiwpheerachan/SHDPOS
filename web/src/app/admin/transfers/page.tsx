@@ -186,7 +186,15 @@ export default function AdminTransfersPage() {
     const info = await resolveSerial(code);
     if (info.product?.id || info.product?.sku) {
       const p = products.find((x) => x.id === info.product!.id) || products.find((x) => x.sku === info.product!.sku);
-      if (p) { addLine(p.id, p.track_serial ? code : undefined); setAddQ(""); toast.push({ tone: "ok", title: L(`เพิ่ม ${p.name_th}${p.track_serial ? ` · SN ${up}` : ""}`, `Added ${p.name_th}`, "已添加") }); return; }
+      if (p) {
+        // ── จอง SN กลาง: กันเครื่องเดียวถูกโอน/ขายซ้ำ ──
+        if (info.status === "sold") { setAddQ(""); return void toast.push({ tone: "danger", title: L(`SN นี้ขายออกไปแล้ว${info.soldInfo?.orderNo ? ` · ${info.soldInfo.orderNo}` : ""}`, "This SN is already sold", "该SN已售出") }); }
+        if (info.status === "in_transit") { setAddQ(""); return void toast.push({ tone: "danger", title: L("SN นี้กำลังอยู่ระหว่างโอนในใบอื่นแล้ว", "This SN is already in transit", "该SN已在途") }); }
+        if (p.track_serial && lines.find((x) => x.product_id === p.id)?.serials.includes(up)) { setAddQ(""); return void toast.push({ tone: "warn", title: L("SN นี้อยู่ในบิลนี้แล้ว", "SN already in this bill", "已在单中") }); }
+        if (p.track_serial && info.status === "in_stock" && info.currentBranchId && info.currentBranchId !== from) { toast.push({ tone: "warn", title: L(`⚠ SN นี้อยู่ที่ ${bName(info.currentBranchId)} ไม่ใช่ต้นทาง — ตรวจสอบ`, `SN is at ${bName(info.currentBranchId)}, not source`, "不在源店") }); }
+        addLine(p.id, p.track_serial ? code : undefined);
+        setAddQ(""); toast.push({ tone: "ok", title: L(`เพิ่ม ${p.name_th}${p.track_serial ? ` · SN ${up}` : ""}`, `Added ${p.name_th}`, "已添加") }); return;
+      }
     }
     toast.push({ tone: "warn", title: L("ไม่พบสินค้าจากรหัส/SN นี้", "No product for this code/SN", "未找到") });
   }
