@@ -364,6 +364,8 @@ export interface TransferAttachment {
   size: number;
   at: string;
   by?: string | null;
+  /** สถานะใบตอนที่แนบไฟล์ — ใช้บอกว่า "มาจากฟอร์ม/ขั้นตอนไหน" */
+  stage?: TransferStatus | null;
 }
 
 /** ใบรับย่อยหนึ่งรอบ (รับหลายรอบต่อ 1 ใบโอน) */

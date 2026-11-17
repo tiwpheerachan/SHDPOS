@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { nanoid } from "nanoid";
-import { ArrowLeftRight, Plus, Trash2, Check, X, Clock, Barcode, CircleAlert, Printer, ScanLine, Truck, PackageCheck, Upload, FileText, Boxes, ChevronRight, RotateCcw, Download, ExternalLink } from "lucide-react";
+import { ArrowLeftRight, Plus, Trash2, Check, X, Clock, Barcode, CircleAlert, Printer, ScanLine, Truck, PackageCheck, Upload, FileText, Boxes, ChevronRight, ChevronLeft, RotateCcw, Download, ExternalLink } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { useSession } from "@/lib/store/session";
 import { useToast } from "@/components/toast-host";
@@ -45,6 +45,7 @@ export default function AdminTransfersPage() {
   const [bucket, setBucket] = useState<"mine" | "overdue" | "active" | "issue" | "done" | "all">("active");
   const [showEvidence, setShowEvidence] = useState(false); // คลังหลักฐานกลาง
   const [evidenceTr, setEvidenceTr] = useState<Transfer | null>(null); // ป๊อปอัปดูหลักฐานของใบ
+  const [evIdx, setEvIdx] = useState(0); // รูปที่กำลังดูใน carousel
   const [detail, setDetail] = useState<Transfer | null>(null);
   const [tab, setTab] = useState<Tab>("overview");
   const [timeline, setTimeline] = useState<AuditEntry[]>([]);
@@ -179,6 +180,17 @@ export default function AdminTransfersPage() {
   function downloadAtt(a: TransferAttachment) {
     try { const link = document.createElement("a"); link.href = a.url; link.download = a.name || "evidence"; link.target = "_blank"; document.body.appendChild(link); link.click(); link.remove(); } catch { /* ignore */ }
   }
+  const openEvidence = (tr: Transfer) => { setEvIdx(0); setEvidenceTr(tr); };
+  // หลักฐานมาจากฟอร์ม/ขั้นตอนไหน (จากสถานะใบตอนแนบ)
+  const stageLabel = (s?: TransferStatus | null) => {
+    if (!s) return L("ทั่วไป", "General", "一般");
+    if (["draft", "pending_approval"].includes(s)) return L("ฟอร์มเปิดคำขอ/อนุมัติ", "Request form", "申请");
+    if (s === "approved") return L("หลังอนุมัติ", "After approval", "审批后");
+    if (["picking", "packed"].includes(s)) return L("ฟอร์มสแกนออก/แพ็ค", "Scan-out form", "出库");
+    if (["shipped", "in_transit"].includes(s)) return L("ฟอร์มจัดส่ง", "Dispatch form", "发货");
+    if (["partial_received", "completed", "received"].includes(s)) return L("ฟอร์มรับเข้า", "Receive form", "入库");
+    return s;
+  };
 
   // เพิ่มสินค้าเข้าบิล (รวม line เดิมถ้ามี; serialized + มี SN → แนบ SN กันซ้ำ)
   function addLine(productId: string, sn?: string) {
@@ -309,7 +321,7 @@ export default function AdminTransfersPage() {
     if (!detail || !files || !files.length) return;
     const read = await Promise.all([...files].slice(0, 20).map((f) => new Promise<TransferAttachment>((res) => {
       const r = new FileReader();
-      r.onload = () => res({ id: nanoid(8), name: f.name, type: f.type || "application/octet-stream", url: String(r.result), size: f.size, at: new Date().toISOString(), by: employee?.id ?? null });
+      r.onload = () => res({ id: nanoid(8), name: f.name, type: f.type || "application/octet-stream", url: String(r.result), size: f.size, at: new Date().toISOString(), by: employee?.id ?? null, stage: detail.status });
       r.readAsDataURL(f);
     })));
     const ok = read.filter((a) => a.size <= 8 * 1024 * 1024);
@@ -398,7 +410,7 @@ export default function AdminTransfersPage() {
             {evidenceGroups.length ? (
               <div className="space-y-2">
                 {evidenceGroups.map(({ tr, atts }) => (
-                  <button key={tr.id} onClick={() => setEvidenceTr(tr)} className="w-full flex items-center gap-3 rounded-xl border border-line p-2.5 hover:border-brand/40 hover:bg-brand/5 transition-all text-left">
+                  <button key={tr.id} onClick={() => openEvidence(tr)} className="w-full flex items-center gap-3 rounded-xl border border-line p-2.5 hover:border-brand/40 hover:bg-brand/5 transition-all text-left">
                     <div className="flex -space-x-2 shrink-0">
                       {atts.slice(0, 4).map((a) => (
                         <div key={a.id} className="w-14 h-14 rounded-lg border-2 border-surface bg-surface2 overflow-hidden grid place-items-center">
@@ -466,21 +478,49 @@ export default function AdminTransfersPage() {
       <Drawer open={Boolean(evidenceTr)} onClose={() => setEvidenceTr(null)} width="lg"
         title={evidenceTr ? <span className="inline-flex items-center gap-1.5"><FileText size={16} className="text-brand" /> {L("หลักฐาน", "Evidence", "凭证")} · <span className="font-mono">{evidenceTr.transfer_no}</span></span> : ""}
         subtitle={evidenceTr ? `${bName(evidenceTr.from_branch_id)} → ${bName(evidenceTr.to_branch_id)} · ${evidenceTr.attachments?.length ?? 0} ${L("ไฟล์", "files", "个")}` : ""}>
-        <div className="p-4 space-y-3">
-          {(evidenceTr?.attachments ?? []).map((a) => (
-            <div key={a.id} className="rounded-xl border border-line overflow-hidden bg-surface">
-              {a.type?.startsWith("image/") ? <img src={a.url} alt={a.name} className="w-full max-h-[62vh] object-contain bg-surface2" /> : <div className="h-40 grid place-items-center bg-surface2"><FileText size={44} className="text-muted/40" /></div>}
-              <div className="flex items-center justify-between gap-2 p-3">
-                <div className="min-w-0"><p className="text-sm font-medium truncate">{a.name}</p><p className="text-[11px] text-muted">{empName(a.by)} · {dtShort(a.at)}{a.size ? ` · ${(a.size / 1024).toFixed(0)} KB` : ""}</p></div>
-                <div className="flex gap-1.5 shrink-0">
-                  <a href={a.url} target="_blank" rel="noopener noreferrer" className="h-8 px-2.5 rounded-lg border border-line text-xs text-muted hover:text-brand hover:border-brand/40 inline-flex items-center gap-1"><ExternalLink size={13} /> {L("เปิด", "Open", "打开")}</a>
-                  <button onClick={() => downloadAtt(a)} className="h-8 px-2.5 rounded-lg border border-brand/40 text-brand text-xs font-medium hover:bg-brand/10 inline-flex items-center gap-1"><Download size={13} /> {L("ดาวน์โหลด", "Download", "下载")}</button>
+        {(() => {
+          const atts = evidenceTr?.attachments ?? [];
+          if (!atts.length) return <div className="p-8 text-center text-sm text-muted">{L("ไม่มีไฟล์แนบ", "No files", "无附件")}</div>;
+          const i = Math.min(evIdx, atts.length - 1); const a = atts[i];
+          const go = (d: number) => setEvIdx((i + d + atts.length) % atts.length);
+          return (
+            <div className="p-4 space-y-3">
+              {/* รูปใหญ่ + เลื่อนซ้าย-ขวา */}
+              <div className="relative rounded-xl border border-line bg-surface2 overflow-hidden select-none">
+                {a.type?.startsWith("image/") ? <img src={a.url} alt={a.name} className="w-full max-h-[56vh] object-contain" /> : <div className="h-56 grid place-items-center"><FileText size={52} className="text-muted/40" /></div>}
+                {atts.length > 1 ? <>
+                  <button onClick={() => go(-1)} className="absolute left-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/45 text-white grid place-items-center hover:bg-black/70 transition-colors"><ChevronLeft size={18} /></button>
+                  <button onClick={() => go(1)} className="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/45 text-white grid place-items-center hover:bg-black/70 transition-colors"><ChevronRight size={18} /></button>
+                  <span className="absolute bottom-2 right-2 text-[11px] bg-black/60 text-white px-2 py-0.5 rounded-full tabular-nums">{i + 1}/{atts.length}</span>
+                </> : null}
+              </div>
+              {/* ข้อมูลรูป: มาจากฟอร์มไหน + ผู้แนบ + ปุ่ม */}
+              <div className="rounded-xl border border-line p-3 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-medium truncate">{a.name}</p>
+                  <div className="flex gap-1.5 shrink-0">
+                    <a href={a.url} target="_blank" rel="noopener noreferrer" className="h-8 px-2.5 rounded-lg border border-line text-xs text-muted hover:text-brand hover:border-brand/40 inline-flex items-center gap-1"><ExternalLink size={13} /> {L("เปิด", "Open", "打开")}</a>
+                    <button onClick={() => downloadAtt(a)} className="h-8 px-2.5 rounded-lg border border-brand/40 text-brand text-xs font-medium hover:bg-brand/10 inline-flex items-center gap-1"><Download size={13} /> {L("ดาวน์โหลด", "Download", "下载")}</button>
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge tone="brand">{L("มาจาก", "From", "来自")}: {stageLabel(a.stage)}</Badge>
+                  <span className="text-[11px] text-muted">{empName(a.by)} · {dtShort(a.at)}{a.size ? ` · ${(a.size / 1024).toFixed(0)} KB` : ""}</span>
                 </div>
               </div>
+              {/* แถบ thumbnail เลื่อนเลือก */}
+              {atts.length > 1 ? (
+                <div className="flex gap-2 overflow-x-auto pb-1">
+                  {atts.map((t, ti) => (
+                    <button key={t.id} onClick={() => setEvIdx(ti)} className={`w-16 h-16 rounded-lg border-2 overflow-hidden shrink-0 transition-all ${ti === i ? "border-brand" : "border-line opacity-60 hover:opacity-100"}`}>
+                      {t.type?.startsWith("image/") ? <img src={t.url} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full grid place-items-center bg-surface2"><FileText size={16} className="text-muted/40" /></div>}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
             </div>
-          ))}
-          {!(evidenceTr?.attachments?.length) ? <div className="p-8 text-center text-sm text-muted">{L("ไม่มีไฟล์แนบ", "No files", "无附件")}</div> : null}
-        </div>
+          );
+        })()}
       </Drawer>
 
       {/* detail drawer (monitor + approve) */}
