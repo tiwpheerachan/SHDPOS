@@ -43,6 +43,7 @@ export default function AdminTransfersPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [list, setList] = useState<Transfer[]>([]);
   const [bucket, setBucket] = useState<"mine" | "overdue" | "active" | "issue" | "done" | "all">("active");
+  const [showEvidence, setShowEvidence] = useState(false); // คลังหลักฐานกลาง
   const [detail, setDetail] = useState<Transfer | null>(null);
   const [tab, setTab] = useState<Tab>("overview");
   const [timeline, setTimeline] = useState<AuditEntry[]>([]);
@@ -170,6 +171,9 @@ export default function AdminTransfersPage() {
     .filter((x) => allowed.includes(x.from_branch_id) || allowed.includes(x.to_branch_id))
     .filter((x) => bucket === "all" ? true : bucket === "mine" ? needsMyAction(x) : bucket === "overdue" ? !!overdueInfo(x)?.over : bucket === "active" ? isActive(x.status) : bucket === "issue" ? isIssue(x.status) : x.status === "completed"),
     [list, allowed, bucket]); // eslint-disable-line react-hooks/exhaustive-deps
+  // คลังหลักฐานกลาง: รวมไฟล์แนบทุกใบในมุมมอง + หาใบที่ยังไม่มีหลักฐาน
+  const evidenceItems = useMemo(() => visible.flatMap((tr) => (tr.attachments ?? []).map((a) => ({ tr, a }))).sort((x, y) => (x.a.at < y.a.at ? 1 : -1)), [visible]);
+  const noEvidence = useMemo(() => visible.filter((tr) => !(tr.attachments?.length) && !["draft", "rejected", "cancelled"].includes(tr.status)), [visible]);
 
   // เพิ่มสินค้าเข้าบิล (รวม line เดิมถ้ามี; serialized + มี SN → แนบ SN กันซ้ำ)
   function addLine(productId: string, sn?: string) {
@@ -377,10 +381,44 @@ export default function AdminTransfersPage() {
             </button>
           ))}
         </div>
+        <Button variant={showEvidence ? "primary" : "ghost"} className="h-9" onClick={() => setShowEvidence((v) => !v)} title={L("หลักฐานส่ง-รับกลาง", "Central evidence", "凭证")}><FileText size={15} /> {L("หลักฐาน", "Evidence", "凭证")}{evidenceItems.length ? <span className="ml-1 text-[11px] opacity-80">({evidenceItems.length})</span> : null}</Button>
         {can(employee, "transfer.request") ? <Button variant="ghost" className="h-9" onClick={() => openRequest()}><Boxes size={15} /> {L("ขอสินค้าเข้า", "Request stock", "申请调入")}</Button> : null}
         {can(employee, "transfer.request") ? <Button variant="primary" className="h-9" onClick={() => setOpen(true)}><Plus size={15} /> {t.transfer.request}</Button> : null}
       </div>
 
+      {showEvidence ? (
+        <Card>
+          <div className="p-4 space-y-4">
+            <div className="flex items-center gap-2 text-sm font-semibold"><FileText size={16} className="text-brand" /> {L("หลักฐานส่ง-รับ (รวมทุกใบในมุมมอง)", "Send-receive evidence (all in view)", "收发凭证")}<span className="text-muted font-normal">· {evidenceItems.length} {L("ไฟล์", "files", "个")}</span></div>
+            {evidenceItems.length ? (
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+                {evidenceItems.slice(0, 120).map(({ tr, a }) => (
+                  <button key={a.id} onClick={() => openDoc(tr)} className="text-left rounded-xl border border-line overflow-hidden hover:border-brand/40 hover:shadow-sm transition-all group">
+                    <div className="aspect-[4/3] bg-surface2 grid place-items-center overflow-hidden">
+                      {a.type?.startsWith("image/") ? <img src={a.url} alt={a.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" /> : <FileText size={28} className="text-muted/40" />}
+                    </div>
+                    <div className="p-2">
+                      <p className="text-[11px] font-mono text-brand truncate">{tr.transfer_no}</p>
+                      <p className="text-[10px] text-muted truncate">{a.name}</p>
+                      <p className="text-[10px] text-muted/70 truncate">{empName(a.by)} · {dtShort(a.at)}</p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            ) : <div className="rounded-xl border border-dashed border-line p-8 text-center text-sm text-muted">{L("ยังไม่มีไฟล์แนบในใบที่กรองอยู่", "No attachments in current view", "无附件")}</div>}
+            {noEvidence.length ? (
+              <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-3">
+                <p className="text-xs font-medium text-amber-700 mb-1.5 inline-flex items-center gap-1.5"><CircleAlert size={13} /> {L("ใบที่ยังไม่มีหลักฐาน", "Transfers missing evidence", "缺凭证")} ({noEvidence.length})</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {noEvidence.slice(0, 30).map((tr) => (
+                    <button key={tr.id} onClick={() => openDoc(tr)} className="text-[11px] font-mono px-2 py-1 rounded-lg border border-line bg-surface hover:border-brand hover:text-brand transition-colors">{tr.transfer_no}</button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </Card>
+      ) : (
       <Card>
         {visible.length ? (
           <Table>
@@ -412,6 +450,7 @@ export default function AdminTransfersPage() {
           </Table>
         ) : <EmptyState icon={<ArrowLeftRight size={26} />} title={t.common.empty} body={L("สร้างใบโอนย้ายเพื่อย้ายสินค้าระหว่างสาขา/คลัง", "Create a transfer to move stock", "创建调货单")} />}
       </Card>
+      )}
 
       {/* detail drawer (monitor + approve) */}
       <Drawer open={Boolean(detail)} onClose={closeDoc} width="lg"
