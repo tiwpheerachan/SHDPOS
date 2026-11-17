@@ -97,7 +97,7 @@ export function ApprovalRules({ brands, branches, employees, meId, L }: {
               <h2 className="text-base font-semibold">{L("สายอนุมัติ · โอนย้ายสินค้า", "Approval line · Stock transfer", "审批线 · 调货")}</h2>
               <Badge tone="brand">{L("1 กระบวนการ", "1 process", "1流程")}</Badge>
             </div>
-            <p className="text-xs text-muted mt-0.5 flex items-start gap-1.5"><Info size={13} className="mt-0.5 shrink-0" /> {L("ตั้งว่าใครกดอนุมัติใบโอนของสาขาต้นทางได้ · ตามแบรนด์ = ครอบทุกสาขาของแบรนด์ · ตามสาขา = เฉพาะสาขานั้น (ตั้งทับแบรนด์ได้) · ถ้าไม่ตั้ง ใช้สิทธิ์เดิม (ใครมีสิทธิ์อนุมัติก็อนุมัติได้)", "Who can approve a transfer from the source branch. Brand = all its branches; Branch = that branch (can override brand). If unset, permission-based.", "设置谁可审批调出单。")}</p>
+            <p className="text-xs text-muted mt-0.5 flex items-start gap-1.5"><Info size={13} className="mt-0.5 shrink-0" /> {L("ตั้งว่าใครกดอนุมัติใบโอนของสาขาต้นทางได้ · ตามแบรนด์ = ครอบทุกสาขาของแบรนด์ · ตามสาขา = เฉพาะสาขานั้น (ตั้งทับแบรนด์ได้) · ถ้าไม่ตั้ง ใช้สิทธิ์เดิม · เจ้าของกิจการ/ผู้ดูแลสูงสุด อนุมัติได้ทุกใบเสมอ", "Who can approve a transfer from the source branch. Brand = all branches; Branch = that branch (can override brand). If unset, permission-based. Owner/superadmin can always approve.", "设置谁可审批调出单。老板/超管始终可审批。")}</p>
           </div>
         </div>
         <div className="mt-3 inline-flex rounded-xl border border-line p-1 bg-surface2">

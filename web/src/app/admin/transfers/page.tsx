@@ -23,7 +23,7 @@ import { SerialScanDrawer } from "@/components/admin/serial-scan-drawer";
 import { printTransferCO } from "@/lib/transfer/print-co";
 import type { Branch, Product, Transfer, TransferStatus, TransferAttachment, AuditEntry, Employee, StockLevel } from "@/lib/types";
 import { Button, Card, Input, Field, Select, Table, Th, Td, Badge, EmptyState, Drawer, DrawerTabs, DetailRow, Avatar } from "@/components/ui";
-import { can, visibleBranchIds, ROLE_LABEL } from "@/lib/permissions";
+import { can, visibleBranchIds, ROLE_LABEL, isSuperadmin } from "@/lib/permissions";
 
 type Tab = "overview" | "timeline";
 type ShipStage = NonNullable<Transfer["ship_stage"]>;
@@ -227,7 +227,7 @@ export default function AdminTransfersPage() {
       if (!ls.length) { toast.push({ tone: "warn", title: L("เพิ่มสินค้า/สแกน SN อย่างน้อย 1 ชิ้น", "Add at least 1 item / scan a SN", "至少添加/扫描 1 件") }); return; }
       // auto-approve ถ้าผู้สร้างมีสิทธิ์อนุมัติ หรือเป็นคนในสายอนุมัติที่ตั้งไว้ของสาขาต้นทาง
       const cfg = resolveApprovers(rules, { process: "transfer", branchId: from, brandId: branches.find((b) => b.id === from)?.brand_id ?? null });
-      const auto = cfg ? cfg.includes(employee.id) : can(employee, "transfer.approve");
+      const auto = isSuperApprover(employee) || (cfg ? cfg.includes(employee.id) : can(employee, "transfer.approve"));
       await owCreate(from, to, employee.id, ls, note, auto);
       setOpen(false); setLines([]); setNote(""); await reload();
       toast.push({ tone: "ok", title: t.transfer.title });
@@ -263,6 +263,8 @@ export default function AdminTransfersPage() {
   };
   const empLabel = (e: Employee | null) => (e ? (e.nickname || [e.first_name, e.last_name].filter(Boolean).join(" ") || e.employee_code) : "—");
   const empName = (id?: string | null) => empLabel(actorEmp(id));
+  // เจ้าของกิจการ/ผู้ดูแลสูงสุด = อนุมัติได้ทุกใบเสมอ (แม้ไม่อยู่ในสายอนุมัติ)
+  const isSuperApprover = (e: Employee | null) => !!e && (e.role === "owner" || isSuperadmin(e.email));
   // สายอนุมัติที่ตั้งไว้สำหรับใบนี้ (ตามสาขาต้นทาง + แบรนด์ของสาขา) — null = ไม่ได้ตั้ง → ใช้สิทธิ์เดิม
   const brandOfBranch = (branchId: string) => branches.find((b) => b.id === branchId)?.brand_id ?? null;
   const ruleApproverIds = (tr: Transfer): string[] | null => resolveApprovers(rules, { process: "transfer", branchId: tr.from_branch_id, brandId: brandOfBranch(tr.from_branch_id) });
@@ -270,8 +272,9 @@ export default function AdminTransfersPage() {
   const eligibleApprovers = (tr: Transfer) => {
     const configured = ruleApproverIds(tr);
     if (configured) {
+      // รายชื่อที่ตั้งไว้ + เจ้าของ/ผู้ดูแลสูงสุด (อนุมัติได้เสมอ)
       return employees
-        .filter((e) => e.status === "active" && configured.includes(e.id))
+        .filter((e) => e.status === "active" && (configured.includes(e.id) || isSuperApprover(e)))
         .map((e) => ({ e, primary: e.home_branch_id === tr.from_branch_id }))
         .sort((a, b) => Number(b.primary) - Number(a.primary));
     }
@@ -291,6 +294,7 @@ export default function AdminTransfersPage() {
   // อนุมัติได้ไหม: ถ้าตั้งสายอนุมัติไว้ → ต้องเป็นคนในรายชื่อ (รายชื่อคือการให้สิทธิ์ ไม่ต้องเช็ค scope เดิม) · ถ้าไม่ตั้ง → สิทธิ์เดิม
   const canApprove = (tr: Transfer) => {
     if (tr.status !== "pending_approval" || !employee) return false;
+    if (isSuperApprover(employee)) return true; // เจ้าของ/ผู้ดูแลสูงสุด = อนุมัติได้ทุกใบ
     const configured = ruleApproverIds(tr);
     if (configured) return configured.includes(employee.id);
     return can(employee, "transfer.approve") && atSource(tr);
