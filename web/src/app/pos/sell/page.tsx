@@ -584,7 +584,7 @@ export default function SellPage() {
                         <span className="absolute top-1.5 left-1.5 text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-brand text-brandInk inline-flex items-center gap-0.5 shadow-sm"><Tag size={8} />{L("โปร", "Promo", "促销")}</span>
                       )}
                       {out ? (
-                        <span className="absolute top-1.5 right-1.5 text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-danger text-white tnum shadow-sm">{qty < 0 ? qty : L("หมด", "Out", "缺货")}</span>
+                        <span className="absolute top-1.5 right-1.5 text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-danger text-white tnum shadow-sm">{L("หมด", "Out", "缺货")}</span>
                       ) : low ? (
                         <span className="absolute top-1.5 right-1.5 text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-warn text-white tnum shadow-sm inline-flex items-center gap-0.5"><AlertTriangle size={8} />{qty}</span>
                       ) : null}
