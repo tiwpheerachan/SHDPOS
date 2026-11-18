@@ -325,6 +325,17 @@ export async function adjustOtwo(branchId: string, productId: string, delta: num
   await db().stock.update(key, { qty_otwo: Math.max(0, round2((row.qty_otwo ?? 0) + delta)) });
 }
 
+/** ปรับ Quarantine (ของชำรุด/SN ผิด พักตรวจ — ขายไม่ได้) · delta บวก=พักเพิ่ม, ลบ=ปล่อย/ตัดออก */
+export async function quarantineStock(branchId: string, productId: string, delta: number): Promise<void> {
+  const key = stockKey(branchId, productId);
+  const row = await db().stock.get(key);
+  if (!row) {
+    if (delta > 0) await db().stock.put({ key, branch_id: branchId, product_id: productId, qty_on_hand: 0, qty_reserved: 0, qty_quarantine: delta, reorder_point: 0 });
+    return;
+  }
+  await db().stock.update(key, { qty_quarantine: Math.max(0, round2((row.qty_quarantine ?? 0) + delta)) });
+}
+
 /** ปรับ Reserved Order (จองตาม order/พักบิล ที่ยังไม่สแกนออก) */
 export async function reserveOrderStock(branchId: string, productId: string, delta: number): Promise<void> {
   const key = stockKey(branchId, productId);
@@ -567,10 +578,16 @@ export async function closeTransferShort(tr: Transfer, employeeId: string, note?
   return next;
 }
 
-/** บันทึกผลต่าง (ชำรุด/หาย/ผิด SN/ขาด/เกิน) + ผู้รับผิดชอบ */
+/** บันทึกผลต่าง (ชำรุด/หาย/ผิด SN/ขาด/เกิน) + ผู้รับผิดชอบ · ชำรุด/SN ผิด → พักตรวจ (quarantine) ที่ปลายทาง ขายไม่ได้ */
 export async function recordDiscrepancy(tr: Transfer, employeeId: string, disc: Omit<TransferDiscrepancy, "id" | "status" | "at" | "by">): Promise<Transfer> {
   const d: TransferDiscrepancy = { ...disc, id: nanoid(8), status: "open", at: new Date().toISOString(), by: employeeId };
-  return writeTransfer(tr, { discrepancies: [...(tr.discrepancies ?? []), d] }, employeeId, tr.to_branch_id, { discrepancy: d.kind });
+  const next = await txTransfer(async () => {
+    const fresh = await freshOrThrow(tr);
+    if ((d.kind === "damaged" || d.kind === "wrong_sn") && d.qty > 0) await quarantineStock(fresh.to_branch_id, d.product_id, d.qty);
+    return putTransferTx(fresh, { discrepancies: [...(fresh.discrepancies ?? []), d] });
+  });
+  await auditTransfer(next, employeeId, next.to_branch_id, { discrepancy: d.kind });
+  return next;
 }
 
 /** ขออนุมัติปิดผลต่าง (รอตรวจสอบ → รออนุมัติ) + บันทึกวิธีจัดการยอด/เหตุผล */
@@ -580,22 +597,31 @@ export async function requestResolveDiscrepancy(tr: Transfer, discId: string, em
   return writeTransfer(tr, { discrepancies }, employeeId, tr.to_branch_id, { request_resolve_discrepancy: discId });
 }
 
-/** ปิดเรื่องผลต่าง (หัวหน้าอนุมัติปิด → แก้ไขแล้ว) — ตัดยอดจริงตอนนี้ (ข้อ 6) · atomic */
-export async function resolveDiscrepancy(tr: Transfer, discId: string, employeeId: string): Promise<Transfer> {
+/**
+ * ปิดเรื่องผลต่าง (หัวหน้าอนุมัติปิด → แก้ไขแล้ว) — ตัดยอดจริงตอนนี้ (ข้อ 6) · atomic
+ *   short/lost → เขียนออกจาก in-transit ต้นทาง (ตัด OTWO + คืน Reserved Out)
+ *   damaged/wrong_sn (พักตรวจอยู่ปลายทาง) → outcome: "release"=ผ่านตรวจ คืนขาย · "dispose"=ตัดทิ้ง (ออกจาก on_hand)
+ */
+export async function resolveDiscrepancy(tr: Transfer, discId: string, employeeId: string, outcome: "release" | "dispose" = "dispose"): Promise<Transfer> {
   const now = new Date().toISOString();
   const next = await txTransfer(async () => {
     const fresh = await freshOrThrow(tr);
     const disc = (fresh.discrepancies ?? []).find((d) => d.id === discId);
     if (!disc) throw new Error("transfer_not_found");
-    // ของขาด/สูญหาย = เขียนออกจาก in-transit ต้นทางตอนอนุมัติ (ตัด OTWO + คืน Reserved Out ที่ค้าง)
-    if (disc.status !== "resolved" && (disc.kind === "short" || disc.kind === "lost") && fresh.from_kind !== "warehouse") {
-      await adjustOtwo(fresh.from_branch_id, disc.product_id, -disc.qty);
-      await reserveStock(fresh.from_branch_id, disc.product_id, -disc.qty);
+    if (disc.status !== "resolved") {
+      if ((disc.kind === "short" || disc.kind === "lost") && fresh.from_kind !== "warehouse") {
+        await adjustOtwo(fresh.from_branch_id, disc.product_id, -disc.qty);
+        await reserveStock(fresh.from_branch_id, disc.product_id, -disc.qty);
+      } else if (disc.kind === "damaged" || disc.kind === "wrong_sn") {
+        // ปล่อยจาก quarantine ปลายทาง · ถ้า dispose ตัดออกจาก on_hand ด้วย (ของเสียทิ้ง)
+        await quarantineStock(fresh.to_branch_id, disc.product_id, -disc.qty);
+        if (outcome === "dispose") await adjustStock(fresh.to_branch_id, disc.product_id, -disc.qty);
+      }
     }
-    const discrepancies = (fresh.discrepancies ?? []).map((d) => d.id === discId ? { ...d, status: "resolved" as const, resolved_by: employeeId, resolved_at: now } : d);
+    const discrepancies = (fresh.discrepancies ?? []).map((d) => d.id === discId ? { ...d, status: "resolved" as const, resolved_by: employeeId, resolved_at: now, resolution_note: outcome === "release" ? "คืนขาย (ผ่านตรวจ)" : (d.resolution_note ?? null) } : d);
     return putTransferTx(fresh, { discrepancies });
   });
-  await auditTransfer(next, employeeId, next.to_branch_id, { resolved_discrepancy: discId });
+  await auditTransfer(next, employeeId, next.to_branch_id, { resolved_discrepancy: discId, outcome });
   return next;
 }
 

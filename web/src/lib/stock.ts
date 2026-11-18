@@ -12,8 +12,9 @@ export interface StockView {
   otwo: number;          // On the Way Out (สแกนออกแล้ว ยังไม่ถึงปลายทาง)
   reservedOut: number;   // จองเพื่อโอนออก (CO OUT)
   reservedOrder: number; // จองตาม order/พักบิล
+  quarantine: number;    // พักตรวจ (ชำรุด/SN ผิด) — ขายไม่ได้
   stock: number;         // On Hand + OTWO
-  available: number;     // Stock − ReservedOut − ReservedOrder
+  available: number;     // Stock − ReservedOut − ReservedOrder − Quarantine
 }
 
 export function stockView(row?: Partial<StockLevel> | null): StockView {
@@ -21,9 +22,10 @@ export function stockView(row?: Partial<StockLevel> | null): StockView {
   const otwo = row?.qty_otwo ?? 0;
   const reservedOut = row?.qty_reserved ?? 0;
   const reservedOrder = row?.qty_reserved_order ?? 0;
+  const quarantine = row?.qty_quarantine ?? 0;
   const stock = onHand + otwo;
-  const available = stock - reservedOut - reservedOrder;
-  return { onHand, otwo, reservedOut, reservedOrder, stock, available };
+  const available = stock - reservedOut - reservedOrder - quarantine;
+  return { onHand, otwo, reservedOut, reservedOrder, quarantine, stock, available };
 }
 
 /** Available อย่างเดียว (ใช้ตอนตัดขาย/เช็คของพอขายไหม) */

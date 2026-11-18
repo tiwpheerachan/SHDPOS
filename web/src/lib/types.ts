@@ -148,6 +148,8 @@ export interface StockLevel {
   qty_otwo?: number;
   /** Reserved Order — จองตาม order/พักบิล ที่ยังไม่สแกนออก */
   qty_reserved_order?: number;
+  /** Quarantine — ของที่รับมาแต่ชำรุด/SN ผิด พักตรวจ ขายไม่ได้ (อยู่ใน on_hand แต่กันออกจาก Available) */
+  qty_quarantine?: number;
   reorder_point: number;
   /** วันที่สต๊อกล็อตล่าสุดเข้าคลัง — ใช้คำนวณ "อายุสต๊อก" (เข้ามากี่วันแล้ว) */
   last_in_at?: string | null;
