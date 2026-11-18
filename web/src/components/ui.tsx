@@ -90,7 +90,7 @@ export function Badge({
   children,
   className,
 }: {
-  tone?: "neutral" | "ok" | "warn" | "danger" | "info" | "brand";
+  tone?: "neutral" | "ok" | "warn" | "danger" | "info" | "brand" | "teal";
   children: React.ReactNode;
   className?: string;
 }) {
@@ -101,6 +101,7 @@ export function Badge({
     danger: "bg-danger/10 text-danger border-danger/25",
     info: "bg-info/10 text-info border-info/25",
     brand: "bg-brand/10 text-brand border-brand/25",
+    teal: "bg-teal-500/10 text-teal-600 border-teal-500/30 dark:text-teal-300",
   };
   return (
     <span className={clsx("inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium", tones[tone], className)}>

@@ -3,7 +3,7 @@ import type { TransferStatus } from "@/lib/types";
 import type { OwStatus } from "./types";
 
 type Locale = "th" | "en" | "zh";
-type Tone = "neutral" | "ok" | "warn" | "danger" | "info" | "brand";
+type Tone = "neutral" | "ok" | "warn" | "danger" | "info" | "brand" | "teal";
 
 /** UI → สัญญา OneWarehouse (ใช้ตอนต่อ REST จริง) */
 export const TO_OW: Record<TransferStatus, OwStatus> = {
@@ -34,7 +34,7 @@ export const isDone = (s: TransferStatus) => s === "completed";
 
 const META: Record<TransferStatus, { tone: Tone; th: string; en: string; zh: string }> = {
   draft: { tone: "neutral", th: "ร่าง", en: "Draft", zh: "草稿" },
-  pending_approval: { tone: "warn", th: "รออนุมัติ", en: "Pending approval", zh: "待审批" },
+  pending_approval: { tone: "teal", th: "รออนุมัติ", en: "Pending approval", zh: "待审批" },
   approved: { tone: "info", th: "อนุมัติแล้ว", en: "Approved", zh: "已批准" },
   picking: { tone: "info", th: "กำลังจัดของ", en: "Picking", zh: "拣货中" },
   packed: { tone: "info", th: "แพ็ค/สแกนออกแล้ว", en: "Packed", zh: "已打包" },

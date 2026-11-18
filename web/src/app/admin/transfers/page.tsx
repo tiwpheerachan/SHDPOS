@@ -314,8 +314,8 @@ export default function AdminTransfersPage() {
   const prodImg = (pid: string) => products.find((p) => p.id === pid)?.image_url ?? null;
 
   // สถานะสต๊อก — ของนับเป็นอะไรตอนนี้ (ตามสเปกบัญชีสต๊อก Reserved Out → OTWO → On Hand)
-  const stockStatus = (s: TransferStatus): { label: string; tone: "warn" | "info" | "ok" | "neutral" } => {
-    if (["draft", "pending_approval", "approved", "picking"].includes(s)) return { label: L("จองออก (Reserved Out) · ยังอยู่ในสต๊อกต้นทาง", "Reserved Out · still source stock", "调出预留·仍在源库存"), tone: "warn" };
+  const stockStatus = (s: TransferStatus): { label: string; tone: "warn" | "info" | "ok" | "neutral" | "teal" } => {
+    if (["draft", "pending_approval", "approved", "picking"].includes(s)) return { label: L("จองออก (Reserved Out) · ยังอยู่ในสต๊อกต้นทาง", "Reserved Out · still source stock", "调出预留·仍在源库存"), tone: "teal" };
     if (["packed", "shipped", "in_transit"].includes(s)) return { label: L("กำลังส่งออก (On the Way Out) · ออกจากคลังต้นทางแล้ว ยังไม่ถึงปลายทาง", "On the Way Out · left source, not yet received", "在途出库"), tone: "info" };
     if (["completed", "received"].includes(s)) return { label: L("เข้าสต๊อกปลายทางแล้ว (On Hand)", "On Hand at destination", "已入目的地库存"), tone: "ok" };
     if (s === "partial_received") return { label: L("รับบางส่วน · ปรับสต๊อกตามที่รับจริง", "Partially received", "部分入库"), tone: "warn" };
@@ -404,9 +404,9 @@ export default function AdminTransfersPage() {
       <div className="flex items-center gap-3 flex-wrap">
         <h2 className="text-sm font-semibold flex items-center gap-2"><ArrowLeftRight size={16} className="text-brand" /> {t.transfer.title}</h2>
         <div className="flex gap-1.5 ml-auto">
-          <button onClick={() => setBucket("mine")} className={`text-xs px-3 py-1.5 rounded-full border transition-colors inline-flex items-center gap-1.5 ${bucket === "mine" ? "bg-brand text-white border-brand" : mineCount ? "border-amber-400/60 text-amber-600 bg-amber-500/5 hover:bg-amber-500/10" : "border-line text-muted hover:text-brand"}`}>
+          <button onClick={() => setBucket("mine")} className={`text-xs px-3 py-1.5 rounded-full border transition-colors inline-flex items-center gap-1.5 ${bucket === "mine" ? "bg-brand text-white border-brand" : mineCount ? "border-teal-400/60 text-teal-600 bg-teal-500/5 hover:bg-teal-500/10" : "border-line text-muted hover:text-brand"}`}>
             <Clock size={12} /> {L("รอฉันทำ", "My queue", "待我处理")}
-            {mineCount ? <span className={`min-w-[18px] h-[18px] px-1 grid place-items-center rounded-full text-[10px] font-bold ${bucket === "mine" ? "bg-white/25 text-white" : "bg-amber-500 text-white"}`}>{mineCount}</span> : null}
+            {mineCount ? <span className={`min-w-[18px] h-[18px] px-1 grid place-items-center rounded-full text-[10px] font-bold ${bucket === "mine" ? "bg-white/25 text-white" : "bg-teal-600 text-white"}`}>{mineCount}</span> : null}
           </button>
           {overdueCount ? (
             <button onClick={() => setBucket("overdue")} className={`text-xs px-3 py-1.5 rounded-full border transition-colors inline-flex items-center gap-1.5 ${bucket === "overdue" ? "bg-rose-600 text-white border-rose-600" : "border-rose-400/60 text-rose-600 bg-rose-500/5 hover:bg-rose-500/10"}`}>
@@ -539,8 +539,8 @@ export default function AdminTransfersPage() {
                         {steps.map((st, i) => {
                           const who = st.done ? actorEmp(st.by, st.kind, detail) : null;
                           return (
-                            <div key={i} className={`flex items-center gap-3 px-3.5 py-2.5 ${st.current && !dead ? "bg-amber-500/5" : ""}`}>
-                              <span className={`shrink-0 w-6 h-6 rounded-full grid place-items-center text-[11px] ${st.done ? "bg-emerald-500/15 text-emerald-600" : st.current && !dead ? "bg-amber-500/20 text-amber-600 ring-2 ring-amber-400/40" : "bg-line/40 text-muted/60"}`}>
+                            <div key={i} className={`flex items-center gap-3 px-3.5 py-2.5 ${st.current && !dead ? "bg-teal-500/5" : ""}`}>
+                              <span className={`shrink-0 w-6 h-6 rounded-full grid place-items-center text-[11px] ${st.done ? "bg-emerald-500/15 text-emerald-600" : st.current && !dead ? "bg-teal-500/20 text-teal-600 ring-2 ring-teal-400/40" : "bg-line/40 text-muted/60"}`}>
                                 {st.done ? <Check size={13} /> : i + 1}
                               </span>
                               {st.done && who ? <Avatar name={empLabel(who)} src={who.photo_url} size={30} /> : null}
@@ -549,12 +549,12 @@ export default function AdminTransfersPage() {
                                 {st.done ? (
                                   <p className="text-[11px] text-muted truncate">{L("โดย", "by", "由")} <span className="text-ink/80 font-medium">{empLabel(who)}</span>{st.at ? ` · ${dtShort(st.at)}` : ""}</p>
                                 ) : st.current && !dead ? (
-                                  <p className="text-[11px] text-amber-600 truncate">{L("รอ", "Waiting on", "待")}: {st.resp}</p>
+                                  <p className="text-[11px] text-teal-600 truncate">{L("รอ", "Waiting on", "待")}: {st.resp}</p>
                                 ) : (
                                   <p className="text-[11px] text-muted/50">{L("ยังไม่ถึงขั้นนี้", "Not yet", "未到")}</p>
                                 )}
                               </div>
-                              {st.current && !dead ? <Badge tone="warn">{L("ต้องทำต่อ", "Action due", "下一步")}</Badge> : null}
+                              {st.current && !dead ? <Badge tone="teal">{L("ต้องทำต่อ", "Action due", "下一步")}</Badge> : null}
                             </div>
                           );
                         })}
@@ -565,8 +565,8 @@ export default function AdminTransfersPage() {
                 })()}
                 {/* อนุมัติ: ผู้มีสิทธิ์ (รวมผู้สำรองเมื่อคนหลักไม่อยู่) + เหตุผล */}
                 {detail.status === "pending_approval" ? (
-                  <div className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-3 space-y-2.5">
-                    <p className="text-sm font-medium inline-flex items-center gap-1.5"><Clock size={14} className="text-amber-600" /> {L("รออนุมัติ (สาขาต้นทาง)", "Pending approval (source)", "待审批")}</p>
+                  <div className="rounded-2xl border border-teal-500/30 bg-teal-500/5 p-3 space-y-2.5">
+                    <p className="text-sm font-medium inline-flex items-center gap-1.5"><Clock size={14} className="text-teal-600" /> {L("รออนุมัติ (สาขาต้นทาง)", "Pending approval (source)", "待审批")}</p>
                     <div>
                       <p className="text-[11px] text-muted mb-1.5">{L("ผู้มีสิทธิ์อนุมัติ — สาขาต้นทาง + ผู้สำรอง", "Eligible approvers — source + backup", "可审批人 — 源店+备用")}</p>
                       <div className="flex flex-wrap gap-1.5">
@@ -685,21 +685,21 @@ export default function AdminTransfersPage() {
                   const canClose = canReceive(detail) && detail.status === "partial_received";
                   const canResolve = can(employee, "transfer.approve");
                   return (
-                    <div className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-3 space-y-2.5">
-                      <p className="text-sm font-medium inline-flex items-center gap-1.5"><CircleAlert size={14} className="text-amber-600" /> {L("ผลต่างการรับ", "Receipt discrepancy", "收货差异")}</p>
+                    <div className="rounded-2xl border border-teal-500/30 bg-teal-500/5 p-3 space-y-2.5">
+                      <p className="text-sm font-medium inline-flex items-center gap-1.5"><CircleAlert size={14} className="text-teal-600" /> {L("ผลต่างการรับ", "Receipt discrepancy", "收货差异")}</p>
                       {diffs.map((d) => (
                         <div key={d.pid} className="text-xs flex items-center justify-between gap-2">
                           <span className="truncate flex-1">{pName(d.pid)}</span>
-                          <span className={`shrink-0 ${d.diff < 0 ? "text-rose-600 font-medium" : "text-amber-600 font-medium"}`}>{L("ส่ง", "ship", "发")} {d.target} · {L("รับ", "recv", "收")} {d.recv} · {d.diff < 0 ? `${L("ขาด", "short", "缺")} ${-d.diff}` : `${L("เกิน", "over", "超")} ${d.diff}`}</span>
+                          <span className={`shrink-0 ${d.diff < 0 ? "text-rose-600 font-medium" : "text-teal-600 font-medium"}`}>{L("ส่ง", "ship", "发")} {d.target} · {L("รับ", "recv", "收")} {d.recv} · {d.diff < 0 ? `${L("ขาด", "short", "缺")} ${-d.diff}` : `${L("เกิน", "over", "超")} ${d.diff}`}</span>
                         </div>
                       ))}
                       {canClose ? <Button variant="ghost" className="w-full" loading={busy} onClick={() => doCloseShort(detail)}><CircleAlert size={14} /> {L("ปิดรับ (ยอมรับส่วนขาด + บันทึกผลต่าง)", "Close with shortage", "结单·接受缺量")}</Button> : null}
                       {discs.length ? (
-                        <div className="space-y-1.5 pt-2 border-t border-amber-500/20">
+                        <div className="space-y-1.5 pt-2 border-t border-teal-500/20">
                           {discs.map((dc) => (
                             <div key={dc.id} className="flex items-center justify-between gap-2 text-[11px]">
                               <span className="truncate flex-1"><b className="text-ink/80">{DISC_LABEL[dc.kind]}</b> · {pName(dc.product_id)} × {dc.qty}{dc.responsible_by ? ` · ${L("ผู้รับผิดชอบ", "resp.", "负责")} ${empName(dc.responsible_by)}` : ""}</span>
-                              {dc.status === "resolved" ? <Badge tone="ok">{L("ปิดแล้ว", "Resolved", "已关闭")}</Badge> : canResolve ? <button onClick={() => doResolveDisc(detail, dc.id)} className="shrink-0 text-brand hover:underline font-medium">{L("ปิดเรื่อง", "Resolve", "关闭")}</button> : <Badge tone="warn">{L("ค้าง", "Open", "待")}</Badge>}
+                              {dc.status === "resolved" ? <Badge tone="ok">{L("ปิดแล้ว", "Resolved", "已关闭")}</Badge> : canResolve ? <button onClick={() => doResolveDisc(detail, dc.id)} className="shrink-0 text-brand hover:underline font-medium">{L("ปิดเรื่อง", "Resolve", "关闭")}</button> : <Badge tone="teal">{L("ค้าง", "Open", "待")}</Badge>}
                             </div>
                           ))}
                         </div>
