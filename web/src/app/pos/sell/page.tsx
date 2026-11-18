@@ -701,11 +701,11 @@ export default function SellPage() {
 
           {/* คูปอง */}
           {cart.couponCode ? (
-            <div className="flex items-center gap-2 rounded-xl bg-violet-500/10 border border-violet-500/25 px-2.5 py-1.5">
-              <Ticket size={13} className="text-violet-600 dark:text-violet-300 shrink-0" />
-              <span className="font-mono text-xs font-bold text-violet-700 dark:text-violet-300">{cart.couponCode}</span>
-              <span className="text-[11px] text-muted">{L("ลด", "−", "减")} {formatTHB(cart.couponDiscount, false)}</span>
-              <button onClick={() => cart.clearCoupon()} className="ml-auto text-muted hover:text-danger"><X size={13} /></button>
+            <div className="flex items-center gap-2 rounded-xl bg-ink text-white px-2.5 py-1.5">
+              <Ticket size={13} className="shrink-0" />
+              <span className="font-mono text-xs font-bold">{cart.couponCode}</span>
+              <span className="text-[11px] text-white/70">{L("ลด", "−", "减")} {formatTHB(cart.couponDiscount, false)}</span>
+              <button onClick={() => cart.clearCoupon()} className="ml-auto text-white/60 hover:text-white"><X size={13} /></button>
             </div>
           ) : (
             <div className="space-y-1.5">
@@ -854,7 +854,7 @@ export default function SellPage() {
           </button>
           {totals.couponAmount > 0 && (
             <div className="flex justify-between text-xs">
-              <span className="text-muted flex items-center gap-1"><Ticket size={11} className="text-violet-500" /> {L("คูปอง", "Coupon", "优惠券")} {cart.couponCode}</span>
+              <span className="text-muted flex items-center gap-1"><Ticket size={11} className="text-ink" /> {L("คูปอง", "Coupon", "优惠券")} {cart.couponCode}</span>
               <span className="tnum text-danger">-{formatTHB(totals.couponAmount)}</span>
             </div>
           )}
@@ -1046,7 +1046,7 @@ export default function SellPage() {
 
       {/* เลือกแคมเปญส่วนลด (การ์ด) */}
       <Modal open={promoOpen} onClose={() => setPromoOpen(false)} title={L("เลือกแคมเปญส่วนลด", "Choose promotion", "选择优惠")} size="md">
-        <div className="grid grid-cols-2 gap-2.5">
+        <div className="space-y-2.5">
           {promos.map((p) => {
             const amt = promoDiscount(p, totals.subtotal);
             const ok = amt > 0;
@@ -1054,19 +1054,29 @@ export default function SellPage() {
             const img = prod?.image_url;
             return (
               <button key={p.id} onClick={() => applyPromo(p)} disabled={!ok}
-                className={`group text-left rounded-2xl bg-surface border border-line overflow-hidden transition-all ${ok ? "hover:-translate-y-0.5 hover:shadow-card hover:border-brand/30" : "opacity-55"}`}>
-                {/* รูปสินค้า (พื้นขาว) + discount pill */}
-                <div className="relative aspect-[5/4] bg-white grid place-items-center overflow-hidden">
-                  {img ? <img src={img} alt="" loading="lazy" className="w-full h-full object-contain p-3 transition-transform duration-500 group-hover:scale-[1.04]" /> : <Gift size={30} className="text-muted/30" />}
-                  <span className="absolute top-2 left-2 text-[11px] font-bold text-white px-2 py-0.5 rounded-full shadow-sm" style={{ background: p.color }}>{p.type === "percent" ? `−${p.value}%` : `−${formatTHB(p.value, false)}`}</span>
+                className={`group relative w-full flex items-stretch rounded-[18px] overflow-hidden text-left transition-all ${ok ? "hover:-translate-y-0.5 hover:shadow-card" : "opacity-55 grayscale"}`}
+                style={{ background: p.color }}>
+                {/* รอยปรุตั๋ว (วงกลมเว้าขอบบน-ล่าง) */}
+                <span aria-hidden className="absolute left-[92px] -top-2 w-4 h-4 rounded-full bg-surface" />
+                <span aria-hidden className="absolute left-[92px] -bottom-2 w-4 h-4 rounded-full bg-surface" />
+                {/* รูปสินค้า (แผงซ้าย) */}
+                <div className="w-[84px] shrink-0 grid place-items-center p-2.5 bg-white/15">
+                  {img ? <img src={img} alt="" loading="lazy" className="w-full h-full object-contain drop-shadow-md transition-transform duration-500 group-hover:scale-105" /> : <Gift size={26} className="text-white/70" />}
                 </div>
+                {/* เส้นปรุแนวตั้ง */}
+                <div aria-hidden className="self-stretch my-3 border-l-2 border-dashed border-white/45" />
                 {/* เนื้อหา */}
-                <div className="p-2.5">
-                  <p className="text-[12.5px] font-semibold leading-snug line-clamp-1">{p.name}</p>
-                  {p.desc ? <p className="text-[10.5px] text-muted leading-snug line-clamp-1 mt-0.5">{p.desc}</p> : null}
-                  <div className="flex items-end justify-between gap-1 mt-1.5">
-                    <span className="text-[10px] text-muted">{p.min_spend > 0 ? L(`ขั้นต่ำ ${formatTHB(p.min_spend, false)}`, `Min ${formatTHB(p.min_spend, false)}`, `满${formatTHB(p.min_spend, false)}`) : L("ไม่มีขั้นต่ำ", "No min", "无门槛")}</span>
-                    {ok ? <span className="text-sm font-bold tnum" style={{ color: p.color }}>−{formatTHB(amt, false)}</span> : <span className="text-[11px] text-danger font-medium">{L("ยอดไม่ถึง", "Below min", "未达")}</span>}
+                <div className="flex-1 min-w-0 p-3 text-white flex flex-col justify-center">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="font-bold text-[15px] leading-tight truncate">{p.name}</p>
+                      {p.desc ? <p className="text-[11px] text-white/75 leading-snug truncate">{p.desc}</p> : null}
+                    </div>
+                    <span className="shrink-0 text-lg font-extrabold tnum">{p.type === "percent" ? `−${p.value}%` : `−${formatTHB(p.value, false)}`}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2 mt-2">
+                    <span className="text-[10.5px] text-white/70">{p.min_spend > 0 ? L(`ขั้นต่ำ ${formatTHB(p.min_spend, false)}`, `Min ${formatTHB(p.min_spend, false)}`, `满${formatTHB(p.min_spend, false)}`) : L("ไม่มีขั้นต่ำ", "No minimum", "无门槛")}</span>
+                    <span className={`shrink-0 text-[11px] font-bold px-2.5 py-0.5 rounded-full ${ok ? "bg-white" : "bg-white/40 text-white"}`} style={ok ? { color: p.color } : undefined}>{ok ? `${L("ลด", "−", "减")} ${formatTHB(amt, false)}` : L("ยอดไม่ถึง", "Below min", "未达")}</span>
                   </div>
                 </div>
               </button>
