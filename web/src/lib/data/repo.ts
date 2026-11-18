@@ -1447,6 +1447,39 @@ export interface CouponResult {
   name?: string;
 }
 
+// ── แคมเปญส่วนลด (เลือกเป็นการ์ดบนหน้า POS — ไม่ต้องพิมพ์โค้ด) ──
+export interface PromoCampaign {
+  id: string;
+  code: string;
+  name: string;
+  desc?: string | null;
+  type: "percent" | "amount";
+  value: number;              // % หรือ บาท
+  min_spend: number;          // ยอดขั้นต่ำก่อนใช้
+  color: string;              // สีการ์ด
+  active: boolean;
+  until?: string | null;      // หมดเขต (ISO) — null = ไม่จำกัด
+}
+const DEMO_PROMOS: PromoCampaign[] = [
+  { id: "promo-10pct", code: "SAVE10", name: "ลด 10% ทั้งบิล", desc: "ลดทันที 10% ทุกชิ้น", type: "percent", value: 10, min_spend: 0, color: "#7950D8", active: true, until: null },
+  { id: "promo-member5", code: "MEMBER5", name: "สมาชิกลด 5%", desc: "เฉพาะลูกค้าสมาชิก", type: "percent", value: 5, min_spend: 0, color: "#2AA7B8", active: true, until: null },
+  { id: "promo-500off", code: "GET500", name: "ลด 500 เมื่อครบ 5,000", desc: "ซื้อครบ 5,000 ลด 500", type: "amount", value: 500, min_spend: 5000, color: "#E05A29", active: true, until: null },
+  { id: "promo-flash15", code: "FLASH15", name: "Flash Sale −15%", desc: "ครบ 3,000 ลด 15%", type: "percent", value: 15, min_spend: 3000, color: "#EC6B9D", active: true, until: null },
+  { id: "promo-200off", code: "CASH200", name: "ลด 200 บาท", desc: "ซื้อครบ 1,000 ลด 200", type: "amount", value: 200, min_spend: 1000, color: "#3BB98C", active: true, until: null },
+];
+/** แคมเปญส่วนลดที่เลือกได้ (local-first + seed demo) */
+export async function listPromoCampaigns(): Promise<PromoCampaign[]> {
+  const stored = await kvGet<PromoCampaign[]>("promo_campaigns", []);
+  if (stored.length) return stored.filter((p) => p.active);
+  await kvSet("promo_campaigns", DEMO_PROMOS);
+  return DEMO_PROMOS.filter((p) => p.active);
+}
+/** คำนวณส่วนลดจากแคมเปญตามยอดบิล */
+export function promoDiscount(p: PromoCampaign, subtotal: number): number {
+  if (subtotal < p.min_spend) return 0;
+  return p.type === "percent" ? round2((subtotal * p.value) / 100) : Math.min(p.value, subtotal);
+}
+
 /** ตรวจคูปองก่อนใช้ — live: RPC, demo/offline: ใช้ไม่ได้ */
 export async function validateCoupon(code: string, customerId: string | null, subtotal: number): Promise<CouponResult> {
   if (!code.trim()) return { valid: false, reason: "กรอกรหัสคูปอง" };

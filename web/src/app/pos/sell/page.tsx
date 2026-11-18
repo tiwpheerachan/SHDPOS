@@ -16,6 +16,7 @@ import {
   getBranch, holdBill, listHolds, removeHold, currentShift, validateCoupon,
   fetchActiveGiftCampaigns, fetchBrandWallet, listBrands, type GiftCampaign,
   listReservedOrders, deliverOrder, cancelReservedOrder, expireReservations,
+  listPromoCampaigns, promoDiscount, type PromoCampaign,
 } from "@/lib/data/repo";
 import { computeCampaignGifts, giftSig } from "@/lib/promo/gifts";
 import type { Branch, CartLine, Category, Employee, Order, Product, StockLevel, PaymentEntry } from "@/lib/types";
@@ -79,6 +80,8 @@ export default function SellPage() {
   const [customerOpen, setCustomerOpen] = useState(false);
   const [cartExpanded, setCartExpanded] = useState(false);
   const [brandLogo, setBrandLogo] = useState<string | null>(null);
+  const [promos, setPromos] = useState<PromoCampaign[]>([]);
+  const [promoOpen, setPromoOpen] = useState(false); // การ์ดเลือกแคมเปญส่วนลด
   const [couponInput, setCouponInput] = useState("");
   const [couponMsg, setCouponMsg] = useState<string | null>(null);
   const [couponChecking, setCouponChecking] = useState(false);
@@ -112,6 +115,7 @@ export default function SellPage() {
       setHolds(await listHolds(branchId));
       await expireReservations(branchId); // ปล่อยจองที่หมดอายุ
       setResvOrders(await listReservedOrders([branchId]));
+      setPromos(await listPromoCampaigns());
       if (!cart.defaultSalespersonId && employee) cart.setDefaultSalesperson(employee.id);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -367,6 +371,15 @@ export default function SellPage() {
     } finally {
       setCouponChecking(false);
     }
+  }
+
+  // ใช้แคมเปญส่วนลด (กดการ์ดเลือก)
+  function applyPromo(p: PromoCampaign) {
+    const amt = promoDiscount(p, totals.subtotal);
+    if (amt <= 0) { toast.push({ tone: "warn", title: L(`ยอดไม่ถึงขั้นต่ำ ${formatTHB(p.min_spend, false)}`, `Min spend ${formatTHB(p.min_spend, false)}`, `最低消费`) }); return; }
+    cart.setCoupon(p.code, amt, p.id);
+    setPromoOpen(false);
+    toast.push({ tone: "ok", title: L(`ใช้แคมเปญ: ${p.name}`, `Applied: ${p.name}`, p.name), body: `${L("ลด", "−", "减")} ${formatTHB(amt, false)}` });
   }
 
   // ------------------------------------------------------------------
@@ -695,7 +708,13 @@ export default function SellPage() {
               <button onClick={() => cart.clearCoupon()} className="ml-auto text-muted hover:text-danger"><X size={13} /></button>
             </div>
           ) : (
-            <div className="space-y-1">
+            <div className="space-y-1.5">
+              {/* เลือกแคมเปญส่วนลดเป็นการ์ด (พนักงานกดเลือกได้เลย) */}
+              {promos.length ? (
+                <button onClick={() => setPromoOpen(true)} className="w-full h-9 rounded-xl border border-brand/30 bg-brand/5 text-brand text-xs font-semibold inline-flex items-center justify-center gap-1.5 hover:bg-brand/10 transition-colors">
+                  <Gift size={14} /> {L("เลือกแคมเปญส่วนลด", "Choose promotion", "选择优惠")} <span className="text-[10px] font-normal opacity-70">({promos.length})</span>
+                </button>
+              ) : null}
               <div className="flex gap-1.5">
                 <div className="relative flex-1">
                   <Ticket size={13} className="absolute left-2.5 top-2.5 text-muted" />
@@ -703,7 +722,7 @@ export default function SellPage() {
                     value={couponInput}
                     onChange={(e) => { setCouponInput(e.target.value.toUpperCase()); setCouponMsg(null); }}
                     onKeyDown={(e) => { if (e.key === "Enter") void applyCoupon(); }}
-                    placeholder={L("รหัสคูปอง", "Coupon code", "优惠券码")}
+                    placeholder={L("หรือพิมพ์รหัสคูปอง", "Or type coupon code", "或输入优惠券码")}
                     className="w-full h-8 pl-7 pr-2 rounded-lg bg-surface2/60 border border-line outline-none text-xs font-mono uppercase focus:border-brand/40"
                   />
                 </div>
@@ -1023,6 +1042,36 @@ export default function SellPage() {
             })}
           </ul>
         ) : <EmptyState title={L("ไม่มีออเดอร์จอง", "No reserved orders", "无预留单")} />}
+      </Modal>
+
+      {/* เลือกแคมเปญส่วนลด (การ์ด) */}
+      <Modal open={promoOpen} onClose={() => setPromoOpen(false)} title={L("เลือกแคมเปญส่วนลด", "Choose promotion", "选择优惠")} size="md">
+        <div className="grid grid-cols-2 gap-2.5">
+          {promos.map((p) => {
+            const amt = promoDiscount(p, totals.subtotal);
+            const ok = amt > 0;
+            return (
+              <button key={p.id} onClick={() => applyPromo(p)} disabled={!ok}
+                className={`relative text-left rounded-2xl p-3 overflow-hidden transition-all ${ok ? "hover:-translate-y-0.5 hover:shadow-card" : "opacity-55"}`}
+                style={{ background: `linear-gradient(135deg, ${p.color}1a, ${p.color}0d)`, border: `1px solid ${p.color}40` }}>
+                <span aria-hidden className="absolute -right-6 -top-6 w-20 h-20 rounded-full blur-xl opacity-40" style={{ background: p.color }} />
+                <div className="relative">
+                  <div className="inline-flex items-center gap-1.5 text-white text-xs font-bold px-2 py-0.5 rounded-full shadow-sm" style={{ background: p.color }}>
+                    <Gift size={11} /> {p.type === "percent" ? `−${p.value}%` : `−${formatTHB(p.value, false)}`}
+                  </div>
+                  <p className="font-semibold text-sm mt-2 leading-snug">{p.name}</p>
+                  {p.desc ? <p className="text-[11px] text-muted mt-0.5 line-clamp-2">{p.desc}</p> : null}
+                  <div className="flex items-center justify-between mt-2 text-[11px]">
+                    <span className="text-muted">{p.min_spend > 0 ? L(`ขั้นต่ำ ${formatTHB(p.min_spend, false)}`, `Min ${formatTHB(p.min_spend, false)}`, `满${formatTHB(p.min_spend, false)}`) : L("ไม่มีขั้นต่ำ", "No minimum", "无门槛")}</span>
+                    {ok ? <span className="font-bold" style={{ color: p.color }}>{L("ลด", "−", "减")} {formatTHB(amt, false)}</span> : <span className="text-danger">{L("ยอดไม่ถึง", "Below min", "未达")}</span>}
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+        {!promos.length ? <EmptyState title={L("ยังไม่มีแคมเปญ", "No promotions", "无优惠")} /> : null}
+        <p className="text-[11px] text-muted mt-3 text-center">{L("ยอดบิลปัจจุบัน", "Current subtotal", "当前小计")} {formatTHB(totals.subtotal, false)}</p>
       </Modal>
 
       <CustomerPicker
