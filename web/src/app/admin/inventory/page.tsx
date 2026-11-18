@@ -188,6 +188,7 @@ export default function AdminInventoryPage() {
                 <Th align="right">{L("สต๊อกรวม", "Stock", "总库存")}</Th>
                 <Th align="right">{L("จอง(โอน)", "Reserved out", "调出预留")}</Th>
                 <Th align="right">{L("จอง(ออเดอร์)", "Reserved order", "订单预留")}</Th>
+                <Th align="right">{L("พักตรวจ", "Quarantine", "暂扣")}</Th>
                 <Th align="right">{L("พร้อมขาย", "Available", "可售")}</Th>
                 <Th align="right">{L("อายุสต๊อก", "Stock age", "库龄")}</Th>
                 <Th align="right">{t.inventory.reorder}</Th>
@@ -208,6 +209,7 @@ export default function AdminInventoryPage() {
                   <Td align="right" className="tnum text-xs font-medium">{r.sv.stock}</Td>
                   <Td align="right" className={`tnum text-xs ${r.sv.reservedOut ? "text-amber-600" : "text-muted"}`}>{r.sv.reservedOut || "—"}</Td>
                   <Td align="right" className={`tnum text-xs ${r.sv.reservedOrder ? "text-violet-600" : "text-muted"}`}>{r.sv.reservedOrder || "—"}</Td>
+                  <Td align="right" className={`tnum text-xs ${r.sv.quarantine ? "text-rose-600 font-medium" : "text-muted"}`}>{r.sv.quarantine || "—"}</Td>
                   <Td align="right" className={`font-semibold tnum ${r.out ? "text-danger" : r.low ? "text-warn" : "text-ok"}`}>{r.avail}</Td>
                   <Td align="right" className="text-xs">{(() => { const a = stockAge(r.s.last_in_at); return a ? <span className={`${a.tone} tnum`} title={`${L("เข้าคลังเมื่อ", "received", "入库")} ${a.dateLabel}`}>{a.days} {L("วัน", "d", "天")}</span> : <span className="text-muted/40">—</span>; })()}</Td>
                   <Td align="right" className="text-xs text-muted">{r.rp || "—"}</Td>
