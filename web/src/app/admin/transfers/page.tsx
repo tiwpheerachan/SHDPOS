@@ -369,7 +369,7 @@ export default function AdminTransfersPage() {
   // สแกนออก → packed
   const doScanOut = (tr: Transfer) => void act(() => owScanOut(tr, employee!.id, scanned), L("สแกนออกแล้ว", "Scanned out", "已扫描出库"));
   // จัดส่ง → in_transit
-  const doDispatch = (tr: Transfer) => void act(() => owDispatch(tr, employee!.id, { carrier: carrier || null }), L("จัดส่งแล้ว", "Dispatched", "已发货"));
+  const doDispatch = (tr: Transfer) => void act(() => owDispatch(tr, employee!.id, { carrier: carrier || null }), L("ยืนยันส่งมอบสินค้าแล้ว (ของออกจากคลัง)", "Handover confirmed (left warehouse)", "已确认交付"));
   // รับเข้า → completed/partial
   const doReceive = (tr: Transfer) => {
     const received: Record<string, { serials?: string[]; qty?: number }> = {};
@@ -510,7 +510,7 @@ export default function AdminTransfersPage() {
               ) : null}
               {canScanOut(detail) && detail.status === "packed" ? <>
                 <Select value={carrier} onChange={(e) => setCarrier(e.target.value)} className="h-10 w-36"><option value="">{L("ขนส่ง…", "Carrier…", "承运…")}</option>{carriers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</Select>
-                <Button variant="primary" loading={busy} onClick={() => doDispatch(detail)}><Truck size={15} /> {L("จัดส่ง", "Dispatch", "发货")}</Button>
+                <Button variant="primary" loading={busy} onClick={() => doDispatch(detail)}><Truck size={15} /> {L("ยืนยันส่งมอบสินค้า", "Confirm handover", "确认交付")}</Button>
               </> : null}
               {canReceive(detail) ? (
                 <Button variant="primary" loading={busy} onClick={() => doReceive(detail)}><PackageCheck size={15} /> {L("ยืนยันรับเข้า", "Confirm receive", "确认入库")}</Button>

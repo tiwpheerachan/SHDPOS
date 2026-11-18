@@ -483,7 +483,8 @@ export async function dispatchTransfer(tr: Transfer, employeeId: string, opts: {
     }
     return putTransferTx(fresh, {
       status: "in_transit", carrier: opts.carrier ?? null, tracking: opts.tracking ?? null, shipping_cost: opts.shippingCost ?? null,
-      ship_stage: "requested", // เริ่มที่ "เรียกรถแล้ว"
+      // ยืนยันส่งมอบ = ของออกจากคลังจริง/อยู่กับขนส่งแล้ว (ไม่ใช่แค่เรียกรถ) → เริ่มที่ "รถรับของแล้ว"
+      ship_stage: "picked_up", shipped_by: employeeId, shipped_at: new Date().toISOString(),
       jst_allocation_no: fresh.jst_allocation_no ?? `JST-${nanoid(6).toUpperCase()}`,
     });
   });

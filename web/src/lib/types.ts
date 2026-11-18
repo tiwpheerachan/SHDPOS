@@ -348,6 +348,9 @@ export interface Transfer {
   carrier?: string | null;
   tracking?: string | null;
   shipping_cost?: number | null;
+  /** ผู้ส่งมอบสินค้าให้ขนส่ง/ออกจากคลังจริง + เวลา (จุด On Hand → OTWO) */
+  shipped_by?: string | null;
+  shipped_at?: string | null;
   /** สถานะขนส่งย่อย (ระหว่าง in_transit): เรียกรถ → รถรับของ → กำลังส่ง → ถึงปลายทาง */
   ship_stage?: "requested" | "picked_up" | "in_delivery" | "arrived" | null;
   expected_date?: string | null;
