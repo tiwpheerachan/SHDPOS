@@ -255,19 +255,6 @@ body {
   animation: shimmer 1.4s infinite;
 }
 
-/* กรอบวงแหวนโลหะเหลว (liquid-metal) — ใช้กับ step ที่กำลังทำในแถบสเต็ปโอนย้าย */
-@property --lm-angle { syntax: "<angle>"; initial-value: 0deg; inherits: false; }
-@keyframes lm-spin { to { --lm-angle: 360deg; } }
-@keyframes lm-glow { 0%, 100% { filter: drop-shadow(0 0 3px rgba(150,160,180,.45)); } 50% { filter: drop-shadow(0 0 7px rgba(190,200,220,.75)); } }
-.lm-ring {
-  background: conic-gradient(from var(--lm-angle),
-    #3a3e46, #f4f7fb, #5a5f68, #e7ebf1, #26292f, #ffffff, #4a4e57, #cdd2da, #3a3e46);
-  animation: lm-spin 3s linear infinite, lm-glow 2.6s ease-in-out infinite;
-}
-@media (prefers-reduced-motion: reduce) {
-  .lm-ring { animation: lm-glow 2.6s ease-in-out infinite; }
-}
-
 /* เคารพผู้ใช้ที่ปิดแอนิเมชัน */
 @media (prefers-reduced-motion: reduce) {
   .page-enter, .stagger > *, .skeleton::after { animation: none !important; }

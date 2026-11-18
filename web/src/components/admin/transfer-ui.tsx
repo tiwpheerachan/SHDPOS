@@ -48,23 +48,14 @@ export function TransferStepper({ status, locale, L }: { status: Transfer["statu
           return (
             <Fragment key={i}>
               <div className="flex flex-col items-center gap-1.5 shrink-0 w-14">
-                {cur ? (
-                  // step ที่กำลังทำ — กรอบนอกโลหะเหลว (liquid-metal) หมุนวาว เอาแค่ขอบ
-                  <div className="relative w-9 h-9">
-                    <span className="lm-ring absolute inset-0 rounded-full" />
-                    <div className="absolute inset-[3px] rounded-full grid place-items-center bg-surface text-ink">
-                      <Icon size={15} />
-                    </div>
-                  </div>
-                ) : (
-                  <div className={`w-9 h-9 rounded-full grid place-items-center border-2 transition-all duration-300 ${
-                    warn ? "bg-amber-500 border-amber-500 text-white"
-                    : done ? "bg-brand border-brand text-white"
-                    : "border-line text-muted bg-surface"}`}>
-                    {done ? <Check size={16} /> : <Icon size={15} />}
-                  </div>
-                )}
-                <span className={`text-[9.5px] leading-tight text-center ${cur ? "text-ink font-semibold" : warn ? "text-brand font-semibold" : done ? "text-ink" : "text-muted"}`}>{s.label}</span>
+                <div className={`w-9 h-9 rounded-full grid place-items-center border-2 transition-all duration-300 ${
+                  warn ? "bg-amber-500 border-amber-500 text-white"
+                  : done ? "bg-brand border-brand text-white"
+                  : cur ? "border-brand text-brand ring-4 ring-brand/15 bg-surface animate-[pulse_2s_ease-in-out_infinite]"
+                  : "border-line text-muted bg-surface"}`}>
+                  {done ? <Check size={16} /> : <Icon size={15} />}
+                </div>
+                <span className={`text-[9.5px] leading-tight text-center ${cur || warn ? "text-brand font-semibold" : done ? "text-ink" : "text-muted"}`}>{s.label}</span>
               </div>
               {i < stages.length - 1 ? <div className="flex-1 h-0.5 rounded-full mt-[18px] mx-0.5 overflow-hidden bg-line"><div className={`h-full rounded-full transition-all duration-500 ${i < idx ? "w-full bg-brand" : "w-0"}`} /></div> : null}
             </Fragment>
