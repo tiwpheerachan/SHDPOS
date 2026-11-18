@@ -1458,21 +1458,27 @@ export interface PromoCampaign {
   min_spend: number;          // ยอดขั้นต่ำก่อนใช้
   color: string;              // สีเน้น (badge)
   product_sku?: string | null; // SKU สินค้าตัวแทน (โชว์รูปบนการ์ด)
+  /** เจาะจงสินค้า: ว่าง = ทั้งบิล/ทุกสินค้า · มี SKU = ใช้เฉพาะเมื่อมีสินค้านั้นในตะกร้า (คิดลดจากสินค้านั้น) */
+  target_skus: string[];
   active: boolean;
   until?: string | null;      // หมดเขต (ISO) — null = ไม่จำกัด
 }
 const DEMO_PROMOS: PromoCampaign[] = [
-  { id: "promo-10pct", code: "SAVE10", name: "ลด 10% ทั้งบิล", desc: "ลดทันที 10% ทุกชิ้น", type: "percent", value: 10, min_spend: 0, color: "#7950D8", product_sku: "70M-A510-1", active: true, until: null },
-  { id: "promo-member5", code: "MEMBER5", name: "สมาชิกลด 5%", desc: "เฉพาะลูกค้าสมาชิก", type: "percent", value: 5, min_spend: 0, color: "#2AA7B8", product_sku: "A2688E41", active: true, until: null },
-  { id: "promo-500off", code: "GET500", name: "ลด 500 เมื่อครบ 5,000", desc: "ซื้อครบ 5,000 ลด 500", type: "amount", value: 500, min_spend: 5000, color: "#E05A29", product_sku: "70M-OMNI-64", active: true, until: null },
-  { id: "promo-flash15", code: "FLASH15", name: "Flash Sale −15%", desc: "ครบ 3,000 ลด 15%", type: "percent", value: 15, min_spend: 3000, color: "#EC6B9D", product_sku: "DRM-H12", active: true, until: null },
-  { id: "promo-200off", code: "CASH200", name: "ลด 200 บาท", desc: "ซื้อครบ 1,000 ลด 200", type: "amount", value: 200, min_spend: 1000, color: "#3BB98C", product_sku: "VLNKO-U3-128", active: true, until: null },
+  // ทั้งบิล (โชว์เสมอ)
+  { id: "promo-10pct", code: "SAVE10", name: "ลด 10% ทั้งบิล", desc: "ลดทันที 10% ทุกชิ้น", type: "percent", value: 10, min_spend: 0, color: "#7950D8", product_sku: "70M-A510-1", target_skus: [], active: true, until: null },
+  { id: "promo-member5", code: "MEMBER5", name: "สมาชิกลด 5%", desc: "เฉพาะลูกค้าสมาชิก", type: "percent", value: 5, min_spend: 0, color: "#2AA7B8", product_sku: "A2688E41", target_skus: [], active: true, until: null },
+  // เจาะจงสินค้า (โชว์เฉพาะเมื่อมีสินค้านั้นในตะกร้า)
+  { id: "promo-a510", code: "A510-10", name: "70mai A510 ลด 10%", desc: "เฉพาะ Dash Cam A510", type: "percent", value: 10, min_spend: 0, color: "#E05A29", product_sku: "70M-A510-1", target_skus: ["70M-A510-1"], active: true, until: null },
+  { id: "promo-omni", code: "OMNI-1000", name: "70mai Omni ลด 1,000", desc: "เฉพาะ Dash Cam Omni", type: "amount", value: 1000, min_spend: 0, color: "#132436", product_sku: "70M-OMNI-64", target_skus: ["70M-OMNI-64"], active: true, until: null },
+  { id: "promo-h12", code: "H12-15", name: "Dreame H12 ลด 15%", desc: "เฉพาะ Dreame H12 Pro", type: "percent", value: 15, min_spend: 0, color: "#EC6B9D", product_sku: "DRM-H12", target_skus: ["DRM-H12"], active: true, until: null },
+  { id: "promo-sd", code: "SD-50", name: "เมมโมรี่การ์ด ลด 50", desc: "เฉพาะเมมโมรี่การ์ด Vlnko", type: "amount", value: 50, min_spend: 0, color: "#3BB98C", product_sku: "VLNKO-U3-64", target_skus: ["VLNKO-U3-64", "VLNKO-U3-128"], active: true, until: null },
+  { id: "promo-anker", code: "ANKER-20", name: "Anker Charger ลด 20%", desc: "เฉพาะ Anker Prime Charger", type: "percent", value: 20, min_spend: 0, color: "#2AA7B8", product_sku: "A2688E41", target_skus: ["A2688E41"], active: true, until: null },
 ];
 /** แคมเปญส่วนลดที่เลือกได้ (local-first + seed demo) */
 export async function listPromoCampaigns(): Promise<PromoCampaign[]> {
-  const stored = await kvGet<PromoCampaign[]>("promo_campaigns_v2", []);
+  const stored = await kvGet<PromoCampaign[]>("promo_campaigns_v3", []);
   if (stored.length) return stored.filter((p) => p.active);
-  await kvSet("promo_campaigns_v2", DEMO_PROMOS);
+  await kvSet("promo_campaigns_v3", DEMO_PROMOS);
   return DEMO_PROMOS.filter((p) => p.active);
 }
 /** คำนวณส่วนลดจากแคมเปญตามยอดบิล */

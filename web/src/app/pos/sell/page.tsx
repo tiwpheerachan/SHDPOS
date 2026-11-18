@@ -82,6 +82,7 @@ export default function SellPage() {
   const [brandLogo, setBrandLogo] = useState<string | null>(null);
   const [promos, setPromos] = useState<PromoCampaign[]>([]);
   const [promoOpen, setPromoOpen] = useState(false); // การ์ดเลือกแคมเปญส่วนลด
+  const [promoShowAll, setPromoShowAll] = useState(false); // ดูภาพรวม (ทุกแคมเปญ)
   const [couponInput, setCouponInput] = useState("");
   const [couponMsg, setCouponMsg] = useState<string | null>(null);
   const [couponChecking, setCouponChecking] = useState(false);
@@ -373,10 +374,18 @@ export default function SellPage() {
     }
   }
 
+  // ── แคมเปญ "ฉลาด": เจาะจงสินค้า → คิดลดจากสินค้านั้น · ทั้งบิล → คิดจากยอดรวม ──
+  const promoBase = (p: PromoCampaign) => p.target_skus.length
+    ? cart.lines.filter((l) => l.kind === "goods" && p.target_skus.includes(l.sku)).reduce((s, l) => s + l.unit_price * l.qty, 0)
+    : totals.subtotal;
+  const promoAmt = (p: PromoCampaign) => { const base = promoBase(p); if (base <= 0 || base < p.min_spend) return 0; return promoDiscount(p, base); };
+  // เกี่ยวข้องกับตะกร้า: ทั้งบิล (ไม่เจาะจง) หรือมีสินค้าเป้าหมายอยู่ในตะกร้า
+  const promoRelevant = (p: PromoCampaign) => !p.target_skus.length || cart.lines.some((l) => l.kind === "goods" && p.target_skus.includes(l.sku));
+
   // ใช้แคมเปญส่วนลด (กดการ์ดเลือก)
   function applyPromo(p: PromoCampaign) {
-    const amt = promoDiscount(p, totals.subtotal);
-    if (amt <= 0) { toast.push({ tone: "warn", title: L(`ยอดไม่ถึงขั้นต่ำ ${formatTHB(p.min_spend, false)}`, `Min spend ${formatTHB(p.min_spend, false)}`, `最低消费`) }); return; }
+    const amt = promoAmt(p);
+    if (amt <= 0) { toast.push({ tone: "warn", title: p.target_skus.length ? L("ยังไม่มีสินค้าของแคมเปญนี้ในตะกร้า", "Add a qualifying item first", "篮内无符合商品") : L(`ยอดไม่ถึงขั้นต่ำ ${formatTHB(p.min_spend, false)}`, `Min ${formatTHB(p.min_spend, false)}`, `未达`) }); return; }
     cart.setCoupon(p.code, amt, p.id);
     setPromoOpen(false);
     toast.push({ tone: "ok", title: L(`ใช้แคมเปญ: ${p.name}`, `Applied: ${p.name}`, p.name), body: `${L("ลด", "−", "减")} ${formatTHB(amt, false)}` });
@@ -712,7 +721,7 @@ export default function SellPage() {
               {/* เลือกแคมเปญส่วนลดเป็นการ์ด (พนักงานกดเลือกได้เลย) */}
               {promos.length ? (
                 <button onClick={() => setPromoOpen(true)} className="w-full h-9 rounded-xl border border-brand/30 bg-brand/5 text-brand text-xs font-semibold inline-flex items-center justify-center gap-1.5 hover:bg-brand/10 transition-colors">
-                  <Gift size={14} /> {L("เลือกแคมเปญส่วนลด", "Choose promotion", "选择优惠")} <span className="text-[10px] font-normal opacity-70">({promos.length})</span>
+                  <Gift size={14} /> {L("เลือกแคมเปญส่วนลด", "Choose promotion", "选择优惠")} <span className="text-[10px] font-normal opacity-70">({promos.filter(promoRelevant).length})</span>
                 </button>
               ) : null}
               <div className="flex gap-1.5">
@@ -1046,9 +1055,17 @@ export default function SellPage() {
 
       {/* เลือกแคมเปญส่วนลด (การ์ด) */}
       <Modal open={promoOpen} onClose={() => setPromoOpen(false)} title={L("เลือกแคมเปญส่วนลด", "Choose promotion", "选择优惠")} size="md">
+        {/* สลับ: เฉพาะที่เข้ากับตะกร้า ↔ ภาพรวมทั้งหมด */}
+        <div className="flex items-center justify-between gap-2 mb-2.5">
+          <p className="text-[11px] text-muted">{promoShowAll ? L("ทุกแคมเปญ", "All promotions", "全部") : L("ตรงกับสินค้าในตะกร้า", "Matches your cart", "匹配购物车")}</p>
+          <button onClick={() => setPromoShowAll((v) => !v)} className="text-[11px] font-semibold text-brand hover:underline">
+            {promoShowAll ? L("← เฉพาะในตะกร้า", "← Cart only", "← 仅购物车") : L("ดูภาพรวมทั้งหมด →", "See all →", "全部 →")}
+          </button>
+        </div>
         <div className="space-y-2.5">
-          {promos.map((p) => {
-            const amt = promoDiscount(p, totals.subtotal);
+          {(promoShowAll ? promos : promos.filter(promoRelevant)).map((p) => {
+            const amt = promoAmt(p);
+            const inCart = promoRelevant(p);
             const ok = amt > 0;
             const prod = p.product_sku ? products.find((x) => x.sku === p.product_sku) : undefined;
             const img = prod?.image_url;
@@ -1076,14 +1093,14 @@ export default function SellPage() {
                   </div>
                   <div className="flex items-center justify-between gap-2 mt-2">
                     <span className="text-[10.5px] text-white/70">{p.min_spend > 0 ? L(`ขั้นต่ำ ${formatTHB(p.min_spend, false)}`, `Min ${formatTHB(p.min_spend, false)}`, `满${formatTHB(p.min_spend, false)}`) : L("ไม่มีขั้นต่ำ", "No minimum", "无门槛")}</span>
-                    <span className={`shrink-0 text-[11px] font-bold px-2.5 py-0.5 rounded-full ${ok ? "bg-white" : "bg-white/40 text-white"}`} style={ok ? { color: p.color } : undefined}>{ok ? `${L("ลด", "−", "减")} ${formatTHB(amt, false)}` : L("ยอดไม่ถึง", "Below min", "未达")}</span>
+                    <span className={`shrink-0 text-[11px] font-bold px-2.5 py-0.5 rounded-full ${ok ? "bg-white" : "bg-white/40 text-white"}`} style={ok ? { color: p.color } : undefined}>{ok ? `${L("ลด", "−", "减")} ${formatTHB(amt, false)}` : (!inCart && p.target_skus.length ? L("ไม่มีในตะกร้า", "Not in cart", "篮内无") : L("ยอดไม่ถึง", "Below min", "未达"))}</span>
                   </div>
                 </div>
               </button>
             );
           })}
         </div>
-        {!promos.length ? <EmptyState title={L("ยังไม่มีแคมเปญ", "No promotions", "无优惠")} /> : null}
+        {!(promoShowAll ? promos : promos.filter(promoRelevant)).length ? <EmptyState title={L("ไม่มีแคมเปญที่ตรงกับตะกร้า", "No matching promotion", "无匹配优惠")} body={L("กด “ดูภาพรวมทั้งหมด” เพื่อดูทุกแคมเปญ", "Tap “See all” for all promotions", "点查看全部")} /> : null}
         <p className="text-[11px] text-muted mt-3 text-center">{L("ยอดบิลปัจจุบัน", "Current subtotal", "当前小计")} {formatTHB(totals.subtotal, false)}</p>
       </Modal>
 
