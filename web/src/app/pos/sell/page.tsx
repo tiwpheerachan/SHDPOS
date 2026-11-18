@@ -572,11 +572,11 @@ export default function SellPage() {
                     onClick={() => addProduct(p)}
                     className="group text-left rounded-2xl border border-line bg-surface p-2 hover:shadow-card hover:border-brand/30 transition-all active:scale-[0.985] flex flex-col"
                   >
-                    {/* รูปสินค้าบนพื้นอ่อน */}
-                    <div className="relative rounded-xl bg-surface2/70 aspect-square overflow-hidden grid place-items-center">
+                    {/* รูปสินค้า — เต็มกรอบ ไม่มีพื้นเทากั้น */}
+                    <div className={`relative rounded-xl aspect-square overflow-hidden grid place-items-center ${hasImg ? "bg-white" : "bg-surface2/60"}`}>
                       {hasImg ? (
                         <img src={p.image_url!} alt={name} loading="lazy"
-                          className="w-full h-full object-contain p-2 transition-transform duration-500 group-hover:scale-[1.05]" />
+                          className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.05]" />
                       ) : (
                         <Package size={26} className="text-muted/35" />
                       )}
