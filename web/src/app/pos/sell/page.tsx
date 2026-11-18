@@ -567,35 +567,34 @@ export default function SellPage() {
                 const hasImg = !!p.image_url;
                 const promo = promoSkus.has(p.sku);
                 return (
-                  <button key={p.id} onClick={() => addProduct(p)} className="group relative text-left outline-none">
-                    {/* Ambient glow (ฟุ้งฟ้า-ส้ม) โผล่ตอน hover */}
-                    <span aria-hidden className="pointer-events-none absolute -inset-2 rounded-[30px] opacity-0 group-hover:opacity-100 blur-2xl transition-opacity duration-500" style={{ background: "radial-gradient(55% 55% at 28% 18%, rgba(120,158,255,.5), transparent 70%), radial-gradient(60% 60% at 82% 92%, rgba(255,158,92,.45), transparent 72%)" }} />
-                    {/* การ์ด */}
-                    <div className="relative rounded-[22px] overflow-hidden aspect-[4/5] ring-1 ring-black/5 shadow-[0_10px_30px_-14px_rgba(20,30,50,.3)] transition-all duration-300 group-hover:-translate-y-1 group-hover:shadow-[0_26px_52px_-18px_rgba(20,30,50,.45)]">
-                      {/* รูปปก full-cover หรือ gradient (ไม่มีรูป) */}
+                  <button
+                    key={p.id}
+                    onClick={() => addProduct(p)}
+                    className="group text-left rounded-2xl border border-line bg-surface p-2 hover:shadow-card hover:border-brand/30 transition-all active:scale-[0.985] flex flex-col"
+                  >
+                    {/* รูปสินค้าบนพื้นอ่อน */}
+                    <div className="relative rounded-xl bg-surface2/70 aspect-square overflow-hidden grid place-items-center">
                       {hasImg ? (
-                        <img src={p.image_url!} alt={name} loading="lazy" className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 ease-out group-hover:scale-[1.04]" />
+                        <img src={p.image_url!} alt={name} loading="lazy"
+                          className="w-full h-full object-contain p-2 transition-transform duration-500 group-hover:scale-[1.05]" />
                       ) : (
-                        <div className="absolute inset-0 grid place-items-center" style={{ background: "linear-gradient(150deg, rgb(var(--c-violet) / 0.45), rgb(var(--c-brand) / 0.92))" }}><Package size={40} className="text-white/35" /></div>
+                        <Package size={26} className="text-muted/35" />
                       )}
-                      {/* scrim ล่าง + แวววาวบน (glass depth) */}
-                      <div aria-hidden className="absolute inset-0 bg-gradient-to-b from-white/10 via-transparent to-transparent" />
-                      <div aria-hidden className="absolute inset-x-0 bottom-0 h-[55%] bg-gradient-to-t from-black/78 via-black/35 to-transparent" />
-                      {/* badges บน */}
-                      {promo && <span className="absolute top-2.5 left-2.5 z-10 text-[9px] font-bold px-2 py-0.5 rounded-full bg-brand/90 text-white inline-flex items-center gap-1 shadow-md backdrop-blur-sm"><Tag size={9} />{L("โปร", "Promo", "促销")}</span>}
-                      {out ? <span className="absolute top-2.5 right-2.5 z-10 text-[9px] font-bold px-2 py-0.5 rounded-full bg-danger/90 text-white shadow-md backdrop-blur-sm">{L("หมด", "Out", "缺货")}</span>
-                        : low ? <span className="absolute top-2.5 right-2.5 z-10 text-[9px] font-bold px-2 py-0.5 rounded-full bg-warn/90 text-white inline-flex items-center gap-0.5 shadow-md backdrop-blur-sm"><AlertTriangle size={9} />{qty}</span> : null}
-                      {/* เนื้อหาล่าง: ชื่อ serif + ราคา + CTA วงกลม */}
-                      <div className="absolute inset-x-0 bottom-0 p-3 flex items-end justify-between gap-2">
-                        <div className="min-w-0 flex-1">
-                          <p className="font-display text-white text-[15px] leading-[1.15] line-clamp-2 drop-shadow-[0_1px_4px_rgba(0,0,0,.5)]">{name}</p>
-                          <div className="mt-1 flex items-baseline gap-2">
-                            <p className="text-white font-bold text-[15px] tnum drop-shadow-[0_1px_3px_rgba(0,0,0,.5)]">{formatTHB(p.price, false)}</p>
-                            {p.is_stocked && !out && !low ? <span className="text-white/70 text-[10px] tnum">{L("เหลือ", "Left", "剩")} {qty}</span> : null}
-                          </div>
-                        </div>
-                        <span className="shrink-0 w-9 h-9 rounded-full grid place-items-center bg-white/20 border border-white/45 text-white backdrop-blur-md shadow-lg transition-all duration-300 group-hover:bg-white group-hover:text-ink group-hover:scale-105"><Plus size={16} className="transition-transform duration-300 group-hover:rotate-90" /></span>
-                      </div>
+                      {promo && (
+                        <span className="absolute top-1.5 left-1.5 text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-brand text-brandInk inline-flex items-center gap-0.5 shadow-sm"><Tag size={8} />{L("โปร", "Promo", "促销")}</span>
+                      )}
+                      {out ? (
+                        <span className="absolute top-1.5 right-1.5 text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-danger text-white tnum shadow-sm">{L("หมด", "Out", "缺货")}</span>
+                      ) : low ? (
+                        <span className="absolute top-1.5 right-1.5 text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-warn text-white tnum shadow-sm inline-flex items-center gap-0.5"><AlertTriangle size={8} />{qty}</span>
+                      ) : null}
+                    </div>
+
+                    {/* ชื่อ + ราคา + สต๊อกปกติ */}
+                    <p className="text-[11.5px] font-medium leading-snug line-clamp-2 mt-1.5 flex-1">{name}</p>
+                    <div className="flex items-center justify-between gap-1 mt-1">
+                      <p className="text-sm font-bold tnum">{formatTHB(p.price, false)}</p>
+                      {p.is_stocked && !out && !low && <span className="text-[10px] text-muted tnum">{L("เหลือ", "Left", "剩")} {qty}</span>}
                     </div>
                   </button>
                 );
