@@ -338,6 +338,8 @@ export interface Transfer {
   receipts?: TransferReceipt[];
   /** ผลต่าง (ขาด/เกิน/ชำรุด/หาย/ผิด SN) + ผู้รับผิดชอบ + สถานะปิดเรื่อง */
   discrepancies?: TransferDiscrepancy[];
+  /** การปฏิเสธรับ → ส่งคืน (อ้างอิงใบนี้) */
+  returns?: TransferReturn[];
   note?: string | null;
   created_at: string;
   /** concurrency — เพิ่มทุกการเขียน */
@@ -371,6 +373,21 @@ export interface TransferAttachment {
   by?: string | null;
   /** สถานะใบตอนที่แนบไฟล์ — ใช้บอกว่า "มาจากฟอร์ม/ขั้นตอนไหน" */
   stage?: TransferStatus | null;
+}
+
+/** การปฏิเสธรับ + ส่งคืน (อ้างอิงใบโอนเดิม) — ปฏิเสธ → ส่งคืน → ต้นทางรับคืน
+ *  บัญชี: ของที่ปฏิเสธคงเป็น OTWO+Reserved ของต้นทางตลอดทางกลับ (ไม่เครดิตจนต้นทางรับจริง) */
+export interface TransferReturn {
+  id: string;
+  product_id: string;
+  qty: number;
+  serials?: string[];
+  reason?: string | null;
+  /** rejected=ปฏิเสธรับ(รอส่งคืน) · returning=กำลังส่งคืน · received=ต้นทางรับคืนแล้ว */
+  status: "rejected" | "returning" | "received";
+  by?: string | null; at: string;                  // ผู้ปฏิเสธ + เวลา
+  returned_by?: string | null; returned_at?: string | null;   // ผู้กดส่งคืน (ปลายทาง)
+  received_by?: string | null; received_at?: string | null;   // ผู้รับคืน (ต้นทาง)
 }
 
 /** ใบรับย่อยหนึ่งรอบ (รับหลายรอบต่อ 1 ใบโอน) */

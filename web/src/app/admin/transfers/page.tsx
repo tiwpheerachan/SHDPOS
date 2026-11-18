@@ -15,7 +15,7 @@ import { resolveSerial } from "@/lib/data/serials";
 import { listApprovalRules, resolveApprovers, type ApprovalRule } from "@/lib/data/approval-rules";
 import {
   owListAll, owCreate, owApprove, owReject, owReverse, owGet, owTimeline,
-  owScanOut, owDispatch, owReceive, owCloseShort, owRecordDisc, owRequestResolveDisc, owResolveDisc, owCarriers, owSetAttachments, owShipStage,
+  owScanOut, owDispatch, owReceive, owCloseShort, owRecordDisc, owRequestResolveDisc, owResolveDisc, owRejectReceipt, owShipReturn, owReceiveReturn, owCarriers, owSetAttachments, owShipStage,
   statusMeta, isActive, isIssue, owErrorMessage,
 } from "@/lib/onewarehouse";
 import { TransferStepper, ItemJourney, TransferTimeline } from "@/components/admin/transfer-ui";
@@ -62,6 +62,7 @@ export default function AdminTransfersPage() {
   const [shareOpen, setShareOpen] = useState(false); // เมนูแชร์ฟอร์ม
   const [repOpen, setRepOpen] = useState(false); // ฟอร์มแจ้งของมีปัญหา (พักตรวจ)
   const [repPid, setRepPid] = useState(""); const [repQty, setRepQty] = useState(1); const [repKind, setRepKind] = useState<"damaged" | "wrong_sn">("damaged");
+  const [rejOpen, setRejOpen] = useState(false); const [rejPid, setRejPid] = useState(""); const [rejQty, setRejQty] = useState(1); const [rejReason, setRejReason] = useState(""); // ฟอร์มปฏิเสธรับ
   // create
   const [open, setOpen] = useState(false);
   const [from, setFrom] = useState("");
@@ -131,7 +132,7 @@ export default function AdminTransfersPage() {
     return false;
   };
   // มีผลต่างที่ยังไม่ปิด (รอตรวจสอบ/รออนุมัติ) — ใบที่ปิดรับแล้วแต่ปัญหายังค้าง ก็ถือว่า "มีปัญหา"
-  const hasOpenDisc = (tr: Transfer): boolean => (tr.discrepancies ?? []).some((d) => d.status !== "resolved");
+  const hasOpenDisc = (tr: Transfer): boolean => (tr.discrepancies ?? []).some((d) => d.status !== "resolved") || (tr.returns ?? []).some((r) => r.status !== "received");
   const mineCount = useMemo(() => list.filter((x) => (allowed.includes(x.from_branch_id) || allowed.includes(x.to_branch_id)) && needsMyAction(x)).length, [list, allowed, employee]); // eslint-disable-line react-hooks/exhaustive-deps
   const issueCount = useMemo(() => list.filter((x) => (allowed.includes(x.from_branch_id) || allowed.includes(x.to_branch_id)) && (isIssue(x.status) || hasOpenDisc(x))).length, [list, allowed]); // eslint-disable-line react-hooks/exhaustive-deps
   // งานค้างเกินเวลา (SLA): ใบ active ที่ค้างในสถานะนานผิดปกติ (อิงอายุใบ vs เพดานต่อสถานะ)
@@ -381,6 +382,10 @@ export default function AdminTransfersPage() {
   const doResolveDisc = (tr: Transfer, discId: string, outcome?: "release" | "dispose") => void act(() => owResolveDisc(tr, discId, employee!.id, outcome), outcome === "release" ? L("ผ่านตรวจ — คืนขายแล้ว", "Released to sale", "已放行") : outcome === "dispose" ? L("อนุมัติตัดทิ้งแล้ว", "Disposed", "已报废") : L("หัวหน้าอนุมัติปิดผลต่างแล้ว", "Discrepancy resolved", "已关闭差异"));
   // แจ้งของมีปัญหา (ชำรุด/SN ผิด) → พักตรวจ ขายไม่ได้ จนกว่าหัวหน้าจะตัดสิน
   const doRecordDamage = (tr: Transfer, product_id: string, kind: "damaged" | "wrong_sn", qty: number) => void act(() => owRecordDisc(tr, employee!.id, { product_id, kind, qty, note: null, responsible_by: null, serialNo: null }), L("บันทึกพักตรวจแล้ว (ขายไม่ได้)", "Quarantined", "已暂扣"));
+  // ปฏิเสธรับ → ส่งคืน → ต้นทางรับคืน
+  const doReject = (tr: Transfer, product_id: string, qty: number, reason: string) => void act(() => owRejectReceipt(tr, employee!.id, { product_id, qty, reason: reason || null }), L("ปฏิเสธรับแล้ว — รอส่งคืน", "Rejected — awaiting return", "已拒收"));
+  const doShipReturn = (tr: Transfer, returnId: string) => void act(() => owShipReturn(tr, returnId, employee!.id), L("ส่งคืนแล้ว — รอต้นทางรับ", "Returned — awaiting source", "已退回"));
+  const doReceiveReturn = (tr: Transfer, returnId: string) => void act(() => owReceiveReturn(tr, returnId, employee!.id), L("ต้นทางรับคืนแล้ว (ยอดกลับเข้าต้นทาง)", "Return received", "已收回"));
   // ยกเลิกตามสถานะ: ก่อนสแกนออกยกเลิกได้ (ปล่อยจอง) · หลังส่ง/เสร็จ → โอนกลับ
   const canCancelTr = (tr: Transfer) => ["approved", "picking"].includes(tr.status) && atSource(tr) && canOut;
   const canReverse = (tr: Transfer) => ["completed", "partial_received"].includes(tr.status) && atDest(tr) && canOut && tr.items.some((it) => (it.qty_received || 0) > 0);
@@ -771,6 +776,52 @@ export default function AdminTransfersPage() {
                             </div>
                           ) : (
                             <button onClick={() => setRepOpen(true)} className="text-[11px] text-rose-600 hover:underline font-medium inline-flex items-center gap-1"><CircleAlert size={12} /> {L("แจ้งของชำรุด / SN ผิด (พักตรวจ ไม่ให้ขาย)", "Report damaged / wrong SN", "报告损坏/SN错")}</button>
+                          )}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })()}
+
+                {/* ปฏิเสธรับ → ส่งคืน → ต้นทางรับคืน */}
+                {(() => {
+                  const pName = (pid: string) => products.find((p) => p.id === pid)?.name_th ?? detail.items.find((i) => i.product_id === pid)?.sku ?? pid;
+                  const returns = detail.returns ?? [];
+                  const canReject = atDest(detail) && ["in_transit", "partial_received", "completed"].includes(detail.status);
+                  if (!returns.length && !canReject) return null;
+                  const RET_ST: Record<string, { label: string; tone: "warn" | "info" | "ok" }> = {
+                    rejected: { label: L("ปฏิเสธรับ · รอส่งคืน", "Rejected · to return", "拒收·待退"), tone: "warn" },
+                    returning: { label: L("กำลังส่งคืน", "Returning", "退回中"), tone: "info" },
+                    received: { label: L("ต้นทางรับคืนแล้ว", "Return received", "已收回"), tone: "ok" },
+                  };
+                  return (
+                    <div className="rounded-2xl border border-rose-500/30 bg-rose-500/5 p-3 space-y-2.5">
+                      <p className="text-sm font-medium inline-flex items-center gap-1.5"><RotateCcw size={14} className="text-rose-600" /> {L("ปฏิเสธรับ / ส่งคืน", "Reject / return", "拒收/退回")}</p>
+                      {returns.map((r) => (
+                        <div key={r.id} className="flex items-center justify-between gap-2 text-[11px]">
+                          <span className="truncate flex-1">{pName(r.product_id)} × {r.qty}{r.reason ? ` · ${r.reason}` : ""}</span>
+                          <span className="shrink-0 inline-flex items-center gap-1.5">
+                            <Badge tone={RET_ST[r.status].tone}>{RET_ST[r.status].label}</Badge>
+                            {r.status === "rejected" && atDest(detail) ? <button onClick={() => doShipReturn(detail, r.id)} className="text-brand hover:underline font-medium">{L("ส่งคืน", "Return", "退回")}</button> : null}
+                            {r.status === "returning" && atSource(detail) ? <button onClick={() => doReceiveReturn(detail, r.id)} className="text-brand hover:underline font-medium">{L("รับคืน", "Receive", "收回")}</button> : null}
+                          </span>
+                        </div>
+                      ))}
+                      {canReject ? (
+                        <div className="pt-1">
+                          {rejOpen ? (
+                            <div className="space-y-2">
+                              <p className="text-[11px] text-muted leading-relaxed">{L("ปฏิเสธของที่ส่งผิด/ผิดรุ่น — ของจะ \"รอส่งคืน\" (ขายไม่ได้) · ยอดคืนต้นทางเมื่อต้นทางรับจริงเท่านั้น", "Reject wrong items — awaiting return, credited only when source receives", "拒收错货")}</p>
+                              <Select value={rejPid || detail.items[0]?.product_id} onChange={(e) => setRejPid(e.target.value)} className="h-9 w-full text-xs">{detail.items.map((it) => <option key={it.product_id} value={it.product_id}>{pName(it.product_id)}</option>)}</Select>
+                              <Input value={rejReason} onChange={(e) => setRejReason(e.target.value)} placeholder={L("เหตุผล (เช่น ส่งผิดรุ่น)", "Reason", "原因")} className="h-9 w-full text-xs" />
+                              <div className="flex gap-1.5">
+                                <Input type="number" min={1} value={rejQty} onChange={(e) => setRejQty(Math.max(1, Math.round(Number(e.target.value) || 1)))} className="h-9 w-20 text-xs" />
+                                <Button variant="primary" className="h-9 flex-1" loading={busy} onClick={() => { doReject(detail, rejPid || detail.items[0].product_id, rejQty, rejReason); setRejOpen(false); setRejQty(1); setRejPid(""); setRejReason(""); }}><RotateCcw size={13} /> {L("ปฏิเสธรับ (ขอส่งคืน)", "Reject", "拒收")}</Button>
+                                <Button variant="ghost" className="h-9" onClick={() => setRejOpen(false)}><X size={13} /></Button>
+                              </div>
+                            </div>
+                          ) : (
+                            <button onClick={() => setRejOpen(true)} className="text-[11px] text-rose-600 hover:underline font-medium inline-flex items-center gap-1"><RotateCcw size={12} /> {L("ปฏิเสธรับ (ส่งผิด/ผิดรุ่น → ขอส่งคืน)", "Reject receipt (wrong item → return)", "拒收退回")}</button>
                           )}
                         </div>
                       ) : null}
