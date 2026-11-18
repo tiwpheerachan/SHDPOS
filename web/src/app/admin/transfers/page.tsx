@@ -15,7 +15,7 @@ import { resolveSerial } from "@/lib/data/serials";
 import { listApprovalRules, resolveApprovers, type ApprovalRule } from "@/lib/data/approval-rules";
 import {
   owListAll, owCreate, owApprove, owReject, owReverse, owGet, owTimeline,
-  owScanOut, owDispatch, owReceive, owCloseShort, owRecordDisc, owResolveDisc, owCarriers, owSetAttachments, owShipStage,
+  owScanOut, owDispatch, owReceive, owCloseShort, owRecordDisc, owRequestResolveDisc, owResolveDisc, owCarriers, owSetAttachments, owShipStage,
   statusMeta, isActive, isIssue, owErrorMessage,
 } from "@/lib/onewarehouse";
 import { TransferStepper, ItemJourney, TransferTimeline } from "@/components/admin/transfer-ui";
@@ -170,6 +170,14 @@ export default function AdminTransfersPage() {
     } finally { setBusy(false); }
   }
   const sMeta = (s: Transfer["status"]) => statusMeta(s, locale);
+  // ใบโอนนี้มีของขาด (รับน้อยกว่าที่ส่ง) ไหม
+  const hasShortage = (tr: Transfer) => tr.items.some((it) => (it.qty_received || 0) < (it.qty_shipped || it.qty_requested || 0));
+  // สถานะใบโอนสำหรับแสดงผล — แยก "ปิดรับโดยมีส่วนขาด" ออกจาก "เสร็จสิ้น · รับครบ"
+  const displayStatus = (tr: Transfer): { tone: ReturnType<typeof sMeta>["tone"]; label: string } => {
+    if (tr.status === "completed" && hasShortage(tr)) return { tone: "warn", label: L("ปิดรับโดยมีส่วนขาด", "Closed with shortage", "结单·有缺量") };
+    if (tr.status === "completed") return { tone: "ok", label: L("เสร็จสิ้น · รับครบ", "Completed · full", "已完成·齐") };
+    return sMeta(tr.status);
+  };
 
   const visible = useMemo(() => list
     .filter((x) => allowed.includes(x.from_branch_id) || allowed.includes(x.to_branch_id))
@@ -362,7 +370,8 @@ export default function AdminTransfersPage() {
     void act(() => owReceive(tr, employee!.id, received), L("บันทึกการรับรอบนี้แล้ว", "Receipt recorded", "已记录本次收货"));
   };
   const doCloseShort = (tr: Transfer) => void act(() => owCloseShort(tr, employee!.id), L("ปิดรับแล้ว (ยอมรับส่วนขาด)", "Closed with shortage", "已结单(接受缺量)"));
-  const doResolveDisc = (tr: Transfer, discId: string) => void act(() => owResolveDisc(tr, discId, employee!.id), L("ปิดเรื่องผลต่างแล้ว", "Discrepancy resolved", "已关闭差异"));
+  const doRequestResolve = (tr: Transfer, discId: string) => void act(() => owRequestResolveDisc(tr, discId, employee!.id), L("ส่งให้หัวหน้าอนุมัติปิดแล้ว", "Sent for approval", "已送审批"));
+  const doResolveDisc = (tr: Transfer, discId: string) => void act(() => owResolveDisc(tr, discId, employee!.id), L("หัวหน้าอนุมัติปิดผลต่างแล้ว", "Discrepancy resolved", "已关闭差异"));
   // ยกเลิกตามสถานะ: ก่อนสแกนออกยกเลิกได้ (ปล่อยจอง) · หลังส่ง/เสร็จ → โอนกลับ
   const canCancelTr = (tr: Transfer) => ["approved", "picking"].includes(tr.status) && atSource(tr) && canOut;
   const canReverse = (tr: Transfer) => ["completed", "partial_received"].includes(tr.status) && atDest(tr) && canOut && tr.items.some((it) => (it.qty_received || 0) > 0);
@@ -444,7 +453,7 @@ export default function AdminTransfersPage() {
                     <Td align="center" className="text-[11px] tnum text-muted">{snTotal ? `${snDone}/${snTotal}` : "—"}</Td>
                     <Td align="center">
                       <span className="inline-flex items-center gap-1.5">
-                        <Badge tone={sMeta(tr.status).tone}>{sMeta(tr.status).label}</Badge>
+                        <Badge tone={displayStatus(tr).tone}>{displayStatus(tr).label}</Badge>
                         {overdueInfo(tr)?.over ? <span className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-600 bg-rose-500/12 border border-rose-500/30 rounded-full px-1.5 py-0.5"><Clock size={10} /> {L(`ค้าง ${overdueInfo(tr)!.days} วัน`, `${overdueInfo(tr)!.days}d overdue`, `逾期${overdueInfo(tr)!.days}天`)}</span> : null}
                       </span>
                     </Td>
@@ -461,7 +470,7 @@ export default function AdminTransfersPage() {
       <Drawer open={Boolean(detail)} onClose={closeDoc} width="lg"
         title={detail ? <span className="font-mono">{detail.transfer_no}</span> : ""}
         subtitle={detail ? `${detail.from_kind === "warehouse" ? "🏬 " : ""}${bName(detail.from_branch_id)} → ${bName(detail.to_branch_id)}` : ""}
-        badge={detail ? <Badge tone={sMeta(detail.status).tone}>{sMeta(detail.status).label}</Badge> : null}
+        badge={detail ? <Badge tone={displayStatus(detail).tone}>{displayStatus(detail).label}</Badge> : null}
         footer={detail ? (
           <div className="flex gap-2 w-full items-center flex-wrap">
             <Button variant="soft" onClick={() => printCO(detail)}><Printer size={15} /> {L("พิมพ์ใบ CO", "Print CO", "打印CO")}</Button>
@@ -683,25 +692,47 @@ export default function AdminTransfersPage() {
                   const discs = detail.discrepancies ?? [];
                   if (!diffs.length && !discs.length) return null;
                   const canClose = canReceive(detail) && detail.status === "partial_received";
-                  const canResolve = can(employee, "transfer.approve");
+                  const canResolve = can(employee, "transfer.approve") || isSuperApprover(employee); // หัวหน้า/เจ้าของ = อนุมัติปิด
+                  const canRequest = atDest(detail) || canRecv || isSuperApprover(employee);        // ผู้รับปลายทาง = ขออนุมัติปิด
+                  // สถานะผลต่าง 3 ขั้น
+                  const DISC_ST: Record<string, { label: string; tone: "teal" | "warn" | "ok" }> = {
+                    open: { label: L("รอตรวจสอบ", "Reviewing", "待核"), tone: "teal" },
+                    pending_approval: { label: L("รออนุมัติปิด", "Pending approval", "待批"), tone: "warn" },
+                    resolved: { label: L("แก้ไขแล้ว", "Resolved", "已处理"), tone: "ok" },
+                  };
+                  const openCnt = discs.filter((d) => d.status !== "resolved").length;
                   return (
                     <div className="rounded-2xl border border-teal-500/30 bg-teal-500/5 p-3 space-y-2.5">
-                      <p className="text-sm font-medium inline-flex items-center gap-1.5"><CircleAlert size={14} className="text-teal-600" /> {L("ผลต่างการรับ", "Receipt discrepancy", "收货差异")}</p>
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-medium inline-flex items-center gap-1.5"><CircleAlert size={14} className="text-teal-600" /> {L("ผลต่างการรับ", "Receipt discrepancy", "收货差异")}</p>
+                        {discs.length ? <Badge tone={openCnt ? "warn" : "ok"}>{openCnt ? L(`ยังไม่ปิด ${openCnt}`, `${openCnt} open`, `未结${openCnt}`) : L("ปิดครบแล้ว", "All resolved", "已全部处理")}</Badge> : null}
+                      </div>
                       {diffs.map((d) => (
                         <div key={d.pid} className="text-xs flex items-center justify-between gap-2">
                           <span className="truncate flex-1">{pName(d.pid)}</span>
                           <span className={`shrink-0 ${d.diff < 0 ? "text-rose-600 font-medium" : "text-teal-600 font-medium"}`}>{L("ส่ง", "ship", "发")} {d.target} · {L("รับ", "recv", "收")} {d.recv} · {d.diff < 0 ? `${L("ขาด", "short", "缺")} ${-d.diff}` : `${L("เกิน", "over", "超")} ${d.diff}`}</span>
                         </div>
                       ))}
-                      {canClose ? <Button variant="ghost" className="w-full" loading={busy} onClick={() => doCloseShort(detail)}><CircleAlert size={14} /> {L("ปิดรับ (ยอมรับส่วนขาด + บันทึกผลต่าง)", "Close with shortage", "结单·接受缺量")}</Button> : null}
+                      {canClose ? <>
+                        <p className="text-[11px] text-muted leading-relaxed">{L("“รับไม่ครบ” ไม่เท่ากับ “ของหาย” — อาจส่งแยกกล่อง ควรติดตามก่อนปิด · ถ้าได้ของชำรุด/SN ผิด ให้พักไว้ไม่ขายจนกว่าจะตรวจสอบ", "“Partial” ≠ “lost” — track before closing", "部分≠丢失")}</p>
+                        <Button variant="ghost" className="w-full" loading={busy} onClick={() => doCloseShort(detail)}><CircleAlert size={14} /> {L("ปิดรับ (ยอมรับส่วนขาด + บันทึกผลต่าง)", "Close with shortage", "结单·接受缺量")}</Button>
+                      </> : null}
                       {discs.length ? (
-                        <div className="space-y-1.5 pt-2 border-t border-teal-500/20">
-                          {discs.map((dc) => (
-                            <div key={dc.id} className="flex items-center justify-between gap-2 text-[11px]">
-                              <span className="truncate flex-1"><b className="text-ink/80">{DISC_LABEL[dc.kind]}</b> · {pName(dc.product_id)} × {dc.qty}{dc.responsible_by ? ` · ${L("ผู้รับผิดชอบ", "resp.", "负责")} ${empName(dc.responsible_by)}` : ""}</span>
-                              {dc.status === "resolved" ? <Badge tone="ok">{L("ปิดแล้ว", "Resolved", "已关闭")}</Badge> : canResolve ? <button onClick={() => doResolveDisc(detail, dc.id)} className="shrink-0 text-brand hover:underline font-medium">{L("ปิดเรื่อง", "Resolve", "关闭")}</button> : <Badge tone="teal">{L("ค้าง", "Open", "待")}</Badge>}
-                            </div>
-                          ))}
+                        <div className="space-y-2 pt-2 border-t border-teal-500/20">
+                          <p className="text-[11px] font-medium text-muted">{L("สถานะผลต่าง (แยกจากสถานะใบโอน)", "Discrepancy status (separate from transfer)", "差异状态")}</p>
+                          {discs.map((dc) => {
+                            const stt = DISC_ST[dc.status] ?? DISC_ST.open;
+                            return (
+                              <div key={dc.id} className="flex items-center justify-between gap-2 text-[11px]">
+                                <span className="truncate flex-1"><b className="text-ink/80">{DISC_LABEL[dc.kind]}</b> · {pName(dc.product_id)} × {dc.qty}{dc.responsible_by ? ` · ${L("ผู้รับผิดชอบ", "resp.", "负责")} ${empName(dc.responsible_by)}` : ""}</span>
+                                <span className="shrink-0 inline-flex items-center gap-1.5">
+                                  <Badge tone={stt.tone}>{stt.label}</Badge>
+                                  {dc.status === "open" && canRequest ? <button onClick={() => doRequestResolve(detail, dc.id)} className="text-brand hover:underline font-medium">{L("ส่งอนุมัติปิด", "Request close", "送审")}</button> : null}
+                                  {dc.status === "pending_approval" && canResolve ? <button onClick={() => doResolveDisc(detail, dc.id)} className="text-brand hover:underline font-medium">{L("อนุมัติปิด", "Approve close", "批准")}</button> : null}
+                                </span>
+                              </div>
+                            );
+                          })}
                         </div>
                       ) : null}
                     </div>

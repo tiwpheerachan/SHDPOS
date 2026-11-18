@@ -16,6 +16,7 @@ export {
   receiveTransfer as owReceive,
   closeTransferShort as owCloseShort,
   recordDiscrepancy as owRecordDisc,
+  requestResolveDiscrepancy as owRequestResolveDisc,
   resolveDiscrepancy as owResolveDisc,
   advanceShipStage as owShipStage,
   reserveStock as owReserve,

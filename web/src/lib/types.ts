@@ -387,7 +387,12 @@ export interface TransferDiscrepancy {
   serialNo?: string | null;
   note?: string | null;
   responsible_by?: string | null;   // ผู้รับผิดชอบ
-  status: "open" | "resolved";
+  /** วงจรผลต่าง: open=รอตรวจสอบ · pending_approval=รออนุมัติปิด · resolved=แก้ไขแล้ว */
+  status: "open" | "pending_approval" | "resolved";
+  /** ผู้ขออนุมัติปิด (open → pending_approval) + เวลา + เหตุผล/วิธีจัดการ */
+  requested_by?: string | null;
+  requested_at?: string | null;
+  resolution_note?: string | null;  // เหตุผล/วิธีจัดการยอด ตอนขอปิด
   resolved_by?: string | null;
   resolved_at?: string | null;
   at: string;

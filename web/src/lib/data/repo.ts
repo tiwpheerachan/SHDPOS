@@ -500,7 +500,14 @@ export async function recordDiscrepancy(tr: Transfer, employeeId: string, disc: 
   return writeTransfer(tr, { discrepancies: [...(tr.discrepancies ?? []), d] }, employeeId, tr.to_branch_id, { discrepancy: d.kind });
 }
 
-/** ปิดเรื่องผลต่าง (อนุมัติปิด) */
+/** ขออนุมัติปิดผลต่าง (รอตรวจสอบ → รออนุมัติ) + บันทึกวิธีจัดการยอด/เหตุผล */
+export async function requestResolveDiscrepancy(tr: Transfer, discId: string, employeeId: string, note?: string): Promise<Transfer> {
+  const now = new Date().toISOString();
+  const discrepancies = (tr.discrepancies ?? []).map((d) => d.id === discId ? { ...d, status: "pending_approval" as const, requested_by: employeeId, requested_at: now, resolution_note: note ?? d.resolution_note ?? null } : d);
+  return writeTransfer(tr, { discrepancies }, employeeId, tr.to_branch_id, { request_resolve_discrepancy: discId });
+}
+
+/** ปิดเรื่องผลต่าง (หัวหน้าอนุมัติปิด → แก้ไขแล้ว) */
 export async function resolveDiscrepancy(tr: Transfer, discId: string, employeeId: string): Promise<Transfer> {
   const now = new Date().toISOString();
   const discrepancies = (tr.discrepancies ?? []).map((d) => d.id === discId ? { ...d, status: "resolved" as const, resolved_by: employeeId, resolved_at: now } : d);
