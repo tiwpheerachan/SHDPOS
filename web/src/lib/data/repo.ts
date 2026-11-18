@@ -497,6 +497,17 @@ export async function advanceShipStage(tr: Transfer, employeeId: string, stage: 
   return writeTransfer(tr, { ship_stage: stage }, employeeId, tr.from_branch_id, { ship_stage: stage });
 }
 
+/** ประสานขนส่งก่อนส่งมอบ (ตอน packed) — เรียกรถ/รถมารับ · ยังไม่ตัดยอด (ตัดตอน "ยืนยันส่งมอบ") */
+export async function setPickupStage(tr: Transfer, employeeId: string, stage: NonNullable<Transfer["pickup_stage"]>): Promise<Transfer> {
+  const next = await txTransfer(async () => {
+    const fresh = await freshOrThrow(tr);
+    if (fresh.status !== "packed") throw new Error("transfer_wrong_status");
+    return putTransferTx(fresh, { pickup_stage: stage });
+  });
+  await auditTransfer(next, employeeId, next.from_branch_id, { pickup_stage: stage });
+  return next;
+}
+
 /** แนบ/ลบไฟล์เอกสาร-รูปในใบโอน (metadata — ไม่ bump version กันชนกับ action อื่น) */
 export async function setTransferAttachments(id: string, attachments: TransferAttachment[]): Promise<Transfer | undefined> {
   const tr = await db().transfers.get(id);

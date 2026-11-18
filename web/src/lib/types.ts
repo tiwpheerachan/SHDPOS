@@ -362,6 +362,8 @@ export interface Transfer {
   /** ผู้ส่งมอบสินค้าให้ขนส่ง/ออกจากคลังจริง + เวลา (จุด On Hand → OTWO) */
   shipped_by?: string | null;
   shipped_at?: string | null;
+  /** ประสานขนส่งก่อนส่งมอบ (ตอน packed ยังไม่ตัดยอด): called=เรียกรถแล้ว · arrived=รถมารับ/รอส่งมอบ */
+  pickup_stage?: "called" | "arrived" | null;
   /** สถานะขนส่งย่อย (ระหว่าง in_transit): เรียกรถ → รถรับของ → กำลังส่ง → ถึงปลายทาง */
   ship_stage?: "requested" | "picked_up" | "in_delivery" | "arrived" | null;
   expected_date?: string | null;

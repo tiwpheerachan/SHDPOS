@@ -15,7 +15,7 @@ import { resolveSerial } from "@/lib/data/serials";
 import { listApprovalRules, resolveApprovers, type ApprovalRule } from "@/lib/data/approval-rules";
 import {
   owListAll, owCreate, owApprove, owReject, owReverse, owGet, owTimeline,
-  owScanOut, owDispatch, owReceive, owCloseShort, owRecordDisc, owRequestResolveDisc, owResolveDisc, owRejectReceipt, owShipReturn, owReceiveReturn, owCarriers, owSetAttachments, owShipStage,
+  owScanOut, owDispatch, owReceive, owCloseShort, owRecordDisc, owRequestResolveDisc, owResolveDisc, owRejectReceipt, owShipReturn, owReceiveReturn, owCarriers, owSetAttachments, owShipStage, owSetPickupStage,
   statusMeta, isActive, isIssue, owErrorMessage,
 } from "@/lib/onewarehouse";
 import { TransferStepper, ItemJourney, TransferTimeline } from "@/components/admin/transfer-ui";
@@ -371,6 +371,7 @@ export default function AdminTransfersPage() {
   const doScanOut = (tr: Transfer) => void act(() => owScanOut(tr, employee!.id, scanned), L("สแกนออกแล้ว", "Scanned out", "已扫描出库"));
   // จัดส่ง → in_transit
   const doDispatch = (tr: Transfer) => void act(() => owDispatch(tr, employee!.id, { carrier: carrier || null }), L("ยืนยันส่งมอบสินค้าแล้ว (ของออกจากคลัง)", "Handover confirmed (left warehouse)", "已确认交付"));
+  const doPickup = (tr: Transfer, stage: "called" | "arrived") => void act(() => owSetPickupStage(tr, employee!.id, stage), stage === "called" ? L("เรียกรถแล้ว", "Carrier called", "已叫车") : L("รถมารับแล้ว รอส่งมอบ", "Carrier arrived", "车到·待交付"));
   // รับเข้า → completed/partial
   const doReceive = (tr: Transfer) => {
     const received: Record<string, { serials?: string[]; qty?: number }> = {};
@@ -514,6 +515,10 @@ export default function AdminTransfersPage() {
                 <Button variant="primary" loading={busy} disabled={!scanOutReady(detail)} onClick={() => doScanOut(detail)}><ScanLine size={15} /> {L("ยืนยันสแกนออก", "Confirm scan-out", "确认出库")}</Button>
               ) : null}
               {canScanOut(detail) && detail.status === "packed" ? <>
+                {/* ประสานขนส่งก่อนส่งมอบ (ยังไม่ตัดยอด): เรียกรถ → รถมารับ → ยืนยันส่งมอบ */}
+                {!detail.pickup_stage ? <Button variant="ghost" loading={busy} onClick={() => doPickup(detail, "called")}><Clock size={15} /> {L("เรียกรถ", "Call carrier", "叫车")}</Button> : null}
+                {detail.pickup_stage === "called" ? <><Badge tone="teal"><Clock size={11} /> {L("เรียกรถแล้ว", "Carrier called", "已叫车")}</Badge><Button variant="ghost" loading={busy} onClick={() => doPickup(detail, "arrived")}><Truck size={15} /> {L("รถมารับแล้ว", "Carrier arrived", "车已到")}</Button></> : null}
+                {detail.pickup_stage === "arrived" ? <Badge tone="teal"><Truck size={11} /> {L("รถมารับแล้ว · รอส่งมอบ", "Arrived · to hand over", "车到·待交")}</Badge> : null}
                 <Select value={carrier} onChange={(e) => setCarrier(e.target.value)} className="h-10 w-36"><option value="">{L("ขนส่ง…", "Carrier…", "承运…")}</option>{carriers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</Select>
                 <Button variant="primary" loading={busy} onClick={() => doDispatch(detail)}><Truck size={15} /> {L("ยืนยันส่งมอบสินค้า", "Confirm handover", "确认交付")}</Button>
               </> : null}

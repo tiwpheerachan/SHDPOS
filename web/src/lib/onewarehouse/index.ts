@@ -22,6 +22,7 @@ export {
   shipReturn as owShipReturn,
   receiveReturn as owReceiveReturn,
   advanceShipStage as owShipStage,
+  setPickupStage as owSetPickupStage,
   reserveStock as owReserve,
   setTransferAttachments as owSetAttachments,
 } from "@/lib/data/repo";
