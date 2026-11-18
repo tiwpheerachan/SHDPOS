@@ -61,7 +61,7 @@ export default function AdminTransfersPage() {
   const [copied, setCopied] = useState<"" | "img" | "link">("");
   const [shareOpen, setShareOpen] = useState(false); // เมนูแชร์ฟอร์ม
   const [repOpen, setRepOpen] = useState(false); // ฟอร์มแจ้งของมีปัญหา (พักตรวจ)
-  const [repPid, setRepPid] = useState(""); const [repQty, setRepQty] = useState(1); const [repKind, setRepKind] = useState<"damaged" | "wrong_sn">("damaged");
+  const [repPid, setRepPid] = useState(""); const [repQty, setRepQty] = useState(1); const [repKind, setRepKind] = useState<"damaged" | "wrong_sn" | "lost">("damaged");
   const [rejOpen, setRejOpen] = useState(false); const [rejPid, setRejPid] = useState(""); const [rejQty, setRejQty] = useState(1); const [rejReason, setRejReason] = useState(""); // ฟอร์มปฏิเสธรับ
   // create
   const [open, setOpen] = useState(false);
@@ -381,7 +381,7 @@ export default function AdminTransfersPage() {
   const doRequestResolve = (tr: Transfer, discId: string) => void act(() => owRequestResolveDisc(tr, discId, employee!.id), L("ส่งให้หัวหน้าอนุมัติปิดแล้ว", "Sent for approval", "已送审批"));
   const doResolveDisc = (tr: Transfer, discId: string, outcome?: "release" | "dispose") => void act(() => owResolveDisc(tr, discId, employee!.id, outcome), outcome === "release" ? L("ผ่านตรวจ — คืนขายแล้ว", "Released to sale", "已放行") : outcome === "dispose" ? L("อนุมัติตัดทิ้งแล้ว", "Disposed", "已报废") : L("หัวหน้าอนุมัติปิดผลต่างแล้ว", "Discrepancy resolved", "已关闭差异"));
   // แจ้งของมีปัญหา (ชำรุด/SN ผิด) → พักตรวจ ขายไม่ได้ จนกว่าหัวหน้าจะตัดสิน
-  const doRecordDamage = (tr: Transfer, product_id: string, kind: "damaged" | "wrong_sn", qty: number) => void act(() => owRecordDisc(tr, employee!.id, { product_id, kind, qty, note: null, responsible_by: null, serialNo: null }), L("บันทึกพักตรวจแล้ว (ขายไม่ได้)", "Quarantined", "已暂扣"));
+  const doRecordDamage = (tr: Transfer, product_id: string, kind: "damaged" | "wrong_sn" | "lost", qty: number) => void act(() => owRecordDisc(tr, employee!.id, { product_id, kind, qty, note: null, responsible_by: null, serialNo: null }), kind === "lost" ? L("แจ้งไม่พบ/สูญหายแล้ว — กำลังติดตาม", "Reported missing — tracking", "已报失·跟踪中") : L("บันทึกพักตรวจแล้ว (ขายไม่ได้)", "Quarantined", "已暂扣"));
   // ปฏิเสธรับ → ส่งคืน → ต้นทางรับคืน
   const doReject = (tr: Transfer, product_id: string, qty: number, reason: string) => void act(() => owRejectReceipt(tr, employee!.id, { product_id, qty, reason: reason || null }), L("ปฏิเสธรับแล้ว — รอส่งคืน", "Rejected — awaiting return", "已拒收"));
   const doShipReturn = (tr: Transfer, returnId: string) => void act(() => owShipReturn(tr, returnId, employee!.id), L("ส่งคืนแล้ว — รอต้นทางรับ", "Returned — awaiting source", "已退回"));
@@ -749,7 +749,7 @@ export default function AdminTransfersPage() {
                                   {dc.status === "pending_approval" && canResolve ? (
                                     (dc.kind === "damaged" || dc.kind === "wrong_sn")
                                       ? <><button onClick={() => doResolveDisc(detail, dc.id, "release")} className="text-ok hover:underline font-medium">{L("คืนขาย", "Release", "放行")}</button><button onClick={() => doResolveDisc(detail, dc.id, "dispose")} className="text-rose-600 hover:underline font-medium">{L("ตัดทิ้ง", "Dispose", "报废")}</button></>
-                                      : <button onClick={() => doResolveDisc(detail, dc.id)} className="text-brand hover:underline font-medium">{L("อนุมัติปิด", "Approve close", "批准")}</button>
+                                      : <button onClick={() => doResolveDisc(detail, dc.id)} className="text-brand hover:underline font-medium">{dc.kind === "lost" ? L("อนุมัติตัดสูญหาย", "Approve loss", "批准损失") : L("อนุมัติปิด", "Approve close", "批准")}</button>
                                   ) : null}
                                 </span>
                               </div>
@@ -763,19 +763,19 @@ export default function AdminTransfersPage() {
                           {repOpen ? (
                             <div className="space-y-2">
                               <div className="flex gap-1.5">
-                                {(["damaged", "wrong_sn"] as const).map((k) => (
-                                  <button key={k} onClick={() => setRepKind(k)} className={`flex-1 h-8 rounded-lg border text-[11px] font-medium ${repKind === k ? "border-rose-400 bg-rose-500/10 text-rose-600" : "border-line text-muted"}`}>{k === "damaged" ? L("ชำรุด", "Damaged", "损坏") : L("SN ผิด", "Wrong SN", "SN错")}</button>
+                                {((["in_transit", "partial_received"].includes(detail.status) ? ["lost", "damaged", "wrong_sn"] : ["damaged", "wrong_sn"]) as ("damaged" | "wrong_sn" | "lost")[]).map((k) => (
+                                  <button key={k} onClick={() => setRepKind(k)} className={`flex-1 h-8 rounded-lg border text-[11px] font-medium ${repKind === k ? "border-rose-400 bg-rose-500/10 text-rose-600" : "border-line text-muted"}`}>{k === "damaged" ? L("ชำรุด", "Damaged", "损坏") : k === "wrong_sn" ? L("SN ผิด", "Wrong SN", "SN错") : L("ไม่พบ/สูญหาย", "Missing/lost", "丢失")}</button>
                                 ))}
                               </div>
                               <Select value={repPid || detail.items[0]?.product_id} onChange={(e) => setRepPid(e.target.value)} className="h-9 w-full text-xs">{detail.items.map((it) => <option key={it.product_id} value={it.product_id}>{pName(it.product_id)}</option>)}</Select>
                               <div className="flex gap-1.5">
                                 <Input type="number" min={1} value={repQty} onChange={(e) => setRepQty(Math.max(1, Math.round(Number(e.target.value) || 1)))} className="h-9 w-20 text-xs" />
-                                <Button variant="primary" className="h-9 flex-1" loading={busy} onClick={() => { doRecordDamage(detail, repPid || detail.items[0].product_id, repKind, repQty); setRepOpen(false); setRepQty(1); setRepPid(""); }}><CircleAlert size={13} /> {L("พักตรวจ (ขายไม่ได้)", "Quarantine", "暂扣")}</Button>
+                                <Button variant="primary" className="h-9 flex-1" loading={busy} onClick={() => { doRecordDamage(detail, repPid || detail.items[0].product_id, repKind, repQty); setRepOpen(false); setRepQty(1); setRepPid(""); }}><CircleAlert size={13} /> {repKind === "lost" ? L("แจ้งไม่พบ (ติดตาม)", "Report missing", "报失") : L("พักตรวจ (ขายไม่ได้)", "Quarantine", "暂扣")}</Button>
                                 <Button variant="ghost" className="h-9" onClick={() => setRepOpen(false)}><X size={13} /></Button>
                               </div>
                             </div>
                           ) : (
-                            <button onClick={() => setRepOpen(true)} className="text-[11px] text-rose-600 hover:underline font-medium inline-flex items-center gap-1"><CircleAlert size={12} /> {L("แจ้งของชำรุด / SN ผิด (พักตรวจ ไม่ให้ขาย)", "Report damaged / wrong SN", "报告损坏/SN错")}</button>
+                            <button onClick={() => setRepOpen(true)} className="text-[11px] text-rose-600 hover:underline font-medium inline-flex items-center gap-1"><CircleAlert size={12} /> {["in_transit", "partial_received"].includes(detail.status) ? L("แจ้งไม่พบ/สูญหาย · ชำรุด · SN ผิด", "Report missing / damaged / wrong SN", "报失/损坏/SN错") : L("แจ้งของชำรุด / SN ผิด (พักตรวจ ไม่ให้ขาย)", "Report damaged / wrong SN", "报告损坏/SN错")}</button>
                           )}
                         </div>
                       ) : null}
