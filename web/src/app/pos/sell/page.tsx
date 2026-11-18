@@ -1050,20 +1050,23 @@ export default function SellPage() {
           {promos.map((p) => {
             const amt = promoDiscount(p, totals.subtotal);
             const ok = amt > 0;
+            const prod = p.product_sku ? products.find((x) => x.sku === p.product_sku) : undefined;
+            const img = prod?.image_url;
             return (
               <button key={p.id} onClick={() => applyPromo(p)} disabled={!ok}
-                className={`relative text-left rounded-2xl p-3 overflow-hidden transition-all ${ok ? "hover:-translate-y-0.5 hover:shadow-card" : "opacity-55"}`}
-                style={{ background: `linear-gradient(135deg, ${p.color}1a, ${p.color}0d)`, border: `1px solid ${p.color}40` }}>
-                <span aria-hidden className="absolute -right-6 -top-6 w-20 h-20 rounded-full blur-xl opacity-40" style={{ background: p.color }} />
-                <div className="relative">
-                  <div className="inline-flex items-center gap-1.5 text-white text-xs font-bold px-2 py-0.5 rounded-full shadow-sm" style={{ background: p.color }}>
-                    <Gift size={11} /> {p.type === "percent" ? `−${p.value}%` : `−${formatTHB(p.value, false)}`}
-                  </div>
-                  <p className="font-semibold text-sm mt-2 leading-snug">{p.name}</p>
-                  {p.desc ? <p className="text-[11px] text-muted mt-0.5 line-clamp-2">{p.desc}</p> : null}
-                  <div className="flex items-center justify-between mt-2 text-[11px]">
-                    <span className="text-muted">{p.min_spend > 0 ? L(`ขั้นต่ำ ${formatTHB(p.min_spend, false)}`, `Min ${formatTHB(p.min_spend, false)}`, `满${formatTHB(p.min_spend, false)}`) : L("ไม่มีขั้นต่ำ", "No minimum", "无门槛")}</span>
-                    {ok ? <span className="font-bold" style={{ color: p.color }}>{L("ลด", "−", "减")} {formatTHB(amt, false)}</span> : <span className="text-danger">{L("ยอดไม่ถึง", "Below min", "未达")}</span>}
+                className={`group text-left rounded-2xl bg-surface border border-line overflow-hidden transition-all ${ok ? "hover:-translate-y-0.5 hover:shadow-card hover:border-brand/30" : "opacity-55"}`}>
+                {/* รูปสินค้า (พื้นขาว) + discount pill */}
+                <div className="relative aspect-[5/4] bg-white grid place-items-center overflow-hidden">
+                  {img ? <img src={img} alt="" loading="lazy" className="w-full h-full object-contain p-3 transition-transform duration-500 group-hover:scale-[1.04]" /> : <Gift size={30} className="text-muted/30" />}
+                  <span className="absolute top-2 left-2 text-[11px] font-bold text-white px-2 py-0.5 rounded-full shadow-sm" style={{ background: p.color }}>{p.type === "percent" ? `−${p.value}%` : `−${formatTHB(p.value, false)}`}</span>
+                </div>
+                {/* เนื้อหา */}
+                <div className="p-2.5">
+                  <p className="text-[12.5px] font-semibold leading-snug line-clamp-1">{p.name}</p>
+                  {p.desc ? <p className="text-[10.5px] text-muted leading-snug line-clamp-1 mt-0.5">{p.desc}</p> : null}
+                  <div className="flex items-end justify-between gap-1 mt-1.5">
+                    <span className="text-[10px] text-muted">{p.min_spend > 0 ? L(`ขั้นต่ำ ${formatTHB(p.min_spend, false)}`, `Min ${formatTHB(p.min_spend, false)}`, `满${formatTHB(p.min_spend, false)}`) : L("ไม่มีขั้นต่ำ", "No min", "无门槛")}</span>
+                    {ok ? <span className="text-sm font-bold tnum" style={{ color: p.color }}>−{formatTHB(amt, false)}</span> : <span className="text-[11px] text-danger font-medium">{L("ยอดไม่ถึง", "Below min", "未达")}</span>}
                   </div>
                 </div>
               </button>
