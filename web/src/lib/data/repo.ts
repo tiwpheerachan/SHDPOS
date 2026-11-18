@@ -553,14 +553,13 @@ export async function closeTransferShort(tr: Transfer, employeeId: string, note?
   const next = await txTransfer(async () => {
     const fresh = await freshOrThrow(tr);
     if (fresh.status !== "partial_received") throw new Error("transfer_wrong_status"); // ปิดได้เฉพาะใบที่รับบางส่วน
+    // ข้อ 6: ปิดรับ = "บันทึกส่วนขาด (รอตรวจสอบ)" เท่านั้น — ยังไม่ตัด OTWO/คืนจอง
+    //   ยอดส่วนขาดคงค้างเป็น OTWO + Reserved Out จนกว่าหัวหน้าจะอนุมัติปิด (resolveDiscrepancy) จึงเขียนออกจริง
     const discs: TransferDiscrepancy[] = [...(fresh.discrepancies ?? [])];
     for (const it of fresh.items) {
       const target = it.qty_shipped || it.qty_requested;
       const short = Math.max(0, target - (it.qty_received ?? 0));
-      if (short > 0) {
-        if (fresh.from_kind !== "warehouse") { await adjustOtwo(fresh.from_branch_id, it.product_id, -short); await reserveStock(fresh.from_branch_id, it.product_id, -short); }
-        discs.push({ id: nanoid(8), product_id: it.product_id, kind: "short", qty: short, status: "open", at: now, by: employeeId, note: note ?? null });
-      }
+      if (short > 0) discs.push({ id: nanoid(8), product_id: it.product_id, kind: "short", qty: short, status: "open", at: now, by: employeeId, note: note ?? null });
     }
     return putTransferTx(fresh, { status: "completed", discrepancies: discs });
   });
@@ -581,11 +580,23 @@ export async function requestResolveDiscrepancy(tr: Transfer, discId: string, em
   return writeTransfer(tr, { discrepancies }, employeeId, tr.to_branch_id, { request_resolve_discrepancy: discId });
 }
 
-/** ปิดเรื่องผลต่าง (หัวหน้าอนุมัติปิด → แก้ไขแล้ว) */
+/** ปิดเรื่องผลต่าง (หัวหน้าอนุมัติปิด → แก้ไขแล้ว) — ตัดยอดจริงตอนนี้ (ข้อ 6) · atomic */
 export async function resolveDiscrepancy(tr: Transfer, discId: string, employeeId: string): Promise<Transfer> {
   const now = new Date().toISOString();
-  const discrepancies = (tr.discrepancies ?? []).map((d) => d.id === discId ? { ...d, status: "resolved" as const, resolved_by: employeeId, resolved_at: now } : d);
-  return writeTransfer(tr, { discrepancies }, employeeId, tr.to_branch_id, { resolved_discrepancy: discId });
+  const next = await txTransfer(async () => {
+    const fresh = await freshOrThrow(tr);
+    const disc = (fresh.discrepancies ?? []).find((d) => d.id === discId);
+    if (!disc) throw new Error("transfer_not_found");
+    // ของขาด/สูญหาย = เขียนออกจาก in-transit ต้นทางตอนอนุมัติ (ตัด OTWO + คืน Reserved Out ที่ค้าง)
+    if (disc.status !== "resolved" && (disc.kind === "short" || disc.kind === "lost") && fresh.from_kind !== "warehouse") {
+      await adjustOtwo(fresh.from_branch_id, disc.product_id, -disc.qty);
+      await reserveStock(fresh.from_branch_id, disc.product_id, -disc.qty);
+    }
+    const discrepancies = (fresh.discrepancies ?? []).map((d) => d.id === discId ? { ...d, status: "resolved" as const, resolved_by: employeeId, resolved_at: now } : d);
+    return putTransferTx(fresh, { discrepancies });
+  });
+  await auditTransfer(next, employeeId, next.to_branch_id, { resolved_discrepancy: discId });
+  return next;
 }
 
 /**

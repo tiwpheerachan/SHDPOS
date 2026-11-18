@@ -128,7 +128,10 @@ export default function AdminTransfersPage() {
     if (tr.status === "in_transit") return dst && cRecv;
     return false;
   };
+  // มีผลต่างที่ยังไม่ปิด (รอตรวจสอบ/รออนุมัติ) — ใบที่ปิดรับแล้วแต่ปัญหายังค้าง ก็ถือว่า "มีปัญหา"
+  const hasOpenDisc = (tr: Transfer): boolean => (tr.discrepancies ?? []).some((d) => d.status !== "resolved");
   const mineCount = useMemo(() => list.filter((x) => (allowed.includes(x.from_branch_id) || allowed.includes(x.to_branch_id)) && needsMyAction(x)).length, [list, allowed, employee]); // eslint-disable-line react-hooks/exhaustive-deps
+  const issueCount = useMemo(() => list.filter((x) => (allowed.includes(x.from_branch_id) || allowed.includes(x.to_branch_id)) && (isIssue(x.status) || hasOpenDisc(x))).length, [list, allowed]); // eslint-disable-line react-hooks/exhaustive-deps
   // งานค้างเกินเวลา (SLA): ใบ active ที่ค้างในสถานะนานผิดปกติ (อิงอายุใบ vs เพดานต่อสถานะ)
   const SLA_HOURS: Record<string, number> = { pending_approval: 24, approved: 48, picking: 48, packed: 48, shipped: 72, in_transit: 72, partial_received: 72 };
   const overdueInfo = (tr: Transfer): { over: boolean; days: number } | null => {
@@ -181,7 +184,7 @@ export default function AdminTransfersPage() {
 
   const visible = useMemo(() => list
     .filter((x) => allowed.includes(x.from_branch_id) || allowed.includes(x.to_branch_id))
-    .filter((x) => bucket === "all" ? true : bucket === "mine" ? needsMyAction(x) : bucket === "overdue" ? !!overdueInfo(x)?.over : bucket === "active" ? isActive(x.status) : bucket === "issue" ? isIssue(x.status) : x.status === "completed"),
+    .filter((x) => bucket === "all" ? true : bucket === "mine" ? needsMyAction(x) : bucket === "overdue" ? !!overdueInfo(x)?.over : bucket === "active" ? isActive(x.status) : bucket === "issue" ? (isIssue(x.status) || hasOpenDisc(x)) : x.status === "completed"),
     [list, allowed, bucket]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // เพิ่มสินค้าเข้าบิล (รวม line เดิมถ้ามี; serialized + มี SN → แนบ SN กันซ้ำ)
@@ -426,8 +429,9 @@ export default function AdminTransfersPage() {
             </button>
           ) : null}
           {(["active", "issue", "done", "all"] as const).map((b) => (
-            <button key={b} onClick={() => setBucket(b)} className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${bucket === b ? "bg-brand text-white border-brand" : "border-line text-muted hover:text-brand"}`}>
+            <button key={b} onClick={() => setBucket(b)} className={`text-xs px-3 py-1.5 rounded-full border transition-colors inline-flex items-center gap-1.5 ${bucket === b ? "bg-brand text-white border-brand" : b === "issue" && issueCount ? "border-rose-400/60 text-rose-600 bg-rose-500/5 hover:bg-rose-500/10" : "border-line text-muted hover:text-brand"}`}>
               {b === "active" ? L("กำลังดำเนินการ", "Active", "进行中") : b === "issue" ? L("มีปัญหา", "Issues", "异常") : b === "done" ? L("เสร็จแล้ว", "Done", "完成") : t.common.all}
+              {b === "issue" && issueCount ? <span className={`min-w-[18px] h-[18px] px-1 grid place-items-center rounded-full text-[10px] font-bold ${bucket === "issue" ? "bg-white/25 text-white" : "bg-rose-500 text-white"}`}>{issueCount}</span> : null}
             </button>
           ))}
         </div>
@@ -457,6 +461,7 @@ export default function AdminTransfersPage() {
                       <span className="inline-flex items-center gap-1.5">
                         <Badge tone={displayStatus(tr).tone}>{displayStatus(tr).label}</Badge>
                         {overdueInfo(tr)?.over ? <span className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-600 bg-rose-500/12 border border-rose-500/30 rounded-full px-1.5 py-0.5"><Clock size={10} /> {L(`ค้าง ${overdueInfo(tr)!.days} วัน`, `${overdueInfo(tr)!.days}d overdue`, `逾期${overdueInfo(tr)!.days}天`)}</span> : null}
+                        {hasOpenDisc(tr) ? <span className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-600 bg-rose-500/12 border border-rose-500/30 rounded-full px-1.5 py-0.5"><CircleAlert size={10} /> {L("ผลต่างค้าง", "Open issue", "异常未结")}</span> : null}
                       </span>
                     </Td>
                     <Td className="text-xs text-muted">{new Date(tr.created_at).toLocaleDateString("th-TH", { day: "2-digit", month: "short" })}</Td>
