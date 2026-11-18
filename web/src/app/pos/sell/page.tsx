@@ -1071,29 +1071,28 @@ export default function SellPage() {
             const img = prod?.image_url;
             return (
               <button key={p.id} onClick={() => applyPromo(p)} disabled={!ok}
-                className={`group relative w-full flex items-stretch rounded-[18px] overflow-hidden text-left transition-all ${ok ? "hover:-translate-y-0.5 hover:shadow-card" : "opacity-55 grayscale"}`}
-                style={{ background: p.color }}>
-                {/* รอยปรุตั๋ว (วงกลมเว้าขอบบน-ล่าง) */}
-                <span aria-hidden className="absolute left-[92px] -top-2 w-4 h-4 rounded-full bg-surface" />
-                <span aria-hidden className="absolute left-[92px] -bottom-2 w-4 h-4 rounded-full bg-surface" />
-                {/* รูปสินค้า (แผงซ้าย) */}
-                <div className="w-[84px] shrink-0 grid place-items-center p-2.5 bg-white/15">
-                  {img ? <img src={img} alt="" loading="lazy" className="w-full h-full object-contain drop-shadow-md transition-transform duration-500 group-hover:scale-105" /> : <Gift size={26} className="text-white/70" />}
+                className={`group relative w-full flex items-stretch rounded-[18px] overflow-hidden text-left bg-surface border border-line transition-all ${ok ? "hover:-translate-y-0.5 hover:shadow-card hover:border-ink/30" : "opacity-55 grayscale"}`}>
+                {/* รอยปรุตั๋ว (วงเว้าขอบบน-ล่าง = พื้นโมดัล) */}
+                <span aria-hidden className="absolute left-[92px] -top-2 w-4 h-4 rounded-full bg-surface border border-line" />
+                <span aria-hidden className="absolute left-[92px] -bottom-2 w-4 h-4 rounded-full bg-surface border border-line" />
+                {/* รูปสินค้า (แผงซ้าย พื้นขาว) */}
+                <div className="w-[84px] shrink-0 grid place-items-center p-2.5 bg-white">
+                  {img ? <img src={img} alt="" loading="lazy" className="w-full h-full object-contain transition-transform duration-500 group-hover:scale-105" /> : <Gift size={26} className="text-muted/40" />}
                 </div>
                 {/* เส้นปรุแนวตั้ง */}
-                <div aria-hidden className="self-stretch my-3 border-l-2 border-dashed border-white/45" />
+                <div aria-hidden className="self-stretch my-3 border-l-2 border-dashed border-line" />
                 {/* เนื้อหา */}
-                <div className="flex-1 min-w-0 p-3 text-white flex flex-col justify-center">
+                <div className="flex-1 min-w-0 p-3 text-ink flex flex-col justify-center">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <p className="font-bold text-[15px] leading-tight truncate">{p.name}</p>
-                      {p.desc ? <p className="text-[11px] text-white/75 leading-snug truncate">{p.desc}</p> : null}
+                      {p.desc ? <p className="text-[11px] text-muted leading-snug truncate">{p.desc}</p> : null}
                     </div>
                     <span className="shrink-0 text-lg font-extrabold tnum">{p.type === "percent" ? `−${p.value}%` : `−${formatTHB(p.value, false)}`}</span>
                   </div>
                   <div className="flex items-center justify-between gap-2 mt-2">
-                    <span className="text-[10.5px] text-white/70">{p.min_spend > 0 ? L(`ขั้นต่ำ ${formatTHB(p.min_spend, false)}`, `Min ${formatTHB(p.min_spend, false)}`, `满${formatTHB(p.min_spend, false)}`) : L("ไม่มีขั้นต่ำ", "No minimum", "无门槛")}</span>
-                    <span className={`shrink-0 text-[11px] font-bold px-2.5 py-0.5 rounded-full ${ok ? "bg-white" : "bg-white/40 text-white"}`} style={ok ? { color: p.color } : undefined}>{ok ? `${L("ลด", "−", "减")} ${formatTHB(amt, false)}` : (!inCart && p.target_skus.length ? L("ไม่มีในตะกร้า", "Not in cart", "篮内无") : L("ยอดไม่ถึง", "Below min", "未达"))}</span>
+                    <span className="text-[10.5px] text-muted">{p.min_spend > 0 ? L(`ขั้นต่ำ ${formatTHB(p.min_spend, false)}`, `Min ${formatTHB(p.min_spend, false)}`, `满${formatTHB(p.min_spend, false)}`) : L("ไม่มีขั้นต่ำ", "No minimum", "无门槛")}</span>
+                    <span className={`shrink-0 text-[11px] font-bold px-2.5 py-0.5 rounded-full ${ok ? "bg-ink text-white" : "bg-surface2 text-muted border border-line"}`}>{ok ? `${L("ลด", "−", "减")} ${formatTHB(amt, false)}` : (!inCart && p.target_skus.length ? L("ไม่มีในตะกร้า", "Not in cart", "篮内无") : L("ยอดไม่ถึง", "Below min", "未达"))}</span>
                   </div>
                 </div>
               </button>
