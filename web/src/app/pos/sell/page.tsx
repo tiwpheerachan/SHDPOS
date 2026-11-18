@@ -15,6 +15,7 @@ import {
   listProducts, listCategories, stockForBranch, employeesAtBranch, commitSale,
   getBranch, holdBill, listHolds, removeHold, currentShift, validateCoupon,
   fetchActiveGiftCampaigns, fetchBrandWallet, listBrands, type GiftCampaign,
+  listReservedOrders, deliverOrder, cancelReservedOrder, expireReservations,
 } from "@/lib/data/repo";
 import { computeCampaignGifts, giftSig } from "@/lib/promo/gifts";
 import type { Branch, CartLine, Category, Employee, Order, Product, StockLevel, PaymentEntry } from "@/lib/types";
@@ -72,6 +73,8 @@ export default function SellPage() {
   const [printStatus, setPrintStatus] = useState<PrintStatus>("idle");
   const [printError, setPrintError] = useState<string | null>(null);
   const [holds, setHolds] = useState<HeldBill[]>([]);
+  const [reserveMode, setReserveMode] = useState(false); // ส่งทีหลัง (จองของ)
+  const [resvOpen, setResvOpen] = useState(false); const [resvOrders, setResvOrders] = useState<Order[]>([]);
   const [holdOpen, setHoldOpen] = useState(false);
   const [customerOpen, setCustomerOpen] = useState(false);
   const [cartExpanded, setCartExpanded] = useState(false);
@@ -107,6 +110,8 @@ export default function SellPage() {
       session.setShift(sh ?? null);
       await reloadStock();
       setHolds(await listHolds(branchId));
+      await expireReservations(branchId); // ปล่อยจองที่หมดอายุ
+      setResvOrders(await listReservedOrders([branchId]));
       if (!cart.defaultSalespersonId && employee) cart.setDefaultSalesperson(employee.id);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -329,6 +334,18 @@ export default function SellPage() {
     setHoldOpen(false);
   }
 
+  // ออเดอร์จอง (ส่งทีหลัง): ส่งมอบ / ยกเลิก
+  async function doDeliver(o: Order) {
+    if (!employee || !branchId) return;
+    try { await deliverOrder(o.id, employee.id); setResvOrders(await listReservedOrders([branchId])); await reloadStock(); toast.push({ tone: "ok", title: L("ส่งมอบของแล้ว (ตัดสต๊อก)", "Delivered", "已交付") }); }
+    catch { toast.push({ tone: "danger", title: L("ส่งมอบไม่สำเร็จ", "Deliver failed", "交付失败") }); }
+  }
+  async function doCancelResv(o: Order) {
+    if (!employee || !branchId) return;
+    try { await cancelReservedOrder(o.id, employee.id); setResvOrders(await listReservedOrders([branchId])); await reloadStock(); toast.push({ tone: "ok", title: L("ยกเลิกการจองแล้ว (คืนยอดจอง)", "Reservation cancelled", "已取消预留") }); }
+    catch { toast.push({ tone: "danger", title: L("ยกเลิกไม่สำเร็จ", "Cancel failed", "取消失败") }); }
+  }
+
   // ------------------------------------------------------------------
   // คูปอง
   // ------------------------------------------------------------------
@@ -389,6 +406,7 @@ export default function SellPage() {
         paid_total: paid,
         change_amount: change,
         note: cart.note,
+        reserve: reserveMode, reserve_days: 7, // ส่งทีหลัง (จองของ)
         is_offline_origin: false,
         device_created_at: new Date().toISOString(),
         discount_approved_by: cart.discountApprovedBy,
@@ -413,6 +431,7 @@ export default function SellPage() {
       setPayOpen(false);
       setLastOrder(order);
       cart.clear();
+      if (reserveMode) { setReserveMode(false); setResvOrders(await listReservedOrders([branchId])); }
       await reloadStock();
       const sh = await currentShift(branchId);
       session.setShift(sh ?? null);
@@ -850,15 +869,22 @@ export default function SellPage() {
               <Inbox size={15} />
             </Button>
           </div>
+          <div className="flex items-center justify-between gap-2 px-0.5">
+            <label className="flex items-center gap-2 cursor-pointer text-xs select-none">
+              <input type="checkbox" checked={reserveMode} onChange={(e) => setReserveMode(e.target.checked)} className="w-4 h-4 accent-[rgb(var(--c-brand))]" />
+              <span className={reserveMode ? "text-brand font-medium" : "text-muted"}>{L("ส่งทีหลัง (จองของ)", "Deliver later (reserve)", "延后交付")}</span>
+            </label>
+            <button onClick={() => setResvOpen(true)} className="text-xs text-muted hover:text-brand inline-flex items-center gap-1">{L("ออเดอร์จอง", "Reserved", "预留单")}{resvOrders.length ? <span className="min-w-[16px] h-4 px-1 grid place-items-center rounded-full bg-brand/15 text-brand text-[10px] font-bold">{resvOrders.length}</span> : null}</button>
+          </div>
           <Button
             variant="ok"
-            className="w-full h-14 text-base"
+            className={`w-full h-14 text-base ${reserveMode ? "!bg-brand hover:!bg-brand-hover" : ""}`}
             disabled={!cart.lines.length}
             onClick={() => setPayOpen(true)}
           >
-            {t.pos.pay} · {formatTHB(totals.grandTotal)}
+            {reserveMode ? L("รับเงิน + จองของ", "Pay + reserve", "收款+预留") : t.pos.pay} · {formatTHB(totals.grandTotal)}
           </Button>
-          <p className="text-[10px] text-muted text-center">{L("F2 = ชำระเงิน · F4 = พักบิล · / = ค้นหา", "F2 = Pay · F4 = Hold · / = Search", "F2 = 收款 · F4 = 挂单 · / = 搜索")}</p>
+          <p className="text-[10px] text-muted text-center">{reserveMode ? L("โหมดจอง: จองสต๊อกไว้ ส่งมอบทีหลัง (ไม่ตัด On Hand จนส่งมอบ)", "Reserve mode: stock held, deliver later", "预留模式") : L("F2 = ชำระเงิน · F4 = พักบิล · / = ค้นหา", "F2 = Pay · F4 = Hold · / = Search", "F2 = 收款 · F4 = 挂单 · / = 搜索")}</p>
         </div>
       </aside>
 
@@ -967,6 +993,36 @@ export default function SellPage() {
         ) : (
           <EmptyState title={t.common.empty} />
         )}
+      </Modal>
+
+      {/* ออเดอร์จอง (ส่งทีหลัง) — ส่งมอบ / ยกเลิก */}
+      <Modal open={resvOpen} onClose={() => setResvOpen(false)} title={L("ออเดอร์จอง (ส่งทีหลัง)", "Reserved orders", "预留单")} size="md">
+        {resvOrders.length ? (
+          <ul className="space-y-2">
+            {resvOrders.map((o) => {
+              const delivered: Record<string, number> = {};
+              for (const d of o.deliveries ?? []) for (const l of d.lines) delivered[l.product_id] = (delivered[l.product_id] ?? 0) + l.qty;
+              const outstanding = o.items.reduce((s, it) => s + (it.product_id ? Math.max(0, it.qty - (delivered[it.product_id] ?? 0)) : 0), 0);
+              const exp = o.reserve_expires_at ? new Date(o.reserve_expires_at) : null;
+              const soon = exp && exp.getTime() - Date.now() < 2 * 86400000;
+              return (
+                <li key={o.id} className="border border-line rounded-xl px-3 py-2.5 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate">{o.order_no} {o.fulfillment === "partial" ? <Badge tone="warn">{L("ส่งบางส่วน", "Partial", "部分")}</Badge> : <Badge tone="brand">{L("จองไว้", "Reserved", "预留")}</Badge>}</p>
+                      <p className="text-[11px] text-muted truncate">{o.customer_name || L("ลูกค้าทั่วไป", "Walk-in", "顾客")} · {o.items.length} {L("รายการ", "items", "项")} · {L("ค้างส่ง", "to deliver", "待交")} {outstanding} · {formatTHB(o.grand_total, false)}</p>
+                      {exp ? <p className={`text-[10px] ${soon ? "text-rose-600" : "text-muted"}`}>{L("หมดอายุจอง", "Expires", "到期")} {exp.toLocaleDateString(locale === "th" ? "th-TH" : "en-US", { day: "2-digit", month: "short" })}</p> : null}
+                    </div>
+                    <div className="flex gap-1.5 shrink-0">
+                      <Button variant="ghost" onClick={() => void doCancelResv(o)}>{L("ยกเลิก", "Cancel", "取消")}</Button>
+                      <Button variant="primary" onClick={() => void doDeliver(o)}>{L("ส่งมอบ", "Deliver", "交付")}</Button>
+                    </div>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        ) : <EmptyState title={L("ไม่มีออเดอร์จอง", "No reserved orders", "无预留单")} />}
       </Modal>
 
       <CustomerPicker

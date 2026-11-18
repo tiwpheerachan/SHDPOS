@@ -867,16 +867,22 @@ export async function commitSale(draft: OrderDraft): Promise<SaleResult> {
     payments: draft.payments,
     is_offline_origin: typeof navigator !== "undefined" ? !navigator.onLine : false,
     created_at: now,
+    // จองของ/ส่งทีหลัง: ยืนยัน Order แล้วแต่ยังไม่ส่งมอบ → จอง Reserved Order (ตัด On Hand ตอนส่งมอบ)
+    fulfillment: draft.reserve ? "reserved" : "immediate",
+    reserve_expires_at: draft.reserve ? new Date(Date.now() + (draft.reserve_days ?? 7) * 86400000).toISOString() : null,
+    deliveries: [],
   };
 
   // 1) บันทึกบิลลงเครื่องก่อน — ถึงตรงนี้ถือว่าขายสำเร็จแล้ว
   await db().orders.put(order);
 
-  // 2) ตัดสต๊อก
+  // 2) สต๊อก: ขายทันที=ตัด On Hand · จอง/ส่งทีหลัง=จอง Reserved Order (ยัง On Hand เท่าเดิม, Available ลด)
   for (const it of items) {
     if (!it.product_id) continue;
     const p = await db().products.get(it.product_id);
-    if (p?.is_stocked) await adjustStock(order.branch_id, it.product_id, -it.qty);
+    if (!p?.is_stocked) continue;
+    if (draft.reserve) await reserveOrderStock(order.branch_id, it.product_id, it.qty);
+    else await adjustStock(order.branch_id, it.product_id, -it.qty);
   }
 
   // 3) อัปเดตยอดกะ
@@ -958,6 +964,82 @@ export async function commitSale(draft: OrderDraft): Promise<SaleResult> {
   }
 
   return { order, offline: order.is_offline_origin };
+}
+
+// ── ออเดอร์จอง/ส่งทีหลัง (Reserved Order) — ส่งมอบ / ยกเลิก / หมดอายุ ──
+/** ส่งมอบของออเดอร์จอง (ทั้งหมดหรือบางส่วน) — ตัด On Hand + ปล่อย Reserved Order เฉพาะที่ส่ง · atomic */
+export async function deliverOrder(orderId: string, employeeId: string, lines?: { product_id: string; qty: number }[]): Promise<Order> {
+  return db().transaction("rw", db().orders, db().stock, db().audit, db().products, async () => {
+    const o = await db().orders.get(orderId);
+    if (!o) throw new Error("order_not_found");
+    if (o.fulfillment !== "reserved" && o.fulfillment !== "partial") throw new Error("order_wrong_status");
+    // ค้างส่งต่อสินค้า = qty ที่ขาย − ที่ส่งไปแล้ว
+    const deliveredSoFar: Record<string, number> = {};
+    for (const d of o.deliveries ?? []) for (const l of d.lines) deliveredSoFar[l.product_id] = (deliveredSoFar[l.product_id] ?? 0) + l.qty;
+    const outstanding: Record<string, number> = {};
+    for (const it of o.items) if (it.product_id) outstanding[it.product_id] = (outstanding[it.product_id] ?? 0) + it.qty - (deliveredSoFar[it.product_id] ?? 0);
+    // เลือกส่ง: ระบุ lines = ส่งบางส่วน · ไม่ระบุ = ส่งที่ค้างทั้งหมด
+    const toDeliver = (lines ?? Object.entries(outstanding).map(([product_id, qty]) => ({ product_id, qty }))).filter((l) => l.qty > 0);
+    const applied: { product_id: string; qty: number }[] = [];
+    for (const l of toDeliver) {
+      const cap = Math.min(l.qty, outstanding[l.product_id] ?? 0);
+      if (cap <= 0) continue;
+      const p = await db().products.get(l.product_id);
+      if (p?.is_stocked) { await adjustStock(o.branch_id, l.product_id, -cap); await reserveOrderStock(o.branch_id, l.product_id, -cap); }
+      applied.push({ product_id: l.product_id, qty: cap });
+    }
+    if (!applied.length) throw new Error("order_wrong_status");
+    const deliveries = [...(o.deliveries ?? []), { at: new Date().toISOString(), by: employeeId, lines: applied }];
+    // ส่งครบทุกตัวหรือยัง
+    const after: Record<string, number> = { ...deliveredSoFar };
+    for (const a of applied) after[a.product_id] = (after[a.product_id] ?? 0) + a.qty;
+    const complete = o.items.every((it) => !it.product_id || (after[it.product_id] ?? 0) >= it.qty);
+    const next: Order = { ...o, deliveries, fulfillment: complete ? "delivered" : "partial", synced: false };
+    await db().orders.put(next);
+    return { next, applied };
+  }).then(async ({ next, applied }) => {
+    await writeAudit({ action: "order", actor_id: employeeId, branch_id: next.branch_id, ref_table: "orders", ref_no: next.order_no, amount: null, after_data: { deliver: applied, fulfillment: next.fulfillment }, is_offline: false });
+    return next;
+  });
+}
+
+/** ยกเลิกออเดอร์จอง (ก่อนส่งมอบ) — ปล่อย Reserved Order ที่ค้าง (ไม่แตะ On Hand) · atomic */
+export async function cancelReservedOrder(orderId: string, employeeId: string, reason?: string): Promise<Order> {
+  return db().transaction("rw", db().orders, db().stock, db().audit, db().products, async () => {
+    const o = await db().orders.get(orderId);
+    if (!o) throw new Error("order_not_found");
+    if (o.fulfillment !== "reserved" && o.fulfillment !== "partial") throw new Error("order_wrong_status");
+    const deliveredSoFar: Record<string, number> = {};
+    for (const d of o.deliveries ?? []) for (const l of d.lines) deliveredSoFar[l.product_id] = (deliveredSoFar[l.product_id] ?? 0) + l.qty;
+    for (const it of o.items) {
+      if (!it.product_id) continue;
+      const remain = it.qty - (deliveredSoFar[it.product_id] ?? 0);
+      const p = await db().products.get(it.product_id);
+      if (remain > 0 && p?.is_stocked) await reserveOrderStock(o.branch_id, it.product_id, -remain);
+    }
+    const next: Order = { ...o, fulfillment: "cancelled_reserve", status: "voided", void_reason: reason ?? "ยกเลิกการจอง", synced: false };
+    await db().orders.put(next);
+    return next;
+  }).then(async (next) => {
+    await writeAudit({ action: "order", actor_id: employeeId, branch_id: next.branch_id, ref_table: "orders", ref_no: next.order_no, amount: null, after_data: { cancel_reserve: true }, is_offline: false });
+    return next;
+  });
+}
+
+/** ปล่อยจองที่หมดอายุ (เรียกตอนเปิดหน้าขาย) — ออเดอร์จองที่เลยกำหนด → ปล่อย Reserved Order + mark cancelled */
+export async function expireReservations(branchId?: string): Promise<number> {
+  const now = Date.now();
+  const all = await db().orders.toArray();
+  const expired = all.filter((o) => (o.fulfillment === "reserved" || o.fulfillment === "partial") && o.reserve_expires_at && new Date(o.reserve_expires_at).getTime() < now && (!branchId || o.branch_id === branchId));
+  for (const o of expired) await cancelReservedOrder(o.id, "system", "หมดอายุการจอง").catch(() => undefined);
+  return expired.length;
+}
+
+/** ออเดอร์จองที่ยังค้างส่งมอบ (reserved/partial) */
+export async function listReservedOrders(branchIds?: string[]): Promise<Order[]> {
+  const all = await db().orders.toArray();
+  return all.filter((o) => (o.fulfillment === "reserved" || o.fulfillment === "partial") && (!branchIds || branchIds.includes(o.branch_id)))
+    .sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
 }
 
 export async function voidOrder(orderId: string, employeeId: string, reason: string): Promise<void> {

@@ -211,6 +211,9 @@ export interface OrderDraft {
   paid_total: number;
   change_amount: number;
   note?: string;
+  /** จองของ/ส่งทีหลัง: จอง Reserved Order แทนตัด On Hand ทันที (ส่งมอบภายหลัง) */
+  reserve?: boolean;
+  reserve_days?: number;
   is_offline_origin: boolean;
   device_created_at: string;
   discount_approved_by?: string | null;
@@ -261,6 +264,12 @@ export interface Order {
   is_offline_origin: boolean;
   created_at: string;
   void_reason?: string | null;
+  /** การส่งมอบ: immediate=ขายรับของทันที (default) · reserved=จองของ ส่งทีหลัง · partial=ส่งบางส่วน · delivered=ส่งครบ · cancelled_reserve=ยกเลิกจอง */
+  fulfillment?: "immediate" | "reserved" | "partial" | "delivered" | "cancelled_reserve";
+  /** ประวัติการส่งมอบ (สำหรับออเดอร์จอง/ส่งทีหลัง) */
+  deliveries?: { at: string; by?: string | null; lines: { product_id: string; qty: number }[] }[];
+  /** วันหมดอายุการจอง (ปล่อย Reserved Order อัตโนมัติเมื่อเลยกำหนด) */
+  reserve_expires_at?: string | null;
   /** ซิงก์ขึ้น server แล้วหรือยัง + เลขบิลที่ server ออกให้ (อ้างอิงข้ามเครื่อง) */
   synced?: boolean;
   server_order_no?: string | null;
