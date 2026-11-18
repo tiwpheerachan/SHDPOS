@@ -17,6 +17,10 @@ const MSG: Record<string, { th: string; en: string; zh: string }> = {
   jst_sync_failed: { th: "ซิงค์กับ JST ไม่สำเร็จ", en: "JST sync failed", zh: "JST同步失败" },
   serial_count_mismatch: { th: "จำนวน Serial ไม่เท่ากับจำนวนที่สั่ง", en: "Serial count ≠ qty", zh: "序列号数量≠数量" },
   not_serialized: { th: "สินค้านี้ยังไม่จัดประเภท Serial — ส่งไม่ได้", en: "Item unclassified — cannot ship", zh: "未分类序列 — 不可发货" },
+  insufficient_available: { th: "ของพร้อมโอน (Available) ไม่พอ", en: "Not enough available to reserve", zh: "可用量不足" },
+  insufficient_on_hand: { th: "ของในสต๊อก (On Hand) ไม่พอส่ง", en: "Not enough on-hand to ship", zh: "现货不足" },
+  receive_exceeds_outstanding: { th: "รับเกินยอดค้างรับ", en: "Received more than outstanding", zh: "收货超过待收" },
+  transfer_not_found: { th: "ไม่พบใบโอนนี้", en: "Transfer not found", zh: "未找到单据" },
 };
 
 /** แปลง error code → ข้อความตามภาษา (params ใส่ต่อท้ายถ้ามี) */

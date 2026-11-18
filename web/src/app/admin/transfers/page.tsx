@@ -236,7 +236,9 @@ export default function AdminTransfersPage() {
       // auto-approve ถ้าผู้สร้างมีสิทธิ์อนุมัติ หรือเป็นคนในสายอนุมัติที่ตั้งไว้ของสาขาต้นทาง
       const cfg = resolveApprovers(rules, { process: "transfer", branchId: from, brandId: branches.find((b) => b.id === from)?.brand_id ?? null });
       const auto = isSuperApprover(employee) || (cfg ? cfg.includes(employee.id) : can(employee, "transfer.approve"));
-      await owCreate(from, to, employee.id, ls, note, auto);
+      // ต้นทางเป็นคลัง (warehouse) → OneWarehouse จัดการยอดฝั่งนั้น (ข้ามจอง/ตรวจ Available ของสาขา)
+      const fromKind = branches.find((b) => b.id === from)?.branch_type === "warehouse" ? "warehouse" : "branch";
+      await owCreate(from, to, employee.id, ls, note, auto, fromKind);
       setOpen(false); setLines([]); setNote(""); await reload();
       toast.push({ tone: "ok", title: t.transfer.title });
     } finally { setBusy(false); }

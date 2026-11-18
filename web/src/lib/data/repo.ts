@@ -16,6 +16,7 @@ import {
   DEMO_CATEGORIES, DEMO_CUSTOMERS, buildDemoStock, buildDemoOrders, buildDemoAudit, buildDemoOrgPositions,
 } from "../demo-data";
 import { computeTotals, lineTotal, lineDiscount, lineCost, round2, VAT_RATE } from "../money";
+import { stockView } from "../stock";
 import type {
   Branch, Brand, Category, Employee, Order, OrderDraft, OrderItem, Product,
   Shift, StockLevel, Terminal, AuditEntry, Customer, ReturnDoc, ApprovalRequest,
@@ -335,6 +336,32 @@ export async function reserveOrderStock(branchId: string, productId: string, del
   await db().stock.update(key, { qty_reserved_order: Math.max(0, round2((row.qty_reserved_order ?? 0) + delta)) });
 }
 
+/** รัน read-write transaction คลุม transfers+stock+audit — ปรับยอด+ใบโอนสำเร็จพร้อมกัน (error ใดๆ → rollback ทั้งหมด) */
+function txTransfer<T>(fn: () => Promise<T>): Promise<T> {
+  return db().transaction("rw", db().transfers, db().stock, db().audit, fn);
+}
+/** อ่านยอดปัจจุบันของ (สาขา, สินค้า) เพื่อตรวจก่อนจอง/ส่ง */
+async function readStockView(branchId: string, productId: string) {
+  return stockView(await db().stock.get(stockKey(branchId, productId)));
+}
+/** อ่านใบโอนสด + เช็ค version ภายใน transaction (กันยอดเปลี่ยนแต่สถานะชน) */
+async function freshOrThrow(tr: Transfer): Promise<Transfer> {
+  const fresh = await db().transfers.get(tr.id);
+  if (!fresh) throw new Error("transfer_not_found");
+  if ((fresh.version ?? 1) !== (tr.version ?? 1)) throw new Error("transfer_version_conflict");
+  return fresh;
+}
+/** put ใบโอน (bump version) ภายใน tx — ไม่เขียน audit/enqueue (ต้องทำนอก tx เพราะแตะ employees/pending) */
+async function putTransferTx(base: Transfer, patch: Partial<Transfer>): Promise<Transfer> {
+  const next: Transfer = { ...base, ...patch, version: (base.version ?? 1) + 1, sync_state: "pending" };
+  await db().transfers.put(next);
+  return next;
+}
+/** เขียน audit ของใบโอน (เรียกหลัง transaction commit) */
+function auditTransfer(next: Transfer, employeeId: string, branchId: string, after: Record<string, unknown>): Promise<void> {
+  return writeAudit({ action: "transfer", actor_id: employeeId, branch_id: branchId, ref_table: "transfers", ref_no: next.transfer_no, amount: null, after_data: after, is_offline: false });
+}
+
 /** เพิ่ม version + บันทึก + audit (concurrency + timeline) — เช็ค stale version → โยน transfer_version_conflict */
 async function writeTransfer(tr: Transfer, patch: Partial<Transfer>, employeeId: string, branchId: string, after: Record<string, unknown>): Promise<Transfer> {
   const fresh = await db().transfers.get(tr.id);
@@ -365,10 +392,21 @@ export async function createTransfer(
     requested_by: employeeId, note: note || null, created_at: now,
     version: 1, sync_state: "pending", jst_allocation_no: null,
   };
-  await db().transfers.put(tr);
-  // จองสต๊อกต้นทาง (เฉพาะโอนจากสาขา — คลัง OneWarehouse จัดการเองฝั่งนั้น)
-  if (fromKind === "branch") for (const l of lines) await reserveStock(fromBranchId, l.product_id, l.qty);
-  await writeAudit({ action: "transfer", actor_id: employeeId, branch_id: fromBranchId, ref_table: "transfers", ref_no: tr.transfer_no, amount: null, after_data: { status: tr.status, to: toBranchId }, is_offline: false });
+  await txTransfer(async () => {
+    // ตรวจของพร้อมโอน (Available) ก่อนจอง — รวมจำนวนต่อสินค้า (กันบรรทัดซ้ำ) · เฉพาะต้นทางที่เป็นสาขา
+    if (fromKind === "branch") {
+      const need: Record<string, number> = {};
+      for (const l of lines) need[l.product_id] = (need[l.product_id] ?? 0) + l.qty;
+      for (const [pid, qty] of Object.entries(need)) {
+        const av = (await readStockView(fromBranchId, pid)).available;
+        if (qty > av) throw new Error("insufficient_available");
+      }
+    }
+    await db().transfers.put(tr);
+    // จองสต๊อกต้นทาง (เฉพาะโอนจากสาขา — คลัง OneWarehouse จัดการเองฝั่งนั้น)
+    if (fromKind === "branch") for (const l of lines) await reserveStock(fromBranchId, l.product_id, l.qty);
+  });
+  await auditTransfer(tr, employeeId, fromBranchId, { status: tr.status, to: toBranchId });
   return tr;
 }
 
@@ -377,12 +415,16 @@ export async function approveTransfer(tr: Transfer, employeeId: string, note?: s
 }
 /** ปฏิเสธ/ยกเลิก → คืน reserved ที่ต้นทาง + บันทึกเหตุผล */
 export async function rejectTransfer(tr: Transfer, employeeId: string, cancel = false, reason?: string): Promise<Transfer> {
-  // ยกเลิก/ปฏิเสธได้เฉพาะก่อนสแกนออก (ของยังไม่ออกจากคลัง) → ปล่อยจอง; หลังส่งใช้ "โอนกลับ" แทน
-  const preShip = ["draft", "pending_approval", "approved", "picking"].includes(tr.status);
-  if (!preShip) throw new Error("transfer_wrong_status");
-  if (tr.from_kind !== "warehouse") for (const it of tr.items) await reserveStock(tr.from_branch_id, it.product_id, -it.qty_requested);
   const status: TransferStatus = cancel ? "cancelled" : "rejected";
-  return writeTransfer(tr, { status, approved_by: employeeId, approval_note: reason || null }, employeeId, tr.from_branch_id, { status, note: reason || null });
+  const next = await txTransfer(async () => {
+    const fresh = await freshOrThrow(tr);
+    // ยกเลิก/ปฏิเสธได้เฉพาะก่อนสแกนออก (ของยังไม่ออกจากคลัง) → ปล่อยจอง; หลังส่งใช้ "โอนกลับ" แทน
+    if (!["draft", "pending_approval", "approved", "picking"].includes(fresh.status)) throw new Error("transfer_wrong_status");
+    if (fresh.from_kind !== "warehouse") for (const it of fresh.items) await reserveStock(fresh.from_branch_id, it.product_id, -it.qty_requested);
+    return putTransferTx(fresh, { status, approved_by: employeeId, approval_note: reason || null });
+  });
+  await auditTransfer(next, employeeId, next.from_branch_id, { status, note: reason || null });
+  return next;
 }
 
 /** โอนกลับ — สร้างใบโอนใหม่ (ปลายทางเดิม → ต้นทางเดิม) สำหรับคืนของหลังรับเข้าแล้ว */
@@ -399,31 +441,43 @@ export async function createReverseTransfer(tr: Transfer, employeeId: string): P
 /** ต้นทางสแกนออก — บันทึก shippedSerials + qty_shipped (ตรวจ SN ครบ/null=บล็อก) → packed */
 export async function scanOutTransfer(tr: Transfer, employeeId: string, serialsByProduct: Record<string, string[]>): Promise<Transfer> {
   const now = new Date().toISOString();
-  const items = tr.items.map((it) => {
-    if (it.isSerialized === null) throw new Error("not_serialized");
-    if (it.isSerialized === true) {
-      const sns = serialsByProduct[it.product_id] ?? it.shippedSerials?.map((s) => s.serialNo) ?? [];
-      if (sns.length !== it.qty_requested) throw new Error("serial_count_mismatch");
-      return { ...it, qty_shipped: sns.length, shippedSerials: sns.map((serialNo) => ({ serialNo, at: now })) };
-    }
-    return { ...it, qty_shipped: it.qty_requested };
+  const next = await txTransfer(async () => {
+    const fresh = await freshOrThrow(tr);
+    if (!["approved", "picking", "packed"].includes(fresh.status)) throw new Error("transfer_wrong_status");
+    const items = fresh.items.map((it) => {
+      if (it.isSerialized === null) throw new Error("not_serialized");
+      if (it.isSerialized === true) {
+        const sns = serialsByProduct[it.product_id] ?? it.shippedSerials?.map((s) => s.serialNo) ?? [];
+        if (new Set(sns).size !== sns.length) throw new Error("serial_duplicate");  // ห้าม SN ซ้ำในรอบเดียว
+        if (sns.length !== it.qty_requested) throw new Error("serial_count_mismatch");
+        return { ...it, qty_shipped: sns.length, shippedSerials: sns.map((serialNo) => ({ serialNo, at: now })) };
+      }
+      return { ...it, qty_shipped: it.qty_requested };
+    });
+    return putTransferTx(fresh, { status: "packed", items });
   });
-  return writeTransfer(tr, { status: "packed", items }, employeeId, tr.from_branch_id, { status: "packed", shipped: items.reduce((s, i) => s + i.qty_shipped, 0) });
+  await auditTransfer(next, employeeId, next.from_branch_id, { status: "packed", shipped: next.items.reduce((s, i) => s + i.qty_shipped, 0) });
+  return next;
 }
 
 /** ยืนยันส่งออก — ย้าย on_hand → On-the-Way-Out (Stock คงที่, ยัง Reserved Out ไว้) → in_transit */
 export async function dispatchTransfer(tr: Transfer, employeeId: string, opts: { carrier?: string | null; tracking?: string | null; shippingCost?: number | null } = {}): Promise<Transfer> {
-  if (tr.from_kind !== "warehouse") {
-    for (const it of tr.items) {
-      // On Hand ลด, OTWO เพิ่ม (Stock = on_hand+otwo คงที่); ยังไม่ปล่อย reserved → Available คงที่จนรับเข้า
-      if (it.qty_shipped > 0) { await adjustStock(tr.from_branch_id, it.product_id, -it.qty_shipped); await adjustOtwo(tr.from_branch_id, it.product_id, it.qty_shipped); }
+  const next = await txTransfer(async () => {
+    const fresh = await freshOrThrow(tr);
+    if (fresh.status !== "packed") throw new Error("transfer_wrong_status"); // ต้องสแกนออก/แพ็คก่อน · กันกดส่งซ้ำ
+    if (fresh.from_kind !== "warehouse") {
+      // เช็ค On Hand พอก่อน (ทุกบรรทัด) แล้วค่อยย้าย on_hand → OTWO (Stock คงที่, ยัง Reserved Out → Available คงที่)
+      for (const it of fresh.items) if (it.qty_shipped > 0 && (await readStockView(fresh.from_branch_id, it.product_id)).onHand < it.qty_shipped) throw new Error("insufficient_on_hand");
+      for (const it of fresh.items) if (it.qty_shipped > 0) { await adjustStock(fresh.from_branch_id, it.product_id, -it.qty_shipped); await adjustOtwo(fresh.from_branch_id, it.product_id, it.qty_shipped); }
     }
-  }
-  return writeTransfer(tr, {
-    status: "in_transit", carrier: opts.carrier ?? null, tracking: opts.tracking ?? null, shipping_cost: opts.shippingCost ?? null,
-    ship_stage: "requested", // เริ่มที่ "เรียกรถแล้ว"
-    jst_allocation_no: tr.jst_allocation_no ?? `JST-${nanoid(6).toUpperCase()}`,
-  }, employeeId, tr.from_branch_id, { status: "in_transit", carrier: opts.carrier ?? null });
+    return putTransferTx(fresh, {
+      status: "in_transit", carrier: opts.carrier ?? null, tracking: opts.tracking ?? null, shipping_cost: opts.shippingCost ?? null,
+      ship_stage: "requested", // เริ่มที่ "เรียกรถแล้ว"
+      jst_allocation_no: fresh.jst_allocation_no ?? `JST-${nanoid(6).toUpperCase()}`,
+    });
+  });
+  await auditTransfer(next, employeeId, next.from_branch_id, { status: "in_transit", carrier: opts.carrier ?? null });
+  return next;
 }
 
 /** อัปเดตสถานะขนส่งย่อย (เรียกรถ → รถรับของ → กำลังส่ง → ถึงปลายทาง) */
@@ -444,54 +498,74 @@ export interface ReceiveLineInput { qty?: number; serials?: string[] }
 /** ปลายทางรับเข้า — บันทึก receivedSerials + qty_received, เพิ่ม on_hand ปลายทาง, กระทบ SN → completed/partial */
 export async function receiveTransfer(tr: Transfer, employeeId: string, received: Record<string, ReceiveLineInput>, note?: string): Promise<Transfer> {
   const now = new Date().toISOString();
-  const receiptLines: TransferReceipt["lines"] = [];
-  // รับหลายรอบ: สะสม (append) ไม่ทับของเดิม — รับเฉพาะส่วนใหม่ของรอบนี้
-  const items = tr.items.map((it) => {
-    const inp = received[it.product_id] ?? {};
-    if (it.isSerialized === true) {
-      const prev = new Set((it.receivedSerials ?? []).map((s) => s.serialNo));
-      const batch = (inp.serials ?? []).filter((sn) => !prev.has(sn)); // SN ใหม่รอบนี้
-      if (batch.length) receiptLines.push({ product_id: it.product_id, qty: batch.length, serials: batch });
-      const merged = [...(it.receivedSerials ?? []), ...batch.map((serialNo) => ({ serialNo, at: now }))];
-      return { ...it, qty_received: merged.length, receivedSerials: merged };
+  const next = await txTransfer(async () => {
+    const fresh = await freshOrThrow(tr);
+    if (!["in_transit", "partial_received"].includes(fresh.status)) throw new Error("transfer_wrong_status");
+    const receiptLines: TransferReceipt["lines"] = [];
+    // รับหลายรอบ: สะสม (append) ไม่ทับของเดิม — ตรวจ SN/จำนวน "ก่อน" เพิ่มสต๊อก (อยู่ใน tx เดียว → error = rollback)
+    const items = fresh.items.map((it) => {
+      const inp = received[it.product_id] ?? {};
+      const target = it.qty_shipped || it.qty_requested;
+      if (it.isSerialized === true) {
+        const shippedSet = new Set((it.shippedSerials ?? []).map((s) => s.serialNo));
+        const prev = new Set((it.receivedSerials ?? []).map((s) => s.serialNo));
+        const raw = inp.serials ?? [];
+        if (new Set(raw).size !== raw.length) throw new Error("serial_duplicate");      // กัน SN ซ้ำในรอบเดียว
+        const batch = raw.filter((sn) => !prev.has(sn));                                 // SN ใหม่รอบนี้ (กดซ้ำ = ไม่เพิ่ม)
+        for (const sn of batch) if (!shippedSet.has(sn)) throw new Error("serial_not_shipped"); // ห้ามรับ SN ที่ไม่ได้ส่งมา
+        if (batch.length) receiptLines.push({ product_id: it.product_id, qty: batch.length, serials: batch });
+        const merged = [...(it.receivedSerials ?? []), ...batch.map((serialNo) => ({ serialNo, at: now }))];
+        return { ...it, qty_received: merged.length, receivedSerials: merged };
+      }
+      const outstanding = Math.max(0, target - (it.qty_received ?? 0));                  // ยอดค้างรับ
+      const batchQty = Math.max(0, Math.round(inp.qty ?? 0));                            // จำนวนที่รับ "รอบนี้"
+      if (batchQty > outstanding) throw new Error("receive_exceeds_outstanding");         // ห้ามรับเกินยอดค้าง
+      if (batchQty) receiptLines.push({ product_id: it.product_id, qty: batchQty });
+      return { ...it, qty_received: (it.qty_received ?? 0) + batchQty };
+    });
+    // สต๊อกต่อรอบ: ปลายทาง += ที่รับรอบนี้ · ต้นทาง otwo/reserved -= ที่รับรอบนี้ (ของที่มาถึงแล้ว)
+    for (const rl of receiptLines) {
+      await adjustStock(fresh.to_branch_id, rl.product_id, rl.qty);
+      if (fresh.from_kind !== "warehouse") { await adjustOtwo(fresh.from_branch_id, rl.product_id, -rl.qty); await reserveStock(fresh.from_branch_id, rl.product_id, -rl.qty); }
     }
-    const batchQty = Math.max(0, Math.round(inp.qty ?? 0)); // จำนวนที่รับ "รอบนี้"
-    if (batchQty) receiptLines.push({ product_id: it.product_id, qty: batchQty });
-    return { ...it, qty_received: (it.qty_received ?? 0) + batchQty };
+    // ครบ = ทุกบรรทัดรับ ≥ ส่ง และ (ถ้า serialized) SN ที่รับอยู่ในชุดที่ส่งครบ
+    const complete = items.every((it) => {
+      const target = it.qty_shipped || it.qty_requested;
+      if (it.isSerialized === true) {
+        const shipped = new Set((it.shippedSerials ?? []).map((s) => s.serialNo));
+        const recv = (it.receivedSerials ?? []).map((s) => s.serialNo);
+        return recv.length >= target && recv.every((sn) => shipped.has(sn));
+      }
+      return it.qty_received >= target;
+    });
+    const receipts: TransferReceipt[] = [...(fresh.receipts ?? []), { id: nanoid(8), at: now, by: employeeId, note: note ?? null, lines: receiptLines }];
+    const status: TransferStatus = complete ? "completed" : "partial_received";
+    const nx = await putTransferTx(fresh, { status, items, receipts });
+    return { nx, received: receiptLines.reduce((s, r) => s + r.qty, 0), round: receipts.length };
   });
-  // สต๊อกต่อรอบ: ปลายทาง += ที่รับรอบนี้ · ต้นทาง otwo/reserved -= ที่รับรอบนี้ (ของที่มาถึงแล้ว)
-  for (const rl of receiptLines) {
-    await adjustStock(tr.to_branch_id, rl.product_id, rl.qty);
-    if (tr.from_kind !== "warehouse") { await adjustOtwo(tr.from_branch_id, rl.product_id, -rl.qty); await reserveStock(tr.from_branch_id, rl.product_id, -rl.qty); }
-  }
-  // ครบ = ทุกบรรทัดรับ ≥ ส่ง และ (ถ้า serialized) SN ที่รับอยู่ในชุดที่ส่งครบ
-  const complete = items.every((it) => {
-    const target = it.qty_shipped || it.qty_requested;
-    if (it.isSerialized === true) {
-      const shipped = new Set((it.shippedSerials ?? []).map((s) => s.serialNo));
-      const recv = (it.receivedSerials ?? []).map((s) => s.serialNo);
-      return recv.length >= target && recv.every((sn) => shipped.has(sn));
-    }
-    return it.qty_received >= target;
-  });
-  const receipts: TransferReceipt[] = [...(tr.receipts ?? []), { id: nanoid(8), at: now, by: employeeId, note: note ?? null, lines: receiptLines }];
-  const status: TransferStatus = complete ? "completed" : "partial_received";
-  return writeTransfer(tr, { status, items, receipts }, employeeId, tr.to_branch_id, { status, received: receiptLines.reduce((s, r) => s + r.qty, 0), round: receipts.length });
+  await auditTransfer(next.nx, employeeId, next.nx.to_branch_id, { status: next.nx.status, received: next.received, round: next.round });
+  return next.nx;
 }
 
 /** ปิดรับโดยยอมรับส่วนขาด (partial → completed) — ปล่อย otwo/reserved ส่วนที่ไม่มาถึง + บันทึกผลต่าง short */
 export async function closeTransferShort(tr: Transfer, employeeId: string, note?: string): Promise<Transfer> {
   const now = new Date().toISOString();
-  const discs: TransferDiscrepancy[] = [...(tr.discrepancies ?? [])];
-  for (const it of tr.items) {
-    const target = it.qty_shipped || it.qty_requested;
-    const short = Math.max(0, target - (it.qty_received ?? 0));
-    if (short > 0) {
-      if (tr.from_kind !== "warehouse") { await adjustOtwo(tr.from_branch_id, it.product_id, -short); await reserveStock(tr.from_branch_id, it.product_id, -short); }
-      discs.push({ id: nanoid(8), product_id: it.product_id, kind: "short", qty: short, status: "open", at: now, by: employeeId, note: note ?? null });
+  const next = await txTransfer(async () => {
+    const fresh = await freshOrThrow(tr);
+    if (fresh.status !== "partial_received") throw new Error("transfer_wrong_status"); // ปิดได้เฉพาะใบที่รับบางส่วน
+    const discs: TransferDiscrepancy[] = [...(fresh.discrepancies ?? [])];
+    for (const it of fresh.items) {
+      const target = it.qty_shipped || it.qty_requested;
+      const short = Math.max(0, target - (it.qty_received ?? 0));
+      if (short > 0) {
+        if (fresh.from_kind !== "warehouse") { await adjustOtwo(fresh.from_branch_id, it.product_id, -short); await reserveStock(fresh.from_branch_id, it.product_id, -short); }
+        discs.push({ id: nanoid(8), product_id: it.product_id, kind: "short", qty: short, status: "open", at: now, by: employeeId, note: note ?? null });
+      }
     }
-  }
-  return writeTransfer(tr, { status: "completed", discrepancies: discs }, employeeId, tr.to_branch_id, { status: "completed", closed_short: true });
+    return putTransferTx(fresh, { status: "completed", discrepancies: discs });
+  });
+  await auditTransfer(next, employeeId, next.to_branch_id, { status: "completed", closed_short: true });
+  return next;
 }
 
 /** บันทึกผลต่าง (ชำรุด/หาย/ผิด SN/ขาด/เกิน) + ผู้รับผิดชอบ */
