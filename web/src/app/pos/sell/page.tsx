@@ -515,9 +515,9 @@ export default function SellPage() {
   const activeLine = cart.lines.find((l) => l.lineId === (lineDiscountId ?? serialLineId));
 
   return (
-    <div className={`grid h-[calc(100vh-3.5rem)] page-enter transition-[grid-template-columns] duration-300 ${cartExpanded ? "lg:grid-cols-[1fr_600px] xl:grid-cols-[1fr_720px]" : "lg:grid-cols-[1fr_400px] xl:grid-cols-[1fr_440px]"}`}>
+    <div className={`grid h-[calc(100vh-3.5rem)] page-enter transition-[grid-template-columns] duration-300 ${cartExpanded ? "lg:grid-cols-[minmax(0,1fr)_600px] xl:grid-cols-[minmax(0,1fr)_720px]" : "lg:grid-cols-[minmax(0,1fr)_400px] xl:grid-cols-[minmax(0,1fr)_440px]"}`}>
       {/* ================= ฝั่งสินค้า ================= */}
-      <section className="flex flex-col min-h-0 border-r border-line">
+      <section className="flex flex-col min-h-0 min-w-0 border-r border-line">
         <div className="p-3 sm:p-4 border-b border-line flex gap-2">
           <div className="relative flex-1">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
