@@ -199,6 +199,21 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ ok: true, id: campaignId });
 }
 
+// PATCH — อัปเดตเฉพาะฟิลด์ที่ส่งมา (เช่น เปิด/ปิด active) โดยไม่แตะฟิลด์อื่น
+export async function PATCH(req: NextRequest) {
+  const ctx = await requireAdmin(req);
+  if (!ctx) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  const b = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+  if (!b || !isUuid(b.id)) return NextResponse.json({ error: "id required" }, { status: 400 });
+  const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (typeof b.active === "boolean") patch.active = b.active;
+  if (b.usage_limit !== undefined) patch.usage_limit = b.usage_limit === null || b.usage_limit === "" ? null : Math.trunc(Number(b.usage_limit));
+  if (Object.keys(patch).length === 1) return NextResponse.json({ error: "nothing to update" }, { status: 400 });
+  const { error } = await supabaseAdmin().from("campaigns").update(patch).eq("id", b.id);
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ ok: true });
+}
+
 export async function DELETE(req: NextRequest) {
   const ctx = await requireAdmin(req);
   if (!ctx) return NextResponse.json({ error: "forbidden" }, { status: 403 });

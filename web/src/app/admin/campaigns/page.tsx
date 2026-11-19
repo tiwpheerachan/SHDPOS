@@ -177,7 +177,7 @@ export default function AdminCampaignsPage() {
   }
 
   async function toggleActive(c: Campaign) {
-    await fetch("/api/admin/campaigns", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: c.id, active: !c.active }) });
+    await fetch("/api/admin/campaigns", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: c.id, active: !c.active }) });
     await load();
   }
   async function remove(c: Campaign) {
@@ -263,7 +263,8 @@ export default function AdminCampaignsPage() {
                   </div>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
-                  <button onClick={() => setReportId(c.id)} title={L("รายงาน", "Report", "报表")} className="h-8 w-8 grid place-items-center rounded-lg text-muted hover:bg-surface2"><BarChart3 size={15} /></button>
+                  <button onClick={() => setReportId(c.id)} title={L("สรุปย่อ", "Quick report", "快报")} className="h-8 w-8 grid place-items-center rounded-lg text-muted hover:bg-surface2"><BarChart3 size={15} /></button>
+                  <button onClick={() => { window.location.href = `/admin/coupons?campaign=${c.id}`; }} title={L("วิเคราะห์การใช้งานเชิงลึก", "Deep usage analytics", "深度分析")} className="h-8 w-8 grid place-items-center rounded-lg text-muted hover:bg-surface2"><TrendingUp size={15} /></button>
                   <button onClick={() => void toggleActive(c)} title={c.active ? L("ปิด", "Disable", "停用") : L("เปิด", "Enable", "启用")} className={`h-8 w-8 grid place-items-center rounded-lg hover:bg-surface2 ${c.active ? "text-ink" : "text-muted"}`}><Power size={15} /></button>
                   <button onClick={() => openEdit(c)} className="h-8 w-8 grid place-items-center rounded-lg text-muted hover:bg-surface2"><Pencil size={15} /></button>
                   <button onClick={() => void remove(c)} className="h-8 w-8 grid place-items-center rounded-lg text-muted hover:text-danger hover:bg-surface2"><Trash2 size={15} /></button>
