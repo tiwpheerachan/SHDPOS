@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { motion } from "framer-motion";
-import { Network, Plus, Pencil, Trash2, UserPlus, Search, Check, ChevronDown, RefreshCw, Sparkles, ShieldCheck, ChevronLeft, Users, GripVertical, ArrowLeftRight } from "lucide-react";
+import { Network, Plus, Pencil, Trash2, UserPlus, Search, Check, ChevronDown, RefreshCw, Sparkles, ShieldCheck, ChevronLeft, Users, GripVertical, ArrowLeftRight, Store, SlidersHorizontal } from "lucide-react";
 import clsx from "clsx";
 import { useI18n } from "@/lib/i18n/provider";
 import { useSession } from "@/lib/store/session";
@@ -12,6 +12,7 @@ import { ROLE_LABEL, visibleBranchIds, can } from "@/lib/permissions";
 import { TeamFolders } from "@/components/admin/team-folders";
 import { ApprovalRules } from "@/components/admin/approval-rules";
 import { PersonPermissionDrawer } from "@/components/admin/person-permission-drawer";
+import { BranchDetailDrawer } from "@/components/admin/branch-detail-drawer";
 import { listEmployees, listBrands } from "@/lib/data/repo";
 import type { Employee, Brand } from "@/lib/types";
 import { useToast } from "@/components/toast-host";
@@ -41,7 +42,9 @@ export default function AdminOrgPage() {
   const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
   const toast = useToast();
   const { employee } = useSession();
-  const { branches } = useAdminScope();
+  const { branches, refresh: refreshScope } = useAdminScope();
+  const [branchDetailOpen, setBranchDetailOpen] = useState(false);
+  const [detailBranchId, setDetailBranchId] = useState<string | null>(null);
 
   const shopBranches = useMemo(() => {
     const ids = visibleBranchIds(employee, branches.map((b) => b.id));
@@ -269,11 +272,16 @@ export default function AdminOrgPage() {
           ) : null}
           <span className="w-9 h-9 rounded-xl bg-brand/12 grid place-items-center"><Network size={18} className="text-brand" /></span>
           <div>
-            <h1 className="text-lg font-semibold tracking-tight">{L("ผังองค์กร", "Org chart", "组织架构")}</h1>
-            <p className="text-[11px] text-muted">{L("โครงสร้างทีมต่อสาขา · ตั้งตำแหน่งและสายบังคับบัญชา", "Team structure per branch · set positions & reporting line", "各门店团队结构 · 设置职位与汇报关系")}</p>
+            <h1 className="text-lg font-semibold tracking-tight">{L("ผังสาขา", "Branch map", "门店地图")}</h1>
+            <p className="text-[11px] text-muted">{L("สาขา + ทีมต่อสาขา · ตั้งค่าสาขา ตำแหน่งและสายบังคับบัญชา", "Branches + team per branch · branch settings, positions & reporting", "门店+各门店团队 · 门店设置、职位与汇报")}</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {canManage ? (
+            <button onClick={() => { setDetailBranchId(null); setBranchDetailOpen(true); }} className="inline-flex items-center gap-1.5 h-10 px-3 rounded-xl border border-line text-sm text-muted hover:text-brand hover:bg-surface2 transition-colors">
+              <Plus size={15} /> {L("เพิ่มสาขา", "Add branch", "新增门店")}
+            </button>
+          ) : null}
           <button onClick={() => setView((v) => (v === "approvals" ? "folders" : "approvals"))} className={`inline-flex items-center gap-1.5 h-10 px-3 rounded-xl border text-sm transition-colors ${view === "approvals" ? "border-brand bg-brand/10 text-brand" : "border-line text-muted hover:text-brand hover:bg-surface2"}`}>
             <ArrowLeftRight size={15} /> {L("สายอนุมัติ", "Approval line", "审批线")}
           </button>
@@ -313,7 +321,14 @@ export default function AdminOrgPage() {
                     <p className="text-xs text-muted truncate">{L("คลิกคนเพื่อกำหนดสิทธิ์การเข้าถึง", "Click a person to set access", "点击设置访问权限")}</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-1 text-muted shrink-0"><Users size={15} /><span className="text-xs whitespace-nowrap">{storeStaff.length} {L("คน", "members", "人")}</span></div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {branchId && canManage ? (
+                    <button onClick={() => { setDetailBranchId(branchId); setBranchDetailOpen(true); }} className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-line text-xs text-muted hover:text-brand hover:bg-surface2 transition-colors">
+                      <SlidersHorizontal size={13} /> {L("รายละเอียดสาขา", "Branch details", "门店详情")}
+                    </button>
+                  ) : null}
+                  <span className="inline-flex items-center gap-1 text-muted"><Users size={15} /><span className="text-xs whitespace-nowrap">{storeStaff.length} {L("คน", "members", "人")}</span></span>
+                </div>
               </div>
               <div className="px-4 pb-3 pt-2">
                 {storeStaff.length ? (
@@ -406,6 +421,17 @@ export default function AdminOrgPage() {
         })()}
       </div>
       </>)}
+
+      {/* แผงขวา: รายละเอียด/ตั้งค่าสาขา */}
+      <BranchDetailDrawer
+        open={branchDetailOpen}
+        onClose={() => setBranchDetailOpen(false)}
+        branch={detailBranchId ? (branches.find((b) => b.id === detailBranchId) ?? null) : null}
+        brands={brandList}
+        employees={allEmps}
+        actor={employee}
+        onSaved={() => { void refreshScope(); }}
+      />
 
       {/* แผงขวา: ตั้งสิทธิ์รายคน (จากผังองค์กร) */}
       <PersonPermissionDrawer

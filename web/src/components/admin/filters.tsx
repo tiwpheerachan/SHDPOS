@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Filter, Check, X, Bookmark, Save, Trash2, Calendar, Search } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { useSession } from "@/lib/store/session";
@@ -66,13 +66,12 @@ export function useAdminScope() {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [brands, setBrands] = useState<Brand[]>([]);
 
-  useEffect(() => {
-    void (async () => {
-      const [b, br] = await Promise.all([listBranches(), listBrands()]);
-      setBranches(b);
-      setBrands(br);
-    })();
+  const refresh = useCallback(async () => {
+    const [b, br] = await Promise.all([listBranches(), listBrands()]);
+    setBranches(b);
+    setBrands(br);
   }, []);
+  useEffect(() => { void refresh(); }, [refresh]);
 
   const allowedBranches = useMemo(() => {
     if (!employee) return [];
@@ -88,7 +87,7 @@ export function useAdminScope() {
     return brands.filter((b) => ids.has(b.id));
   }, [brands, employee, allowedBranches]);
 
-  return { branches: allowedBranches, brands: allowedBrands, allBranches: branches };
+  return { branches: allowedBranches, brands: allowedBrands, allBranches: branches, refresh };
 }
 
 // ---------------------------------------------------------------------

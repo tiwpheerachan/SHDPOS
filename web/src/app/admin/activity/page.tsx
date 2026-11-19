@@ -67,36 +67,34 @@ export default function AdminActivityPage() {
 
   return (
     <div className="p-4 sm:p-6 space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2.5">
-          <span className="w-9 h-9 rounded-xl bg-brand/12 grid place-items-center"><History size={18} className="text-brand" /></span>
-          <div>
-            <h1 className="text-lg font-semibold tracking-tight">{L("บันทึกการแก้ไข", "Activity log", "操作日志")}</h1>
-            <p className="text-[11px] text-muted">{seeAll ? L("ประวัติการเพิ่ม/แก้ไขหลังบ้าน — ทุกคน", "Backend add/edit history — everyone", "后台增改历史 — 全部") : L("ประวัติการแก้ไขของคุณ", "Your edit history", "你的修改历史")}</p>
-          </div>
+      {/* หัว + สรุป */}
+      <div className="flex flex-wrap items-center gap-2.5">
+        <h1 className="text-lg font-semibold flex items-center gap-2"><History size={18} className="text-muted" /> {L("บันทึกการแก้ไข", "Activity log", "操作日志")}</h1>
+        <span className="text-[11px] text-muted">{seeAll ? L("หลังบ้าน — ทุกคน", "Backend — everyone", "后台 — 全部") : L("เฉพาะของคุณ", "Your own", "仅你")} · {visible.length} {L("รายการ", "records", "条")}</span>
+        <div className="ml-auto">
+          <ExportShareBar<Row> filename="activity-log" title={L("บันทึกการแก้ไข", "Activity log", "操作日志")} rows={visible} size="sm"
+            columns={[
+              { key: "at", label: L("เวลา", "Time", "时间"), map: (r) => fmtDT(r.at) },
+              { key: "actor", label: L("ผู้แก้ไข", "User", "操作人") },
+              { key: "op", label: L("การกระทำ", "Action", "动作"), map: (r) => opMeta(r.op).label },
+              { key: "entity", label: L("ประเภท", "Entity", "类型"), map: (r) => entityLabel(r.entity) },
+              { key: "label", label: L("รายการ", "Item", "对象") },
+              { key: "changes", label: L("การเปลี่ยนแปลง", "Changes", "变更"), map: (r) => r.changes.map((c) => `${c.label ?? c.field}: ${val(c.before)}→${val(c.after)}`).join(" · ") },
+            ]} />
         </div>
-        <ExportShareBar<Row> filename="activity-log" title={L("บันทึกการแก้ไข", "Activity log", "操作日志")} rows={visible} size="sm"
-          columns={[
-            { key: "at", label: L("เวลา", "Time", "时间"), map: (r) => fmtDT(r.at) },
-            { key: "actor", label: L("ผู้แก้ไข", "User", "操作人") },
-            { key: "op", label: L("การกระทำ", "Action", "动作"), map: (r) => opMeta(r.op).label },
-            { key: "entity", label: L("ประเภท", "Entity", "类型"), map: (r) => entityLabel(r.entity) },
-            { key: "label", label: L("รายการ", "Item", "对象") },
-            { key: "changes", label: L("การเปลี่ยนแปลง", "Changes", "变更"), map: (r) => r.changes.map((c) => `${c.label ?? c.field}: ${val(c.before)}→${val(c.after)}`).join(" · ") },
-          ]} />
       </div>
 
-      {/* ตัวกรอง */}
+      {/* ตัวกรอง — แถวเดียว มาตรฐานเดียวกับหน้าอื่น */}
       <div className="flex flex-wrap items-center gap-2">
-        <div className="relative flex-1 min-w-[200px]">
+        <div className="relative flex-1 min-w-[180px] max-w-xs">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
-          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={L("ค้นหา ชื่อ/ฟิลด์/ค่า…", "Search user/field/value…", "搜索…")} className="pl-9 h-10" />
+          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={L("ค้นหา ชื่อ/ฟิลด์/ค่า…", "Search user/field/value…", "搜索…")} className="pl-9 h-9" />
         </div>
         {seeAll && (
-          <Select value={fActor} onChange={(e) => setFActor(e.target.value)} className="h-10"><option value="">{L("ทุกคน", "Everyone", "所有人")}</option>{actors.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</Select>
+          <Select value={fActor} onChange={(e) => setFActor(e.target.value)} className="h-9 w-40"><option value="">{L("ทุกคน", "Everyone", "所有人")}</option>{actors.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</Select>
         )}
-        <Select value={fEntity} onChange={(e) => setFEntity(e.target.value)} className="h-10"><option value="">{L("ทุกประเภท", "All types", "全部类型")}</option>{entities.map((e) => <option key={e} value={e}>{entityLabel(e)}</option>)}</Select>
-        <Select value={fOp} onChange={(e) => setFOp(e.target.value)} className="h-10"><option value="">{L("ทุกการกระทำ", "All actions", "全部动作")}</option><option value="create">{L("เพิ่ม", "Created", "新增")}</option><option value="update">{L("แก้ไข", "Edited", "编辑")}</option><option value="delete">{L("ลบ", "Deleted", "删除")}</option></Select>
+        <Select value={fEntity} onChange={(e) => setFEntity(e.target.value)} className="h-9 w-36"><option value="">{L("ทุกประเภท", "All types", "全部类型")}</option>{entities.map((e) => <option key={e} value={e}>{entityLabel(e)}</option>)}</Select>
+        <Select value={fOp} onChange={(e) => setFOp(e.target.value)} className="h-9 w-36"><option value="">{L("ทุกการกระทำ", "All actions", "全部动作")}</option><option value="create">{L("เพิ่ม", "Created", "新增")}</option><option value="update">{L("แก้ไข", "Edited", "编辑")}</option><option value="delete">{L("ลบ", "Deleted", "删除")}</option></Select>
       </div>
 
       {loading ? <p className="text-center text-sm text-muted py-10">{L("กำลังโหลด…", "Loading…", "加载中…")}</p>
