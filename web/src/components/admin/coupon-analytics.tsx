@@ -12,7 +12,6 @@ import {
 import { useI18n } from "@/lib/i18n/provider";
 import { useAdminScope } from "@/components/admin/filters";
 import { Card, CardHeader, KpiTile, Button, Drawer, Table, Th, Td, Badge, Input, Select, EmptyState, Segmented } from "@/components/ui";
-import { BarList } from "@/components/charts";
 import { formatTHB } from "@/lib/money";
 import { downloadExcel } from "@/lib/export";
 import { useToast } from "@/components/toast-host";
@@ -218,34 +217,56 @@ export function CouponAnalytics({ initialCampaign, lockCampaign }: { initialCamp
         <KpiTile label={L("เฉลี่ยส่วนลด/บิล", "Avg discount/bill", "均折扣")} value={formatTHB(kpi.avg, false)} icon={<Tag size={16} />} accent="coral" />
       </div>
 
-      {/* Breakdown ตามมิติ */}
-      <Card className="p-4 space-y-3">
-        <div className="flex items-center justify-between gap-2 flex-wrap">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-sm font-semibold inline-flex items-center gap-1.5"><BarChart3 size={15} /> {L("แยกตาม", "Breakdown by", "按维度")}</span>
-            <div className="flex gap-1 flex-wrap">
-              {dimOpts.map((d) => (
-                <button key={d} onClick={() => setDim(d)} className={`h-8 px-2.5 rounded-lg text-xs font-medium inline-flex items-center gap-1 border ${dim === d ? "bg-brand text-brandInk border-brand" : "border-line text-muted hover:bg-surface2"}`}>{dimIcon[d]} {dimLabel[d]}</button>
-              ))}
+      {/* Breakdown ตามมิติ (เลือกด้วย dropdown · กระชับ 2 คอลัมน์) */}
+      <Card className="p-4">
+        <div className="flex items-center justify-between gap-2 flex-wrap mb-3">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-semibold inline-flex items-center gap-1.5 shrink-0"><BarChart3 size={15} /> {L("แยกตาม", "Breakdown", "按维度")}</span>
+            <div className="relative">
+              <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted pointer-events-none">{dimIcon[dim]}</span>
+              <Select value={dim} onChange={(e) => setDim(e.target.value as DimKey)} className="h-9 pl-8 pr-8 text-sm font-medium">
+                {dimOpts.map((d) => <option key={d} value={d}>{dimLabel[d]}</option>)}
+              </Select>
             </div>
           </div>
-          <button onClick={downloadBreakdown} className="text-xs text-brand hover:underline inline-flex items-center gap-1"><Download size={13} /> {L("ดาวน์โหลด", "Download", "下载")}</button>
+          <button onClick={downloadBreakdown} className="text-xs text-brand hover:underline inline-flex items-center gap-1 shrink-0"><Download size={13} /> {L("ดาวน์โหลด", "Download", "下载")}</button>
         </div>
 
-        {loading ? <p className="text-center text-sm text-muted py-8">{L("กำลังโหลด…", "Loading…", "加载中…")}</p>
+        {loading ? <p className="text-center text-sm text-muted py-6">{L("กำลังโหลด…", "Loading…", "加载中…")}</p>
           : !filtered.length ? <EmptyState icon={<Ticket size={24} />} title={L("ไม่มีข้อมูลในช่วง/ตัวกรองนี้", "No data", "无数据")} />
             : dim === "time" ? (
               <div>
-                <div className="flex items-end gap-[3px] h-32 rounded-xl border border-line bg-surface2/30 p-2">
+                <div className="flex items-end gap-[3px] h-28 rounded-xl border border-line bg-surface2/30 p-2">
                   {daily.map(([d, v]) => (
                     <div key={d} className="flex-1 min-w-[2px] bg-brand/70 hover:bg-brand rounded-t transition-colors" style={{ height: `${Math.max(3, (v.discount / maxDisc) * 100)}%` }} title={`${d} · ${v.uses} ${L("ครั้ง", "uses", "次")} · ฿${v.discount.toLocaleString()}`} />
                   ))}
                 </div>
                 <div className="flex justify-between text-[10px] text-muted mt-1"><span>{daily[0]?.[0]}</span><span>{daily.length} {L("วัน", "days", "天")}</span><span>{daily[daily.length - 1]?.[0]}</span></div>
               </div>
-            ) : (
-              <BarList data={dimRows.slice(0, 14).map((r) => ({ label: r.name, value: r.discount, sub: `${r.uses} ${L("ครั้ง", "uses", "次")} · ${L("ยอด", "rev", "")} ${formatTHB(r.revenue, false)}` }))} valueFormat={(n) => formatTHB(n, false)} />
-            )}
+            ) : (() => {
+              const top = dimRows.slice(0, 8);
+              const maxV = Math.max(1, ...top.map((r) => r.discount));
+              return (
+                <>
+                  <div className="grid sm:grid-cols-2 gap-x-6 gap-y-3">
+                    {top.map((r, i) => (
+                      <div key={r.name + i} className="flex items-center gap-2 min-w-0">
+                        <span className="text-[11px] text-muted w-4 text-right tnum shrink-0">{i + 1}</span>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-xs font-medium text-ink truncate" title={r.name}>{r.name}</span>
+                            <span className="text-xs tnum text-danger font-semibold shrink-0">-{formatTHB(r.discount, false)}</span>
+                          </div>
+                          <div className="h-1.5 rounded-full bg-surface2 mt-1 overflow-hidden"><div className="h-full rounded-full bg-brand" style={{ width: `${(r.discount / maxV) * 100}%` }} /></div>
+                          <div className="text-[10px] text-muted mt-0.5">{r.uses} {L("ครั้ง", "uses", "次")} · {L("ยอด", "rev", "")} {formatTHB(r.revenue, false)}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  {dimRows.length > 8 ? <p className="text-[11px] text-muted mt-3 text-center">+{dimRows.length - 8} {L("รายการ — ดาวน์โหลดเพื่อดูทั้งหมด", "more — download for full list", "更多")}</p> : null}
+                </>
+              );
+            })()}
       </Card>
 
       {/* ตาราง: รายการใช้ / ตามสินค้า */}
