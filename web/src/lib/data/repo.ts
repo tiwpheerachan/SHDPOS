@@ -19,7 +19,7 @@ import { computeTotals, lineTotal, lineDiscount, lineCost, round2, VAT_RATE } fr
 import { stockView } from "../stock";
 import type {
   Branch, Brand, Category, Employee, Order, OrderDraft, OrderItem, Product,
-  Shift, StockLevel, Terminal, AuditEntry, Customer, ReturnDoc, ApprovalRequest,
+  Shift, StockLevel, Terminal, AuditEntry, FieldChange, Customer, ReturnDoc, ApprovalRequest,
   CountType, StockCountSession, Transfer, TransferStatus, TransferAttachment, TransferReceipt, TransferDiscrepancy, TransferReturn,
 } from "../types";
 
@@ -278,6 +278,57 @@ export async function updateBranch(id: string, patch: Partial<Branch>): Promise<
   const cur = await db().branches.get(id);
   if (!cur) return;
   await db().branches.put({ ...cur, ...patch, id });
+}
+
+/**
+ * บันทึกประวัติการแก้ไขหลังบ้าน (activity log) — ใครแก้ฟิลด์อะไร จากค่าไหนเป็นค่าไหน เมื่อไร
+ *   เก็บในตาราง audit (action="config") → โชว์ที่ /admin/activity + sync ขึ้นเซิร์ฟเวอร์
+ */
+export async function logActivity(input: {
+  actorId?: string | null;
+  actorName?: string | null;
+  op: "create" | "update" | "delete";
+  entity: string;          // เช่น "branch", "employee", "permission", "store"
+  entityLabel: string;     // ชื่อที่คนอ่านเข้าใจ เช่น ชื่อสาขา
+  entityId?: string | null;
+  branchId?: string | null;
+  changes?: FieldChange[];
+}): Promise<void> {
+  await writeAudit({
+    action: "config",
+    actor_id: input.actorId ?? null,
+    branch_id: input.branchId ?? null,
+    ref_table: input.entity,
+    ref_no: input.entityLabel,
+    amount: null,
+    after_data: {
+      op: input.op,
+      entity: input.entity,
+      entityLabel: input.entityLabel,
+      entityId: input.entityId ?? null,
+      actor_name: input.actorName ?? null,
+      changes: input.changes ?? [],
+    },
+    is_offline: false,
+  });
+}
+
+/** คำนวณ diff รายฟิลด์ระหว่าง before→after (เฉพาะฟิลด์ที่เปลี่ยน) ตาม label map */
+export function diffFields<T extends Record<string, unknown>>(
+  before: Partial<T> | null,
+  after: Partial<T>,
+  labels: Partial<Record<keyof T, string>>
+): FieldChange[] {
+  const out: FieldChange[] = [];
+  for (const key of Object.keys(labels) as (keyof T)[]) {
+    const b = before ? before[key] : undefined;
+    const a = after[key];
+    const norm = (v: unknown) => (v === null || v === undefined ? "" : String(v));
+    if (!before || norm(b) !== norm(a)) {
+      out.push({ field: String(key), label: labels[key], before: before ? b ?? null : undefined, after: a ?? null });
+    }
+  }
+  return out;
 }
 
 export async function getTerminalForBranch(branchId: string): Promise<Terminal | undefined> {

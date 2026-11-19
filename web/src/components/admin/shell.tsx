@@ -69,6 +69,7 @@ const NAV: NavGroup[] = [
     items: [
       { href: "/admin/approvals", icon: ShieldCheck, key: "approvals" },
       { href: "/admin/permissions", icon: Users, key: "permissions", perm: "admin.employee_manage" },
+      { href: "/admin/activity", icon: ScrollText, key: "activity" },
       { href: "/admin/audit", icon: ScrollText, key: "audit", perm: "audit.view" },
     ],
   },
@@ -169,6 +170,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
     campaigns: L("แคมเปญ", "Campaigns", "活动"),
     coupons: L("คูปอง", "Coupons", "优惠券"),
     branches: L("สาขา", "Branches", "门店"),
+    activity: L("บันทึกการแก้ไข", "Activity log", "操作日志"),
     org: L("ผังองค์กร", "Org chart", "组织架构"),
     finance: L("การเงิน", "Finance", "财务"),
     insights: L("ผู้ช่วย AI", "AI assistant", "AI 助手"),

@@ -7,8 +7,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Building2, Plus, Loader2, MapPin, Store, Warehouse, Search, Check, X, Pencil } from "lucide-react";
 import { Modal, EmptyState, Badge, Input } from "@/components/ui";
 import { useI18n } from "@/lib/i18n/provider";
-import { listBranches, listBrands, createBranch, updateBranch } from "@/lib/data/repo";
+import { listBranches, listBrands, createBranch, updateBranch, logActivity, diffFields } from "@/lib/data/repo";
 import { ExportShareBar } from "@/components/admin/export-share";
+import { useSession } from "@/lib/store/session";
 import type { Branch, Brand } from "@/lib/types";
 
 const TYPE_OPTS = [
@@ -28,6 +29,7 @@ function parseLatLng(s: string): { lat: string; lng: string } | null {
 export default function AdminBranchesPage() {
   const { locale } = useI18n();
   const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
+  const actor = useSession((s) => s.employee);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [brands, setBrands] = useState<Brand[]>([]);
   const [loading, setLoading] = useState(true);
@@ -85,11 +87,20 @@ export default function AdminBranchesPage() {
     if ((lat !== null && !Number.isFinite(lat)) || (lng !== null && !Number.isFinite(lng))) { setErr(L("พิกัดไม่ถูกต้อง", "Invalid coordinates", "坐标无效")); return; }
     if ((lat === null) !== (lng === null)) { setErr(L("ต้องใส่ทั้งละติจูดและลองจิจูด", "Enter both lat and lng", "需同时填写经纬度")); return; }
     setSaving(true); setErr("");
+    const nextBranch = { code: form.code.trim().toUpperCase(), name: form.name.trim(), name_th: form.name_th.trim() || form.name.trim(), brand_id: form.brand_id || null, branch_type: form.branch_type, province: form.province.trim() || null, lat, lng, is_active: form.is_active };
+    // snapshot ที่คนอ่านเข้าใจ (แบรนด์/ประเภทเป็นชื่อ ไม่ใช่ id)
+    const snap = (o: { code: string; name: string; name_th?: string | null; brand_id: string | null; branch_type: string; province?: string | null; lat?: number | null; lng?: number | null; is_active: boolean }) => ({ code: o.code, name: o.name_th || o.name, brand: brandName(o.brand_id), type: typeLabel(o.branch_type), province: o.province ?? "", lat: o.lat ?? "", lng: o.lng ?? "", active: o.is_active ? L("ใช้งาน", "Active", "启用") : L("ปิด", "Off", "停用") });
+    const labels = { code: L("รหัสสาขา", "Code", "编号"), name: L("ชื่อสาขา", "Name", "名称"), brand: L("แบรนด์", "Brand", "品牌"), type: L("ประเภท", "Type", "类型"), province: L("จังหวัด", "Province", "省份"), lat: L("ละติจูด", "Latitude", "纬度"), lng: L("ลองจิจูด", "Longitude", "经度"), active: L("สถานะ", "Status", "状态") };
+    const actorMeta = { actorId: actor?.id ?? null, actorName: actor ? (actor.nickname || actor.first_name || actor.email) : null };
     try {
       if (form.id) {
-        await updateBranch(form.id, { code: form.code.trim().toUpperCase(), name: form.name.trim(), name_th: form.name_th.trim() || form.name.trim(), brand_id: form.brand_id || null, branch_type: form.branch_type, province: form.province.trim() || null, lat, lng, is_active: form.is_active });
+        const before = branches.find((b) => b.id === form.id) ?? null;
+        await updateBranch(form.id, nextBranch);
+        const changes = diffFields(before ? snap(before) : null, snap(nextBranch), labels);
+        if (changes.length) await logActivity({ ...actorMeta, op: "update", entity: "branch", entityLabel: nextBranch.name_th, entityId: form.id, branchId: form.id, changes });
       } else {
-        await createBranch({ code: form.code, name: form.name, name_th: form.name_th, brand_id: form.brand_id || null, branch_type: form.branch_type, province: form.province, lat, lng, is_active: form.is_active });
+        const created = await createBranch({ code: form.code, name: form.name, name_th: form.name_th, brand_id: form.brand_id || null, branch_type: form.branch_type, province: form.province, lat, lng, is_active: form.is_active });
+        await logActivity({ ...actorMeta, op: "create", entity: "branch", entityLabel: created.name_th || created.name, entityId: created.id, branchId: created.id, changes: diffFields(null, snap(created), labels) });
       }
       setOpen(false); await load();
     } catch (e) { setErr(e instanceof Error ? e.message : L("บันทึกไม่สำเร็จ", "Save failed", "保存失败")); }

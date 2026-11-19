@@ -467,6 +467,14 @@ export interface Quotation {
   created_at: string;
 }
 
+/** การเปลี่ยนแปลงรายฟิลด์ (เก็บใน after_data.changes ของ activity log) */
+export interface FieldChange {
+  field: string;
+  label?: string;
+  before?: unknown;
+  after?: unknown;
+}
+
 export interface AuditEntry {
   id: string;
   action: string;
