@@ -218,6 +218,25 @@ export interface EdcTerminal {
   note?: string | null;
 }
 
+/** แถวรายงานธนาคาร (statement) ที่ import เข้ามา — ใช้จับคู่กับ PaymentTxn */
+export interface StatementRow {
+  id: string;
+  batch_id: string;
+  at: string;                  // วัน settlement/รายการในรายงาน
+  amount: number;
+  approval_code?: string | null;
+  ref_no?: string | null;
+  acquirer_code?: string | null;
+  note?: string | null;
+}
+export interface StatementBatch {
+  id: string;
+  name: string;                // ชื่อไฟล์/งวด
+  acquirer_id?: string | null;
+  uploaded_at: string;
+  count: number;
+}
+
 /** รายการชำระ EDC 1 ครั้ง (Phase 2) — สร้างก่อนเรียกเก็บ, เก็บผล, กันซ้ำด้วย op_key */
 export interface PaymentTxn {
   id: string;

@@ -3,19 +3,19 @@
 // Admin → รับชำระ / EDC (Phase 1) — ทะเบียนเครื่อง + ผู้รับชำระ + MID/TID + บริการ
 //   ตั้งทะเบียน/manual ก่อน (ตรวจย้อนหลังได้) · ยังไม่เชื่อมธนาคารจริง
 // =====================================================================
-import { useEffect, useMemo, useState } from "react";
-import { CreditCard, Plus, Loader2, Check, X, ShieldCheck, ShieldAlert, Pencil, Search, Cpu, Clock, ListChecks, Ban, AlertTriangle, ChevronRight, User } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { CreditCard, Plus, Loader2, Check, X, ShieldCheck, ShieldAlert, Pencil, Search, Cpu, Clock, ListChecks, Ban, AlertTriangle, ChevronRight, User, Upload, Sparkles, Link2Off } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { useSession } from "@/lib/store/session";
 import { useAdminScope } from "@/components/admin/filters";
 import { Card, KpiTile, Table, Th, Td, Badge, Input, Select, EmptyState, Drawer, Modal, Segmented } from "@/components/ui";
 import { ExportShareBar } from "@/components/admin/export-share";
 import { useToast } from "@/components/toast-host";
-import { listAcquirers, listTerminals, upsertTerminal, listPaymentTxns, createPaymentTxn, resolvePaymentTxn, voidPaymentTxn, EDC_SERVICE_LABEL } from "@/lib/data/payments";
+import { listAcquirers, listTerminals, upsertTerminal, listPaymentTxns, createPaymentTxn, resolvePaymentTxn, voidPaymentTxn, listStatementRows, importStatementRows, parseStatementCsv, generateSampleStatement, clearStatements, EDC_SERVICE_LABEL } from "@/lib/data/payments";
 import { logActivity } from "@/lib/data/repo";
 import { can } from "@/lib/permissions";
 import { formatTHB } from "@/lib/money";
-import type { Acquirer, EdcTerminal, EdcService, PaymentTxn } from "@/lib/types";
+import type { Acquirer, EdcTerminal, EdcService, PaymentTxn, StatementRow } from "@/lib/types";
 
 const SERVICES: EdcService[] = ["card", "unionpay", "thaiqr", "qr_credit", "alipay", "wechat", "installment"];
 const STATUS: { v: EdcTerminal["status"]; th: string; en: string; tone: "ok" | "neutral" | "warn" | "danger" }[] = [
@@ -37,6 +37,7 @@ export default function AdminPaymentsPage() {
   const [acquirers, setAcquirers] = useState<Acquirer[]>([]);
   const [terminals, setTerminals] = useState<EdcTerminal[]>([]);
   const [txns, setTxns] = useState<PaymentTxn[]>([]);
+  const [stmtRows, setStmtRows] = useState<StatementRow[]>([]);
   const [loading, setLoading] = useState(true);
   // ledger modals
   const [newOpen, setNewOpen] = useState(false);
@@ -52,7 +53,7 @@ export default function AdminPaymentsPage() {
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
 
-  const load = async () => { const [a, t, x] = await Promise.all([listAcquirers(), listTerminals(), listPaymentTxns()]); setAcquirers(a); setTerminals(t); setTxns(x); setLoading(false); };
+  const load = async () => { const [a, t, x, sr] = await Promise.all([listAcquirers(), listTerminals(), listPaymentTxns(), listStatementRows()]); setAcquirers(a); setTerminals(t); setTxns(x); setStmtRows(sr); setLoading(false); };
   useEffect(() => { void load(); }, []);
 
   const acqName = (id: string | null) => (id ? acquirers.find((a) => a.id === id)?.name ?? id : "—");
@@ -130,6 +131,32 @@ export default function AdminPaymentsPage() {
     return [...g.values()].sort((a, b) => (a.day < b.day ? 1 : a.day > b.day ? -1 : b.expected - a.expected));
   }, [txns]);
   const reconSel = recon.find((r) => r.key === reconKey) ?? null;
+
+  // ── จับคู่ statement ↔ txn (โดย approval_code + ยอด) ──
+  const match = useMemo(() => {
+    const approved = txns.filter((t) => t.status === "approved");
+    const byCode = new Map<string, PaymentTxn[]>();
+    approved.forEach((t) => { if (t.approval_code) { const a = byCode.get(t.approval_code) ?? []; a.push(t); byCode.set(t.approval_code, a); } });
+    const usedTxn = new Set<string>(); const usedStmt = new Set<string>(); const actualByTxn = new Map<string, number>();
+    for (const s of stmtRows) {
+      if (!s.approval_code) continue;
+      const cands = byCode.get(s.approval_code) ?? [];
+      const t = cands.find((c) => !usedTxn.has(c.id) && Math.abs(c.amount - s.amount) < 0.5) ?? cands.find((c) => !usedTxn.has(c.id));
+      if (t) { usedTxn.add(t.id); usedStmt.add(s.id); actualByTxn.set(t.id, s.amount); }
+    }
+    return { actualByTxn, usedTxnIds: usedTxn, unmatchedStmt: stmtRows.filter((s) => !usedStmt.has(s.id)), unmatchedTxn: approved.filter((t) => !usedTxn.has(t.id)) };
+  }, [txns, stmtRows]);
+  const reconActual = (r: ReconG) => r.txns.reduce((s, t) => s + (match.actualByTxn.get(t.id) ?? 0), 0);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  async function onSample() { setBusy(true); try { const r = await generateSampleStatement(); toast.push({ tone: "ok", title: L("สร้าง statement ตัวอย่างแล้ว", "Sample created", "已创建示例"), body: `${r.added} ${L("แถว", "rows", "行")}` }); await load(); } finally { setBusy(false); } }
+  async function onUploadCsv(file: File) {
+    const text = await file.text(); const rows = parseStatementCsv(text);
+    if (!rows.length) { toast.push({ tone: "danger", title: L("ไม่พบข้อมูลในไฟล์", "No rows found", "无数据") }); return; }
+    const r = await importStatementRows(rows, { name: file.name });
+    toast.push({ tone: "ok", title: L("นำเข้า statement แล้ว", "Statement imported", "已导入"), body: `${file.name} · ${r.added} ${L("แถว", "rows", "行")}` }); await load();
+  }
+  async function onClearStmt() { if (!confirm(L("ล้าง statement ที่นำเข้าทั้งหมด?", "Clear all statements?", "清除?"))) return; await clearStatements(); await load(); }
   async function submitNew() {
     const amt = Number(nf2.amount);
     if (!nf2.terminal_id) { toast.push({ tone: "danger", title: L("เลือกเครื่อง", "Select terminal", "选设备") }); return; }
@@ -290,29 +317,54 @@ export default function AdminPaymentsPage() {
       ) : (
       /* ───────── สรุปรายวันรายสาขา (กระทบยอด) ───────── */
       <>
-        <Card className="p-3.5 flex items-center gap-2.5 bg-surface2/40">
-          <ListChecks size={15} className="text-muted shrink-0" />
-          <p className="text-[11px] text-muted">{L("“ยอดที่ควรได้” = ยอด EDC ที่อนุมัติของสาขานั้นในวันนั้น (ไม่รวมยกเลิก/ปฏิเสธ) · กดแถวเพื่อดูแยกเครื่อง/กะ · เงินเข้าจริงเทียบได้เมื่อ import statement ธนาคาร (Phase 5)", "“Expected” = approved EDC per branch-day · click a row for terminal/shift breakdown · actual after statement import", "应收=当日已批准EDC")}</p>
+        <input ref={fileRef} type="file" accept=".csv,text/csv,text/plain" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void onUploadCsv(f); e.target.value = ""; }} />
+        <Card className="p-3.5 flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-2 text-[11px] text-muted min-w-0"><ListChecks size={15} className="shrink-0" /> <span className="truncate">{stmtRows.length ? L(`นำเข้า statement ${stmtRows.length} แถว · จับคู่ได้ ${match.usedTxnIds.size} · ไม่ตรง ${match.unmatchedStmt.length + match.unmatchedTxn.length}`, `${stmtRows.length} rows · matched ${match.usedTxnIds.size} · unmatched ${match.unmatchedStmt.length + match.unmatchedTxn.length}`, "") : L("ยังไม่นำเข้า statement — “เงินเข้าจริง” เทียบได้เมื่ออัปโหลดรายงานธนาคาร (CSV: วันที่, ยอด, รหัสอนุมัติ, อ้างอิง)", "No statement yet — upload bank CSV to compare actual", "")}</span></div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button onClick={() => fileRef.current?.click()} className="h-9 px-3 rounded-xl border border-line text-sm inline-flex items-center gap-1.5 hover:bg-surface2"><Upload size={14} /> {L("อัปโหลด CSV", "Upload CSV", "上传")}</button>
+            <button onClick={() => void onSample()} disabled={busy} className="h-9 px-3 rounded-xl border border-line text-sm inline-flex items-center gap-1.5 hover:bg-surface2 disabled:opacity-50">{busy ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />} {L("สร้างตัวอย่าง", "Sample", "示例")}</button>
+            {stmtRows.length ? <button onClick={() => void onClearStmt()} className="h-9 px-3 rounded-xl border border-line text-sm text-muted hover:text-danger hover:border-danger/40">{L("ล้าง", "Clear", "清")}</button> : null}
+          </div>
         </Card>
         {!recon.length ? <EmptyState icon={<ListChecks size={26} />} title={L("ยังไม่มีข้อมูลสรุป", "No data", "无数据")} /> : (
           <Card className="overflow-x-auto">
             <Table>
-              <thead><tr><Th>{L("วันที่", "Date", "日期")}</Th><Th>{L("สาขา", "Branch", "门店")}</Th><Th align="right">{L("ยอดที่ควรได้", "Expected", "应收")}</Th><Th align="right">{L("รายการ", "Txns", "笔")}</Th><Th>{L("เครื่อง EDC", "Terminals", "设备")}</Th><Th>{L("กะ/พนักงาน", "Shift / staff", "班次")}</Th><Th>{L("เงินเข้าจริง", "Actual", "实收")}</Th><Th></Th></tr></thead>
-              <tbody>{recon.map((r) => (
-                <tr key={r.key} className="hover:bg-surface2/50 cursor-pointer" onClick={() => setReconKey(r.key)}>
-                  <Td className="text-xs whitespace-nowrap">{r.day.slice(5)}</Td>
-                  <Td className="text-sm font-medium">{branchName(r.branchId)}</Td>
-                  <Td align="right" className="tnum font-bold">{nf(r.expected)}</Td>
-                  <Td align="right" className="tnum text-muted">{r.count}</Td>
-                  <Td><div className="flex flex-wrap gap-1">{[...r.terminals.keys()].map((tid) => <span key={tid} className="text-[10px] px-1.5 py-0.5 rounded bg-surface2 font-mono text-muted">{termLabel(tid)}</span>)}</div></Td>
-                  <Td><div className="flex flex-wrap gap-1">{[...r.cashiers.keys()].map((c) => <span key={c} className="text-[10px] px-1.5 py-0.5 rounded-full bg-surface2 text-muted">{c}</span>)}</div></Td>
-                  <Td><Badge tone="neutral">{L("ยังไม่เชื่อม", "N/A", "未接")}</Badge></Td>
-                  <Td align="right"><ChevronRight size={16} className="text-muted inline" /></Td>
-                </tr>
-              ))}</tbody>
+              <thead><tr><Th>{L("วันที่", "Date", "日期")}</Th><Th>{L("สาขา", "Branch", "门店")}</Th><Th align="right">{L("ควรได้", "Expected", "应收")}</Th><Th align="right">{L("เงินเข้าจริง", "Actual", "实收")}</Th><Th align="right">{L("ส่วนต่าง", "Diff", "差额")}</Th><Th>{L("เครื่อง / กะ", "Terminal / staff", "设备/班次")}</Th><Th align="center">{L("กระทบยอด", "Reconcile", "对账")}</Th><Th></Th></tr></thead>
+              <tbody>{recon.map((r) => {
+                const actual = reconActual(r); const diff = r.expected - actual;
+                const st = !stmtRows.length ? "na" : actual === 0 ? "wait" : Math.abs(diff) < 1 ? "ok" : "diff";
+                return (
+                  <tr key={r.key} className="hover:bg-surface2/50 cursor-pointer" onClick={() => setReconKey(r.key)}>
+                    <Td className="text-xs whitespace-nowrap">{r.day.slice(5)}</Td>
+                    <Td className="text-sm font-medium">{branchName(r.branchId)}<span className="block text-[10px] text-muted font-normal">{r.count} {L("รายการ", "txns", "笔")}</span></Td>
+                    <Td align="right" className="tnum font-bold">{nf(r.expected)}</Td>
+                    <Td align="right" className="tnum">{st === "na" ? <span className="text-muted">—</span> : st === "wait" ? <span className="text-amber-500 text-xs">{L("รอเงินเข้า", "awaiting", "待")}</span> : nf(actual)}</Td>
+                    <Td align="right" className="tnum text-xs">{st === "na" || st === "wait" ? "—" : Math.abs(diff) < 1 ? <span className="text-emerald-500">0</span> : <span className="text-danger">{diff > 0 ? "+" : ""}{nf(diff)}</span>}</Td>
+                    <Td><div className="flex flex-wrap gap-1">{[...r.terminals.keys()].slice(0, 2).map((tid) => <span key={tid} className="text-[10px] px-1.5 py-0.5 rounded bg-surface2 font-mono text-muted">{termLabel(tid)}</span>)}{[...r.cashiers.keys()].slice(0, 2).map((c) => <span key={c} className="text-[10px] px-1.5 py-0.5 rounded-full bg-surface2 text-muted">{c}</span>)}</div></Td>
+                    <Td align="center">{st === "na" ? <Badge tone="neutral">{L("ยังไม่เชื่อม", "N/A", "未")}</Badge> : st === "ok" ? <Badge tone="ok">{L("ตรง", "Matched", "匹配")}</Badge> : st === "wait" ? <Badge tone="warn">{L("รอ", "Wait", "待")}</Badge> : <Badge tone="danger">{L("ไม่ตรง", "Diff", "不符")}</Badge>}</Td>
+                    <Td align="right"><ChevronRight size={16} className="text-muted inline" /></Td>
+                  </tr>
+                );
+              })}</tbody>
             </Table>
           </Card>
         )}
+        {stmtRows.length ? (
+          <div className="grid lg:grid-cols-2 gap-4">
+            <Card className="p-4">
+              <div className="flex items-center gap-1.5 text-sm font-semibold mb-2"><Link2Off size={14} className="text-amber-500" /> {L("ในธนาคาร แต่ไม่พบใน POS", "In bank, not in POS", "银行有·POS无")} <Badge tone={match.unmatchedStmt.length ? "warn" : "neutral"}>{match.unmatchedStmt.length}</Badge></div>
+              <div className="divide-y divide-line max-h-64 overflow-y-auto">{match.unmatchedStmt.length ? match.unmatchedStmt.map((s) => (
+                <div key={s.id} className="flex items-center justify-between gap-2 py-2 text-xs"><span className="text-muted">{s.at.slice(5, 10)} · {s.approval_code ? <span className="font-mono">{s.approval_code}</span> : "—"}{s.ref_no ? ` · ${s.ref_no}` : ""}</span><span className="tnum font-medium">฿{nf(s.amount)}</span></div>
+              )) : <p className="py-4 text-center text-xs text-muted">{L("ไม่มี — ตรงหมด", "None", "无")}</p>}</div>
+            </Card>
+            <Card className="p-4">
+              <div className="flex items-center gap-1.5 text-sm font-semibold mb-2"><Clock size={14} className="text-amber-500" /> {L("POS อนุมัติ แต่ธนาคารยังไม่มา", "Approved in POS, not yet in bank", "POS已批·银行未到")} <Badge tone={match.unmatchedTxn.length ? "warn" : "neutral"}>{match.unmatchedTxn.length}</Badge></div>
+              <div className="divide-y divide-line max-h-64 overflow-y-auto">{match.unmatchedTxn.length ? match.unmatchedTxn.map((t) => (
+                <div key={t.id} className="flex items-center justify-between gap-2 py-2 text-xs"><span className="text-muted">{t.at.slice(5, 10)} · <span className="font-mono">{termLabel(t.terminal_id)}</span> · {t.approval_code ?? "—"}</span><span className="tnum font-medium">฿{nf(t.amount)}</span></div>
+              )) : <p className="py-4 text-center text-xs text-muted">{L("ไม่มี — เข้าครบ", "None", "无")}</p>}</div>
+            </Card>
+          </div>
+        ) : null}
       </>
       )}
 
@@ -418,11 +470,13 @@ export default function AdminPaymentsPage() {
         {reconSel && (
           <div className="p-4 space-y-4">
             {/* สรุปเงิน */}
-            <div className="grid grid-cols-3 gap-2 text-center">
-              <div className="rounded-xl bg-surface2/60 p-2.5"><p className="text-[10px] text-muted">{L("ควรได้", "Expected", "应收")}</p><p className="tnum font-bold text-sm">฿{nf(reconSel.expected)}</p></div>
-              <div className="rounded-xl bg-surface2/60 p-2.5"><p className="text-[10px] text-muted">{L("เงินเข้าจริง", "Actual", "实收")}</p><p className="text-xs text-muted pt-1">{L("ยังไม่เชื่อม", "N/A", "未接")}</p></div>
-              <div className="rounded-xl bg-surface2/60 p-2.5"><p className="text-[10px] text-muted">{L("ส่วนต่าง", "Diff", "差额")}</p><p className="text-xs text-muted pt-1">—</p></div>
-            </div>
+            {(() => { const actual = stmtRows.length ? reconActual(reconSel) : null; const diff = actual != null ? reconSel.expected - actual : null; return (
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div className="rounded-xl bg-surface2/60 p-2.5"><p className="text-[10px] text-muted">{L("ควรได้", "Expected", "应收")}</p><p className="tnum font-bold text-sm">฿{nf(reconSel.expected)}</p></div>
+                <div className="rounded-xl bg-surface2/60 p-2.5"><p className="text-[10px] text-muted">{L("เงินเข้าจริง", "Actual", "实收")}</p>{actual == null ? <p className="text-xs text-muted pt-1">{L("ยังไม่เชื่อม", "N/A", "未接")}</p> : <p className="tnum font-bold text-sm">฿{nf(actual)}</p>}</div>
+                <div className={`rounded-xl p-2.5 ${diff != null && Math.abs(diff) >= 1 ? "bg-danger/10" : "bg-surface2/60"}`}><p className="text-[10px] text-muted">{L("ส่วนต่าง", "Diff", "差额")}</p>{diff == null ? <p className="text-xs text-muted pt-1">—</p> : <p className={`tnum font-bold text-sm ${Math.abs(diff) < 1 ? "text-emerald-500" : "text-danger"}`}>{Math.abs(diff) < 1 ? "0" : `${diff > 0 ? "+" : ""}${nf(diff)}`}</p>}</div>
+              </div>
+            ); })()}
 
             {/* แยกตามเครื่อง EDC */}
             <div>
@@ -454,13 +508,14 @@ export default function AdminPaymentsPage() {
             <div>
               <div className="text-xs font-semibold text-muted mb-2">{L("รายการทั้งหมด", "All transactions", "全部交易")}</div>
               <div className="divide-y divide-line">
-                {reconSel.txns.sort((a, b) => (a.at < b.at ? -1 : 1)).map((t) => (
+                {reconSel.txns.sort((a, b) => (a.at < b.at ? -1 : 1)).map((t) => { const matched = match.usedTxnIds.has(t.id); return (
                   <div key={t.id} className="flex items-center justify-between gap-2 py-1.5 text-xs">
                     <span className="text-muted whitespace-nowrap">{hhmm(t.at)}</span>
                     <span className="flex-1 min-w-0 truncate">{svcLabel(t.method)} · <span className="font-mono text-muted">{termLabel(t.terminal_id)}</span> · {t.cashier_name}</span>
+                    {stmtRows.length ? (matched ? <Check size={13} className="text-emerald-500 shrink-0" /> : <span className="text-[10px] text-amber-500 shrink-0">{L("รอ", "wait", "待")}</span>) : null}
                     <span className="tnum font-medium shrink-0">฿{nf(t.amount)}</span>
                   </div>
-                ))}
+                ); })}
               </div>
             </div>
           </div>
