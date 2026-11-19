@@ -240,6 +240,8 @@ export async function getBranch(branchId: string): Promise<Branch | undefined> {
 export async function createBranch(input: {
   code: string; name: string; name_th?: string | null; brand_id: string | null;
   branch_type?: string; province?: string | null; lat?: number | null; lng?: number | null; is_active?: boolean;
+  phone?: string | null; email?: string | null; address?: string | null; district?: string | null; postcode?: string | null;
+  open_time?: string | null; close_time?: string | null; manager_id?: string | null; note?: string | null;
 }): Promise<Branch> {
   const d = db();
   const code = input.code.trim().toUpperCase();
@@ -256,6 +258,15 @@ export async function createBranch(input: {
     tax_branch_no: String((await d.branches.count()) + 1).padStart(5, "0"),
     lat: input.lat ?? null,
     lng: input.lng ?? null,
+    phone: input.phone?.trim() || null,
+    email: input.email?.trim() || null,
+    address: input.address?.trim() || null,
+    district: input.district?.trim() || null,
+    postcode: input.postcode?.trim() || null,
+    open_time: input.open_time?.trim() || null,
+    close_time: input.close_time?.trim() || null,
+    manager_id: input.manager_id || null,
+    note: input.note?.trim() || null,
     is_active: input.is_active ?? true,
   };
   await d.branches.put(branch);

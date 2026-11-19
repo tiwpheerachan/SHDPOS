@@ -7,17 +7,17 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Building2, Plus, Loader2, MapPin, Store, Warehouse, Search, Check, X, Pencil } from "lucide-react";
 import { Modal, EmptyState, Badge, Input } from "@/components/ui";
 import { useI18n } from "@/lib/i18n/provider";
-import { listBranches, listBrands, createBranch, updateBranch, logActivity, diffFields } from "@/lib/data/repo";
+import { listBranches, listBrands, listEmployees, createBranch, updateBranch, logActivity, diffFields } from "@/lib/data/repo";
 import { ExportShareBar } from "@/components/admin/export-share";
 import { useSession } from "@/lib/store/session";
-import type { Branch, Brand } from "@/lib/types";
+import type { Branch, Brand, Employee } from "@/lib/types";
 
 const TYPE_OPTS = [
   { v: "brand_shop", th: "ร้านแบรนด์", en: "Brand shop", zh: "品牌店" },
   { v: "vending", th: "ตู้จำหน่าย", en: "Vending", zh: "自动售货" },
   { v: "warehouse", th: "คลังสินค้า", en: "Warehouse", zh: "仓库" },
 ];
-const EMPTY = { id: "", code: "", name: "", name_th: "", brand_id: "", branch_type: "brand_shop", province: "", lat: "", lng: "", is_active: true };
+const EMPTY = { id: "", code: "", name: "", name_th: "", brand_id: "", branch_type: "brand_shop", province: "", lat: "", lng: "", phone: "", email: "", address: "", district: "", postcode: "", open_time: "", close_time: "", manager_id: "", note: "", is_active: true };
 type FormState = typeof EMPTY;
 
 /** แกะพิกัดจากลิงก์/ข้อความ Google Maps (รองรับ @lat,lng · q=lat,lng · lat,lng เปล่าๆ) */
@@ -32,6 +32,7 @@ export default function AdminBranchesPage() {
   const actor = useSession((s) => s.employee);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [brands, setBrands] = useState<Brand[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
@@ -41,13 +42,14 @@ export default function AdminBranchesPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    try { const [bs, br] = await Promise.all([listBranches(), listBrands()]); setBranches(bs); setBrands(br); }
+    try { const [bs, br, em] = await Promise.all([listBranches(), listBrands(), listEmployees()]); setBranches(bs); setBrands(br); setEmployees(em); }
     finally { setLoading(false); }
   }, []);
   useEffect(() => { void load(); }, [load]);
 
   const typeLabel = (v: string) => { const o = TYPE_OPTS.find((x) => x.v === v); return o ? L(o.th, o.en, o.zh) : v; };
   const brandName = (id: string | null) => (id ? brands.find((b) => b.id === id)?.name ?? "—" : "—");
+  const empName = (id: string | null | undefined) => { if (!id) return "—"; const e = employees.find((x) => x.id === id); return e ? (e.nickname || e.first_name || e.email || id) : "—"; };
 
   const filtered = useMemo(() => {
     const kw = q.trim().toLowerCase();
@@ -74,7 +76,7 @@ export default function AdminBranchesPage() {
 
   function openNew() { setForm(EMPTY); setErr(""); setOpen(true); }
   function openEdit(b: Branch) {
-    setForm({ id: b.id, code: b.code, name: b.name, name_th: b.name_th ?? "", brand_id: b.brand_id ?? "", branch_type: b.branch_type, province: b.province ?? "", lat: b.lat != null ? String(b.lat) : "", lng: b.lng != null ? String(b.lng) : "", is_active: b.is_active });
+    setForm({ id: b.id, code: b.code, name: b.name, name_th: b.name_th ?? "", brand_id: b.brand_id ?? "", branch_type: b.branch_type, province: b.province ?? "", lat: b.lat != null ? String(b.lat) : "", lng: b.lng != null ? String(b.lng) : "", phone: b.phone ?? "", email: b.email ?? "", address: b.address ?? "", district: b.district ?? "", postcode: b.postcode ?? "", open_time: b.open_time ?? "", close_time: b.close_time ?? "", manager_id: b.manager_id ?? "", note: b.note ?? "", is_active: b.is_active });
     setErr(""); setOpen(true);
   }
 
@@ -87,10 +89,16 @@ export default function AdminBranchesPage() {
     if ((lat !== null && !Number.isFinite(lat)) || (lng !== null && !Number.isFinite(lng))) { setErr(L("พิกัดไม่ถูกต้อง", "Invalid coordinates", "坐标无效")); return; }
     if ((lat === null) !== (lng === null)) { setErr(L("ต้องใส่ทั้งละติจูดและลองจิจูด", "Enter both lat and lng", "需同时填写经纬度")); return; }
     setSaving(true); setErr("");
-    const nextBranch = { code: form.code.trim().toUpperCase(), name: form.name.trim(), name_th: form.name_th.trim() || form.name.trim(), brand_id: form.brand_id || null, branch_type: form.branch_type, province: form.province.trim() || null, lat, lng, is_active: form.is_active };
-    // snapshot ที่คนอ่านเข้าใจ (แบรนด์/ประเภทเป็นชื่อ ไม่ใช่ id)
-    const snap = (o: { code: string; name: string; name_th?: string | null; brand_id: string | null; branch_type: string; province?: string | null; lat?: number | null; lng?: number | null; is_active: boolean }) => ({ code: o.code, name: o.name_th || o.name, brand: brandName(o.brand_id), type: typeLabel(o.branch_type), province: o.province ?? "", lat: o.lat ?? "", lng: o.lng ?? "", active: o.is_active ? L("ใช้งาน", "Active", "启用") : L("ปิด", "Off", "停用") });
-    const labels = { code: L("รหัสสาขา", "Code", "编号"), name: L("ชื่อสาขา", "Name", "名称"), brand: L("แบรนด์", "Brand", "品牌"), type: L("ประเภท", "Type", "类型"), province: L("จังหวัด", "Province", "省份"), lat: L("ละติจูด", "Latitude", "纬度"), lng: L("ลองจิจูด", "Longitude", "经度"), active: L("สถานะ", "Status", "状态") };
+    const detail = {
+      phone: form.phone.trim() || null, email: form.email.trim() || null, address: form.address.trim() || null,
+      district: form.district.trim() || null, postcode: form.postcode.trim() || null,
+      open_time: form.open_time.trim() || null, close_time: form.close_time.trim() || null,
+      manager_id: form.manager_id || null, note: form.note.trim() || null,
+    };
+    const nextBranch: Partial<Branch> & { code: string; name: string; name_th: string } = { code: form.code.trim().toUpperCase(), name: form.name.trim(), name_th: form.name_th.trim() || form.name.trim(), brand_id: form.brand_id || null, branch_type: form.branch_type, province: form.province.trim() || null, lat, lng, ...detail, is_active: form.is_active };
+    // snapshot ที่คนอ่านเข้าใจ (แบรนด์/ประเภท/ผจก.เป็นชื่อ ไม่ใช่ id)
+    const snap = (o: Partial<Branch>) => ({ code: o.code ?? "", name: o.name_th || o.name || "", brand: brandName(o.brand_id ?? null), type: typeLabel(o.branch_type ?? ""), province: o.province ?? "", address: o.address ?? "", district: o.district ?? "", postcode: o.postcode ?? "", phone: o.phone ?? "", email: o.email ?? "", hours: o.open_time || o.close_time ? `${o.open_time ?? "?"}–${o.close_time ?? "?"}` : "", manager: empName(o.manager_id), note: o.note ?? "", lat: o.lat ?? "", lng: o.lng ?? "", active: o.is_active ? L("ใช้งาน", "Active", "启用") : L("ปิด", "Off", "停用") });
+    const labels = { code: L("รหัสสาขา", "Code", "编号"), name: L("ชื่อสาขา", "Name", "名称"), brand: L("แบรนด์", "Brand", "品牌"), type: L("ประเภท", "Type", "类型"), province: L("จังหวัด", "Province", "省份"), address: L("ที่อยู่", "Address", "地址"), district: L("อำเภอ/เขต", "District", "区"), postcode: L("รหัสไปรษณีย์", "Postcode", "邮编"), phone: L("โทรศัพท์", "Phone", "电话"), email: L("อีเมล", "Email", "邮箱"), hours: L("เวลาทำการ", "Hours", "营业时间"), manager: L("ผู้จัดการ", "Manager", "店长"), note: L("หมายเหตุ", "Note", "备注"), lat: L("ละติจูด", "Latitude", "纬度"), lng: L("ลองจิจูด", "Longitude", "经度"), active: L("สถานะ", "Status", "状态") };
     const actorMeta = { actorId: actor?.id ?? null, actorName: actor ? (actor.nickname || actor.first_name || actor.email) : null };
     try {
       if (form.id) {
@@ -99,7 +107,7 @@ export default function AdminBranchesPage() {
         const changes = diffFields(before ? snap(before) : null, snap(nextBranch), labels);
         if (changes.length) await logActivity({ ...actorMeta, op: "update", entity: "branch", entityLabel: nextBranch.name_th, entityId: form.id, branchId: form.id, changes });
       } else {
-        const created = await createBranch({ code: form.code, name: form.name, name_th: form.name_th, brand_id: form.brand_id || null, branch_type: form.branch_type, province: form.province, lat, lng, is_active: form.is_active });
+        const created = await createBranch({ code: form.code, name: form.name, name_th: form.name_th, brand_id: form.brand_id || null, branch_type: form.branch_type, province: form.province, lat, lng, ...detail, is_active: form.is_active });
         await logActivity({ ...actorMeta, op: "create", entity: "branch", entityLabel: created.name_th || created.name, entityId: created.id, branchId: created.id, changes: diffFields(null, snap(created), labels) });
       }
       setOpen(false); await load();
@@ -113,6 +121,9 @@ export default function AdminBranchesPage() {
       <div className="min-w-0 flex-1">
         <p className="text-sm font-medium truncate">{locale === "th" ? b.name_th || b.name : b.name}{!b.is_active ? <span className="ml-1.5 text-[10px] text-muted">({L("ปิด", "off", "停")})</span> : null}</p>
         <p className="text-[11px] text-muted truncate inline-flex items-center gap-1"><span className="font-mono">{b.code}</span>{b.province ? ` · ${b.province}` : ""} · {typeLabel(b.branch_type)}{b.lat != null && b.lng != null ? <MapPin size={10} className="text-emerald-500 shrink-0" /> : null}</p>
+        {(b.phone || b.open_time || b.manager_id) ? (
+          <p className="text-[10.5px] text-muted/80 truncate mt-0.5">{[b.phone, b.open_time && b.close_time ? `${b.open_time}–${b.close_time}` : null, b.manager_id ? `${L("ผจก.", "Mgr", "店长")} ${empName(b.manager_id)}` : null].filter(Boolean).join(" · ")}</p>
+        ) : null}
       </div>
       <button onClick={() => openEdit(b)} className="h-8 w-8 grid place-items-center rounded-lg text-muted hover:bg-surface2 shrink-0"><Pencil size={14} /></button>
     </div>
@@ -209,6 +220,34 @@ export default function AdminBranchesPage() {
             </div>
             <p className="text-[10.5px] text-muted">{L("ใช้แนะนำสาขาใกล้สุดตอนขอโอน/ค้นสต๊อกข้ามสาขา", "Used to suggest the nearest branch for transfers / cross-branch stock", "用于调拨时推荐最近门店")}{(form.lat && form.lng) ? <> · <a href={`https://www.google.com/maps?q=${form.lat},${form.lng}`} target="_blank" rel="noreferrer" className="text-brand hover:underline">{L("ดูบนแผนที่", "View on map", "在地图查看")}</a></> : null}</p>
           </div>
+
+          {/* ── ติดต่อ ── */}
+          <div className="grid grid-cols-2 gap-2.5">
+            <label className="text-xs text-muted block">{L("โทรศัพท์", "Phone", "电话")}<input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className={inp} placeholder="02-xxx-xxxx" inputMode="tel" /></label>
+            <label className="text-xs text-muted block">{L("อีเมล", "Email", "邮箱")}<input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className={inp} placeholder="branch@shd.co.th" inputMode="email" /></label>
+          </div>
+          {/* ── ที่อยู่ ── */}
+          <label className="text-xs text-muted block">{L("ที่อยู่", "Address", "地址")}<input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} className={inp} placeholder={L("เลขที่ ชั้น อาคาร ถนน", "No., floor, building, road", "门牌/楼层/路")} /></label>
+          <div className="grid grid-cols-2 gap-2.5">
+            <label className="text-xs text-muted block">{L("อำเภอ/เขต", "District", "区")}<input value={form.district} onChange={(e) => setForm({ ...form, district: e.target.value })} className={inp} /></label>
+            <label className="text-xs text-muted block">{L("รหัสไปรษณีย์", "Postcode", "邮编")}<input value={form.postcode} onChange={(e) => setForm({ ...form, postcode: e.target.value })} className={`${inp} font-mono`} inputMode="numeric" /></label>
+          </div>
+          {/* ── เวลาทำการ + ผู้จัดการ ── */}
+          <div className="grid grid-cols-2 gap-2.5">
+            <div>
+              <div className="text-xs text-muted mb-1">{L("เวลาทำการ", "Opening hours", "营业时间")}</div>
+              <div className="flex items-center gap-1.5">
+                <input type="time" value={form.open_time} onChange={(e) => setForm({ ...form, open_time: e.target.value })} className={`${inp} mt-0`} />
+                <span className="text-muted">–</span>
+                <input type="time" value={form.close_time} onChange={(e) => setForm({ ...form, close_time: e.target.value })} className={`${inp} mt-0`} />
+              </div>
+            </div>
+            <label className="text-xs text-muted block">{L("ผู้จัดการสาขา", "Branch manager", "店长")}
+              <select value={form.manager_id} onChange={(e) => setForm({ ...form, manager_id: e.target.value })} className={inp}><option value="">{L("— ไม่ระบุ —", "— None —", "— 无 —")}</option>{employees.filter((em) => em.status === "active").map((em) => <option key={em.id} value={em.id}>{em.nickname || em.first_name || em.email}</option>)}</select>
+            </label>
+          </div>
+          <label className="text-xs text-muted block">{L("หมายเหตุ", "Note", "备注")}<input value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} className={inp} /></label>
+
           <label className="flex items-center gap-2.5 cursor-pointer pt-1">
             <input type="checkbox" checked={form.is_active} onChange={(e) => setForm({ ...form, is_active: e.target.checked })} className="w-4 h-4 accent-current" />
             <span className="text-sm font-medium">{L("เปิดใช้งาน", "Active", "启用")}</span>

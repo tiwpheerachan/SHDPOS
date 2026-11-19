@@ -45,6 +45,16 @@ export interface Branch {
   /** พิกัดที่ตั้ง (ใช้แนะนำสาขาใกล้สุดตอนขอโอน) — ถ้าไม่มีจะ fallback lib/geo seed ตาม code */
   lat?: number | null;
   lng?: number | null;
+  // ── ตั้งค่าสาขาแบบละเอียด (optional — ต่อยอดได้) ──
+  phone?: string | null;
+  email?: string | null;
+  address?: string | null;       // ที่อยู่ (บรรทัดเดียว)
+  district?: string | null;      // อำเภอ/เขต
+  postcode?: string | null;
+  open_time?: string | null;     // "10:00"
+  close_time?: string | null;    // "21:00"
+  manager_id?: string | null;    // employee id ผู้จัดการสาขา
+  note?: string | null;
   is_active: boolean;
 }
 
