@@ -4,16 +4,18 @@
 //   ตั้งทะเบียน/manual ก่อน (ตรวจย้อนหลังได้) · ยังไม่เชื่อมธนาคารจริง
 // =====================================================================
 import { useEffect, useMemo, useState } from "react";
-import { CreditCard, Plus, Loader2, Check, X, ShieldCheck, ShieldAlert, Pencil, Search, Cpu } from "lucide-react";
+import { CreditCard, Plus, Loader2, Check, X, ShieldCheck, ShieldAlert, Pencil, Search, Cpu, Clock, ListChecks, Ban, AlertTriangle } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { useSession } from "@/lib/store/session";
 import { useAdminScope } from "@/components/admin/filters";
-import { Card, KpiTile, Table, Th, Td, Badge, Input, Select, EmptyState, Drawer } from "@/components/ui";
+import { Card, KpiTile, Table, Th, Td, Badge, Input, Select, EmptyState, Drawer, Modal, Segmented } from "@/components/ui";
 import { ExportShareBar } from "@/components/admin/export-share";
-import { listAcquirers, listTerminals, upsertTerminal, EDC_SERVICE_LABEL } from "@/lib/data/payments";
+import { useToast } from "@/components/toast-host";
+import { listAcquirers, listTerminals, upsertTerminal, listPaymentTxns, createPaymentTxn, resolvePaymentTxn, voidPaymentTxn, EDC_SERVICE_LABEL } from "@/lib/data/payments";
 import { logActivity } from "@/lib/data/repo";
 import { can } from "@/lib/permissions";
-import type { Acquirer, EdcTerminal, EdcService } from "@/lib/types";
+import { formatTHB } from "@/lib/money";
+import type { Acquirer, EdcTerminal, EdcService, PaymentTxn } from "@/lib/types";
 
 const SERVICES: EdcService[] = ["card", "unionpay", "thaiqr", "qr_credit", "alipay", "wechat", "installment"];
 const STATUS: { v: EdcTerminal["status"]; th: string; en: string; tone: "ok" | "neutral" | "warn" | "danger" }[] = [
@@ -29,9 +31,18 @@ export default function AdminPaymentsPage() {
   const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
   const actor = useSession((s) => s.employee);
   const { branches } = useAdminScope();
+  const toast = useToast();
+  const [view, setView] = useState<"devices" | "txns">("devices");
   const [acquirers, setAcquirers] = useState<Acquirer[]>([]);
   const [terminals, setTerminals] = useState<EdcTerminal[]>([]);
+  const [txns, setTxns] = useState<PaymentTxn[]>([]);
   const [loading, setLoading] = useState(true);
+  // ledger modals
+  const [newOpen, setNewOpen] = useState(false);
+  const [resolveT, setResolveT] = useState<PaymentTxn | null>(null);
+  const [nf2, setNf2] = useState({ terminal_id: "", method: "card" as EdcService, amount: "", order_no: "", months: "" });
+  const [rf, setRf] = useState({ status: "approved" as "approved" | "declined" | "error", approval_code: "", ref_no: "", note: "" });
+  const [busy, setBusy] = useState(false);
   const [q, setQ] = useState("");
   const [fAcq, setFAcq] = useState("");
   const [fStatus, setFStatus] = useState("");
@@ -40,10 +51,10 @@ export default function AdminPaymentsPage() {
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
 
-  const load = async () => { const [a, t] = await Promise.all([listAcquirers(), listTerminals()]); setAcquirers(a); setTerminals(t); setLoading(false); };
+  const load = async () => { const [a, t, x] = await Promise.all([listAcquirers(), listTerminals(), listPaymentTxns()]); setAcquirers(a); setTerminals(t); setTxns(x); setLoading(false); };
   useEffect(() => { void load(); }, []);
 
-  const acqName = (id: string) => acquirers.find((a) => a.id === id)?.name ?? id;
+  const acqName = (id: string | null) => (id ? acquirers.find((a) => a.id === id)?.name ?? id : "—");
   const acqVerified = (id: string) => acquirers.find((a) => a.id === id)?.verified ?? false;
   const branchName = (id: string | null) => (id ? branches.find((b) => b.id === id)?.name_th ?? branches.find((b) => b.id === id)?.name ?? id : "—");
   const svcLabel = (s: string) => (locale === "th" ? EDC_SERVICE_LABEL[s]?.th : EDC_SERVICE_LABEL[s]?.en) ?? s;
@@ -88,6 +99,45 @@ export default function AdminPaymentsPage() {
     finally { setSaving(false); }
   }
 
+  // ── ledger (Phase 2) ──
+  const termOf = (id: string | null) => terminals.find((t) => t.id === id) ?? null;
+  const termLabel = (id: string | null) => termOf(id)?.asset_code ?? "—";
+  const nf = (n: number) => formatTHB(n, false);
+  const txnKpi = useMemo(() => {
+    const ap = txns.filter((t) => t.status === "approved");
+    return { approved: ap.length, approvedSum: ap.reduce((s, t) => s + t.amount, 0), recover: txns.filter((t) => t.status === "pending" || t.status === "error").length, declined: txns.filter((t) => t.status === "declined").length, voided: txns.filter((t) => t.status === "voided").length };
+  }, [txns]);
+  const TXN_STATUS: Record<string, { th: string; en: string; tone: "ok" | "neutral" | "warn" | "danger" | "brand" }> = {
+    pending: { th: "รอผล", en: "Pending", tone: "warn" }, approved: { th: "อนุมัติ", en: "Approved", tone: "ok" },
+    declined: { th: "ปฏิเสธ", en: "Declined", tone: "danger" }, error: { th: "ต้องตรวจสอบ", en: "Error", tone: "danger" }, voided: { th: "ยกเลิก", en: "Voided", tone: "neutral" },
+  };
+  const cashier = () => (actor ? (actor.nickname || actor.first_name || actor.email || null) : null);
+  async function submitNew() {
+    const amt = Number(nf2.amount);
+    if (!nf2.terminal_id) { toast.push({ tone: "danger", title: L("เลือกเครื่อง", "Select terminal", "选设备") }); return; }
+    if (!Number.isFinite(amt) || amt <= 0) { toast.push({ tone: "danger", title: L("ใส่จำนวนเงิน", "Enter amount", "输入金额") }); return; }
+    setBusy(true);
+    try {
+      const t = termOf(nf2.terminal_id);
+      const { txn, duplicate } = await createPaymentTxn({ order_no: nf2.order_no.trim() || null, terminal_id: nf2.terminal_id, acquirer_id: t?.acquirer_id ?? null, method: nf2.method, amount: amt, installment_months: nf2.method === "installment" && nf2.months ? Number(nf2.months) : null, branch_id: t?.branch_id ?? null, cashier_name: cashier() });
+      toast.push({ tone: duplicate ? "warn" : "ok", title: duplicate ? L("รายการซ้ำ (กันเก็บซ้ำ)", "Duplicate blocked", "已防重复") : L("สร้างรายการแล้ว (รอผล)", "Created · pending", "已创建"), body: `฿${nf(txn.amount)} · ${txn.op_key}` });
+      setNewOpen(false); setNf2({ terminal_id: "", method: "card", amount: "", order_no: "", months: "" }); await load();
+    } finally { setBusy(false); }
+  }
+  async function submitResolve() {
+    if (!resolveT) return;
+    setBusy(true);
+    try {
+      await resolvePaymentTxn(resolveT.id, rf.status, { approval_code: rf.approval_code.trim() || null, ref_no: rf.ref_no.trim() || null, note: rf.note.trim() || null });
+      toast.push({ tone: "ok", title: L("บันทึกผลแล้ว", "Result saved", "已记录") });
+      setResolveT(null); setRf({ status: "approved", approval_code: "", ref_no: "", note: "" }); await load();
+    } finally { setBusy(false); }
+  }
+  async function doVoid(t: PaymentTxn) {
+    if (!confirm(L(`ยกเลิกรายการ ฿${nf(t.amount)}? (void ก่อนปิดยอด)`, `Void ฿${nf(t.amount)}?`, "作废?"))) return;
+    await voidPaymentTxn(t.id); await load();
+  }
+
   const allowed = can(actor, "finance.view") || can(actor, "admin.branch_manage");
   if (actor && !allowed) return <div className="p-6"><EmptyState icon={<CreditCard size={26} />} title={L("ไม่มีสิทธิ์", "No access", "无权限")} /></div>;
 
@@ -104,18 +154,33 @@ export default function AdminPaymentsPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <ExportShareBar<EdcTerminal> filename="edc-terminals" title={L("ทะเบียนเครื่อง EDC", "EDC terminals", "EDC设备")} rows={filtered} size="sm"
-            columns={[
-              { key: "asset_code", label: L("รหัสเครื่อง", "Asset", "设备") }, { key: "acquirer", label: L("ผู้รับชำระ", "Acquirer", "收单"), map: (t) => acqName(t.acquirer_id) },
-              { key: "mid", label: "MID", map: (t) => t.mid ?? "-" }, { key: "tid", label: "TID", map: (t) => t.tid ?? "-" },
-              { key: "branch", label: L("สาขา", "Branch", "门店"), map: (t) => branchName(t.branch_id) },
-              { key: "services", label: L("บริการ", "Services", "服务"), map: (t) => t.services.map(svcLabel).join(", ") },
-              { key: "status", label: L("สถานะ", "Status", "状态"), map: (t) => statusMeta(t.status)[locale === "th" ? "th" : "en"] },
-              { key: "verified", label: L("ยืนยัน", "Verified", "验证"), map: (t) => (t.verified ? L("ใช่", "Yes", "是") : L("ยัง", "No", "否")) },
-            ]} />
-          <button onClick={openNew} className="h-10 px-4 rounded-2xl bg-brand text-brandInk text-sm font-bold inline-flex items-center gap-2 shrink-0"><Plus size={16} /> {L("เพิ่มเครื่อง", "Add terminal", "新增")}</button>
+          {view === "devices" ? (
+            <ExportShareBar<EdcTerminal> filename="edc-terminals" title={L("ทะเบียนเครื่อง EDC", "EDC terminals", "EDC设备")} rows={filtered} size="sm"
+              columns={[
+                { key: "asset_code", label: L("รหัสเครื่อง", "Asset", "设备") }, { key: "acquirer", label: L("ผู้รับชำระ", "Acquirer", "收单"), map: (t) => acqName(t.acquirer_id) },
+                { key: "mid", label: "MID", map: (t) => t.mid ?? "-" }, { key: "tid", label: "TID", map: (t) => t.tid ?? "-" },
+                { key: "branch", label: L("สาขา", "Branch", "门店"), map: (t) => branchName(t.branch_id) },
+                { key: "services", label: L("บริการ", "Services", "服务"), map: (t) => t.services.map(svcLabel).join(", ") },
+                { key: "status", label: L("สถานะ", "Status", "状态"), map: (t) => statusMeta(t.status)[locale === "th" ? "th" : "en"] },
+                { key: "verified", label: L("ยืนยัน", "Verified", "验证"), map: (t) => (t.verified ? L("ใช่", "Yes", "是") : L("ยัง", "No", "否")) },
+              ]} />
+          ) : (
+            <ExportShareBar<PaymentTxn> filename="edc-txns" title={L("รายการชำระ EDC", "EDC transactions", "EDC交易")} rows={txns} size="sm"
+              columns={[
+                { key: "at", label: L("เวลา", "Time", "时间"), map: (t) => new Date(t.at).toLocaleString("th-TH", { dateStyle: "short", timeStyle: "short" }) },
+                { key: "order_no", label: L("บิล", "Bill", "单号"), map: (t) => t.order_no ?? "-" }, { key: "terminal", label: L("เครื่อง", "Terminal", "设备"), map: (t) => termLabel(t.terminal_id) },
+                { key: "method", label: L("วิธี", "Method", "方式"), map: (t) => svcLabel(t.method) }, { key: "amount", label: L("ยอด", "Amount", "金额"), map: (t) => nf(t.amount) },
+                { key: "status", label: L("สถานะ", "Status", "状态"), map: (t) => TXN_STATUS[t.status][locale === "th" ? "th" : "en"] },
+                { key: "approval_code", label: L("รหัสอนุมัติ", "Approval", "批准码"), map: (t) => t.approval_code ?? "-" }, { key: "ref_no", label: "Ref", map: (t) => t.ref_no ?? "-" },
+              ]} />
+          )}
+          {view === "devices"
+            ? <button onClick={openNew} className="h-10 px-4 rounded-2xl bg-brand text-brandInk text-sm font-bold inline-flex items-center gap-2 shrink-0"><Plus size={16} /> {L("เพิ่มเครื่อง", "Add terminal", "新增")}</button>
+            : <button onClick={() => setNewOpen(true)} className="h-10 px-4 rounded-2xl bg-brand text-brandInk text-sm font-bold inline-flex items-center gap-2 shrink-0"><Plus size={16} /> {L("เริ่มรายการชำระ", "New charge", "新收款")}</button>}
         </div>
       </div>
+
+      <Segmented value={view} onChange={(v) => setView(v as "devices" | "txns")} options={[{ value: "devices", label: L("ทะเบียนเครื่อง", "Terminals", "设备") }, { value: "txns", label: `${L("รายการชำระ", "Transactions", "交易")}${txnKpi.recover ? ` · ${txnKpi.recover}⚠` : ""}` }]} />
 
       {/* ผู้รับชำระ */}
       <Card className="p-3.5">
@@ -129,6 +194,7 @@ export default function AdminPaymentsPage() {
         </div>
       </Card>
 
+      {view === "devices" ? (<>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <KpiTile label={L("เครื่องทั้งหมด", "Terminals", "设备总数")} value={String(kpi.total)} icon={<Cpu size={16} />} accent="lavender" />
         <KpiTile label={L("ใช้งานอยู่", "Installed", "使用中")} value={String(kpi.installed)} icon={<CreditCard size={16} />} accent="mint" />
@@ -165,6 +231,45 @@ export default function AdminPaymentsPage() {
               </Table>
             </Card>
           )}
+      </>) : (
+      /* ───────── รายการชำระ EDC (ledger) ───────── */
+      <>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <KpiTile label={L("อนุมัติ", "Approved", "已批准")} value={String(txnKpi.approved)} sub={`฿${nf(txnKpi.approvedSum)}`} icon={<ListChecks size={16} />} accent="mint" />
+          <KpiTile label={L("รอผล / ต้องกู้คืน", "Pending / recover", "待处理")} value={String(txnKpi.recover)} sub={L("pending + ต้องตรวจสอบ", "pending + error", "待+错误")} icon={<Clock size={16} />} accent={txnKpi.recover ? "coral" : "neutral"} />
+          <KpiTile label={L("ปฏิเสธ", "Declined", "拒绝")} value={String(txnKpi.declined)} icon={<Ban size={16} />} accent="peach" />
+          <KpiTile label={L("ยกเลิก (void)", "Voided", "作废")} value={String(txnKpi.voided)} icon={<AlertTriangle size={16} />} accent="neutral" />
+        </div>
+        {txnKpi.recover > 0 ? (
+          <Card className="p-3.5 flex items-center gap-2.5 border-amber-500/30 bg-amber-500/8">
+            <Clock size={16} className="text-amber-500 shrink-0" />
+            <p className="text-xs text-amber-700 flex-1">{L(`มี ${txnKpi.recover} รายการค้าง (รอผล/ต้องตรวจสอบ) — ตรวจสลิปแล้วกด "บันทึกผล" เพื่อปิดรายการ`, `${txnKpi.recover} items pending — check slip and record result`, "有待处理")}</p>
+          </Card>
+        ) : null}
+        <Card className="overflow-x-auto">
+          <Table>
+            <thead><tr><Th>{L("เวลา", "Time", "时间")}</Th><Th>{L("บิล", "Bill", "单号")}</Th><Th>{L("เครื่อง", "Terminal", "设备")}</Th><Th>{L("วิธี", "Method", "方式")}</Th><Th align="right">{L("ยอด", "Amount", "金额")}</Th><Th>{L("สถานะ", "Status", "状态")}</Th><Th>{L("รหัสอนุมัติ / Ref", "Approval / Ref", "批准/Ref")}</Th><Th></Th></tr></thead>
+            <tbody>{txns.map((t) => { const sm = TXN_STATUS[t.status]; const canResolve = t.status === "pending" || t.status === "error"; return (
+              <tr key={t.id} className={canResolve ? "bg-amber-500/5" : ""}>
+                <Td className="text-xs whitespace-nowrap">{new Date(t.at).toLocaleString(locale === "th" ? "th-TH" : "en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</Td>
+                <Td className="font-mono text-[11px] text-muted">{t.order_no ?? "—"}</Td>
+                <Td className="text-xs"><span className="font-mono">{termLabel(t.terminal_id)}</span><span className="block text-[10px] text-muted">{acqName(t.acquirer_id)}</span></Td>
+                <Td className="text-xs">{svcLabel(t.method)}{t.method === "installment" && t.installment_months ? ` ${t.installment_months}ด.` : ""}</Td>
+                <Td align="right" className="tnum font-medium">{nf(t.amount)}</Td>
+                <Td><Badge tone={sm.tone}>{L(sm.th, sm.en, sm.th)}</Badge></Td>
+                <Td className="text-xs text-muted">{t.approval_code ? <span className="font-mono">{t.approval_code}</span> : "—"}{t.ref_no ? <span className="block text-[10px] font-mono">{t.ref_no}</span> : null}</Td>
+                <Td align="right">
+                  {canResolve ? <button onClick={() => { setResolveT(t); setRf({ status: "approved", approval_code: "", ref_no: "", note: "" }); }} className="h-7 px-2.5 rounded-lg bg-brand text-brandInk text-[11px] font-bold">{L("บันทึกผล", "Record", "记录")}</button>
+                    : t.status === "approved" ? <button onClick={() => void doVoid(t)} className="h-7 px-2.5 rounded-lg border border-line text-[11px] text-muted hover:text-danger hover:border-danger/40">{L("ยกเลิก", "Void", "作废")}</button>
+                      : <span className="text-[10px] text-muted">{t.resolved_at ? new Date(t.resolved_at).toLocaleDateString("th-TH", { day: "2-digit", month: "short" }) : ""}</span>}
+                </Td>
+              </tr>
+            ); })}</tbody>
+          </Table>
+          {!txns.length ? <p className="py-10 text-center text-sm text-muted">{L("ยังไม่มีรายการชำระ", "No transactions", "无交易")}</p> : null}
+        </Card>
+      </>
+      )}
 
       {/* drawer เพิ่ม/แก้เครื่อง */}
       <Drawer open={open} onClose={() => setOpen(false)} width="md" title={form && terminals.some((t) => t.id === form.id) ? L("แก้ไขเครื่อง EDC", "Edit terminal", "编辑设备") : L("เพิ่มเครื่อง EDC", "Add terminal", "新增设备")} subtitle={form?.asset_code || undefined}>
@@ -207,6 +312,59 @@ export default function AdminPaymentsPage() {
           </div>
         )}
       </Drawer>
+
+      {/* Modal: เริ่มรายการชำระ (สร้าง pending ก่อน) */}
+      <Modal open={newOpen} onClose={() => setNewOpen(false)} title={L("เริ่มรายการชำระ EDC", "New EDC charge", "新收款")} size="md"
+        footer={<>
+          <button onClick={() => setNewOpen(false)} className="h-10 px-4 rounded-xl bg-surface2 text-sm font-semibold text-muted">{L("ยกเลิก", "Cancel", "取消")}</button>
+          <button onClick={() => void submitNew()} disabled={busy} className="h-10 px-5 rounded-xl bg-brand text-brandInk text-sm font-bold disabled:opacity-50 inline-flex items-center gap-1.5">{busy ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />} {L("สร้าง (รอผล)", "Create · pending", "创建")}</button>
+        </>}>
+        <div className="space-y-3">
+          <p className="text-[11px] text-muted bg-surface2 rounded-lg px-3 py-2">{L("สร้างรายการเป็น “รอผล” ก่อนเรียกเก็บ แล้วค่อยบันทึกผลจากเครื่อง · ระบบกันเรียกเก็บซ้ำด้วย op_key", "Create as pending before charging, then record the result · duplicate-safe via op_key", "先创建待处理")}</p>
+          <label className="text-xs text-muted block">{L("เครื่อง EDC", "Terminal", "设备")}
+            <select value={nf2.terminal_id} onChange={(e) => { const t = termOf(e.target.value); setNf2({ ...nf2, terminal_id: e.target.value, method: (t?.services[0] as EdcService) ?? "card" }); }} className={inp}>
+              <option value="">{L("— เลือกเครื่อง —", "— Select —", "— 选 —")}</option>
+              {terminals.filter((t) => t.status === "installed" && t.verified).map((t) => <option key={t.id} value={t.id}>{t.asset_code} · {acqName(t.acquirer_id)} · {branchName(t.branch_id)}</option>)}
+            </select>
+          </label>
+          <div className="grid grid-cols-2 gap-2.5">
+            <label className="text-xs text-muted block">{L("วิธีชำระ", "Method", "方式")}
+              <select value={nf2.method} onChange={(e) => setNf2({ ...nf2, method: e.target.value as EdcService })} className={inp}>{(termOf(nf2.terminal_id)?.services ?? ["card"]).map((s) => <option key={s} value={s}>{svcLabel(s)}</option>)}</select>
+            </label>
+            <label className="text-xs text-muted block">{L("จำนวนเงิน (บาท)", "Amount (฿)", "金额")}<input value={nf2.amount} onChange={(e) => setNf2({ ...nf2, amount: e.target.value })} className={`${inp} font-mono`} inputMode="decimal" placeholder="0.00" /></label>
+          </div>
+          <div className="grid grid-cols-2 gap-2.5">
+            <label className="text-xs text-muted block">{L("เลขบิล (ถ้ามี)", "Bill no.", "单号")}<input value={nf2.order_no} onChange={(e) => setNf2({ ...nf2, order_no: e.target.value })} className={`${inp} font-mono`} placeholder="POS-…" /></label>
+            {nf2.method === "installment" ? <label className="text-xs text-muted block">{L("งวดผ่อน", "Months", "分期")}<input value={nf2.months} onChange={(e) => setNf2({ ...nf2, months: e.target.value })} className={`${inp} font-mono`} inputMode="numeric" placeholder="6" /></label> : null}
+          </div>
+        </div>
+      </Modal>
+
+      {/* Modal: บันทึกผล (resolve pending/error) */}
+      <Modal open={!!resolveT} onClose={() => setResolveT(null)} title={L("บันทึกผลรายการ", "Record result", "记录结果")} size="md"
+        footer={<>
+          <button onClick={() => setResolveT(null)} className="h-10 px-4 rounded-xl bg-surface2 text-sm font-semibold text-muted">{L("ยกเลิก", "Cancel", "取消")}</button>
+          <button onClick={() => void submitResolve()} disabled={busy} className="h-10 px-5 rounded-xl bg-brand text-brandInk text-sm font-bold disabled:opacity-50 inline-flex items-center gap-1.5">{busy ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />} {L("บันทึก", "Save", "保存")}</button>
+        </>}>
+        {resolveT && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-2 text-sm bg-surface2 rounded-lg px-3 py-2.5">
+              <span className="text-muted">{termLabel(resolveT.terminal_id)} · {svcLabel(resolveT.method)}{resolveT.order_no ? ` · ${resolveT.order_no}` : ""}</span>
+              <span className="tnum font-bold">฿{nf(resolveT.amount)}</span>
+            </div>
+            <div><div className="text-xs text-muted mb-1.5">{L("ผลลัพธ์", "Result", "结果")}</div>
+              <Segmented value={rf.status} onChange={(v) => setRf({ ...rf, status: v as "approved" | "declined" | "error" })} options={[{ value: "approved", label: L("อนุมัติ", "Approved", "批准") }, { value: "declined", label: L("ปฏิเสธ", "Declined", "拒绝") }, { value: "error", label: L("ตรวจสอบ", "Error", "核查") }]} />
+            </div>
+            {rf.status === "approved" ? (
+              <div className="grid grid-cols-2 gap-2.5">
+                <label className="text-xs text-muted block">{L("รหัสอนุมัติ", "Approval code", "批准码")}<input value={rf.approval_code} onChange={(e) => setRf({ ...rf, approval_code: e.target.value })} className={`${inp} font-mono`} placeholder="123456" /></label>
+                <label className="text-xs text-muted block">{L("เลขอ้างอิง (Ref)", "Reference", "参考号")}<input value={rf.ref_no} onChange={(e) => setRf({ ...rf, ref_no: e.target.value })} className={`${inp} font-mono`} /></label>
+              </div>
+            ) : null}
+            <label className="text-xs text-muted block">{L("หมายเหตุ", "Note", "备注")}<input value={rf.note} onChange={(e) => setRf({ ...rf, note: e.target.value })} className={inp} /></label>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

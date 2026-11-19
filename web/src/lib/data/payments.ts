@@ -3,7 +3,7 @@
 //   เก็บใน kv (เลขมาสก์) · ไม่ดึง MID/TID จริงจากชีท (อ่อนไหว)
 // =====================================================================
 import { db, kvGet, kvSet } from "../offline/db";
-import type { Acquirer, EdcTerminal } from "../types";
+import type { Acquirer, EdcTerminal, EdcService, PaymentTxn } from "../types";
 
 const DEMO_ACQUIRERS: Acquirer[] = [
   { id: "acq-scb", code: "SCB", name: "ไทยพาณิชย์ (SCB)", verified: true },
@@ -61,6 +61,91 @@ export async function upsertTerminal(t: EdcTerminal): Promise<void> {
 export async function deleteTerminal(id: string): Promise<void> {
   const all = (await listTerminals()).filter((t) => t.id !== id);
   await kvSet("edc_terminals_v1", all);
+}
+
+// ── Phase 2: รายการชำระ EDC (transaction ledger) ──────────────────
+const TXN_KEY = "edc_txns_v1";
+function rndKey() { return `op-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`; }
+
+async function seedTxns(): Promise<PaymentTxn[]> {
+  const terms = await listTerminals();
+  const usable = terms.filter((t) => t.status === "installed" && t.verified && t.mid);
+  if (!usable.length) return [];
+  const rnd = (() => { let s = 20261119; return () => { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x7fffffff; }; })();
+  const pick = <T,>(a: T[]) => a[Math.floor(rnd() * a.length)];
+  const out: PaymentTxn[] = [];
+  for (let i = 0; i < 16; i++) {
+    const t = pick(usable);
+    const svc = pick(t.services.filter((s) => s !== "thaiqr") as EdcService[]) ?? "card";
+    const dt = new Date(); dt.setDate(dt.getDate() - Math.floor(rnd() * 14)); dt.setHours(9 + Math.floor(rnd() * 11), Math.floor(rnd() * 60));
+    const amount = Math.round((500 + rnd() * 40000) / 10) * 10;
+    // ส่วนใหญ่ approved · 2 pending · 1 error · 1 voided
+    let status: PaymentTxn["status"] = "approved";
+    if (i === 3 || i === 9) status = "pending";
+    else if (i === 6) status = "error";
+    else if (i === 11) status = "voided";
+    else if (i === 14) status = "declined";
+    out.push({
+      id: `txn-${i}`, op_key: rndKey(), at: dt.toISOString(),
+      resolved_at: status === "pending" ? null : dt.toISOString(),
+      order_no: `POS-${dt.toISOString().slice(2, 10).replace(/-/g, "")}-${String(1000 + i).slice(1)}`,
+      terminal_id: t.id, acquirer_id: t.acquirer_id, method: svc, amount,
+      installment_months: svc === "installment" ? pick(t.installment_months.length ? t.installment_months : [3, 6]) : null,
+      status,
+      approval_code: status === "approved" || status === "voided" ? String(100000 + Math.floor(rnd() * 899999)) : null,
+      ref_no: status === "approved" || status === "voided" ? `•••• ${1000 + Math.floor(rnd() * 8999)}` : null,
+      branch_id: t.branch_id, cashier_name: pick(["Nun", "Mhom", "Safe", "Apple"]),
+      note: status === "error" ? "เครื่องไม่ตอบ/หมดเวลา — ต้องตรวจสลิปแล้วบันทึกผล" : status === "pending" ? "รอผลจากเครื่อง" : null,
+    });
+  }
+  return out.sort((a, b) => (a.at < b.at ? 1 : -1));
+}
+
+export async function listPaymentTxns(): Promise<PaymentTxn[]> {
+  const stored = await kvGet<PaymentTxn[]>(TXN_KEY, []);
+  if (stored.length) return stored;
+  const seed = await seedTxns();
+  if (seed.length) await kvSet(TXN_KEY, seed);
+  return seed;
+}
+
+/** สร้างรายการชำระ (pending) — idempotent: op_key ซ้ำ = คืนรายการเดิม ไม่สร้างซ้ำ */
+export async function createPaymentTxn(input: {
+  op_key?: string; order_no: string | null; terminal_id: string | null; acquirer_id: string | null;
+  method: EdcService; amount: number; installment_months?: number | null; branch_id: string | null; cashier_name?: string | null;
+}): Promise<{ txn: PaymentTxn; duplicate: boolean }> {
+  const all = await listPaymentTxns();
+  const key = input.op_key || rndKey();
+  const existing = all.find((t) => t.op_key === key);
+  if (existing) return { txn: existing, duplicate: true };
+  const txn: PaymentTxn = {
+    id: `txn-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`, op_key: key, at: new Date().toISOString(), resolved_at: null,
+    order_no: input.order_no, terminal_id: input.terminal_id, acquirer_id: input.acquirer_id, method: input.method, amount: input.amount,
+    installment_months: input.installment_months ?? null, status: "pending", approval_code: null, ref_no: null,
+    branch_id: input.branch_id, cashier_name: input.cashier_name ?? null, note: null,
+  };
+  await kvSet(TXN_KEY, [txn, ...all]);
+  return { txn, duplicate: false };
+}
+
+/** บันทึกผลรายการ (จาก pending/error เท่านั้น) — กันบันทึกซ้ำถ้า resolved แล้ว */
+export async function resolvePaymentTxn(id: string, status: "approved" | "declined" | "error", patch: { approval_code?: string | null; ref_no?: string | null; note?: string | null } = {}): Promise<void> {
+  const all = await listPaymentTxns();
+  const i = all.findIndex((t) => t.id === id);
+  if (i < 0) return;
+  const cur = all[i];
+  if (cur.status === "approved" || cur.status === "declined" || cur.status === "voided") return; // resolved แล้ว ห้ามทับ
+  all[i] = { ...cur, status, resolved_at: new Date().toISOString(), approval_code: patch.approval_code ?? cur.approval_code, ref_no: patch.ref_no ?? cur.ref_no, note: patch.note ?? cur.note };
+  await kvSet(TXN_KEY, all);
+}
+
+/** ยกเลิกรายการที่อนุมัติแล้ว (void ก่อนปิดยอด) */
+export async function voidPaymentTxn(id: string, note?: string): Promise<void> {
+  const all = await listPaymentTxns();
+  const i = all.findIndex((t) => t.id === id);
+  if (i < 0 || all[i].status !== "approved") return;
+  all[i] = { ...all[i], status: "voided", resolved_at: new Date().toISOString(), note: note ?? all[i].note };
+  await kvSet(TXN_KEY, all);
 }
 
 export const EDC_SERVICE_LABEL: Record<string, { th: string; en: string }> = {

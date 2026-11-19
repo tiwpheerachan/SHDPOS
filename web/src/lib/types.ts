@@ -218,6 +218,26 @@ export interface EdcTerminal {
   note?: string | null;
 }
 
+/** รายการชำระ EDC 1 ครั้ง (Phase 2) — สร้างก่อนเรียกเก็บ, เก็บผล, กันซ้ำด้วย op_key */
+export interface PaymentTxn {
+  id: string;
+  op_key: string;              // idempotency key — กันเรียกเก็บซ้ำ
+  at: string;
+  resolved_at?: string | null;
+  order_no: string | null;
+  terminal_id: string | null;
+  acquirer_id: string | null;
+  method: EdcService;
+  amount: number;
+  installment_months?: number | null;
+  status: "pending" | "approved" | "declined" | "error" | "voided";
+  approval_code?: string | null;  // รหัสอนุมัติจากเครื่อง
+  ref_no?: string | null;
+  branch_id: string | null;
+  cashier_name?: string | null;
+  note?: string | null;
+}
+
 export interface PaymentEntry {
   method: PaymentMethod;
   amount: number;
