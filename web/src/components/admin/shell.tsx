@@ -8,7 +8,7 @@ import clsx from "clsx";
 import {
   LayoutDashboard, TrendingUp, Users, Package, Boxes, ArrowLeftRight, ScanLine,
   ShieldCheck, ScrollText, Settings2, Store, Sun, Moon, Languages, Menu, X, Bell,
-  Search, PanelLeftClose, PanelLeftOpen, ChevronDown, Command, Home, Activity, FileText, LogOut, Contact, CalendarClock, Ticket, Network, Landmark, Wand2,
+  Search, PanelLeftClose, PanelLeftOpen, ChevronDown, Command, Home, Activity, FileText, LogOut, Contact, CalendarClock, Ticket, Network, Landmark, Wand2, CreditCard,
 } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { useTheme } from "@/lib/theme";
@@ -33,6 +33,7 @@ const NAV: NavGroup[] = [
       { href: "/admin", icon: LayoutDashboard, key: "dashboard" },
       { href: "/admin/insights", icon: Wand2, key: "insights", perm: "report.employee_perf" },
       { href: "/admin/finance", icon: Landmark, key: "finance", perm: "finance.view" },
+      { href: "/admin/payments", icon: CreditCard, key: "payments", perm: "finance.view" },
     ],
   },
   {
@@ -170,6 +171,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
     coupons: L("คูปอง", "Coupons", "优惠券"),
     branches: L("สาขา", "Branches", "门店"),
     activity: L("บันทึกการแก้ไข", "Activity log", "操作日志"),
+    payments: L("รับชำระ / EDC", "Payments / EDC", "收款/EDC"),
     org: L("ผังสาขา", "Branch map", "门店地图"),
     finance: L("การเงิน", "Finance", "财务"),
     insights: L("ผู้ช่วย AI", "AI assistant", "AI 助手"),

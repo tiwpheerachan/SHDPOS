@@ -189,6 +189,35 @@ export interface CartLine {
   gift_of_sku?: string | null;
 }
 
+// ── ทะเบียนรับชำระ EDC (Phase 1: registry + manual) ───────────────
+/** ผู้รับชำระ/ธนาคาร — verified=true ถึงจะเปิดให้เลือกตอน checkout อัตโนมัติ */
+export interface Acquirer {
+  id: string;
+  code: string;          // SCB, KBANK, UOB, KSA, CARDX ...
+  name: string;
+  verified: boolean;     // ยืนยันสัญญา/โปรโตคอลแล้วหรือยัง
+  note?: string | null;
+}
+export type EdcService = "card" | "unionpay" | "thaiqr" | "qr_credit" | "alipay" | "wechat" | "installment";
+/** เครื่อง EDC จริง 1 ตัว ผูกสาขา + ผู้รับชำระ + MID/TID + บริการที่เปิด (เก็บเลขมาสก์ได้) */
+export interface EdcTerminal {
+  id: string;
+  asset_code: string;          // device id ภายในของเรา (แยกจาก bank TID)
+  acquirer_id: string;
+  mid: string | null;          // merchant id (มาสก์/ท้ายเลขได้)
+  tid: string | null;          // terminal id (อาจเป็น logical id ของบริการ)
+  mer_no?: string | null;
+  legal_entity?: string | null;
+  shop_name?: string | null;   // ชื่อร้านบนระบบธนาคาร
+  branch_id: string | null;
+  model?: string | null;
+  services: EdcService[];
+  installment_months: number[]; // งวดผ่อนที่อนุมัติ เช่น [3,6,10]
+  status: "installed" | "spare" | "repair" | "retired";
+  verified: boolean;           // ยืนยันหน้างาน/สัญญาแล้ว
+  note?: string | null;
+}
+
 export interface PaymentEntry {
   method: PaymentMethod;
   amount: number;
