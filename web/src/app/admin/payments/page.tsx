@@ -4,7 +4,7 @@
 //   ตั้งทะเบียน/manual ก่อน (ตรวจย้อนหลังได้) · ยังไม่เชื่อมธนาคารจริง
 // =====================================================================
 import { useEffect, useMemo, useState } from "react";
-import { CreditCard, Plus, Loader2, Check, X, ShieldCheck, ShieldAlert, Pencil, Search, Cpu, Clock, ListChecks, Ban, AlertTriangle } from "lucide-react";
+import { CreditCard, Plus, Loader2, Check, X, ShieldCheck, ShieldAlert, Pencil, Search, Cpu, Clock, ListChecks, Ban, AlertTriangle, ChevronRight, User } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { useSession } from "@/lib/store/session";
 import { useAdminScope } from "@/components/admin/filters";
@@ -32,7 +32,8 @@ export default function AdminPaymentsPage() {
   const actor = useSession((s) => s.employee);
   const { branches } = useAdminScope();
   const toast = useToast();
-  const [view, setView] = useState<"devices" | "txns">("devices");
+  const [view, setView] = useState<"devices" | "txns" | "recon">("devices");
+  const [reconKey, setReconKey] = useState<string | null>(null);
   const [acquirers, setAcquirers] = useState<Acquirer[]>([]);
   const [terminals, setTerminals] = useState<EdcTerminal[]>([]);
   const [txns, setTxns] = useState<PaymentTxn[]>([]);
@@ -112,6 +113,23 @@ export default function AdminPaymentsPage() {
     declined: { th: "ปฏิเสธ", en: "Declined", tone: "danger" }, error: { th: "ต้องตรวจสอบ", en: "Error", tone: "danger" }, voided: { th: "ยกเลิก", en: "Voided", tone: "neutral" },
   };
   const cashier = () => (actor ? (actor.nickname || actor.first_name || actor.email || null) : null);
+  const hhmm = (iso: string) => new Date(iso).toLocaleTimeString(locale === "th" ? "th-TH" : "en-GB", { hour: "2-digit", minute: "2-digit" });
+  // ── สรุปรายวันรายสาขา (กระทบยอด) — ควรได้เท่าไหร่จาก EDC อนุมัติ, แยกเครื่อง/กะ ──
+  interface ReconG { key: string; branchId: string | null; day: string; expected: number; count: number; terminals: Map<string, { amount: number; count: number }>; cashiers: Map<string, { amount: number; count: number; first: string; last: string }>; txns: PaymentTxn[] }
+  const recon = useMemo(() => {
+    const g = new Map<string, ReconG>();
+    for (const t of txns) {
+      if (t.status !== "approved") continue; // "ควรได้" = เฉพาะที่อนุมัติ (ไม่รวม void/declined/pending)
+      const day = t.at.slice(0, 10); const key = `${t.branch_id ?? "—"}|${day}`;
+      let r = g.get(key);
+      if (!r) { r = { key, branchId: t.branch_id, day, expected: 0, count: 0, terminals: new Map(), cashiers: new Map(), txns: [] }; g.set(key, r); }
+      r.expected += t.amount; r.count++; r.txns.push(t);
+      const tid = t.terminal_id ?? "—"; const te = r.terminals.get(tid) ?? { amount: 0, count: 0 }; te.amount += t.amount; te.count++; r.terminals.set(tid, te);
+      const cn = t.cashier_name ?? "—"; const ce = r.cashiers.get(cn) ?? { amount: 0, count: 0, first: t.at, last: t.at }; ce.amount += t.amount; ce.count++; if (t.at < ce.first) ce.first = t.at; if (t.at > ce.last) ce.last = t.at; r.cashiers.set(cn, ce);
+    }
+    return [...g.values()].sort((a, b) => (a.day < b.day ? 1 : a.day > b.day ? -1 : b.expected - a.expected));
+  }, [txns]);
+  const reconSel = recon.find((r) => r.key === reconKey) ?? null;
   async function submitNew() {
     const amt = Number(nf2.amount);
     if (!nf2.terminal_id) { toast.push({ tone: "danger", title: L("เลือกเครื่อง", "Select terminal", "选设备") }); return; }
@@ -180,7 +198,7 @@ export default function AdminPaymentsPage() {
         </div>
       </div>
 
-      <Segmented value={view} onChange={(v) => setView(v as "devices" | "txns")} options={[{ value: "devices", label: L("ทะเบียนเครื่อง", "Terminals", "设备") }, { value: "txns", label: `${L("รายการชำระ", "Transactions", "交易")}${txnKpi.recover ? ` · ${txnKpi.recover}⚠` : ""}` }]} />
+      <Segmented value={view} onChange={(v) => setView(v as typeof view)} options={[{ value: "devices", label: L("ทะเบียนเครื่อง", "Terminals", "设备") }, { value: "txns", label: `${L("รายการชำระ", "Transactions", "交易")}${txnKpi.recover ? ` · ${txnKpi.recover}⚠` : ""}` }, { value: "recon", label: L("สรุปรายวัน", "Daily close", "日结") }]} />
 
       {/* ผู้รับชำระ */}
       <Card className="p-3.5">
@@ -231,7 +249,7 @@ export default function AdminPaymentsPage() {
               </Table>
             </Card>
           )}
-      </>) : (
+      </>) : view === "txns" ? (
       /* ───────── รายการชำระ EDC (ledger) ───────── */
       <>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -268,6 +286,33 @@ export default function AdminPaymentsPage() {
           </Table>
           {!txns.length ? <p className="py-10 text-center text-sm text-muted">{L("ยังไม่มีรายการชำระ", "No transactions", "无交易")}</p> : null}
         </Card>
+      </>
+      ) : (
+      /* ───────── สรุปรายวันรายสาขา (กระทบยอด) ───────── */
+      <>
+        <Card className="p-3.5 flex items-center gap-2.5 bg-surface2/40">
+          <ListChecks size={15} className="text-muted shrink-0" />
+          <p className="text-[11px] text-muted">{L("“ยอดที่ควรได้” = ยอด EDC ที่อนุมัติของสาขานั้นในวันนั้น (ไม่รวมยกเลิก/ปฏิเสธ) · กดแถวเพื่อดูแยกเครื่อง/กะ · เงินเข้าจริงเทียบได้เมื่อ import statement ธนาคาร (Phase 5)", "“Expected” = approved EDC per branch-day · click a row for terminal/shift breakdown · actual after statement import", "应收=当日已批准EDC")}</p>
+        </Card>
+        {!recon.length ? <EmptyState icon={<ListChecks size={26} />} title={L("ยังไม่มีข้อมูลสรุป", "No data", "无数据")} /> : (
+          <Card className="overflow-x-auto">
+            <Table>
+              <thead><tr><Th>{L("วันที่", "Date", "日期")}</Th><Th>{L("สาขา", "Branch", "门店")}</Th><Th align="right">{L("ยอดที่ควรได้", "Expected", "应收")}</Th><Th align="right">{L("รายการ", "Txns", "笔")}</Th><Th>{L("เครื่อง EDC", "Terminals", "设备")}</Th><Th>{L("กะ/พนักงาน", "Shift / staff", "班次")}</Th><Th>{L("เงินเข้าจริง", "Actual", "实收")}</Th><Th></Th></tr></thead>
+              <tbody>{recon.map((r) => (
+                <tr key={r.key} className="hover:bg-surface2/50 cursor-pointer" onClick={() => setReconKey(r.key)}>
+                  <Td className="text-xs whitespace-nowrap">{r.day.slice(5)}</Td>
+                  <Td className="text-sm font-medium">{branchName(r.branchId)}</Td>
+                  <Td align="right" className="tnum font-bold">{nf(r.expected)}</Td>
+                  <Td align="right" className="tnum text-muted">{r.count}</Td>
+                  <Td><div className="flex flex-wrap gap-1">{[...r.terminals.keys()].map((tid) => <span key={tid} className="text-[10px] px-1.5 py-0.5 rounded bg-surface2 font-mono text-muted">{termLabel(tid)}</span>)}</div></Td>
+                  <Td><div className="flex flex-wrap gap-1">{[...r.cashiers.keys()].map((c) => <span key={c} className="text-[10px] px-1.5 py-0.5 rounded-full bg-surface2 text-muted">{c}</span>)}</div></Td>
+                  <Td><Badge tone="neutral">{L("ยังไม่เชื่อม", "N/A", "未接")}</Badge></Td>
+                  <Td align="right"><ChevronRight size={16} className="text-muted inline" /></Td>
+                </tr>
+              ))}</tbody>
+            </Table>
+          </Card>
+        )}
       </>
       )}
 
@@ -365,6 +410,62 @@ export default function AdminPaymentsPage() {
           </div>
         )}
       </Modal>
+
+      {/* Drawer: รายละเอียดสรุปรายวัน (แยกเครื่อง/กะ/รายการ) */}
+      <Drawer open={!!reconSel} onClose={() => setReconKey(null)} width="md"
+        title={reconSel ? <span className="inline-flex items-center gap-2"><ListChecks size={18} /> {branchName(reconSel.branchId)}</span> : ""}
+        subtitle={reconSel ? `${reconSel.day} · ${L("ควรได้", "expected", "应收")} ฿${nf(reconSel.expected)} · ${reconSel.count} ${L("รายการ", "txns", "笔")}` : undefined}>
+        {reconSel && (
+          <div className="p-4 space-y-4">
+            {/* สรุปเงิน */}
+            <div className="grid grid-cols-3 gap-2 text-center">
+              <div className="rounded-xl bg-surface2/60 p-2.5"><p className="text-[10px] text-muted">{L("ควรได้", "Expected", "应收")}</p><p className="tnum font-bold text-sm">฿{nf(reconSel.expected)}</p></div>
+              <div className="rounded-xl bg-surface2/60 p-2.5"><p className="text-[10px] text-muted">{L("เงินเข้าจริง", "Actual", "实收")}</p><p className="text-xs text-muted pt-1">{L("ยังไม่เชื่อม", "N/A", "未接")}</p></div>
+              <div className="rounded-xl bg-surface2/60 p-2.5"><p className="text-[10px] text-muted">{L("ส่วนต่าง", "Diff", "差额")}</p><p className="text-xs text-muted pt-1">—</p></div>
+            </div>
+
+            {/* แยกตามเครื่อง EDC */}
+            <div>
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-muted mb-2"><Cpu size={13} /> {L("แยกตามเครื่อง EDC", "By terminal", "按设备")}</div>
+              <div className="divide-y divide-line">
+                {[...reconSel.terminals.entries()].sort((a, b) => b[1].amount - a[1].amount).map(([tid, v]) => { const tm = termOf(tid); return (
+                  <div key={tid} className="flex items-center justify-between gap-2 py-2">
+                    <div className="min-w-0"><p className="text-sm font-mono font-medium">{termLabel(tid)}</p><p className="text-[10px] text-muted truncate">{acqName(tm?.acquirer_id ?? null)}{tm?.mid ? ` · MID ${tm.mid}` : ""}</p></div>
+                    <div className="text-right shrink-0"><p className="tnum text-sm font-semibold">฿{nf(v.amount)}</p><p className="text-[10px] text-muted">{v.count} {L("รายการ", "txns", "笔")}</p></div>
+                  </div>
+                ); })}
+              </div>
+            </div>
+
+            {/* แยกตามกะ/พนักงาน */}
+            <div>
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-muted mb-2"><User size={13} /> {L("แยกตามกะ / พนักงาน", "By shift / staff", "按班次")}</div>
+              <div className="divide-y divide-line">
+                {[...reconSel.cashiers.entries()].sort((a, b) => b[1].amount - a[1].amount).map(([cn, v]) => (
+                  <div key={cn} className="flex items-center justify-between gap-2 py-2">
+                    <div className="min-w-0"><p className="text-sm font-medium">{cn}</p><p className="text-[10px] text-muted">{L("ช่วง", "shift", "时段")} {hhmm(v.first)}–{hhmm(v.last)}</p></div>
+                    <div className="text-right shrink-0"><p className="tnum text-sm font-semibold">฿{nf(v.amount)}</p><p className="text-[10px] text-muted">{v.count} {L("รายการ", "txns", "笔")}</p></div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* รายการทั้งหมด */}
+            <div>
+              <div className="text-xs font-semibold text-muted mb-2">{L("รายการทั้งหมด", "All transactions", "全部交易")}</div>
+              <div className="divide-y divide-line">
+                {reconSel.txns.sort((a, b) => (a.at < b.at ? -1 : 1)).map((t) => (
+                  <div key={t.id} className="flex items-center justify-between gap-2 py-1.5 text-xs">
+                    <span className="text-muted whitespace-nowrap">{hhmm(t.at)}</span>
+                    <span className="flex-1 min-w-0 truncate">{svcLabel(t.method)} · <span className="font-mono text-muted">{termLabel(t.terminal_id)}</span> · {t.cashier_name}</span>
+                    <span className="tnum font-medium shrink-0">฿{nf(t.amount)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </Drawer>
     </div>
   );
 }
