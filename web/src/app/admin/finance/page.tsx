@@ -7,6 +7,7 @@ import { useSession } from "@/lib/store/session";
 import { listOrders, listEmployees } from "@/lib/data/repo";
 import type { Order, Employee } from "@/lib/types";
 import { Card, CardHeader, Table, Th, Td, Badge, EmptyState, KpiTile, Segmented, Input } from "@/components/ui";
+import { ExportShareBar } from "@/components/admin/export-share";
 import { FilterBar, useAdminScope, useDefaultFilter } from "@/components/admin/filters";
 import { filterOrders, salesSeries, topProducts, byEmployee } from "@/lib/analytics";
 import {
@@ -127,7 +128,20 @@ function MoneyTab({ rows, branches, locale, L }: { rows: Order[]; branches: Retu
 
       <Card className="p-4">
         <CardHeader title={L("เงินเข้ารายสาขา", "Money in by branch", "各门店资金")}
-          subtitle={L("แยกตามวิธีรับเงิน — เงินสดต้องนำฝาก, ส่วนที่เหลือเข้าบัญชี", "By method — cash to deposit, rest to bank", "按方式 — 现金需存入")} />
+          subtitle={L("แยกตามวิธีรับเงิน — เงินสดต้องนำฝาก, ส่วนที่เหลือเข้าบัญชี", "By method — cash to deposit, rest to bank", "按方式 — 现金需存入")}
+          right={<ExportShareBar<(typeof byBr)[number]>
+            filename="finance-by-branch" title={L("เงินเข้ารายสาขา", "Money in by branch", "各门店资金")} rows={byBr} size="sm"
+            columns={[
+              { key: "label", label: L("สาขา", "Branch", "门店") },
+              { key: "cash", label: L("เงินสด", "Cash", "现金"), map: (r) => formatTHB(r.cash, false) },
+              { key: "card", label: L("บัตร/EDC", "Card/EDC", "刷卡"), map: (r) => formatTHB(r.card, false) },
+              { key: "transfer", label: L("โอน", "Transfer", "转账"), map: (r) => formatTHB(r.transfer, false) },
+              { key: "qr", label: "QR", map: (r) => formatTHB(r.qr, false) },
+              { key: "fee", label: L("ค่าธรรมเนียม", "Fees", "手续费"), map: (r) => formatTHB(r.fee, false) },
+              { key: "net", label: L("รับสุทธิ", "Net", "净收"), map: (r) => formatTHB(r.net, false) },
+              { key: "orders", label: L("บิล", "Bills", "单") },
+            ]}
+          />} />
         {byBr.length ? (
           <div className="overflow-x-auto">
             <Table>

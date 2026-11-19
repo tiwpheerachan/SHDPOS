@@ -7,6 +7,7 @@ import { useSession } from "@/lib/store/session";
 import { listProducts, listBrands, listCategories } from "@/lib/data/repo";
 import type { Brand, Category, Product } from "@/lib/types";
 import { Card, CardHeader, Table, Th, Td, Badge, Input, Button, EmptyState, Select } from "@/components/ui";
+import { ExportShareBar } from "@/components/admin/export-share";
 import { formatTHB } from "@/lib/money";
 import { can } from "@/lib/permissions";
 
@@ -61,6 +62,24 @@ export default function AdminProductsPage() {
             <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
             <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={`${t.common.search} SKU / ${t.admin.products} / barcode`} className="pl-9 h-9" />
           </div>
+          <ExportShareBar
+            filename="products"
+            title={t.admin.products}
+            rows={rows}
+            size="sm"
+            columns={[
+              { key: "sku", label: "SKU" },
+              { key: "name_th", label: L("ชื่อสินค้า", "Product", "商品") },
+              { key: "brand", label: t.common.brand, map: (p) => brands.find((b) => b.id === p.brand_id)?.name ?? "—" },
+              { key: "category", label: L("หมวด", "Category", "分类"), map: (p) => catName(p.category_id) },
+              { key: "price", label: t.common.price, map: (p) => formatTHB(p.price, false) },
+              ...(showCost ? [
+                { key: "cost", label: L("ต้นทุน", "Cost", "成本"), map: (p: typeof rows[number]) => formatTHB(p.cost, false) },
+                { key: "gp", label: "GP%", map: (p: typeof rows[number]) => { const base = p.price / 1.07; return p.cost > 0 && base > 0 ? `${(((base - p.cost) / base) * 100).toFixed(1)}%` : "—"; } },
+              ] : []),
+              { key: "serial", label: "Serial", map: (p) => (p.track_serial ? L("ใช่", "Yes", "是") : L("ไม่", "No", "否")) },
+            ]}
+          />
         </div>
 
         {rows.length ? (

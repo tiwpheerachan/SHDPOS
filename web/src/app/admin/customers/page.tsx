@@ -16,6 +16,7 @@ import { listBranches } from "@/lib/data/repo";
 import { useScopeFilter } from "@/lib/store/scope-filter";
 import type { Branch } from "@/lib/types";
 import { Drawer, EmptyState, Modal, Table, Th, Td, Avatar } from "@/components/ui";
+import { ExportShareBar } from "@/components/admin/export-share";
 import { formatTHB } from "@/lib/money";
 import { useI18n } from "@/lib/i18n/provider";
 
@@ -365,6 +366,22 @@ export default function AdminCustomersPage() {
           <p className="text-sm text-muted mt-0.5">{L("ฐานข้อมูลลูกค้า + ประวัติการซื้อรวมทุกสาขา", "Customer database + purchase history across all branches", "客户数据库 + 全门店购买记录")}</p>
         </div>
         <div className="flex gap-2 items-stretch">
+          <ExportShareBar<Row>
+            filename="customers"
+            title={L("ฐานข้อมูลลูกค้า", "Customers", "客户")}
+            rows={filtered}
+            columns={[
+              { key: "name", label: L("ชื่อ", "Name", "姓名") },
+              { key: "phone", label: L("เบอร์โทร", "Phone", "电话") },
+              { key: "email", label: L("อีเมล", "Email", "邮箱") },
+              { key: "member_code", label: L("รหัสสมาชิก", "Member", "会员码") },
+              { key: "tier", label: L("ระดับ", "Tier", "等级") },
+              { key: "segment", label: L("กลุ่ม", "Segment", "分组") },
+              { key: "orders", label: L("จำนวนออเดอร์", "Orders", "订单数") },
+              { key: "spend", label: L("ยอดซื้อสะสม", "Total spend", "累计消费"), map: (r) => r.spend.toLocaleString("th-TH", { maximumFractionDigits: 0 }) },
+              { key: "last", label: L("ซื้อล่าสุด", "Last order", "最近购买"), map: (r) => r.last ?? "-" },
+            ]}
+          />
           <button onClick={() => setCreateOpen(true)} className="h-full px-4 rounded-2xl bg-brand text-brandInk text-sm font-bold inline-flex items-center gap-2 self-stretch">
             <UserPlus size={16} /> {L("ลูกค้าใหม่", "New customer", "新客户")}
           </button>

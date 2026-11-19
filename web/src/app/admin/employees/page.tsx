@@ -9,6 +9,7 @@ import { listOrders, listEmployees } from "@/lib/data/repo";
 import { loadAllPositions } from "@/lib/data/org";
 import type { Employee, Order } from "@/lib/types";
 import { Card, CardHeader, Table, Th, Td, EmptyState, KpiTile, Avatar, Segmented, Select } from "@/components/ui";
+import { ExportShareBar } from "@/components/admin/export-share";
 import { BarList, AreaChart, SERIES_COLORS } from "@/components/charts";
 import { FilterBar, useAdminScope, useDefaultFilter } from "@/components/admin/filters";
 import { byEmployee, filterOrders, summarize, salesSeries, type TimeGran } from "@/lib/analytics";
@@ -234,7 +235,20 @@ export default function AdminEmployeesPage() {
       {/* ============ TABLE (เดิม + avatar) ============ */}
       {view === "table" ? (
         <Card>
-          <CardHeader title={t.admin.topEmployees} subtitle={L("ยอดขายแยกรายคน — รวมกรณีเข้ากะพร้อมกันหลายคน", "Sales by individual — combined when several share a shift", "按个人销售额 — 多人同班时合并计算")} />
+          <CardHeader title={t.admin.topEmployees} subtitle={L("ยอดขายแยกรายคน — รวมกรณีเข้ากะพร้อมกันหลายคน", "Sales by individual — combined when several share a shift", "按个人销售额 — 多人同班时合并计算")}
+            right={<ExportShareBar<(typeof rows)[number]>
+              filename="employees-sales" title={t.admin.topEmployees} rows={rows} size="sm"
+              columns={[
+                { key: "label", label: t.common.employee },
+                { key: "code", label: L("รหัส", "Code", "工号") },
+                { key: "branch", label: t.common.branch, map: (r) => branchName(r.branchId) },
+                { key: "value", label: t.admin.gmv, map: (r) => formatTHB(r.value, false) },
+                { key: "orders", label: t.admin.orderCount },
+                { key: "units", label: t.admin.unitsSold },
+                { key: "avgBasket", label: t.admin.avgBasket, map: (r) => formatTHB(r.avgBasket, false) },
+                ...(showGp ? [{ key: "grossProfit", label: t.admin.grossProfit, map: (r: (typeof rows)[number]) => formatTHB(r.grossProfit, false) }] : []),
+              ]}
+            />} />
           {rows.length ? (
             <Table>
               <thead>
