@@ -17,7 +17,8 @@ import { filterOrders } from "@/lib/analytics";
 import { financeSummary, byPaymentDetail, byAcquirer, financeByBranch, bucketOf, paymentLabel } from "@/lib/finance";
 import { formatTHB, formatInt } from "@/lib/money";
 import { can, visibleBranchIds } from "@/lib/permissions";
-import { SalesAreaTrend, InsightBars } from "@/components/charts-rich";
+import { SalesAreaTrend, InsightBars, RankedBars } from "@/components/charts-rich";
+import { Donut, BarList, Sparkline } from "@/components/charts";
 import type { ChartConfig } from "@/components/ui/chart";
 
 type Detail = "paid" | "branch" | "refund" | "edc";
@@ -107,6 +108,7 @@ export default function AdminFinancePage() {
   }
 
   const nf = (n: number) => formatTHB(n, false);
+  const compact = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? (n / 1e3).toFixed(0) + "K" : String(Math.round(n)));
   const trendCfg: ChartConfig = { value: { label: L("ยอดชำระตามบิล", "Paid (by bill)", "账单收款"), color: "rgb(var(--chart-1))" } };
   const barCfg: ChartConfig = { value: { label: L("ยอดชำระ", "Paid", "收款"), color: "rgb(var(--chart-1))" } };
   const cardTotal = byPay.filter((p) => bucketOf(p.method) === "card").reduce((s, p) => s + p.value, 0);
@@ -156,7 +158,7 @@ export default function AdminFinancePage() {
       ) : (<>
         {/* KPI */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <KpiTile label={L("ยอดชำระตามบิล", "Paid (by bill)", "账单收款")} value={`฿${nf(sum.gross)}`} delta={prevSum ? pct(sum.gross, prevSum.gross) : null} sub={L(`${formatInt(sum.orders)} บิล · เทียบช่วงก่อน`, `${formatInt(sum.orders)} bills · vs prev`, "对比上期")} icon={<Wallet size={15} />} variant="ink" />
+          <KpiTile label={L("ยอดชำระตามบิล", "Paid (by bill)", "账单收款")} value={`฿${nf(sum.gross)}`} delta={prevSum ? pct(sum.gross, prevSum.gross) : null} sub={L(`${formatInt(sum.orders)} บิล · เทียบช่วงก่อน`, `${formatInt(sum.orders)} bills · vs prev`, "对比上期")} icon={<Wallet size={15} />} variant="ink" spark={trend.length ? <Sparkline values={trend.map((t) => t.value)} color="rgba(255,255,255,0.92)" fill height={28} /> : undefined} />
           <KpiTile label={L("สุทธิคาดรับ", "Net expected", "预计净收")} value={`฿${nf(sum.net)}`} delta={prevSum ? pct(sum.net, prevSum.net) : null} sub={feeIncomplete ? L(`หักค่าธรรมเนียม ฿${nf(sum.fee)} · ยังไม่ครบ`, `less fee ฿${nf(sum.fee)} · incomplete`, "手续费不全") : L(`หักค่าธรรมเนียม ฿${nf(sum.fee)}`, `less fee ฿${nf(sum.fee)}`, "扣手续费")} icon={<Receipt size={15} />} accent="lavender" />
           <KpiTile label={L("รอเงินเข้า (ยังไม่จับคู่)", "Awaiting settlement", "待入账")} value={`฿${nf(systemPaid)}`} sub={L("ยังไม่เชื่อมข้อมูลธนาคาร", "bank not connected", "未接银行")} icon={<Clock size={16} />} accent="peach" />
           <KpiTile label={L("ต้องตรวจสอบ", "To review", "需核查")} value={`${formatInt(toReview.length)}`} sub={L("ขาดเลขอ้างอิง/หลักฐาน", "missing reference", "缺参考号")} icon={<AlertTriangle size={16} />} accent={toReview.length ? "coral" : "neutral"} />
@@ -179,27 +181,27 @@ export default function AdminFinancePage() {
           {/* วิธีรับชำระ */}
           <Card className="col-span-12 lg:col-span-4 p-4">
             <CardHeader title={L("วิธีรับชำระ", "Methods", "方式")} subtitle={L("สัดส่วนตามวิธีจ่าย", "by method", "按方式")} right={<CreditCard size={16} className="text-muted" />} />
-            <div className="mt-3">{byPay.length ? <InsightBars data={byPay.map((p, i) => ({ label: p.label, value: p.value, highlight: i === 0 }))} config={barCfg} valueFormat={nf} onBarClick={() => setDetail("paid")} /> : <p className="py-8 text-center text-xs text-muted">{L("ไม่มีข้อมูล", "No data", "暂无")}</p>}</div>
+            <div className="mt-3">{byPay.length ? <Donut size={148} thickness={20} data={byPay.map((p) => ({ label: p.label, value: p.value }))} centerValue={`฿${compact(sum.gross)}`} centerLabel={L("ยอดรวม", "Total", "合计")} /> : <p className="py-8 text-center text-xs text-muted">{L("ไม่มีข้อมูล", "No data", "暂无")}</p>}</div>
           </Card>
           {/* ตามโซน */}
           <Card className="col-span-12 md:col-span-6 lg:col-span-4 p-4">
             <CardHeader title={L("ตามโซน", "By zone", "按区域")} subtitle={L("กทม · ปริมณฑล · ต่างจังหวัด", "BKK · Greater · Upcountry", "曼谷·周边·外府")} right={<Globe2 size={16} className="text-muted" />} />
-            <div className="mt-3">{geo.zone.length ? <InsightBars data={geo.zone.map((z, i) => ({ label: z.label, value: z.value, highlight: i === 0 }))} config={barCfg} valueFormat={nf} /> : <p className="py-8 text-center text-xs text-muted">{L("ไม่มีข้อมูล", "No data", "暂无")}</p>}</div>
+            <div className="mt-3">{geo.zone.length ? <Donut size={148} thickness={20} data={geo.zone.map((z) => ({ label: z.label, value: z.value }))} centerValue={`${geo.zone.length}`} centerLabel={L("โซน", "zones", "区")} /> : <p className="py-8 text-center text-xs text-muted">{L("ไม่มีข้อมูล", "No data", "暂无")}</p>}</div>
           </Card>
           {/* ตามจังหวัด */}
           <Card className="col-span-12 md:col-span-6 lg:col-span-4 p-4">
             <CardHeader title={L("ตามจังหวัด", "By province", "按省")} subtitle={L("ยอดสูงสุด", "top", "排名")} right={<MapPin size={16} className="text-muted" />} />
-            <div className="mt-3">{geo.province.length ? <InsightBars data={geo.province.slice(0, 8).map((p, i) => ({ label: p.label, value: p.value, highlight: i === 0 }))} config={barCfg} valueFormat={nf} /> : <p className="py-8 text-center text-xs text-muted">{L("ไม่มีข้อมูล", "No data", "暂无")}</p>}</div>
+            <div className="mt-3">{geo.province.length ? <BarList data={geo.province.slice(0, 7).map((p) => ({ label: p.label, value: p.value }))} valueFormat={nf} /> : <p className="py-8 text-center text-xs text-muted">{L("ไม่มีข้อมูล", "No data", "暂无")}</p>}</div>
           </Card>
           {/* รายสาขา */}
           <Card className="col-span-12 lg:col-span-4 p-4">
             <CardHeader title={L("ยอดชำระรายสาขา", "By branch", "按门店")} subtitle={L("อันดับสูงสุด", "top", "排名")} right={<Store size={16} className="text-muted" />} />
-            <div className="mt-3">{byBr.length ? <InsightBars data={byBr.slice(0, 8).map((b, i) => ({ label: b.label, value: b.gross, highlight: i === 0 }))} config={barCfg} valueFormat={nf} onBarClick={() => setDetail("branch")} /> : <p className="py-8 text-center text-xs text-muted">{L("ไม่มีข้อมูล", "No data", "暂无")}</p>}</div>
+            <div className="mt-3">{byBr.length ? <RankedBars data={byBr.slice(0, 7).map((b, i) => ({ label: b.label, value: b.gross, highlight: i === 0 }))} valueFormat={nf} onBarClick={() => setDetail("branch")} /> : <p className="py-8 text-center text-xs text-muted">{L("ไม่มีข้อมูล", "No data", "暂无")}</p>}</div>
           </Card>
           {/* รายเดือน */}
           <Card className="col-span-12 lg:col-span-8 p-4">
             <CardHeader title={L("ยอดชำระรายเดือน", "Monthly", "按月")} subtitle={L("เทียบแต่ละเดือน", "month by month", "逐月对比")} right={<CalendarRange size={16} className="text-muted" />} />
-            <div className="mt-3">{geo.month.length ? <InsightBars data={geo.month.map((m, i) => ({ label: m.label, value: m.value, highlight: i === geo.month.length - 1 }))} config={barCfg} valueFormat={nf} /> : <p className="py-8 text-center text-xs text-muted">{L("ไม่มีข้อมูล", "No data", "暂无")}</p>}</div>
+            <div className="mt-3">{geo.month.length > 1 ? <SalesAreaTrend data={geo.month.map((m) => ({ label: m.label, value: m.value }))} config={trendCfg} valueFormat={nf} className="aspect-auto h-40 w-full" /> : geo.month.length ? <InsightBars data={geo.month.map((m) => ({ label: m.label, value: m.value, highlight: true }))} config={barCfg} valueFormat={nf} /> : <p className="py-8 text-center text-xs text-muted">{L("ไม่มีข้อมูล", "No data", "暂无")}</p>}</div>
           </Card>
           {/* ต้องดำเนินการ */}
           <Card className="col-span-12 lg:col-span-4 p-4">
