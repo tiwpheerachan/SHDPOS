@@ -184,7 +184,7 @@ export default function PosTransfersPage() {
                       <tr key={tr.id} className="hover:bg-surface2/60 cursor-pointer" onClick={() => setDetail(tr)}>
                         <Td className="font-mono text-xs">{tr.transfer_no}{tr.sync_state === "failed" ? <span className="ml-1 text-danger" title="sync failed">⚠</span> : null}</Td>
                         <Td><Badge tone={d === "in" ? "ok" : "info"}>{d === "in" ? <><ArrowDownLeft size={11} /> {L("เข้า", "In", "入")}</> : <><ArrowUpRight size={11} /> {L("ออก", "Out", "出")}</>}</Badge></Td>
-                        <Td className="text-xs text-muted">{tr.from_kind === "warehouse" && d === "in" ? "🏬 " : ""}{bName.get(other) ?? other}</Td>
+                        <Td className="text-xs text-muted">{tr.from_kind === "warehouse" && d === "in" ? "" : ""}{bName.get(other) ?? other}</Td>
                         <Td align="center">{snTotal ? snChip(snDone, snTotal) : <span className="text-[10px] text-muted">—</span>}</Td>
                         <Td align="center"><Badge tone={sMeta(tr.status).tone}>{sMeta(tr.status).label}</Badge></Td>
                         <Td className="text-xs text-muted">{new Date(tr.created_at).toLocaleDateString(locale === "th" ? "th-TH" : "en-US", { day: "2-digit", month: "short" })}</Td>
@@ -200,7 +200,7 @@ export default function PosTransfersPage() {
       {/* ── detail drawer (overview + timeline) ── */}
       <Drawer open={Boolean(detail)} onClose={() => setDetail(null)} width="lg"
         title={detail ? <span className="font-mono">{detail.transfer_no}</span> : ""}
-        subtitle={detail ? `${detail.from_kind === "warehouse" ? "🏬 " : ""}${bName.get(detail.from_branch_id) ?? detail.from_branch_id} → ${bName.get(detail.to_branch_id) ?? detail.to_branch_id}` : ""}
+        subtitle={detail ? `${detail.from_kind === "warehouse" ? "" : ""}${bName.get(detail.from_branch_id) ?? detail.from_branch_id} → ${bName.get(detail.to_branch_id) ?? detail.to_branch_id}` : ""}
         badge={detail ? <Badge tone={sMeta(detail.status).tone}>{sMeta(detail.status).label}</Badge> : null}
         footer={detail ? (
           <div className="flex gap-2 w-full">
@@ -217,7 +217,7 @@ export default function PosTransfersPage() {
               <div className="p-5 space-y-4">
                 <TransferStepper status={detail.status} locale={locale} L={L} />
                 <div className="rounded-2xl border border-line divide-y divide-line/60 px-4">
-                  <DetailRow label={t.transfer.from}>{detail.from_kind === "warehouse" ? "🏬 " : ""}{bName.get(detail.from_branch_id) ?? "—"}</DetailRow>
+                  <DetailRow label={t.transfer.from}>{detail.from_kind === "warehouse" ? "" : ""}{bName.get(detail.from_branch_id) ?? "—"}</DetailRow>
                   <DetailRow label={t.transfer.to}>{bName.get(detail.to_branch_id) ?? "—"}</DetailRow>
                   {detail.jst_allocation_no ? <DetailRow label="JST">{detail.jst_allocation_no}</DetailRow> : null}
                   {detail.carrier ? <DetailRow label={L("ขนส่ง", "Carrier", "承运")}>{carriers.find((c) => c.id === detail.carrier)?.name ?? detail.carrier}{detail.tracking ? ` · ${detail.tracking}` : ""}</DetailRow> : null}

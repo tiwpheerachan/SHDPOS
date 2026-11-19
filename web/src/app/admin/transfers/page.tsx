@@ -464,7 +464,7 @@ export default function AdminTransfersPage() {
                 return (
                   <tr key={tr.id} className="hover:bg-surface2/60 cursor-pointer" onClick={() => openDoc(tr)}>
                     <Td className="font-mono text-xs text-brand">{tr.transfer_no}</Td>
-                    <Td className="text-xs truncate max-w-[150px]">{tr.from_kind === "warehouse" ? "🏬 " : ""}{bName(tr.from_branch_id)}</Td>
+                    <Td className="text-xs truncate max-w-[150px]">{tr.from_kind === "warehouse" ? "" : ""}{bName(tr.from_branch_id)}</Td>
                     <Td className="text-xs truncate max-w-[150px]">{bName(tr.to_branch_id)}</Td>
                     <Td align="center" className="text-[11px] tnum text-muted">{snTotal ? `${snDone}/${snTotal}` : "—"}</Td>
                     <Td align="center">
@@ -486,7 +486,7 @@ export default function AdminTransfersPage() {
       {/* detail drawer (monitor + approve) */}
       <Drawer open={Boolean(detail)} onClose={closeDoc} width="lg"
         title={detail ? <span className="font-mono">{detail.transfer_no}</span> : ""}
-        subtitle={detail ? `${detail.from_kind === "warehouse" ? "🏬 " : ""}${bName(detail.from_branch_id)} → ${bName(detail.to_branch_id)}` : ""}
+        subtitle={detail ? `${detail.from_kind === "warehouse" ? "" : ""}${bName(detail.from_branch_id)} → ${bName(detail.to_branch_id)}` : ""}
         badge={detail ? <Badge tone={displayStatus(detail).tone}>{displayStatus(detail).label}</Badge> : null}
         footer={detail ? (
           <div className="flex gap-2 w-full items-center flex-wrap">
@@ -541,7 +541,7 @@ export default function AdminTransfersPage() {
               <div className="p-5 space-y-4">
                 <TransferStepper status={detail.status} locale={locale} L={L} />
                 <div className="rounded-2xl border border-line divide-y divide-line/60 px-4">
-                  <DetailRow label={t.transfer.from}>{detail.from_kind === "warehouse" ? "🏬 " : ""}{bName(detail.from_branch_id)}</DetailRow>
+                  <DetailRow label={t.transfer.from}>{detail.from_kind === "warehouse" ? "" : ""}{bName(detail.from_branch_id)}</DetailRow>
                   <DetailRow label={t.transfer.to}>{bName(detail.to_branch_id)}</DetailRow>
                   {detail.jst_allocation_no ? <DetailRow label="JST">{detail.jst_allocation_no}</DetailRow> : null}
                   {detail.note ? <DetailRow label={t.common.note}>{detail.note}</DetailRow> : null}
@@ -931,7 +931,7 @@ export default function AdminTransfersPage() {
                         className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border text-left transition-colors ${reqSource === b.id ? "border-brand bg-brand/5 ring-1 ring-brand/30" : "border-line hover:border-brand/40"}`}>
                         <span className={`shrink-0 w-7 h-7 rounded-full grid place-items-center text-[11px] font-bold ${reqSource === b.id ? "bg-brand text-white" : "bg-line/50 text-muted"}`}>{i + 1}</span>
                         <div className="min-w-0 flex-1">
-                          <p className="text-sm font-medium truncate flex items-center gap-1.5">{b.branch_type === "warehouse" ? "🏬 " : ""}{bName(b.id)}{i === 0 ? <Badge tone="ok">{L("ใกล้สุด", "Nearest", "最近")}</Badge> : null}</p>
+                          <p className="text-sm font-medium truncate flex items-center gap-1.5">{b.branch_type === "warehouse" ? "" : ""}{bName(b.id)}{i === 0 ? <Badge tone="ok">{L("ใกล้สุด", "Nearest", "最近")}</Badge> : null}</p>
                           <p className="text-[11px] text-muted">{b.province ?? ""} · {fmtKm(km)}</p>
                         </div>
                         <div className="text-right shrink-0"><p className="text-sm font-bold text-ok tnum">{avail}</p><p className="text-[10px] text-muted">{L("พร้อมโอน", "available", "可调")}</p></div>

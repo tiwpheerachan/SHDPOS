@@ -283,7 +283,7 @@ export default function AdminSerialsPage() {
                   <Card>
                     <div className="p-4 space-y-2">
                       <span className="text-sm font-semibold inline-flex items-center gap-1.5"><Store size={15} className="text-brand" /> {L("ตำแหน่งปัจจุบัน", "Current location", "当前位置")}</span>
-                      <p className="text-base font-medium">{curBranch.branch_type === "warehouse" ? "🏬 " : ""}{branchName(curBranch.id)}</p>
+                      <p className="text-base font-medium">{curBranch.branch_type === "warehouse" ? "" : ""}{branchName(curBranch.id)}</p>
                       <p className="text-[11px] text-muted">{curBranch.province ?? ""}{curCoord ? ` · ${curCoord.lat.toFixed(3)}, ${curCoord.lng.toFixed(3)}` : ""}</p>
                       {curCoord ? <a href={`https://www.google.com/maps?q=${curCoord.lat},${curCoord.lng}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-brand hover:underline"><ExternalLink size={13} /> {L("เปิดบน Google Maps", "Open in Google Maps", "在地图中打开")}</a> : null}
                     </div>

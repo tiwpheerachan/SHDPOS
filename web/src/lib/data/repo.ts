@@ -236,6 +236,50 @@ export async function getBranch(branchId: string): Promise<Branch | undefined> {
   return db().branches.get(branchId);
 }
 
+/** สร้างสาขาใหม่ (เขียนลง Dexie) + สร้างเครื่อง POS เริ่มต้นให้สาขาที่ขายได้ */
+export async function createBranch(input: {
+  code: string; name: string; name_th?: string | null; brand_id: string | null;
+  branch_type?: string; province?: string | null; lat?: number | null; lng?: number | null; is_active?: boolean;
+}): Promise<Branch> {
+  const d = db();
+  const code = input.code.trim().toUpperCase();
+  const existing = (await d.branches.toArray()).find((b) => b.code.toUpperCase() === code);
+  if (existing) throw new Error(`รหัสสาขา "${code}" มีอยู่แล้ว`);
+  const branch: Branch = {
+    id: `br-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+    code,
+    name: input.name.trim(),
+    name_th: input.name_th?.trim() || input.name.trim(),
+    brand_id: input.brand_id || null,
+    branch_type: input.branch_type || "brand_shop",
+    province: input.province?.trim() || null,
+    tax_branch_no: String((await d.branches.count()) + 1).padStart(5, "0"),
+    lat: input.lat ?? null,
+    lng: input.lng ?? null,
+    is_active: input.is_active ?? true,
+  };
+  await d.branches.put(branch);
+  // สาขาที่ขายได้ (ไม่ใช่คลัง) → สร้างเครื่อง POS เริ่มต้น 1 เครื่อง
+  if (branch.branch_type !== "warehouse") {
+    await d.terminals.put({
+      id: `tm-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+      branch_id: branch.id,
+      code: "POS-01",
+      name: `${branch.name} เครื่อง 1`,
+      receipt_prefix: code.replace(/[^A-Z0-9]/g, "").slice(0, 3) + "1",
+      customer_display: true,
+    });
+  }
+  return branch;
+}
+
+/** แก้ไขสาขา (ชื่อ/แบรนด์/จังหวัด/เปิด-ปิด) */
+export async function updateBranch(id: string, patch: Partial<Branch>): Promise<void> {
+  const cur = await db().branches.get(id);
+  if (!cur) return;
+  await db().branches.put({ ...cur, ...patch, id });
+}
+
 export async function getTerminalForBranch(branchId: string): Promise<Terminal | undefined> {
   return db().terminals.where("branch_id").equals(branchId).first();
 }

@@ -276,7 +276,7 @@ export default function AdminInventoryPage() {
                   <tbody>
                     {xRows.map((r, i) => (
                       <tr key={r.b.id} className={r.b.id === myBranch?.id ? "bg-brand/5" : ""}>
-                        <Td className="text-xs font-medium truncate max-w-[200px]">{r.b.branch_type === "warehouse" ? "🏬 " : ""}{locale === "th" ? r.b.name_th ?? r.b.name : r.b.name}{r.b.id === myBranch?.id ? <Badge tone="brand" className="ml-1">{L("สาขาฉัน", "Mine", "本店")}</Badge> : i === xRows.findIndex((x) => x.avail > 0 && x.b.id !== myBranch?.id) && r.avail > 0 ? <Badge tone="ok" className="ml-1">{L("ใกล้สุด+มีของ", "Nearest", "最近")}</Badge> : null}</Td>
+                        <Td className="text-xs font-medium truncate max-w-[200px]">{r.b.branch_type === "warehouse" ? "" : ""}{locale === "th" ? r.b.name_th ?? r.b.name : r.b.name}{r.b.id === myBranch?.id ? <Badge tone="brand" className="ml-1">{L("สาขาฉัน", "Mine", "本店")}</Badge> : i === xRows.findIndex((x) => x.avail > 0 && x.b.id !== myBranch?.id) && r.avail > 0 ? <Badge tone="ok" className="ml-1">{L("ใกล้สุด+มีของ", "Nearest", "最近")}</Badge> : null}</Td>
                         <Td className="text-xs text-muted">{r.b.province ?? "—"}</Td>
                         <Td align="right" className="text-xs text-muted tnum">{r.b.id === myBranch?.id ? "—" : fmtKm(r.km)}</Td>
                         <Td align="right" className="tnum text-xs text-muted">{r.onHand || "—"}</Td>
