@@ -16,8 +16,14 @@ const TYPE_OPTS = [
   { v: "vending", th: "ตู้จำหน่าย", en: "Vending", zh: "自动售货" },
   { v: "warehouse", th: "คลังสินค้า", en: "Warehouse", zh: "仓库" },
 ];
-const EMPTY = { id: "", code: "", name: "", name_th: "", brand_id: "", branch_type: "brand_shop", province: "", is_active: true };
+const EMPTY = { id: "", code: "", name: "", name_th: "", brand_id: "", branch_type: "brand_shop", province: "", lat: "", lng: "", is_active: true };
 type FormState = typeof EMPTY;
+
+/** แกะพิกัดจากลิงก์/ข้อความ Google Maps (รองรับ @lat,lng · q=lat,lng · lat,lng เปล่าๆ) */
+function parseLatLng(s: string): { lat: string; lng: string } | null {
+  const m = s.match(/@(-?\d{1,2}\.\d+),(-?\d{1,3}\.\d+)/) || s.match(/[?&](?:q|ll|destination)=(-?\d{1,2}\.\d+),(-?\d{1,3}\.\d+)/) || s.match(/^\s*(-?\d{1,2}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)\s*$/);
+  return m ? { lat: m[1], lng: m[2] } : null;
+}
 
 export default function AdminBranchesPage() {
   const { locale } = useI18n();
@@ -66,7 +72,7 @@ export default function AdminBranchesPage() {
 
   function openNew() { setForm(EMPTY); setErr(""); setOpen(true); }
   function openEdit(b: Branch) {
-    setForm({ id: b.id, code: b.code, name: b.name, name_th: b.name_th ?? "", brand_id: b.brand_id ?? "", branch_type: b.branch_type, province: b.province ?? "", is_active: b.is_active });
+    setForm({ id: b.id, code: b.code, name: b.name, name_th: b.name_th ?? "", brand_id: b.brand_id ?? "", branch_type: b.branch_type, province: b.province ?? "", lat: b.lat != null ? String(b.lat) : "", lng: b.lng != null ? String(b.lng) : "", is_active: b.is_active });
     setErr(""); setOpen(true);
   }
 
@@ -74,12 +80,16 @@ export default function AdminBranchesPage() {
     if (!form.code.trim()) { setErr(L("ต้องใส่รหัสสาขา", "Branch code required", "需要门店编号")); return; }
     if (!form.name.trim()) { setErr(L("ต้องใส่ชื่อสาขา", "Branch name required", "需要门店名称")); return; }
     if (form.branch_type !== "warehouse" && !form.brand_id) { setErr(L("เลือกแบรนด์", "Select a brand", "请选择品牌")); return; }
+    const lat = form.lat.trim() ? Number(form.lat) : null;
+    const lng = form.lng.trim() ? Number(form.lng) : null;
+    if ((lat !== null && !Number.isFinite(lat)) || (lng !== null && !Number.isFinite(lng))) { setErr(L("พิกัดไม่ถูกต้อง", "Invalid coordinates", "坐标无效")); return; }
+    if ((lat === null) !== (lng === null)) { setErr(L("ต้องใส่ทั้งละติจูดและลองจิจูด", "Enter both lat and lng", "需同时填写经纬度")); return; }
     setSaving(true); setErr("");
     try {
       if (form.id) {
-        await updateBranch(form.id, { code: form.code.trim().toUpperCase(), name: form.name.trim(), name_th: form.name_th.trim() || form.name.trim(), brand_id: form.brand_id || null, branch_type: form.branch_type, province: form.province.trim() || null, is_active: form.is_active });
+        await updateBranch(form.id, { code: form.code.trim().toUpperCase(), name: form.name.trim(), name_th: form.name_th.trim() || form.name.trim(), brand_id: form.brand_id || null, branch_type: form.branch_type, province: form.province.trim() || null, lat, lng, is_active: form.is_active });
       } else {
-        await createBranch({ code: form.code, name: form.name, name_th: form.name_th, brand_id: form.brand_id || null, branch_type: form.branch_type, province: form.province, is_active: form.is_active });
+        await createBranch({ code: form.code, name: form.name, name_th: form.name_th, brand_id: form.brand_id || null, branch_type: form.branch_type, province: form.province, lat, lng, is_active: form.is_active });
       }
       setOpen(false); await load();
     } catch (e) { setErr(e instanceof Error ? e.message : L("บันทึกไม่สำเร็จ", "Save failed", "保存失败")); }
@@ -91,7 +101,7 @@ export default function AdminBranchesPage() {
       <span className="w-9 h-9 rounded-lg bg-surface2 grid place-items-center shrink-0">{b.branch_type === "warehouse" ? <Warehouse size={16} className="text-muted" /> : <Store size={16} className="text-muted" />}</span>
       <div className="min-w-0 flex-1">
         <p className="text-sm font-medium truncate">{locale === "th" ? b.name_th || b.name : b.name}{!b.is_active ? <span className="ml-1.5 text-[10px] text-muted">({L("ปิด", "off", "停")})</span> : null}</p>
-        <p className="text-[11px] text-muted truncate"><span className="font-mono">{b.code}</span>{b.province ? ` · ${b.province}` : ""} · {typeLabel(b.branch_type)}</p>
+        <p className="text-[11px] text-muted truncate inline-flex items-center gap-1"><span className="font-mono">{b.code}</span>{b.province ? ` · ${b.province}` : ""} · {typeLabel(b.branch_type)}{b.lat != null && b.lng != null ? <MapPin size={10} className="text-emerald-500 shrink-0" /> : null}</p>
       </div>
       <button onClick={() => openEdit(b)} className="h-8 w-8 grid place-items-center rounded-lg text-muted hover:bg-surface2 shrink-0"><Pencil size={14} /></button>
     </div>
@@ -176,6 +186,17 @@ export default function AdminBranchesPage() {
               <select value={form.brand_id} onChange={(e) => setForm({ ...form, brand_id: e.target.value })} className={inp}><option value="">{L("— ไม่ระบุ —", "— None —", "— 无 —")}</option>{brands.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</select>
             </label>
             <label className="text-xs text-muted block">{L("จังหวัด", "Province", "省份")}<input value={form.province} onChange={(e) => setForm({ ...form, province: e.target.value })} className={inp} placeholder={L("กรุงเทพมหานคร", "Bangkok", "曼谷")} /></label>
+          </div>
+          <div className="rounded-xl border border-line bg-surface2/40 p-2.5 space-y-2">
+            <div className="flex items-center gap-1.5 text-xs font-medium text-muted"><MapPin size={13} /> {L("พิกัดที่ตั้ง (ไม่บังคับ)", "Location (optional)", "位置（选填）")}</div>
+            <input
+              onChange={(e) => { const p = parseLatLng(e.target.value); if (p) { setForm((f) => ({ ...f, lat: p.lat, lng: p.lng })); e.target.value = ""; } }}
+              className={`${inp} mt-0`} placeholder={L("วางลิงก์ Google Maps แล้วกรอกให้อัตโนมัติ", "Paste a Google Maps link to auto-fill", "粘贴 Google 地图链接自动填充")} />
+            <div className="grid grid-cols-2 gap-2.5">
+              <label className="text-[11px] text-muted block">{L("ละติจูด (lat)", "Latitude", "纬度")}<input value={form.lat} onChange={(e) => setForm({ ...form, lat: e.target.value })} className={`${inp} font-mono`} placeholder="13.7563" inputMode="decimal" /></label>
+              <label className="text-[11px] text-muted block">{L("ลองจิจูด (lng)", "Longitude", "经度")}<input value={form.lng} onChange={(e) => setForm({ ...form, lng: e.target.value })} className={`${inp} font-mono`} placeholder="100.5018" inputMode="decimal" /></label>
+            </div>
+            <p className="text-[10.5px] text-muted">{L("ใช้แนะนำสาขาใกล้สุดตอนขอโอน/ค้นสต๊อกข้ามสาขา", "Used to suggest the nearest branch for transfers / cross-branch stock", "用于调拨时推荐最近门店")}{(form.lat && form.lng) ? <> · <a href={`https://www.google.com/maps?q=${form.lat},${form.lng}`} target="_blank" rel="noreferrer" className="text-brand hover:underline">{L("ดูบนแผนที่", "View on map", "在地图查看")}</a></> : null}</p>
           </div>
           <label className="flex items-center gap-2.5 cursor-pointer pt-1">
             <input type="checkbox" checked={form.is_active} onChange={(e) => setForm({ ...form, is_active: e.target.checked })} className="w-4 h-4 accent-current" />
