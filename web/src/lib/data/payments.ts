@@ -16,8 +16,9 @@ const DEMO_ACQUIRERS: Acquirer[] = [
 export async function listAcquirers(): Promise<Acquirer[]> {
   const stored = await kvGet<Acquirer[]>("pay_acquirers_v1", []);
   if (stored.length) return stored;
-  await kvSet("pay_acquirers_v1", DEMO_ACQUIRERS);
-  return DEMO_ACQUIRERS;
+  const seed = DEMO_ACQUIRERS.map((a) => ({ ...a, is_demo: true }));
+  await kvSet("pay_acquirers_v1", seed);
+  return seed;
 }
 export async function upsertAcquirer(a: Acquirer): Promise<void> {
   const all = await listAcquirers();
@@ -48,7 +49,7 @@ async function seedTerminals(): Promise<EdcTerminal[]> {
 export async function listTerminals(): Promise<EdcTerminal[]> {
   const stored = await kvGet<EdcTerminal[]>("edc_terminals_v1", []);
   if (stored.length) return stored;
-  const seed = await seedTerminals();
+  const seed = (await seedTerminals()).map((t) => ({ ...t, is_demo: true }));
   await kvSet("edc_terminals_v1", seed);
   return seed;
 }
@@ -104,7 +105,7 @@ async function seedTxns(): Promise<PaymentTxn[]> {
 export async function listPaymentTxns(): Promise<PaymentTxn[]> {
   const stored = await kvGet<PaymentTxn[]>(TXN_KEY, []);
   if (stored.length) return stored;
-  const seed = await seedTxns();
+  const seed = (await seedTxns()).map((t) => ({ ...t, is_demo: true }));
   if (seed.length) await kvSet(TXN_KEY, seed);
   return seed;
 }
@@ -155,52 +156,95 @@ export async function listStatementRows(): Promise<StatementRow[]> { return kvGe
 export async function listStatementBatches(): Promise<StatementBatch[]> { return kvGet<StatementBatch[]>(STMT_BATCH, []); }
 export async function clearStatements(): Promise<void> { await kvSet(STMT_ROWS, []); await kvSet(STMT_BATCH, []); }
 
-export async function importStatementRows(rows: Omit<StatementRow, "id" | "batch_id">[], meta: { name: string; acquirer_id?: string | null }): Promise<{ batch: StatementBatch; added: number }> {
+export async function importStatementRows(rows: Omit<StatementRow, "id" | "batch_id">[], meta: { name: string; acquirer_id?: string | null; is_demo?: boolean }): Promise<{ batch: StatementBatch; added: number }> {
+  const acqCode = meta.acquirer_id ? (await listAcquirers()).find((a) => a.id === meta.acquirer_id)?.code ?? null : null;
   const batch: StatementBatch = { id: `stmt-${Date.now().toString(36)}`, name: meta.name, acquirer_id: meta.acquirer_id ?? null, uploaded_at: new Date().toISOString(), count: rows.length };
-  const newRows: StatementRow[] = rows.map((r, i) => ({ id: `${batch.id}-${i}`, batch_id: batch.id, ...r }));
+  const newRows: StatementRow[] = rows.map((r, i) => ({ id: `${batch.id}-${i}`, batch_id: batch.id, ...r, acquirer_code: r.acquirer_code ?? acqCode, is_demo: meta.is_demo ?? r.is_demo }));
   const [curR, curB] = await Promise.all([listStatementRows(), listStatementBatches()]);
   await kvSet(STMT_ROWS, [...newRows, ...curR]);
   await kvSet(STMT_BATCH, [batch, ...curB]);
   return { batch, added: newRows.length };
 }
 
-/** parse ข้อความ CSV → แถว statement (คอลัมน์ยืดหยุ่น: date, amount, approval_code, ref_no) */
-export function parseStatementCsv(text: string): Omit<StatementRow, "id" | "batch_id">[] {
+// แยก 1 บรรทัด CSV โดยเคารพเครื่องหมายคำพูด (รองรับ "2,990.00")
+function splitCsvLine(line: string): string[] {
+  const out: string[] = []; let cur = ""; let q = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (q) { if (ch === '"') { if (line[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += ch; }
+    else if (ch === '"') q = true;
+    else if (ch === ",") { out.push(cur); cur = ""; }
+    else cur += ch;
+  }
+  out.push(cur);
+  return out.map((s) => s.trim());
+}
+// วันที่หลายรูปแบบ: ISO, D/M/Y, D-M-Y, D.M.Y + ปี 2 หลัก + พ.ศ.(BE) → ISO (UTC midnight กันเพี้ยนวัน) หรือ null
+const mkUTC = (y: number, mo: number, d: number): string | null => { const dt = new Date(Date.UTC(y, mo - 1, d)); return isNaN(dt.getTime()) ? null : dt.toISOString(); };
+function parseFlexDate(s: string): string | null {
+  s = (s || "").trim(); if (!s) return null;
+  let m = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+  if (m) { let y = +m[1]; if (y > 2400) y -= 543; return mkUTC(y, +m[2], +m[3]); }
+  m = s.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})/);
+  if (m) { let y = +m[3]; if (y < 100) y += 2000; if (y > 2400) y -= 543; return mkUTC(y, +m[2], +m[1]); }
+  // รับรูปแบบที่มีปี 4 หลักชัดเจนเท่านั้น (กัน "Nov 15" กลายเป็นปี 2001)
+  if (/\b\d{4}\b/.test(s)) { const dt = new Date(s); if (!isNaN(dt.getTime())) return dt.toISOString(); }
+  return null;
+}
+
+/** parse ข้อความ CSV → แถว statement + จำนวน warning (วันที่อ่านไม่ได้) */
+export function parseStatementCsv(text: string): { rows: Omit<StatementRow, "id" | "batch_id">[]; dateWarnings: number } {
   const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-  if (!lines.length) return [];
+  if (!lines.length) return { rows: [], dateWarnings: 0 };
   const header = lines[0].toLowerCase();
-  const hasHeader = /date|amount|approval|ref|วันที่|จำนวน|อนุมัติ/.test(header);
+  const hasHeader = /date|amount|approval|ref|วันที่|จำนวน|ยอด|อนุมัติ/.test(header);
   const body = hasHeader ? lines.slice(1) : lines;
   const idx = (() => {
     if (!hasHeader) return { date: 0, amount: 1, approval: 2, ref: 3 };
-    const cols = header.split(",").map((c) => c.trim());
+    const cols = splitCsvLine(header);
     const find = (keys: string[]) => cols.findIndex((c) => keys.some((k) => c.includes(k)));
     return { date: Math.max(0, find(["date", "วันที่"])), amount: Math.max(1, find(["amount", "จำนวน", "ยอด"])), approval: find(["approval", "อนุมัติ", "auth"]), ref: find(["ref", "อ้างอิง", "trace"]) };
   })();
-  const out: Omit<StatementRow, "id" | "batch_id">[] = [];
+  const out: Omit<StatementRow, "id" | "batch_id">[] = []; let dateWarnings = 0;
   for (const line of body) {
-    const c = line.split(",").map((x) => x.trim());
-    const amount = parseFloat((c[idx.amount] ?? "").replace(/[^0-9.-]/g, ""));
+    const c = splitCsvLine(line);
+    const amount = parseFloat((c[idx.amount] ?? "").replace(/,/g, "").replace(/[^0-9.\-]/g, "")); // ตัดจุลภาคหลักพันก่อน parse
     if (!Number.isFinite(amount)) continue;
-    const rawDate = c[idx.date] ?? "";
-    const at = /^\d{4}-\d{2}-\d{2}/.test(rawDate) ? new Date(rawDate).toISOString() : new Date().toISOString();
-    out.push({ at, amount, approval_code: idx.approval >= 0 ? (c[idx.approval] || null) : null, ref_no: idx.ref >= 0 ? (c[idx.ref] || null) : null, acquirer_code: null, note: null });
+    const parsed = parseFlexDate(c[idx.date] ?? "");
+    if (!parsed) dateWarnings++;
+    out.push({ at: parsed ?? new Date().toISOString(), amount, approval_code: idx.approval >= 0 ? (c[idx.approval] || null) : null, ref_no: idx.ref >= 0 ? (c[idx.ref] || null) : null, acquirer_code: null, note: parsed ? null : "วันที่อ่านไม่ได้ (ใช้วันนำเข้าแทน)", date_warn: parsed ? undefined : true });
   }
-  return out;
+  return { rows: out, dateWarnings };
 }
 
-/** สร้าง statement ตัวอย่างจาก ledger (จับคู่ส่วนใหญ่ + จงใจให้มีขาด/เกิน/ยอดต่าง เพื่อสาธิต) */
+/** สร้าง statement ตัวอย่างจาก ledger (จับคู่ส่วนใหญ่ + จงใจให้มีขาด/เกิน/ยอดต่าง) — ผูก acquirer ตาม txn */
 export async function generateSampleStatement(): Promise<{ batch: StatementBatch; added: number }> {
-  const txns = (await listPaymentTxns()).filter((t) => t.status === "approved" && t.approval_code);
+  const [txns, acqs] = await Promise.all([listPaymentTxns(), listAcquirers()]);
+  const approved = txns.filter((t) => t.status === "approved" && t.approval_code);
+  const acqCode = (id: string | null) => (id ? acqs.find((a) => a.id === id)?.code ?? null : null);
   const rows: Omit<StatementRow, "id" | "batch_id">[] = [];
-  txns.forEach((t, i) => {
-    if (i === 2) return;                                   // 1 รายการ "ขาด" ในธนาคาร (ยังไม่มา)
+  approved.forEach((t, i) => {
+    if (i === 2) return;                                   // 1 รายการ "ขาด" ในธนาคาร
     const amount = i === 5 ? t.amount - 100 : t.amount;    // 1 รายการ "ยอดต่าง"
-    rows.push({ at: t.at, amount, approval_code: t.approval_code ?? null, ref_no: t.ref_no ?? null, acquirer_code: null, note: null });
+    rows.push({ at: t.at, amount, approval_code: t.approval_code ?? null, ref_no: t.ref_no ?? null, acquirer_code: acqCode(t.acquirer_id), note: null, is_demo: true });
   });
-  // 1 รายการ "เกิน" ในธนาคาร (ไม่มีใน POS)
-  rows.push({ at: new Date().toISOString(), amount: 1990, approval_code: "999001", ref_no: "•••• 9999", acquirer_code: null, note: "ไม่พบใน POS" });
-  return importStatementRows(rows, { name: `ตัวอย่าง-${new Date().toISOString().slice(0, 10)}.csv` });
+  rows.push({ at: new Date().toISOString(), amount: 1990, approval_code: "999001", ref_no: "•••• 9999", acquirer_code: "KBANK", note: "ไม่พบใน POS", is_demo: true }); // "เกิน" ในธนาคาร
+  return importStatementRows(rows, { name: `ตัวอย่าง-${new Date().toISOString().slice(0, 10)}.csv`, is_demo: true });
+}
+
+/** ล้างเฉพาะข้อมูลสาธิต (is_demo) ออกจากทุกตาราง — เก็บงานจริงไว้ */
+export async function clearDemoData(): Promise<void> {
+  await kvSet("pay_acquirers_v1", (await listAcquirers()).filter((a) => !a.is_demo));
+  await kvSet("edc_terminals_v1", (await listTerminals()).filter((t) => !t.is_demo));
+  await kvSet(TXN_KEY, (await listPaymentTxns()).filter((t) => !t.is_demo));
+  const rows = (await listStatementRows()).filter((r) => !r.is_demo);
+  await kvSet(STMT_ROWS, rows);
+  const keep = new Set(rows.map((r) => r.batch_id));
+  await kvSet(STMT_BATCH, (await listStatementBatches()).filter((b) => keep.has(b.id)));
+}
+export async function hasDemoData(): Promise<boolean> {
+  const [a, t, x] = await Promise.all([listAcquirers(), listTerminals(), listPaymentTxns()]);
+  return a.some((i) => i.is_demo) || t.some((i) => i.is_demo) || x.some((i) => i.is_demo);
 }
 
 export const EDC_SERVICE_LABEL: Record<string, { th: string; en: string }> = {

@@ -8,8 +8,8 @@ import { useEffect, useMemo, useState } from "react";
 import { Wallet, CreditCard, Receipt, AlertTriangle, Landmark, Clock, Store, RotateCcw, ChevronRight, Link2Off, Loader2, TrendingUp, Globe2, MapPin, CalendarRange } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { useSession } from "@/lib/store/session";
-import { listOrders } from "@/lib/data/repo";
-import type { Order } from "@/lib/types";
+import { listOrders, listReturns } from "@/lib/data/repo";
+import type { Order, ReturnDoc } from "@/lib/types";
 import { Card, CardHeader, Table, Th, Td, Badge, EmptyState, KpiTile, Segmented } from "@/components/ui";
 import { ExportShareBar } from "@/components/admin/export-share";
 import { FilterBar, useAdminScope, useDefaultFilter } from "@/components/admin/filters";
@@ -33,12 +33,13 @@ export default function AdminFinancePage() {
   const { branches, brands } = useAdminScope();
   const [filter, setFilter] = useDefaultFilter();
   const [orders, setOrders] = useState<Order[]>([]);
+  const [returns, setReturns] = useState<ReturnDoc[]>([]);
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<Detail>("paid");
   const [view, setView] = useState<"dash" | "table">("dash");
   const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
 
-  useEffect(() => { void listOrders().then((o) => { setOrders(o); setLoading(false); }); }, []);
+  useEffect(() => { void listOrders().then((o) => { setOrders(o); setLoading(false); }); void listReturns().then(setReturns); }, []);
 
   const scoped = useMemo(() => {
     const ids = visibleBranchIds(employee, branches.map((b) => b.id));
@@ -72,9 +73,17 @@ export default function AdminFinancePage() {
   const toReview = useMemo(() => pays.filter((p) => SYSTEM.has(p.bucket) && !p.ref), [pays]);
   const feeKnown = useMemo(() => { const sysc = pays.filter((p) => SYSTEM.has(p.bucket)); return { known: sysc.filter((p) => p.fee !== null).length, total: sysc.length }; }, [pays]);
   const feeIncomplete = feeKnown.total > 0 && feeKnown.known < feeKnown.total;
-  const refunds = useMemo(() => rows.filter((o) => o.status === "voided" || o.status === "refunded" || o.status === "partially_refunded")
-    .map((o) => ({ id: o.id, orderNo: o.order_no, at: o.created_at, branch: branchName(o.branch_id), status: o.status, amount: o.grand_total, reason: o.void_reason ?? null }))
-    .sort((a, b) => (a.at < b.at ? 1 : -1)), [rows]); // eslint-disable-line react-hooks/exhaustive-deps
+  // คืนเงิน = ยอดคืนจริงจาก ReturnDoc (refund_amount) · ยกเลิกบิล (void) = ยอดเต็มบิล — แยกกัน
+  const refunds = useMemo(() => {
+    const ids = new Set(visibleBranchIds(employee, branches.map((b) => b.id)));
+    const from = filter.from ? filter.from.toISOString() : null; const to = filter.to ? filter.to.toISOString() : null;
+    const inRange = (iso: string) => (!from || iso >= from) && (!to || iso <= to);
+    const retRows = returns.filter((r) => r.type === "refund" && ids.has(r.branch_id) && inRange(r.created_at))
+      .map((r) => ({ id: r.id, orderNo: r.order_no || r.return_no, at: r.created_at, branch: branchName(r.branch_id), kind: "refund" as const, amount: r.refund_amount, reason: r.reason_note ?? null }));
+    const voidRows = rows.filter((o) => o.status === "voided")
+      .map((o) => ({ id: o.id, orderNo: o.order_no, at: o.created_at, branch: branchName(o.branch_id), kind: "void" as const, amount: o.grand_total, reason: o.void_reason ?? null }));
+    return [...retRows, ...voidRows].sort((a, b) => (a.at < b.at ? 1 : -1));
+  }, [rows, returns, employee, branches, filter]); // eslint-disable-line react-hooks/exhaustive-deps
   const byPay = useMemo(() => byPaymentDetail(rows, locale), [rows, locale]);
   const byAcq = useMemo(() => byAcquirer(rows), [rows]);
   const byBr = useMemo(() => financeByBranch(rows, branches, locale), [rows, branches, locale]);
@@ -126,7 +135,7 @@ export default function AdminFinancePage() {
       { key: "qr", label: "QR", map: (r: typeof byBr[number]) => nf(r.qr) }, { key: "net", label: L("สุทธิ", "Net", "净额"), map: (r: typeof byBr[number]) => nf(r.net) }, { key: "orders", label: L("บิล", "Bills", "单") }] };
     if (detail === "refund") return { name: "finance-refunds", rows: refunds as unknown as Record<string, unknown>[], cols: [
       { key: "at", label: L("วันที่", "Date", "日期"), map: (r: typeof refunds[number]) => dayKey(r.at) }, { key: "orderNo", label: L("บิลเดิม", "Bill", "原单") },
-      { key: "branch", label: L("สาขา", "Branch", "门店") }, { key: "status", label: L("สถานะ", "Status", "状态") }, { key: "amount", label: L("ยอด", "Amount", "金额"), map: (r: typeof refunds[number]) => nf(r.amount) }] };
+      { key: "branch", label: L("สาขา", "Branch", "门店") }, { key: "kind", label: L("ประเภท", "Type", "类型"), map: (r: typeof refunds[number]) => (r.kind === "void" ? L("ยกเลิกบิล", "Void", "作废") : L("คืนเงิน", "Refund", "退款")) }, { key: "amount", label: L("ยอด", "Amount", "金额"), map: (r: typeof refunds[number]) => nf(r.amount) }] };
     if (detail === "edc") return { name: "finance-edc", rows: byAcq as unknown as Record<string, unknown>[], cols: [
       { key: "bank", label: L("ผู้รับบัตร/ธนาคาร", "Acquirer", "收单行") }, { key: "value", label: L("ยอดก่อนหัก", "Gross", "总额"), map: (r: typeof byAcq[number]) => nf(r.value) },
       { key: "fee", label: L("ค่าธรรมเนียม", "Fee", "手续费"), map: (r: typeof byAcq[number]) => r.fee ? nf(r.fee) : L("ไม่ระบุ", "N/A", "未知") }, { key: "count", label: L("ธุรกรรม", "Txns", "笔数") }] };
@@ -267,7 +276,7 @@ export default function AdminFinancePage() {
                   <tr key={r.id}>
                     <Td className="text-xs whitespace-nowrap">{dayKey(r.at)}</Td><Td className="font-mono text-[11px] text-muted">{r.orderNo}</Td>
                     <Td className="text-xs text-muted">{r.branch}</Td>
-                    <Td><Badge tone={r.status === "voided" ? "danger" : "warn"}>{r.status === "voided" ? L("ยกเลิก", "Voided", "作废") : r.status === "refunded" ? L("คืนเต็ม", "Refunded", "全退") : L("คืนบางส่วน", "Partial", "部分退")}</Badge></Td>
+                    <Td><Badge tone={r.kind === "void" ? "danger" : "warn"}>{r.kind === "void" ? L("ยกเลิกบิล", "Void", "作废") : L("คืนเงิน", "Refund", "退款")}</Badge></Td>
                     <Td align="right" className="tnum">{nf(r.amount)}</Td>
                     <Td className="text-xs text-muted"><span className="block max-w-[220px] truncate" title={r.reason ?? ""}>{r.reason ?? "—"}</span></Td>
                   </tr>

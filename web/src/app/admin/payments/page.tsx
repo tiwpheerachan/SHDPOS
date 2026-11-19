@@ -11,7 +11,7 @@ import { useAdminScope } from "@/components/admin/filters";
 import { Card, KpiTile, Table, Th, Td, Badge, Input, Select, EmptyState, Drawer, Modal, Segmented } from "@/components/ui";
 import { ExportShareBar } from "@/components/admin/export-share";
 import { useToast } from "@/components/toast-host";
-import { listAcquirers, listTerminals, upsertTerminal, listPaymentTxns, createPaymentTxn, resolvePaymentTxn, voidPaymentTxn, listStatementRows, importStatementRows, parseStatementCsv, generateSampleStatement, clearStatements, EDC_SERVICE_LABEL } from "@/lib/data/payments";
+import { listAcquirers, listTerminals, upsertTerminal, listPaymentTxns, createPaymentTxn, resolvePaymentTxn, voidPaymentTxn, listStatementRows, importStatementRows, parseStatementCsv, generateSampleStatement, clearStatements, clearDemoData, EDC_SERVICE_LABEL } from "@/lib/data/payments";
 import { logActivity } from "@/lib/data/repo";
 import { can } from "@/lib/permissions";
 import { formatTHB } from "@/lib/money";
@@ -42,7 +42,8 @@ export default function AdminPaymentsPage() {
   // ledger modals
   const [newOpen, setNewOpen] = useState(false);
   const [resolveT, setResolveT] = useState<PaymentTxn | null>(null);
-  const [nf2, setNf2] = useState({ terminal_id: "", method: "card" as EdcService, amount: "", order_no: "", months: "" });
+  const [nf2, setNf2] = useState({ terminal_id: "", method: "card" as EdcService, amount: "", order_no: "", months: "", op_key: "" });
+  const [uploadAcq, setUploadAcq] = useState("");
   const [rf, setRf] = useState({ status: "approved" as "approved" | "declined" | "error", approval_code: "", ref_no: "", note: "" });
   const [busy, setBusy] = useState(false);
   const [q, setQ] = useState("");
@@ -137,26 +138,30 @@ export default function AdminPaymentsPage() {
     const approved = txns.filter((t) => t.status === "approved");
     const byCode = new Map<string, PaymentTxn[]>();
     approved.forEach((t) => { if (t.approval_code) { const a = byCode.get(t.approval_code) ?? []; a.push(t); byCode.set(t.approval_code, a); } });
+    const acqCodeOf = (id: string | null) => (id ? acquirers.find((a) => a.id === id)?.code ?? null : null);
     const usedTxn = new Set<string>(); const usedStmt = new Set<string>(); const actualByTxn = new Map<string, number>();
     for (const s of stmtRows) {
       if (!s.approval_code) continue;
-      const cands = byCode.get(s.approval_code) ?? [];
+      // จับคู่เฉพาะธนาคารเดียวกัน (กันรหัสซ้ำข้ามธนาคาร) — ถ้า statement ไม่ระบุธนาคารจึงไม่สกรีน
+      const cands = (byCode.get(s.approval_code) ?? []).filter((c) => !s.acquirer_code || acqCodeOf(c.acquirer_id) === s.acquirer_code);
       const t = cands.find((c) => !usedTxn.has(c.id) && Math.abs(c.amount - s.amount) < 0.5) ?? cands.find((c) => !usedTxn.has(c.id));
       if (t) { usedTxn.add(t.id); usedStmt.add(s.id); actualByTxn.set(t.id, s.amount); }
     }
     return { actualByTxn, usedTxnIds: usedTxn, unmatchedStmt: stmtRows.filter((s) => !usedStmt.has(s.id)), unmatchedTxn: approved.filter((t) => !usedTxn.has(t.id)) };
-  }, [txns, stmtRows]);
+  }, [txns, stmtRows, acquirers]);
   const reconActual = (r: ReconG) => r.txns.reduce((s, t) => s + (match.actualByTxn.get(t.id) ?? 0), 0);
   const fileRef = useRef<HTMLInputElement>(null);
 
   async function onSample() { setBusy(true); try { const r = await generateSampleStatement(); toast.push({ tone: "ok", title: L("สร้าง statement ตัวอย่างแล้ว", "Sample created", "已创建示例"), body: `${r.added} ${L("แถว", "rows", "行")}` }); await load(); } finally { setBusy(false); } }
   async function onUploadCsv(file: File) {
-    const text = await file.text(); const rows = parseStatementCsv(text);
-    if (!rows.length) { toast.push({ tone: "danger", title: L("ไม่พบข้อมูลในไฟล์", "No rows found", "无数据") }); return; }
-    const r = await importStatementRows(rows, { name: file.name });
-    toast.push({ tone: "ok", title: L("นำเข้า statement แล้ว", "Statement imported", "已导入"), body: `${file.name} · ${r.added} ${L("แถว", "rows", "行")}` }); await load();
+    const text = await file.text(); const { rows, dateWarnings } = parseStatementCsv(text);
+    if (!rows.length) { toast.push({ tone: "danger", title: L("ไม่พบข้อมูลในไฟล์", "No rows found", "无数据"), body: L("ตรวจรูปแบบ CSV: วันที่, ยอด, รหัสอนุมัติ, อ้างอิง", "Check CSV format", "检查格式") }); return; }
+    const r = await importStatementRows(rows, { name: file.name, acquirer_id: uploadAcq || null });
+    toast.push({ tone: dateWarnings ? "warn" : "ok", title: L("นำเข้า statement แล้ว", "Statement imported", "已导入"), body: `${file.name} · ${r.added} ${L("แถว", "rows", "行")}${dateWarnings ? ` · ${L(`วันที่อ่านไม่ได้ ${dateWarnings} แถว`, `${dateWarnings} date warnings`, "")}` : ""}${uploadAcq ? "" : ` · ${L("⚠ ไม่ได้เลือกธนาคาร", "⚠ no acquirer", "")}`}` }); await load();
   }
   async function onClearStmt() { if (!confirm(L("ล้าง statement ที่นำเข้าทั้งหมด?", "Clear all statements?", "清除?"))) return; await clearStatements(); await load(); }
+  const demoCount = terminals.filter((t) => t.is_demo).length + txns.filter((t) => t.is_demo).length;
+  async function onClearDemo() { if (!confirm(L("ล้างข้อมูลตัวอย่างทั้งหมด (เครื่อง/รายการ/statement ที่เป็นตัวอย่าง)? งานจริงจะยังอยู่", "Clear all demo data? Real data stays", "清除示例?"))) return; await clearDemoData(); await load(); }
   async function submitNew() {
     const amt = Number(nf2.amount);
     if (!nf2.terminal_id) { toast.push({ tone: "danger", title: L("เลือกเครื่อง", "Select terminal", "选设备") }); return; }
@@ -164,9 +169,9 @@ export default function AdminPaymentsPage() {
     setBusy(true);
     try {
       const t = termOf(nf2.terminal_id);
-      const { txn, duplicate } = await createPaymentTxn({ order_no: nf2.order_no.trim() || null, terminal_id: nf2.terminal_id, acquirer_id: t?.acquirer_id ?? null, method: nf2.method, amount: amt, installment_months: nf2.method === "installment" && nf2.months ? Number(nf2.months) : null, branch_id: t?.branch_id ?? null, cashier_name: cashier() });
+      const { txn, duplicate } = await createPaymentTxn({ op_key: nf2.op_key || undefined, order_no: nf2.order_no.trim() || null, terminal_id: nf2.terminal_id, acquirer_id: t?.acquirer_id ?? null, method: nf2.method, amount: amt, installment_months: nf2.method === "installment" && nf2.months ? Number(nf2.months) : null, branch_id: t?.branch_id ?? null, cashier_name: cashier() });
       toast.push({ tone: duplicate ? "warn" : "ok", title: duplicate ? L("รายการซ้ำ (กันเก็บซ้ำ)", "Duplicate blocked", "已防重复") : L("สร้างรายการแล้ว (รอผล)", "Created · pending", "已创建"), body: `฿${nf(txn.amount)} · ${txn.op_key}` });
-      setNewOpen(false); setNf2({ terminal_id: "", method: "card", amount: "", order_no: "", months: "" }); await load();
+      setNewOpen(false); setNf2({ terminal_id: "", method: "card", amount: "", order_no: "", months: "", op_key: "" }); await load();
     } finally { setBusy(false); }
   }
   async function submitResolve() {
@@ -221,7 +226,7 @@ export default function AdminPaymentsPage() {
           )}
           {view === "devices"
             ? <button onClick={openNew} className="h-10 px-4 rounded-2xl bg-brand text-brandInk text-sm font-bold inline-flex items-center gap-2 shrink-0"><Plus size={16} /> {L("เพิ่มเครื่อง", "Add terminal", "新增")}</button>
-            : <button onClick={() => setNewOpen(true)} className="h-10 px-4 rounded-2xl bg-brand text-brandInk text-sm font-bold inline-flex items-center gap-2 shrink-0"><Plus size={16} /> {L("เริ่มรายการชำระ", "New charge", "新收款")}</button>}
+            : <button onClick={() => { setNf2({ terminal_id: "", method: "card", amount: "", order_no: "", months: "", op_key: `op-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}` }); setNewOpen(true); }} className="h-10 px-4 rounded-2xl bg-brand text-brandInk text-sm font-bold inline-flex items-center gap-2 shrink-0"><Plus size={16} /> {L("เริ่มรายการชำระ", "New charge", "新收款")}</button>}
         </div>
       </div>
 
@@ -237,6 +242,12 @@ export default function AdminPaymentsPage() {
             </span>
           ))}
         </div>
+        {demoCount ? (
+          <div className="mt-2.5 flex items-center justify-between gap-2 text-[11px] text-amber-700 bg-amber-500/8 rounded-lg px-2.5 py-1.5 flex-wrap">
+            <span className="inline-flex items-center gap-1.5"><Sparkles size={12} /> {L(`มีข้อมูลตัวอย่าง ${demoCount} รายการปนอยู่ (ติดป้าย “ตัวอย่าง”) — ล้างก่อนใช้งานจริง`, `${demoCount} demo items mixed in — clear before real use`, "")}</span>
+            <button onClick={() => void onClearDemo()} className="h-7 px-2.5 rounded-lg border border-amber-500/40 text-amber-700 hover:bg-amber-500/10 font-semibold">{L("ล้างข้อมูลตัวอย่าง", "Clear demo", "清除示例")}</button>
+          </div>
+        ) : null}
       </Card>
 
       {view === "devices" ? (<>
@@ -262,7 +273,7 @@ export default function AdminPaymentsPage() {
                 <thead><tr><Th>{L("รหัสเครื่อง", "Asset", "设备")}</Th><Th>{L("ผู้รับชำระ", "Acquirer", "收单")}</Th><Th>MID</Th><Th>TID</Th><Th>{L("สาขา", "Branch", "门店")}</Th><Th>{L("บริการ", "Services", "服务")}</Th><Th>{L("สถานะ", "Status", "状态")}</Th><Th align="center">{L("ยืนยัน", "Verified", "验证")}</Th><Th></Th></tr></thead>
                 <tbody>{filtered.map((t) => { const sm = statusMeta(t.status); return (
                   <tr key={t.id}>
-                    <Td className="font-mono text-xs font-medium">{t.asset_code}{t.model ? <span className="block text-[10px] text-muted font-sans">{t.model}</span> : null}</Td>
+                    <Td className="font-mono text-xs font-medium">{t.asset_code}{t.is_demo ? <span className="ml-1 text-[9px] px-1 py-0.5 rounded bg-amber-500/15 text-amber-600 font-sans align-middle">{L("ตัวอย่าง", "demo", "示例")}</span> : null}{t.model ? <span className="block text-[10px] text-muted font-sans">{t.model}</span> : null}</Td>
                     <Td className="text-xs"><span className="inline-flex items-center gap-1">{acqName(t.acquirer_id)}{!acqVerified(t.acquirer_id) ? <ShieldAlert size={11} className="text-amber-500" /> : null}</span></Td>
                     <Td className="font-mono text-[11px] text-muted">{t.mid ?? "—"}</Td>
                     <Td className="font-mono text-[11px] text-muted">{t.tid ?? "—"}</Td>
@@ -320,7 +331,8 @@ export default function AdminPaymentsPage() {
         <input ref={fileRef} type="file" accept=".csv,text/csv,text/plain" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void onUploadCsv(f); e.target.value = ""; }} />
         <Card className="p-3.5 flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-2 text-[11px] text-muted min-w-0"><ListChecks size={15} className="shrink-0" /> <span className="truncate">{stmtRows.length ? L(`นำเข้า statement ${stmtRows.length} แถว · จับคู่ได้ ${match.usedTxnIds.size} · ไม่ตรง ${match.unmatchedStmt.length + match.unmatchedTxn.length}`, `${stmtRows.length} rows · matched ${match.usedTxnIds.size} · unmatched ${match.unmatchedStmt.length + match.unmatchedTxn.length}`, "") : L("ยังไม่นำเข้า statement — “เงินเข้าจริง” เทียบได้เมื่ออัปโหลดรายงานธนาคาร (CSV: วันที่, ยอด, รหัสอนุมัติ, อ้างอิง)", "No statement yet — upload bank CSV to compare actual", "")}</span></div>
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-2 shrink-0 flex-wrap">
+            <select value={uploadAcq} onChange={(e) => setUploadAcq(e.target.value)} className="h-9 px-2 rounded-xl border border-line bg-surface text-sm text-ink outline-none" title={L("เลือกธนาคารของไฟล์ (กันจับคู่ข้ามธนาคาร)", "File's acquirer", "")}><option value="">{L("ธนาคารของไฟล์…", "Acquirer…", "银行…")}</option>{acquirers.map((a) => <option key={a.id} value={a.id}>{a.code}</option>)}</select>
             <button onClick={() => fileRef.current?.click()} className="h-9 px-3 rounded-xl border border-line text-sm inline-flex items-center gap-1.5 hover:bg-surface2"><Upload size={14} /> {L("อัปโหลด CSV", "Upload CSV", "上传")}</button>
             <button onClick={() => void onSample()} disabled={busy} className="h-9 px-3 rounded-xl border border-line text-sm inline-flex items-center gap-1.5 hover:bg-surface2 disabled:opacity-50">{busy ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />} {L("สร้างตัวอย่าง", "Sample", "示例")}</button>
             {stmtRows.length ? <button onClick={() => void onClearStmt()} className="h-9 px-3 rounded-xl border border-line text-sm text-muted hover:text-danger hover:border-danger/40">{L("ล้าง", "Clear", "清")}</button> : null}

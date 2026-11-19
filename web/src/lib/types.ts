@@ -197,6 +197,7 @@ export interface Acquirer {
   name: string;
   verified: boolean;     // ยืนยันสัญญา/โปรโตคอลแล้วหรือยัง
   note?: string | null;
+  is_demo?: boolean;     // ข้อมูลสาธิต (ล้างได้ แยกจากงานจริง)
 }
 export type EdcService = "card" | "unionpay" | "thaiqr" | "qr_credit" | "alipay" | "wechat" | "installment";
 /** เครื่อง EDC จริง 1 ตัว ผูกสาขา + ผู้รับชำระ + MID/TID + บริการที่เปิด (เก็บเลขมาสก์ได้) */
@@ -215,7 +216,7 @@ export interface EdcTerminal {
   installment_months: number[]; // งวดผ่อนที่อนุมัติ เช่น [3,6,10]
   status: "installed" | "spare" | "repair" | "retired";
   verified: boolean;           // ยืนยันหน้างาน/สัญญาแล้ว
-  note?: string | null;
+  note?: string | null;  is_demo?: boolean;
 }
 
 /** แถวรายงานธนาคาร (statement) ที่ import เข้ามา — ใช้จับคู่กับ PaymentTxn */
@@ -228,6 +229,8 @@ export interface StatementRow {
   ref_no?: string | null;
   acquirer_code?: string | null;
   note?: string | null;
+  is_demo?: boolean;
+  date_warn?: boolean;         // วันที่อ่านไม่ได้ (ใช้วันนำเข้าแทน)
 }
 export interface StatementBatch {
   id: string;
@@ -254,7 +257,7 @@ export interface PaymentTxn {
   ref_no?: string | null;
   branch_id: string | null;
   cashier_name?: string | null;
-  note?: string | null;
+  note?: string | null;  is_demo?: boolean;
 }
 
 export interface PaymentEntry {
