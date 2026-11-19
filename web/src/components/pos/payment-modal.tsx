@@ -10,6 +10,8 @@ import { formatTHB, round2 } from "@/lib/money";
 import type { PaymentEntry, PaymentMethod } from "@/lib/types";
 import { BANKS, type BankInfo } from "@/lib/banks";
 import { BankMark } from "@/components/pos/bank-mark";
+import { QRCodeSVG } from "qrcode.react";
+import { promptPayPayload, DEMO_PROMPTPAY_MOBILE } from "@/lib/promptpay";
 
 const METHODS: { value: PaymentMethod; icon: typeof Banknote; accent: string }[] = [
   { value: "cash", icon: Banknote, accent: "#16a34a" },
@@ -160,6 +162,21 @@ export function PaymentModal({
               </div>
             </div>
           ) : null}
+
+          {method === "qr_promptpay" ? (() => {
+            const qrAmount = round2(Number(amountText) > 0 ? Number(amountText) : remaining);
+            return (
+              <div className="mt-3 flex flex-col items-center gap-2 rounded-2xl border border-line bg-surface2/40 py-4 px-3">
+                <div className="flex items-center gap-1.5 text-sm font-semibold text-ink"><QrCode size={15} /> {L("สแกนเพื่อจ่ายด้วยพร้อมเพย์", "Scan to pay with PromptPay", "扫码支付")}</div>
+                <div className="bg-white p-3 rounded-xl border border-line">
+                  <QRCodeSVG value={promptPayPayload(DEMO_PROMPTPAY_MOBILE, qrAmount > 0 ? qrAmount : 1)} size={188} level="M" marginSize={0} />
+                </div>
+                <p className="text-2xl font-extrabold tnum text-ink leading-none">{formatTHB(qrAmount)}</p>
+                <p className="text-[11px] text-muted text-center">{L("พร้อมเพย์ร้าน", "Shop PromptPay", "商户")} {DEMO_PROMPTPAY_MOBILE} · <span className="text-amber-600 font-medium">{L("ตัวอย่างจำลอง", "demo only", "示例")}</span></p>
+                <Button variant="primary" className="mt-0.5 w-full" disabled={qrAmount <= 0} onClick={() => addPayment(qrAmount)}>{L("ลูกค้าสแกนจ่ายแล้ว — บันทึก", "Customer paid — record", "已支付")}</Button>
+              </div>
+            );
+          })() : null}
 
           {(needsCardFields || method === "bank_transfer") ? (
             <div className="mt-3">

@@ -88,6 +88,7 @@ export const useCart = create<CartState>((set, get) => ({
         product_id: p.id,
         sku: p.sku,
         name: p.name_th,
+        image_url: p.image_url ?? null,
         kind: p.kind === "service" ? "service" : p.kind === "fee" ? "fee" : "goods",
         qty,
         unit_price: p.price,

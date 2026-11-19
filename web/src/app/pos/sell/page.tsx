@@ -127,7 +127,7 @@ export default function SellPage() {
     pushDisplay({
       state: cart.lines.length ? "cart" : "idle",
       branchName: branch ? pick({ th: branch.name_th, en: branch.name, zh: branch.name }) : undefined,
-      lines: cart.lines.map((l) => ({ lineId: l.lineId, name: l.name, qty: l.qty, unit_price: l.unit_price })),
+      lines: cart.lines.map((l) => ({ lineId: l.lineId, name: l.name, qty: l.qty, unit_price: l.unit_price, image_url: l.image_url ?? null, is_gift: !!l.is_gift })),
       subtotal: totals.subtotal,
       discount: totals.discountTotal,
       grandTotal: totals.grandTotal,
@@ -765,6 +765,9 @@ export default function SellPage() {
                 return (
                   <li key={l.lineId} className="px-4 py-3">
                     <div className="flex items-start gap-2">
+                      <div className="w-11 h-11 rounded-lg border border-line bg-surface2 grid place-items-center overflow-hidden shrink-0">
+                        {l.image_url ? <img src={l.image_url} alt="" className="w-full h-full object-cover" loading="lazy" /> : <Package size={16} className="text-muted/50" />}
+                      </div>
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium leading-snug line-clamp-2">
                           {l.name}
@@ -1067,17 +1070,22 @@ export default function SellPage() {
             const amt = promoAmt(p);
             const inCart = promoRelevant(p);
             const ok = amt > 0;
-            const prod = p.product_sku ? products.find((x) => x.sku === p.product_sku) : undefined;
-            const img = prod?.image_url;
+            const isPct = p.type === "percent";
             return (
               <button key={p.id} onClick={() => applyPromo(p)} disabled={!ok}
                 className={`group relative w-full flex items-stretch rounded-[18px] overflow-hidden text-left bg-surface border border-line transition-all ${ok ? "hover:-translate-y-0.5 hover:shadow-card hover:border-ink/30" : "opacity-55 grayscale"}`}>
                 {/* รอยปรุตั๋ว (วงเว้าขอบบน-ล่าง = พื้นโมดัล) */}
                 <span aria-hidden className="absolute left-[92px] -top-2 w-4 h-4 rounded-full bg-surface border border-line" />
                 <span aria-hidden className="absolute left-[92px] -bottom-2 w-4 h-4 rounded-full bg-surface border border-line" />
-                {/* รูปสินค้า (แผงซ้าย พื้นขาว) */}
-                <div className="w-[84px] shrink-0 grid place-items-center p-2.5 bg-white">
-                  {img ? <img src={img} alt="" loading="lazy" className="w-full h-full object-contain transition-transform duration-500 group-hover:scale-105" /> : <Gift size={26} className="text-muted/40" />}
+                {/* กราฟิกคูปอง (ไม่ใช่รูปสินค้า) */}
+                <div className="w-[92px] shrink-0 grid place-items-center p-2 text-white relative overflow-hidden" style={{ background: "linear-gradient(135deg,#7950D8,#22d3ee)" }}>
+                  <span aria-hidden className="absolute -right-5 -top-5 w-14 h-14 rounded-full bg-white/10" />
+                  <span aria-hidden className="absolute -left-4 -bottom-4 w-12 h-12 rounded-full bg-white/10" />
+                  <div className="relative text-center">
+                    {p.value === 0 ? <Gift size={22} className="mx-auto" /> : isPct ? <Percent size={18} className="mx-auto mb-0.5" /> : <Ticket size={18} className="mx-auto mb-0.5" />}
+                    <div className="text-[17px] font-extrabold leading-none tnum">{p.value === 0 ? L("แถม", "GIFT", "赠") : isPct ? `${p.value}%` : `฿${formatTHB(p.value, false)}`}</div>
+                    <div className="text-[7.5px] font-bold tracking-[0.15em] opacity-85 mt-1">COUPON</div>
+                  </div>
                 </div>
                 {/* เส้นปรุแนวตั้ง */}
                 <div aria-hidden className="self-stretch my-3 border-l-2 border-dashed border-line" />

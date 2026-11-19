@@ -170,6 +170,7 @@ export interface CartLine {
   product_id: string | null;
   sku: string;
   name: string;
+  image_url?: string | null;
   kind: LineKind;
   qty: number;
   unit_price: number;

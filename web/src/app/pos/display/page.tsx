@@ -55,10 +55,13 @@ export default function CustomerDisplayPage() {
             <ul className="divide-y divide-line">
               {data.lines.map((l) => (
                 <li key={l.lineId} className="py-3.5 flex items-center gap-4">
-                  <span className="w-9 h-9 rounded-lg bg-surface2 grid place-items-center text-sm font-semibold tnum shrink-0">
-                    {l.qty}
-                  </span>
-                  <span className="flex-1 text-base">{l.name}</span>
+                  <div className="relative shrink-0">
+                    <div className="w-14 h-14 rounded-xl border border-line bg-surface2 grid place-items-center overflow-hidden">
+                      {l.image_url ? <img src={l.image_url} alt="" className="w-full h-full object-cover" /> : <ShoppingBag size={20} className="text-muted/40" />}
+                    </div>
+                    <span className="absolute -top-1.5 -right-1.5 min-w-[22px] h-[22px] px-1 rounded-full bg-brand text-white grid place-items-center text-xs font-bold tnum">{l.qty}</span>
+                  </div>
+                  <span className="flex-1 text-base">{l.name}{l.is_gift ? <span className="ml-2 text-xs text-brand font-medium">· ของแถม</span> : null}</span>
                   <span className="tnum text-base font-medium">{formatTHB(l.qty * l.unit_price, false)}</span>
                 </li>
               ))}

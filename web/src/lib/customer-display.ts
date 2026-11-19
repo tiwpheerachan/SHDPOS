@@ -11,7 +11,7 @@ const CHANNEL = "shdpos.customer-display";
 export interface DisplayPayload {
   state: "idle" | "cart" | "payment" | "done";
   branchName?: string;
-  lines: Pick<CartLine, "lineId" | "name" | "qty" | "unit_price">[];
+  lines: (Pick<CartLine, "lineId" | "name" | "qty" | "unit_price"> & { image_url?: string | null; is_gift?: boolean })[];
   subtotal: number;
   discount: number;
   grandTotal: number;
