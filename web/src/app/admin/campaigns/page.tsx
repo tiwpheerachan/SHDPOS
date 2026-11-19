@@ -10,9 +10,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
-  Ticket, Plus, Trash2, Loader2, Pencil, TrendingUp, Users, Tag, Power, Gift, Search, X, Store, Layers, BarChart3, MapPin, Download, Activity,
+  Ticket, Plus, Trash2, Loader2, Pencil, TrendingUp, Users, Tag, Power, Gift, Search, X, Store, Layers, BarChart3,
 } from "lucide-react";
-import { downloadExcel } from "@/lib/export";
 import { Modal, EmptyState, Drawer, Segmented } from "@/components/ui";
 import { CouponAnalytics } from "@/components/admin/coupon-analytics";
 import { useAdminScope } from "@/components/admin/filters";
@@ -23,12 +22,6 @@ import { formatTHB } from "@/lib/money";
 import { Maximize2, Minimize2, ImagePlus } from "lucide-react";
 
 interface ProdRef { product_id: string | null; sku: string; name: string | null; gift_qty?: number }
-interface CampaignReport {
-  campaign: { name: string; promo_type: string };
-  summary: { uses: number; customers: number; discountTotal: number; revenue: number; giftQty: number; giftCost: number };
-  byBranch: { name: string; gift_qty: number; gift_cost: number }[];
-  redemptions?: { created_at: string; discount_amount: number; order_total: number | null; customer_id: string | null }[];
-}
 interface Campaign {
   id: string; name: string; description: string | null; code: string | null;
   discount_type: string; discount_value: number; max_discount: number | null; min_spend: number;
@@ -96,15 +89,6 @@ export default function AdminCampaignsPage() {
   const [expanded, setExpanded] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [reportId, setReportId] = useState<string | null>(null);
-  const [report, setReport] = useState<CampaignReport | null>(null);
-  const [reportLoading, setReportLoading] = useState(false);
-
-  useEffect(() => {
-    if (!reportId) { setReport(null); return; }
-    let alive = true; setReportLoading(true); setReport(null);
-    void fetch(`/api/admin/campaigns?id=${reportId}`).then((r) => r.json()).then((j) => { if (alive && !j.error) setReport(j); }).finally(() => { if (alive) setReportLoading(false); });
-    return () => { alive = false; };
-  }, [reportId]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -179,17 +163,6 @@ export default function AdminCampaignsPage() {
       const j = await res.json();
       if (res.ok) { setOpen(false); await load(); } else setErr(j.error ?? L("บันทึกไม่สำเร็จ", "Save failed", "保存失败"));
     } finally { setSaving(false); }
-  }
-
-  function downloadCampaign() {
-    if (!report?.redemptions?.length) return;
-    const stamp = new Date().toISOString().slice(0, 10);
-    downloadExcel(`campaign-${report.campaign.name}-${stamp}`, [
-      { key: "created_at", label: L("วันที่", "Date", "日期"), map: (r) => r.created_at.slice(0, 10) },
-      { key: "time", label: L("เวลา", "Time", "时间"), map: (r) => new Date(r.created_at).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" }) },
-      { key: "discount_amount", label: L("ส่วนลด", "Discount", "折扣"), map: (r) => formatTHB(Number(r.discount_amount), false) },
-      { key: "order_total", label: L("ยอดบิล", "Bill total", "账单"), map: (r) => formatTHB(Number(r.order_total ?? 0), false) },
-    ], report.redemptions, report.campaign.name);
   }
 
   async function toggleActive(c: Campaign) {
@@ -459,93 +432,12 @@ export default function AdminCampaignsPage() {
         </div>
       </Modal>
 
-      {/* รายงานแคมเปญ */}
-      <Drawer open={Boolean(reportId)} onClose={() => setReportId(null)} width="md" title={report?.campaign.name ?? L("รายงานแคมเปญ", "Campaign report", "活动报表")} subtitle={L("ผลการใช้งาน", "Usage results", "使用结果")}>
-        {reportLoading || !report ? (
-          <div className="py-16 text-center text-muted"><Loader2 className="inline animate-spin" size={20} /> {L("กำลังโหลด…", "Loading…", "加载中…")}</div>
-        ) : (
-          <div className="p-4 sm:p-5 space-y-5">
-            <div className="grid grid-cols-2 gap-2.5">
-              <RTile label={L("จำนวนครั้งที่ใช้", "Uses", "使用次数")} value={String(report.summary.uses)} icon={<Tag size={14} />} />
-              <RTile label={L("ลูกค้า", "Customers", "客户")} value={String(report.summary.customers)} icon={<Users size={14} />} />
-              <RTile label={L("ส่วนลดรวม", "Total discount", "折扣合计")} value={formatTHB(report.summary.discountTotal, false)} />
-              <RTile label={L("ยอดขายที่เกิด", "Revenue", "销售额")} value={formatTHB(report.summary.revenue, false)} icon={<TrendingUp size={14} />} />
-            </div>
-
-            {report.redemptions && report.redemptions.length > 0 && (
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <div className="text-sm font-semibold flex items-center gap-1.5"><Activity size={14} /> {L("แนวโน้มการใช้ (รายวัน)", "Daily usage trend", "每日使用趋势")}</div>
-                  <button onClick={downloadCampaign} className="text-xs text-brand hover:underline inline-flex items-center gap-1"><Download size={13} /> {L("ดาวน์โหลด Excel", "Download Excel", "下载")}</button>
-                </div>
-                <CampaignTrend redemptions={report.redemptions} />
-              </div>
-            )}
-
-            {report.summary.giftQty > 0 && (
-              <div className="rounded-2xl border border-line bg-surface2/40 p-3.5">
-                <div className="text-sm font-bold mb-2 flex items-center gap-1.5"><Gift size={14} /> {L("ของแถมที่จ่ายไป", "Gifts given out", "已发放赠品")}</div>
-                <div className="grid grid-cols-2 gap-2.5">
-                  <RTile label={L("จำนวนของแถม", "Gift quantity", "赠品数量")} value={`${report.summary.giftQty} ${L("ชิ้น", "pcs", "件")}`} />
-                  <RTile label={L("ต้นทุนของแถมรวม", "Total gift cost", "赠品成本合计")} value={formatTHB(report.summary.giftCost, false)} />
-                </div>
-                <p className="text-[11px] text-muted mt-2">{L("กำไรหลังหักส่วนลด+ต้นทุนของแถม = ยอดขาย − ส่วนลด − ต้นทุนของแถม (ต้นทุนสินค้าหลักแยกในรายงานกำไร)", "Profit after discount + gift cost = Revenue − Discount − Gift cost (main product cost is separate in the profit report)", "扣除折扣+赠品成本后的利润 = 销售额 − 折扣 − 赠品成本（主商品成本在利润报表中单列）")}</p>
-              </div>
-            )}
-
-            {report.byBranch.length > 0 && (
-              <div>
-                <div className="text-sm font-semibold mb-2 flex items-center gap-1.5"><MapPin size={14} /> {L("ของแถมแยกสาขา", "Gifts by branch", "各门店赠品")}</div>
-                <ul className="space-y-1.5">
-                  {report.byBranch.map((b) => (
-                    <li key={b.name} className="flex items-center gap-2 px-3 py-2 rounded-xl border border-line text-sm">
-                      <span className="flex-1 truncate">{b.name}</span>
-                      <span className="text-muted text-xs">{b.gift_qty} {L("ชิ้น", "pcs", "件")}</span>
-                      <span className="tnum font-semibold">{formatTHB(b.gift_cost, false)}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            {report.summary.uses === 0 && report.summary.giftQty === 0 && (
-              <p className="text-sm text-muted text-center py-6">{L("ยังไม่มีการใช้งานแคมเปญนี้", "This campaign has not been used yet", "该活动尚未被使用")}</p>
-            )}
-          </div>
-        )}
+      {/* รายงานแคมเปญ — วิเคราะห์เชิงลึกรายแคมเปญ (ล็อกแคมเปญ + breakdown + กรอง + ดาวน์โหลด) */}
+      <Drawer open={Boolean(reportId)} onClose={() => setReportId(null)} width="xl" title={items.find((i) => i.id === reportId)?.name ?? L("รายงานแคมเปญ", "Campaign report", "活动报表")} subtitle={L("วิเคราะห์การใช้งานเชิงลึก — สาขา/แบรนด์/พนักงาน/ช่วงเวลา", "Deep usage analytics — branch/brand/staff/time", "深度分析")}>
+        <div className="p-4 sm:p-5">
+          {reportId ? <CouponAnalytics key={reportId} initialCampaign={reportId} lockCampaign /> : null}
+        </div>
       </Drawer>
-    </div>
-  );
-}
-
-function CampaignTrend({ redemptions }: { redemptions: { created_at: string; discount_amount: number }[] }) {
-  const byDay = new Map<string, { uses: number; discount: number }>();
-  for (const r of redemptions) { const d = r.created_at.slice(0, 10); const cur = byDay.get(d) ?? { uses: 0, discount: 0 }; cur.uses++; cur.discount += Number(r.discount_amount); byDay.set(d, cur); }
-  const days = [...byDay.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1));
-  if (!days.length) return null;
-  const max = Math.max(1, ...days.map((d) => d[1].discount));
-  const totalUses = days.reduce((s, d) => s + d[1].uses, 0);
-  return (
-    <div>
-      <div className="flex items-end gap-[3px] h-28 rounded-xl border border-line bg-surface2/30 p-2">
-        {days.map(([d, v]) => (
-          <div key={d} className="flex-1 min-w-[2px] bg-brand/70 hover:bg-brand rounded-t transition-colors" style={{ height: `${Math.max(3, (v.discount / max) * 100)}%` }} title={`${d} · ${v.uses} ครั้ง · ฿${v.discount.toLocaleString()}`} />
-        ))}
-      </div>
-      <div className="flex justify-between text-[10px] text-muted mt-1">
-        <span>{days[0][0]}</span>
-        <span>{days.length} วัน · {totalUses} ครั้ง</span>
-        <span>{days[days.length - 1][0]}</span>
-      </div>
-    </div>
-  );
-}
-
-function RTile({ label, value, icon }: { label: string; value: string; icon?: React.ReactNode }) {
-  return (
-    <div className="p-3 rounded-2xl border border-line bg-surface">
-      <div className="text-[11px] text-muted flex items-center gap-1">{icon}{label}</div>
-      <div className="text-lg font-bold tnum text-ink mt-0.5">{value}</div>
     </div>
   );
 }
