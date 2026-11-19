@@ -23,7 +23,7 @@ import type {
   CountType, StockCountSession, Transfer, TransferStatus, TransferAttachment, TransferReceipt, TransferDiscrepancy, TransferReturn,
 } from "../types";
 
-const CATALOG_VERSION = "2026-11-13.1";
+const CATALOG_VERSION = "2026-11-19.1";
 // เวอร์ชันข้อมูลจำลอง (orders/audit/stock/customers/org) — เปลี่ยนเพื่อรีเฟรช demo ให้เป็นวันที่ล่าสุด
 const DEMO_DATA_VERSION = "2026-11-17.2";
 const DEMO_ORDER_ID = /^o-\d+-0000-0000-000000000000$/;
