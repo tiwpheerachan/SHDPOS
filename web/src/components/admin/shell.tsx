@@ -50,7 +50,6 @@ const NAV: NavGroup[] = [
   {
     section: "operations",
     items: [
-      { href: "/admin/stores", icon: Store, key: "stores", perm: "admin.employee_manage" },
       { href: "/admin/branches", icon: Store, key: "branches", perm: "admin.branch_manage" },
       { href: "/admin/inventory", icon: Boxes, key: "inventory", perm: "inventory.view" },
       { href: "/admin/movement", icon: Activity, key: "movement" },
