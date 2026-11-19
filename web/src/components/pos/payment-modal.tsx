@@ -31,12 +31,14 @@ export function PaymentModal({
   grandTotal,
   onConfirm,
   busy,
+  onDisplaySync,
 }: {
   open: boolean;
   onClose: () => void;
   grandTotal: number;
   onConfirm: (payments: PaymentEntry[], paid: number, change: number) => void;
   busy?: boolean;
+  onDisplaySync?: (info: { method: PaymentMethod; methodLabel: string; qr: string | null; amountDue: number }) => void;
 }) {
   const { t, locale } = useI18n();
   const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
@@ -94,13 +96,26 @@ export function PaymentModal({
 
   const needsCardFields = ["credit_card", "debit_card", "edc", "installment"].includes(method);
   const canConfirm = paid >= grandTotal && grandTotal > 0;
+  const qrDue = remaining > 0 ? remaining : grandTotal;
+
+  // ส่งบริบทการชำระเงินไปจอลูกค้า (วิธีจ่าย + QR)
+  useEffect(() => {
+    if (!open) return;
+    onDisplaySync?.({
+      method,
+      methodLabel: methodLabel(method),
+      qr: method === "qr_promptpay" ? promptPayPayload(DEMO_PROMPTPAY_MOBILE, qrDue > 0 ? qrDue : 1) : null,
+      amountDue: qrDue,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, method, remaining, grandTotal]);
 
   return (
     <Modal
       open={open}
       onClose={onClose}
       title={t.payment.title}
-      size="lg"
+      size="xl"
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>
@@ -162,21 +177,6 @@ export function PaymentModal({
               </div>
             </div>
           ) : null}
-
-          {method === "qr_promptpay" ? (() => {
-            const qrAmount = round2(Number(amountText) > 0 ? Number(amountText) : remaining);
-            return (
-              <div className="mt-3 flex flex-col items-center gap-2 rounded-2xl border border-line bg-surface2/40 py-4 px-3">
-                <div className="flex items-center gap-1.5 text-sm font-semibold text-ink"><QrCode size={15} /> {L("สแกนเพื่อจ่ายด้วยพร้อมเพย์", "Scan to pay with PromptPay", "扫码支付")}</div>
-                <div className="bg-white p-3 rounded-xl border border-line">
-                  <QRCodeSVG value={promptPayPayload(DEMO_PROMPTPAY_MOBILE, qrAmount > 0 ? qrAmount : 1)} size={188} level="M" marginSize={0} />
-                </div>
-                <p className="text-2xl font-extrabold tnum text-ink leading-none">{formatTHB(qrAmount)}</p>
-                <p className="text-[11px] text-muted text-center">{L("พร้อมเพย์ร้าน", "Shop PromptPay", "商户")} {DEMO_PROMPTPAY_MOBILE} · <span className="text-amber-600 font-medium">{L("ตัวอย่างจำลอง", "demo only", "示例")}</span></p>
-                <Button variant="primary" className="mt-0.5 w-full" disabled={qrAmount <= 0} onClick={() => addPayment(qrAmount)}>{L("ลูกค้าสแกนจ่ายแล้ว — บันทึก", "Customer paid — record", "已支付")}</Button>
-              </div>
-            );
-          })() : null}
 
           {(needsCardFields || method === "bank_transfer") ? (
             <div className="mt-3">
@@ -246,6 +246,22 @@ export function PaymentModal({
             <span className="text-sm text-muted">{t.pos.grandTotal}</span>
             <span className="text-2xl font-semibold tnum">{formatTHB(grandTotal)}</span>
           </div>
+
+          {method === "qr_promptpay" ? (
+            remaining <= 0 ? (
+              <div className="mt-3 rounded-2xl border border-ok/30 bg-ok/8 py-4 text-center text-sm font-semibold text-ok">{L("ชำระครบแล้ว ✓", "Fully paid ✓", "已付清")}</div>
+            ) : (
+              <div className="mt-3 flex flex-col items-center gap-2 rounded-2xl border border-line bg-surface py-3.5 px-3">
+                <div className="flex items-center gap-1.5 text-[13px] font-semibold text-ink"><QrCode size={14} /> {L("สแกนจ่ายด้วยพร้อมเพย์", "Scan with PromptPay", "扫码支付")}</div>
+                <div className="bg-white p-2.5 rounded-xl border border-line">
+                  <QRCodeSVG value={promptPayPayload(DEMO_PROMPTPAY_MOBILE, qrDue > 0 ? qrDue : 1)} size={168} level="M" marginSize={0} />
+                </div>
+                <p className="text-xl font-extrabold tnum text-ink leading-none">{formatTHB(qrDue)}</p>
+                <p className="text-[10.5px] text-muted text-center leading-snug">{L("พร้อมเพย์ร้าน", "Shop PromptPay", "商户")} {DEMO_PROMPTPAY_MOBILE}<br /><span className="text-amber-600 font-medium">{L("ตัวอย่างจำลอง · โชว์บนจอลูกค้าด้วย", "demo · also shown on customer display", "示例")}</span></p>
+                <Button variant="primary" className="w-full" onClick={() => addPayment(qrDue)}>{L("ลูกค้าสแกนจ่ายแล้ว — บันทึก", "Customer paid — record", "已支付")}</Button>
+              </div>
+            )
+          ) : null}
 
           <div className="mt-4 space-y-2 flex-1 min-h-[120px]">
             {payments.map((p, i) => (

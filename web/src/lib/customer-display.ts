@@ -13,11 +13,19 @@ export interface DisplayPayload {
   branchName?: string;
   lines: (Pick<CartLine, "lineId" | "name" | "qty" | "unit_price"> & { image_url?: string | null; is_gift?: boolean })[];
   subtotal: number;
-  discount: number;
+  discount: number;          // ส่วนลดพนักงาน (บรรทัด+ท้ายบิล)
+  coupon?: number;           // ส่วนลดคูปอง/แคมเปญ
+  redeem?: number;           // ส่วนลดจากแต้ม
+  vat?: number;              // VAT ที่รวมในยอด
   grandTotal: number;
   paid?: number;
   change?: number;
   orderNo?: string;
+  /** ระหว่างชำระเงิน: วิธีจ่าย + QR ให้ลูกค้าสแกน */
+  payMethod?: string;
+  payMethodLabel?: string;
+  payQr?: string | null;
+  amountDue?: number;
   updatedAt: number;
 }
 

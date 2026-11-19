@@ -122,17 +122,23 @@ export default function SellPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [branchId]);
 
-  // ส่งข้อมูลไปจอลูกค้าทุกครั้งที่ตะกร้าเปลี่ยน
+  // payload พื้นฐานสำหรับจอลูกค้า (ใช้ซ้ำทั้งตอนตะกร้าและตอนชำระเงิน)
+  const displayBase = useCallback(() => ({
+    branchName: branch ? pick({ th: branch.name_th, en: branch.name, zh: branch.name }) : undefined,
+    lines: cart.lines.map((l) => ({ lineId: l.lineId, name: l.name, qty: l.qty, unit_price: l.unit_price, image_url: l.image_url ?? null, is_gift: !!l.is_gift })),
+    subtotal: totals.subtotal,
+    discount: totals.discountTotal,
+    coupon: totals.couponAmount,
+    redeem: totals.redeemAmount,
+    vat: totals.vatAmount,
+    grandTotal: totals.grandTotal,
+  }), [branch, pick, cart.lines, totals.subtotal, totals.discountTotal, totals.couponAmount, totals.redeemAmount, totals.vatAmount, totals.grandTotal]);
+
+  // ส่งข้อมูลไปจอลูกค้าทุกครั้งที่ตะกร้าเปลี่ยน (เว้นตอนเปิดหน้าชำระเงิน — ให้ modal คุมจอ)
   useEffect(() => {
-    pushDisplay({
-      state: cart.lines.length ? "cart" : "idle",
-      branchName: branch ? pick({ th: branch.name_th, en: branch.name, zh: branch.name }) : undefined,
-      lines: cart.lines.map((l) => ({ lineId: l.lineId, name: l.name, qty: l.qty, unit_price: l.unit_price, image_url: l.image_url ?? null, is_gift: !!l.is_gift })),
-      subtotal: totals.subtotal,
-      discount: totals.discountTotal,
-      grandTotal: totals.grandTotal,
-    });
-  }, [cart.lines, totals.subtotal, totals.discountTotal, totals.grandTotal, branch, pick]);
+    if (payOpen) return;
+    pushDisplay({ state: cart.lines.length ? "cart" : "idle", ...displayBase() });
+  }, [payOpen, displayBase, cart.lines.length]);
 
   // ------------------------------------------------------------------
   // ของแถมอัตโนมัติจากแคมเปญ
@@ -926,6 +932,7 @@ export default function SellPage() {
         grandTotal={totals.grandTotal}
         busy={busy}
         onConfirm={(p, paid, change) => void confirmSale(p, paid, change)}
+        onDisplaySync={(info) => pushDisplay({ state: "payment", ...displayBase(), payMethod: info.method, payMethodLabel: info.methodLabel, payQr: info.qr, amountDue: info.amountDue })}
       />
 
       <DiscountModal

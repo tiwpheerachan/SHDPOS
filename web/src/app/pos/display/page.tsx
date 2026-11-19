@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ShoppingBag, CheckCircle2 } from "lucide-react";
+import { ShoppingBag, CheckCircle2, QrCode, CreditCard } from "lucide-react";
+import { QRCodeSVG } from "qrcode.react";
 import { useI18n } from "@/lib/i18n/provider";
 import { subscribeDisplay, EMPTY_DISPLAY, type DisplayPayload } from "@/lib/customer-display";
 import { formatTHB } from "@/lib/money";
@@ -15,6 +16,13 @@ export default function CustomerDisplayPage() {
   const [data, setData] = useState<DisplayPayload>(EMPTY_DISPLAY);
 
   useEffect(() => subscribeDisplay(setData), []);
+
+  const Row = ({ label, value, tone }: { label: string; value: string; tone?: "danger" | "muted" }) => (
+    <div className="flex justify-between text-base">
+      <span className="text-muted">{label}</span>
+      <span className={`tnum ${tone === "danger" ? "text-danger" : ""}`}>{value}</span>
+    </div>
+  );
 
   return (
     <div className="customer-display min-h-screen bg-bg flex flex-col">
@@ -49,7 +57,8 @@ export default function CustomerDisplayPage() {
           </div>
         </div>
       ) : (
-        <div className="flex-1 grid lg:grid-cols-[1fr_380px] min-h-0">
+        <div className="flex-1 grid lg:grid-cols-[1fr_420px] min-h-0">
+          {/* ซ้าย: รายการสินค้า */}
           <div className="overflow-y-auto px-8 py-6">
             <h2 className="text-sm font-medium text-muted mb-4">{t.display.yourOrder}</h2>
             <ul className="divide-y divide-line">
@@ -68,18 +77,34 @@ export default function CustomerDisplayPage() {
             </ul>
           </div>
 
-          <div className="bg-surface border-l border-line px-8 py-6 flex flex-col justify-end">
-            <div className="space-y-2.5">
-              <div className="flex justify-between text-base">
-                <span className="text-muted">{t.pos.subtotal}</span>
-                <span className="tnum">{formatTHB(data.subtotal)}</span>
-              </div>
-              {data.discount > 0 ? (
-                <div className="flex justify-between text-base">
-                  <span className="text-muted">{t.pos.discount}</span>
-                  <span className="tnum text-danger">-{formatTHB(data.discount)}</span>
+          {/* ขวา: ชำระเงิน + สรุป */}
+          <div className="bg-surface border-l border-line px-8 py-6 flex flex-col">
+            {/* ระหว่างชำระเงิน: QR พร้อมเพย์ หรือ วิธีจ่าย */}
+            {data.state === "payment" && data.payQr ? (
+              <div className="text-center mb-5">
+                <p className="text-sm font-semibold inline-flex items-center gap-1.5 mb-3"><QrCode size={16} /> สแกนเพื่อจ่าย · พร้อมเพย์</p>
+                <div className="inline-block bg-white p-4 rounded-2xl border border-line shadow-card">
+                  <QRCodeSVG value={data.payQr} size={224} level="M" marginSize={0} />
                 </div>
-              ) : null}
+                <p className="text-3xl font-bold tnum mt-3">{formatTHB(data.amountDue ?? data.grandTotal)}</p>
+                <p className="text-xs text-muted mt-1">สแกนด้วยแอปธนาคาร · ตัวอย่างจำลอง</p>
+              </div>
+            ) : data.state === "payment" && data.payMethodLabel ? (
+              <div className="text-center mb-5 rounded-2xl border border-line bg-surface2 py-6 px-4">
+                <CreditCard size={34} className="mx-auto text-brand mb-2" />
+                <p className="text-sm text-muted">กำลังรับชำระด้วย</p>
+                <p className="text-2xl font-bold mt-1">{data.payMethodLabel}</p>
+                <p className="text-3xl font-bold tnum mt-3">{formatTHB(data.amountDue ?? data.grandTotal)}</p>
+              </div>
+            ) : null}
+
+            {/* สรุปการคิดเงิน (แสดงเสมอ ทั้งตอนตะกร้าและชำระเงิน) */}
+            <div className="mt-auto space-y-2.5">
+              <Row label={t.pos.subtotal} value={formatTHB(data.subtotal)} />
+              {data.discount > 0 ? <Row label={t.pos.discount} value={`-${formatTHB(data.discount)}`} tone="danger" /> : null}
+              {(data.coupon ?? 0) > 0 ? <Row label="คูปอง / แคมเปญ" value={`-${formatTHB(data.coupon!)}`} tone="danger" /> : null}
+              {(data.redeem ?? 0) > 0 ? <Row label="แลกแต้มสะสม" value={`-${formatTHB(data.redeem!)}`} tone="danger" /> : null}
+              {(data.vat ?? 0) > 0 ? <div className="flex justify-between text-sm text-muted"><span>VAT 7% (รวมในยอด)</span><span className="tnum">{formatTHB(data.vat!)}</span></div> : null}
               <div className="border-t border-line pt-4">
                 <p className="text-sm text-muted">{t.pos.grandTotal}</p>
                 <p className="text-5xl font-semibold tnum mt-1">{formatTHB(data.grandTotal)}</p>
