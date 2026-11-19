@@ -12,7 +12,8 @@ import { useCallback, useEffect, useState } from "react";
 import {
   Ticket, Plus, Trash2, Loader2, Pencil, TrendingUp, Users, Tag, Power, Gift, Search, X, Store, Layers, BarChart3, MapPin,
 } from "lucide-react";
-import { Modal, EmptyState, Drawer } from "@/components/ui";
+import { Modal, EmptyState, Drawer, Segmented } from "@/components/ui";
+import { CouponAnalytics } from "@/components/admin/coupon-analytics";
 import { useAdminScope } from "@/components/admin/filters";
 import { useI18n } from "@/lib/i18n/provider";
 import { useScopeFilter } from "@/lib/store/scope-filter";
@@ -88,6 +89,8 @@ export default function AdminCampaignsPage() {
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<FormState>(EMPTY);
   const [err, setErr] = useState("");
+  const [tab, setTab] = useState<"manage" | "usage">("manage");
+  const [usageCampaign, setUsageCampaign] = useState<string>("");
   const [expanded, setExpanded] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [reportId, setReportId] = useState<string | null>(null);
@@ -225,12 +228,19 @@ export default function AdminCampaignsPage() {
           <h1 className="text-xl font-bold flex items-center gap-2"><Ticket size={22} /> {L("แคมเปญ / คูปอง", "Campaigns / Coupons", "活动 / 优惠券")}</h1>
           <p className="text-sm text-muted mt-0.5">{L("ตั้งเงื่อนไขละเอียด — ขอบเขตแบรนด์/สาขา เลือก SKU และของแถม แล้ววัดผล", "Set detailed conditions — brand/branch scope, choose SKUs and gifts, then measure results", "设置详细条件 — 品牌/门店范围，选择SKU和赠品，然后衡量效果")}</p>
         </div>
-        <button onClick={openNew} className="h-10 px-4 rounded-2xl bg-brand text-brandInk text-sm font-bold inline-flex items-center gap-2">
-          <Plus size={16} /> {L("สร้างแคมเปญ", "Create campaign", "创建活动")}
-        </button>
+        {tab === "manage" && (
+          <button onClick={openNew} className="h-10 px-4 rounded-2xl bg-brand text-brandInk text-sm font-bold inline-flex items-center gap-2">
+            <Plus size={16} /> {L("สร้างแคมเปญ", "Create campaign", "创建活动")}
+          </button>
+        )}
       </div>
 
-      {loading ? (
+      <Segmented value={tab} onChange={(v) => setTab(v as "manage" | "usage")} options={[
+        { value: "manage", label: L("จัดการแคมเปญ", "Manage", "管理") },
+        { value: "usage", label: L("วิเคราะห์การใช้งาน", "Usage analytics", "使用分析") },
+      ]} />
+
+      {tab === "usage" ? <CouponAnalytics initialCampaign={usageCampaign} onToggled={() => void load()} /> : loading ? (
         <div className="py-20 text-center text-muted"><Loader2 className="inline animate-spin" size={20} /> {L("กำลังโหลด…", "Loading…", "加载中…")}</div>
       ) : shownItems.length === 0 ? (
         <EmptyState icon={<Ticket size={26} />} title={items.length ? L("ไม่ตรงกับตัวกรอง", "No match for filter", "无匹配筛选") : L("ยังไม่มีแคมเปญ", "No campaigns yet", "暂无活动")} body={items.length ? L("ลองเปลี่ยนแบรนด์/สาขาบนแถบบน", "Try changing the brand/branch on the top bar", "请尝试更改顶栏的品牌/门店") : L("กด “สร้างแคมเปญ” เพื่อเริ่ม", "Tap “Create campaign” to start", "点击“创建活动”开始")} />
@@ -264,7 +274,7 @@ export default function AdminCampaignsPage() {
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
                   <button onClick={() => setReportId(c.id)} title={L("สรุปย่อ", "Quick report", "快报")} className="h-8 w-8 grid place-items-center rounded-lg text-muted hover:bg-surface2"><BarChart3 size={15} /></button>
-                  <button onClick={() => { window.location.href = `/admin/coupons?campaign=${c.id}`; }} title={L("วิเคราะห์การใช้งานเชิงลึก", "Deep usage analytics", "深度分析")} className="h-8 w-8 grid place-items-center rounded-lg text-muted hover:bg-surface2"><TrendingUp size={15} /></button>
+                  <button onClick={() => { setUsageCampaign(c.id); setTab("usage"); }} title={L("วิเคราะห์การใช้งานเชิงลึก", "Deep usage analytics", "深度分析")} className="h-8 w-8 grid place-items-center rounded-lg text-muted hover:bg-surface2"><TrendingUp size={15} /></button>
                   <button onClick={() => void toggleActive(c)} title={c.active ? L("ปิด", "Disable", "停用") : L("เปิด", "Enable", "启用")} className={`h-8 w-8 grid place-items-center rounded-lg hover:bg-surface2 ${c.active ? "text-ink" : "text-muted"}`}><Power size={15} /></button>
                   <button onClick={() => openEdit(c)} className="h-8 w-8 grid place-items-center rounded-lg text-muted hover:bg-surface2"><Pencil size={15} /></button>
                   <button onClick={() => void remove(c)} className="h-8 w-8 grid place-items-center rounded-lg text-muted hover:text-danger hover:bg-surface2"><Trash2 size={15} /></button>

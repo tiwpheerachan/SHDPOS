@@ -43,7 +43,6 @@ const NAV: NavGroup[] = [
       { href: "/admin/customers", icon: Contact, key: "customers" },
       { href: "/admin/tasks", icon: CalendarClock, key: "tasks" },
       { href: "/admin/campaigns", icon: Ticket, key: "campaigns" },
-      { href: "/admin/coupons", icon: Ticket, key: "coupons" },
       { href: "/admin/employees", icon: Users, key: "employees", perm: "report.employee_perf" },
       { href: "/admin/org", icon: Network, key: "org", perm: "admin.employee_manage" },
     ],
