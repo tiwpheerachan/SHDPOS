@@ -5,13 +5,12 @@
 // =====================================================================
 import { useEffect, useMemo, useState, useCallback } from "react";
 import {
-  Ticket, Download, Share2, SlidersHorizontal, X, Check, TrendingDown, Receipt, Tag,
-  Power, Percent, Gift, BadgePercent, ArrowUpRight, Loader2,
+  Ticket, Download, Share2, SlidersHorizontal, X, Check, TrendingDown, Receipt, Tag, Gift,
 } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { useAdminScope } from "@/components/admin/filters";
 import { Card, CardHeader, KpiTile, Button, Drawer, Table, Th, Td, Badge, Input, Select, EmptyState, Segmented } from "@/components/ui";
-import { BarList, Sparkline } from "@/components/charts";
+import { BarList } from "@/components/charts";
 import { formatTHB } from "@/lib/money";
 import { downloadExcel } from "@/lib/export";
 import { useToast } from "@/components/toast-host";
@@ -29,7 +28,7 @@ interface CampaignMeta {
   starts_at: string | null; ends_at: string | null;
 }
 
-export function CouponAnalytics({ initialCampaign, onToggled }: { initialCampaign?: string; onToggled?: () => void }) {
+export function CouponAnalytics({ initialCampaign }: { initialCampaign?: string }) {
   const { locale } = useI18n();
   const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
   const { branches } = useAdminScope();
@@ -42,11 +41,10 @@ export function CouponAnalytics({ initialCampaign, onToggled }: { initialCampaig
   const [view, setView] = useState<ViewKey>("list");
   const [filterOpen, setFilterOpen] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [togglingId, setTogglingId] = useState<string | null>(null);
 
   const todayISO = new Date().toISOString().slice(0, 10);
   const ago = (d: number) => { const x = new Date(); x.setDate(x.getDate() - d); return x.toISOString().slice(0, 10); };
-  const [fFrom, setFFrom] = useState(ago(60));
+  const [fFrom, setFFrom] = useState(ago(90));
   const [fTo, setFTo] = useState(todayISO);
   const [fCampaign, setFCampaign] = useState(initialCampaign ?? "");
   const [fBranch, setFBranch] = useState("");
@@ -120,24 +118,6 @@ export function CouponAnalytics({ initialCampaign, onToggled }: { initialCampaig
     return [...m.values()].sort((a, b) => b.orders - a.orders);
   }, [filtered]);
 
-  async function toggleCampaign(c: CampaignMeta) {
-    setTogglingId(c.id);
-    try {
-      const r = await fetch("/api/admin/campaigns", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: c.id, active: !c.active }) });
-      if (!r.ok) throw new Error();
-      setCampaigns((prev) => prev.map((x) => (x.id === c.id ? { ...x, active: !x.active } : x)));
-      onToggled?.();
-      toast.push({ tone: "ok", title: c.active ? L("ปิดคูปองแล้ว", "Coupon disabled", "已停用") : L("เปิดคูปองแล้ว", "Coupon enabled", "已启用"), body: c.name });
-    } catch { toast.push({ tone: "danger", title: L("ทำรายการไม่สำเร็จ", "Action failed", "操作失败") }); }
-    finally { setTogglingId(null); }
-  }
-
-  const typeLabel = (c: CampaignMeta) =>
-    c.promo_type === "gift" ? L("ของแถม", "Gift", "赠品")
-      : c.discount_type === "percent" ? `${L("ลด", "", "")}${c.discount_value}%${c.max_discount ? ` ${L("สูงสุด", "max", "")} ${formatTHB(c.max_discount, false)}` : ""}`
-        : `${L("ลด", "", "")} ${formatTHB(c.discount_value, false)}`;
-  const typeIcon = (c: CampaignMeta) => c.promo_type === "gift" ? <Gift size={13} /> : c.discount_type === "percent" ? <Percent size={13} /> : <BadgePercent size={13} />;
-
   function exportXls() {
     const stamp = `${fFrom}_${fTo}`;
     if (view === "campaign") {
@@ -201,52 +181,14 @@ export function CouponAnalytics({ initialCampaign, onToggled }: { initialCampaig
         <KpiTile label={L("เฉลี่ยส่วนลด/บิล", "Avg discount/bill", "均折扣")} value={formatTHB(kpi.avg, false)} icon={<Tag size={16} />} accent="coral" />
       </div>
 
-      {/* การ์ดวิเคราะห์รายคูปอง */}
-      <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-ink">{L("รายคูปอง", "By coupon", "各优惠券")} <span className="text-muted font-normal">· {campaigns.length} {L("ใบ", "coupons", "张")}</span></h2>
-        {fCampaign ? <button onClick={() => setFCampaign("")} className="text-[11px] text-brand hover:underline inline-flex items-center gap-1"><X size={12} /> {L("ล้างการเลือกคูปอง", "Clear selection", "清除")}</button> : null}
-      </div>
-      {loading ? (
-        <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-3">{Array.from({ length: 6 }).map((_, i) => <div key={i} className="h-44 rounded-2xl bg-surface2 animate-pulse" />)}</div>
-      ) : (
-        <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-3">
-          {perCoupon.map(({ c, uses, discount, revenue, customers, trend, topProduct }) => {
-            const selected = fCampaign === c.id;
-            const spark = c.promo_type === "gift" ? "var(--c-lavender, #a78bfa)" : c.discount_type === "percent" ? "var(--c-mint, #34d399)" : "var(--c-coral, #fb7185)";
-            return (
-              <Card key={c.id} className={`p-4 transition ${selected ? "ring-2 ring-brand" : ""} ${c.active ? "" : "opacity-70"}`}>
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      {c.code ? <span className="font-mono text-[11px] font-bold px-1.5 py-0.5 rounded-md bg-brand/12 text-brand">{c.code}</span> : <Badge tone="neutral">{L("อัตโนมัติ", "Auto", "自动")}</Badge>}
-                      {!c.active && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-surface2 text-danger border border-line">{L("ปิด", "Off", "停")}</span>}
-                    </div>
-                    <p className="text-sm font-semibold text-ink truncate mt-1" title={c.name}>{c.name}</p>
-                    <p className="text-[11px] text-muted inline-flex items-center gap-1 mt-0.5">{typeIcon(c)} {typeLabel(c)}</p>
-                  </div>
-                  <button onClick={() => void toggleCampaign(c)} disabled={togglingId === c.id} title={c.active ? L("ปิดคูปอง", "Disable", "停用") : L("เปิดคูปอง", "Enable", "启用")}
-                    className={`h-8 w-8 shrink-0 grid place-items-center rounded-lg border ${c.active ? "border-brand/30 text-brand bg-brand/8" : "border-line text-muted"} hover:bg-surface2`}>
-                    {togglingId === c.id ? <Loader2 size={14} className="animate-spin" /> : <Power size={14} />}
-                  </button>
-                </div>
-
-                <div className="mt-2.5 -mx-1"><Sparkline values={trend.some((v) => v) ? trend : [0, 0]} color={spark} height={34} fill /></div>
-
-                <div className="grid grid-cols-3 gap-2 mt-2.5">
-                  <div><p className="text-[10px] text-muted">{L("ใช้", "Uses", "次")}</p><p className="text-base font-bold tnum text-ink">{uses}</p></div>
-                  <div><p className="text-[10px] text-muted">{L("ส่วนลดรวม", "Discount", "折扣")}</p><p className="text-base font-bold tnum text-danger">{formatTHB(discount, false)}</p></div>
-                  <div><p className="text-[10px] text-muted">{L("ยอดขาย", "Revenue", "销售")}</p><p className="text-base font-bold tnum text-ink">{formatTHB(revenue, false)}</p></div>
-                </div>
-
-                <div className="flex items-center justify-between gap-2 mt-2.5 pt-2.5 border-t border-line text-[11px] text-muted">
-                  <span className="truncate" title={topProduct ?? ""}>{topProduct ? `★ ${topProduct}` : L("ยังไม่มีการใช้", "No usage yet", "暂无")}{customers ? ` · ${customers} ${L("ลูกค้า", "cust.", "客")}` : ""}</span>
-                  <button onClick={() => { setFCampaign(selected ? "" : c.id); setView("list"); }} className="shrink-0 inline-flex items-center gap-0.5 text-brand hover:underline font-medium">{selected ? L("กำลังดู", "Viewing", "查看中") : L("ดูรายการ", "View log", "明细")} <ArrowUpRight size={12} /></button>
-                </div>
-              </Card>
-            );
-          })}
+      {fCampaign ? (
+        <div className="flex items-center gap-2 text-xs">
+          <span className="text-muted">{L("กรองเฉพาะ", "Filtered", "筛选")}:</span>
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-brand/10 text-brand font-medium"><Ticket size={12} /> {campById.get(fCampaign)?.name ?? ""}
+            <button onClick={() => setFCampaign("")} className="ml-0.5 hover:opacity-70"><X size={12} /></button>
+          </span>
         </div>
-      )}
+      ) : null}
 
       {/* Top แคมเปญ */}
       {topCampaigns.length ? (
@@ -349,7 +291,7 @@ export function CouponAnalytics({ initialCampaign, onToggled }: { initialCampaig
             <Input type="number" min={0} value={fMinDiscount} onChange={(e) => setFMinDiscount(e.target.value)} placeholder="0" className="h-10 w-40" />
           </div>
           <div className="flex gap-2 pt-1">
-            <Button variant="ghost" className="flex-1" onClick={() => { setFCampaign(""); setFBranch(""); setFProduct(""); setFMinDiscount(""); setFFrom(ago(60)); setFTo(todayISO); }}><X size={15} /> {L("ล้างตัวกรอง", "Clear", "清除")}</Button>
+            <Button variant="ghost" className="flex-1" onClick={() => { setFCampaign(""); setFBranch(""); setFProduct(""); setFMinDiscount(""); setFFrom(ago(90)); setFTo(todayISO); }}><X size={15} /> {L("ล้างตัวกรอง", "Clear", "清除")}</Button>
             <Button variant="primary" className="flex-1" onClick={() => setFilterOpen(false)}><Check size={15} /> {L(`ใช้ (${filtered.length})`, `Apply (${filtered.length})`, `应用 (${filtered.length})`)}</Button>
           </div>
           <Button variant="soft" className="w-full" onClick={exportXls}><Download size={15} /> {L("ดาวน์โหลด Excel ตามตัวกรองนี้", "Download Excel (filtered)", "导出Excel")}</Button>

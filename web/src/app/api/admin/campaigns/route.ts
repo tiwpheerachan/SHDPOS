@@ -56,7 +56,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       campaign: camp,
       summary: { uses, customers, discountTotal, revenue, giftQty, giftCost },
-      redemptions: (reds ?? []).slice(0, 100),
+      redemptions: (reds ?? []).slice(0, 500),
       byBranch: Object.values(byBranch).sort((a, b) => b.gift_cost - a.gift_cost),
     });
   }
