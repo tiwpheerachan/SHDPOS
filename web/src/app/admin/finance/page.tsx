@@ -34,6 +34,7 @@ export default function AdminFinancePage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<Detail>("paid");
+  const [view, setView] = useState<"dash" | "table">("dash");
   const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
 
   useEffect(() => { void listOrders().then((o) => { setOrders(o); setLoading(false); }); }, []);
@@ -58,6 +59,14 @@ export default function AdminFinancePage() {
   }, [rows, locale]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const sum = useMemo(() => financeSummary(rows), [rows]);
+  // ช่วงก่อนหน้า (เท่ากัน) สำหรับ delta % แบบหน้า dashboard
+  const prevSum = useMemo(() => {
+    if (!filter.from || !filter.to) return null;
+    const len = filter.to.getTime() - filter.from.getTime();
+    const pf = new Date(filter.from.getTime() - len - 1), pt = new Date(filter.from.getTime() - 1);
+    return financeSummary(filterOrders(scoped, { from: pf, to: pt, branchIds: filter.branchIds, brandIds: filter.brandIds, branches }));
+  }, [scoped, filter, branches]);
+  const pct = (a: number, b: number) => (b > 0 ? ((a - b) / b) * 100 : null);
   const systemPaid = useMemo(() => pays.filter((p) => SYSTEM.has(p.bucket)).reduce((s, p) => s + p.amount, 0), [pays]);
   const toReview = useMemo(() => pays.filter((p) => SYSTEM.has(p.bucket) && !p.ref), [pays]);
   const feeKnown = useMemo(() => { const sysc = pays.filter((p) => SYSTEM.has(p.bucket)); return { known: sysc.filter((p) => p.fee !== null).length, total: sysc.length }; }, [pays]);
@@ -128,12 +137,19 @@ export default function AdminFinancePage() {
       ) : (<>
         {/* KPI */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <KpiTile label={L("ยอดชำระตามบิล", "Paid (by bill)", "账单收款")} value={`฿${nf(sum.gross)}`} sub={L(`${formatInt(sum.orders)} บิล · ไม่ใช่ยอด statement`, `${formatInt(sum.orders)} bills · not statement`, "非对账单")} icon={<Wallet size={16} />} accent="mint" />
-          <KpiTile label={L("สุทธิคาดรับ", "Net expected", "预计净收")} value={`฿${nf(sum.net)}`} sub={feeIncomplete ? L(`หักค่าธรรมเนียม ฿${nf(sum.fee)} · ยังไม่ครบ`, `less fee ฿${nf(sum.fee)} · incomplete`, "手续费不全") : L(`หักค่าธรรมเนียม ฿${nf(sum.fee)}`, `less fee ฿${nf(sum.fee)}`, "扣手续费")} icon={<Receipt size={16} />} accent="lavender" />
+          <KpiTile label={L("ยอดชำระตามบิล", "Paid (by bill)", "账单收款")} value={`฿${nf(sum.gross)}`} delta={prevSum ? pct(sum.gross, prevSum.gross) : null} sub={L(`${formatInt(sum.orders)} บิล · เทียบช่วงก่อน`, `${formatInt(sum.orders)} bills · vs prev`, "对比上期")} icon={<Wallet size={15} />} variant="ink" />
+          <KpiTile label={L("สุทธิคาดรับ", "Net expected", "预计净收")} value={`฿${nf(sum.net)}`} delta={prevSum ? pct(sum.net, prevSum.net) : null} sub={feeIncomplete ? L(`หักค่าธรรมเนียม ฿${nf(sum.fee)} · ยังไม่ครบ`, `less fee ฿${nf(sum.fee)} · incomplete`, "手续费不全") : L(`หักค่าธรรมเนียม ฿${nf(sum.fee)}`, `less fee ฿${nf(sum.fee)}`, "扣手续费")} icon={<Receipt size={15} />} accent="lavender" />
           <KpiTile label={L("รอเงินเข้า (ยังไม่จับคู่)", "Awaiting settlement", "待入账")} value={`฿${nf(systemPaid)}`} sub={L("ยังไม่เชื่อมข้อมูลธนาคาร", "bank not connected", "未接银行")} icon={<Clock size={16} />} accent="peach" />
           <KpiTile label={L("ต้องตรวจสอบ", "To review", "需核查")} value={`${formatInt(toReview.length)}`} sub={L("ขาดเลขอ้างอิง/หลักฐาน", "missing reference", "缺参考号")} icon={<AlertTriangle size={16} />} accent={toReview.length ? "coral" : "neutral"} />
         </div>
 
+        {/* สวิตช์มุมมอง: Dashboard | คอลัมน์ */}
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <span className="text-xs text-muted">{filter.branchIds.length ? `${filter.branchIds.length} ${L("สาขา", "branches", "门店")}` : L("ทุกสาขา", "All branches", "全部")} · {formatInt(sum.orders)} {L("บิล", "bills", "单")}</span>
+          <Segmented value={view} onChange={(v) => setView(v as "dash" | "table")} options={[{ value: "dash", label: L("Dashboard", "Dashboard", "仪表板") }, { value: "table", label: L("มุมมองคอลัมน์", "Columns", "列视图") }]} />
+        </div>
+
+        {view === "dash" ? (<>
         {/* แนวโน้ม */}
         <Card className="p-4">
           <CardHeader title={<span className="inline-flex items-center gap-1.5"><TrendingUp size={15} className="text-brand" /> {L("แนวโน้มยอดชำระ", "Payment trend", "收款趋势")}</span>} subtitle={L("ยอดชำระตามบิล รายวัน · บาท", "Paid by bill, daily · THB", "每日账单收款 · 泰铢")} />
@@ -184,7 +200,8 @@ export default function AdminFinancePage() {
           </Card>
         </div>
 
-        {/* รายละเอียด — เลือกชุดตารางด้านล่าง (ใช้ตัวกรองเดียวกับด้านบน) */}
+        </>) : (
+        /* ───────── มุมมองคอลัมน์ (ตาราง) ───────── */
         <Card>
           <div className="p-4 pb-3 flex items-center justify-between gap-3 flex-wrap border-b border-line">
             <h2 className="text-base font-semibold">{L("รายละเอียด", "Details", "明细")}</h2>
@@ -250,6 +267,7 @@ export default function AdminFinancePage() {
             ) : <p className="py-12 text-center text-sm text-muted">{L("ไม่มีข้อมูลผู้รับบัตร", "No acquirer data", "无数据")}</p>)}
           </div>
         </Card>
+        )}
       </>)}
     </div>
   );
