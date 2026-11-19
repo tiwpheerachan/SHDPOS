@@ -11,6 +11,8 @@ const CHANNEL = "shdpos.customer-display";
 export interface DisplayPayload {
   state: "idle" | "cart" | "payment" | "done";
   branchName?: string;
+  brandName?: string;
+  brandLogo?: string;
   lines: (Pick<CartLine, "lineId" | "name" | "qty" | "unit_price"> & { image_url?: string | null; is_gift?: boolean })[];
   subtotal: number;
   discount: number;          // ส่วนลดพนักงาน (บรรทัด+ท้ายบิล)

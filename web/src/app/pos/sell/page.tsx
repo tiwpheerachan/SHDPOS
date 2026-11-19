@@ -80,6 +80,7 @@ export default function SellPage() {
   const [customerOpen, setCustomerOpen] = useState(false);
   const [cartExpanded, setCartExpanded] = useState(false);
   const [brandLogo, setBrandLogo] = useState<string | null>(null);
+  const [brandName, setBrandName] = useState<string | null>(null);
   const [promos, setPromos] = useState<PromoCampaign[]>([]);
   const [promoOpen, setPromoOpen] = useState(false); // การ์ดเลือกแคมเปญส่วนลด
   const [promoShowAll, setPromoShowAll] = useState(false); // ดูภาพรวม (ทุกแคมเปญ)
@@ -125,6 +126,8 @@ export default function SellPage() {
   // payload พื้นฐานสำหรับจอลูกค้า (ใช้ซ้ำทั้งตอนตะกร้าและตอนชำระเงิน)
   const displayBase = useCallback(() => ({
     branchName: branch ? pick({ th: branch.name_th, en: branch.name, zh: branch.name }) : undefined,
+    brandName: brandName ?? undefined,
+    brandLogo: brandLogo ?? undefined,
     lines: cart.lines.map((l) => ({ lineId: l.lineId, name: l.name, qty: l.qty, unit_price: l.unit_price, image_url: l.image_url ?? null, is_gift: !!l.is_gift })),
     subtotal: totals.subtotal,
     discount: totals.discountTotal,
@@ -132,7 +135,7 @@ export default function SellPage() {
     redeem: totals.redeemAmount,
     vat: totals.vatAmount,
     grandTotal: totals.grandTotal,
-  }), [branch, pick, cart.lines, totals.subtotal, totals.discountTotal, totals.couponAmount, totals.redeemAmount, totals.vatAmount, totals.grandTotal]);
+  }), [branch, brandName, brandLogo, pick, cart.lines, totals.subtotal, totals.discountTotal, totals.couponAmount, totals.redeemAmount, totals.vatAmount, totals.grandTotal]);
 
   // ส่งข้อมูลไปจอลูกค้าทุกครั้งที่ตะกร้าเปลี่ยน (เว้นตอนเปิดหน้าชำระเงิน — ให้ modal คุมจอ)
   useEffect(() => {
@@ -149,13 +152,18 @@ export default function SellPage() {
     return m;
   }, [products]);
 
-  // โลโก้แบรนด์ของสาขา (ขึ้นบนบิล)
+  // โลโก้/ชื่อแบรนด์ของสาขา (ขึ้นบนบิล + จอลูกค้า)
   useEffect(() => {
-    if (!branch?.brand_id) { setBrandLogo(null); return; }
+    if (!branch?.brand_id) { setBrandLogo(null); setBrandName(null); return; }
     let alive = true;
-    void listBrands().then((bs) => { if (alive) setBrandLogo(bs.find((b) => b.id === branch.brand_id)?.logo_url ?? null); });
+    void listBrands().then((bs) => {
+      if (!alive) return;
+      const b = bs.find((x) => x.id === branch.brand_id);
+      setBrandLogo(b?.logo_url ?? null);
+      setBrandName(b ? pick({ th: b.name_th, en: b.name, zh: b.name_zh ?? b.name }) : null);
+    });
     return () => { alive = false; };
-  }, [branch?.brand_id]);
+  }, [branch?.brand_id, pick]);
 
   // โหลดยอดกระเป๋าแบรนด์ของสาขา เมื่อผูกลูกค้า (แต้ม/เครดิตแยกตามแบรนด์)
   useEffect(() => {

@@ -27,9 +27,13 @@ export default function CustomerDisplayPage() {
   return (
     <div className="customer-display min-h-screen bg-bg flex flex-col">
       <header className="px-8 py-5 border-b border-line flex items-center gap-4">
-        <img src="/logo.png" alt="SHD POS" className="w-11 h-11 object-contain" />
+        {data.brandLogo ? (
+          <img src={data.brandLogo} alt={data.brandName ?? ""} className="h-11 max-w-[160px] object-contain" />
+        ) : (
+          <div className="h-11 px-3 grid place-items-center rounded-xl bg-surface2 text-lg font-bold text-ink">{data.brandName ?? "SHD"}</div>
+        )}
         <div>
-          <p className="text-lg font-semibold">SHD Technology</p>
+          {data.brandName ? <p className="text-lg font-semibold">{data.brandName}</p> : null}
           <p className="text-xs text-muted">{data.branchName ?? ""}</p>
         </div>
       </header>
