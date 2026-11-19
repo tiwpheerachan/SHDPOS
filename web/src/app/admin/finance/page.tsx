@@ -5,7 +5,7 @@
 //   settlement ยังไม่เชื่อม → "ยังไม่เชื่อมข้อมูล" ไม่ปั้นเลข
 // =====================================================================
 import { useEffect, useMemo, useState } from "react";
-import { Wallet, CreditCard, Receipt, AlertTriangle, Landmark, Clock, Store, RotateCcw, ChevronRight, Link2Off, Loader2, TrendingUp } from "lucide-react";
+import { Wallet, CreditCard, Receipt, AlertTriangle, Landmark, Clock, Store, RotateCcw, ChevronRight, Link2Off, Loader2, TrendingUp, Globe2, MapPin, CalendarRange } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { useSession } from "@/lib/store/session";
 import { listOrders } from "@/lib/data/repo";
@@ -77,6 +77,25 @@ export default function AdminFinancePage() {
   const byPay = useMemo(() => byPaymentDetail(rows, locale), [rows, locale]);
   const byAcq = useMemo(() => byAcquirer(rows), [rows]);
   const byBr = useMemo(() => financeByBranch(rows, branches, locale), [rows, branches, locale]);
+  // ภูมิศาสตร์: โซน (กทม/ปริมณฑล/ต่างจังหวัด) · รายจังหวัด · รายเดือน
+  const PERI = useMemo(() => new Set(["นนทบุรี", "สมุทรปราการ", "ปทุมธานี", "สมุทรสาคร", "นครปฐม"]), []);
+  const geo = useMemo(() => {
+    const provMap = new Map(branches.map((b) => [b.id, b.province ?? "—"]));
+    const zoneOf = (p: string) => (p === "กรุงเทพมหานคร" ? L("กรุงเทพฯ", "Bangkok", "曼谷") : PERI.has(p) ? L("ปริมณฑล", "Greater BKK", "周边") : L("ต่างจังหวัด", "Upcountry", "外府"));
+    const prov = new Map<string, number>(), zone = new Map<string, number>(), month = new Map<string, number>();
+    for (const o of rows) {
+      if (o.status === "voided") continue;
+      const p = provMap.get(o.branch_id) ?? "—"; const z = zoneOf(p); const m = o.created_at.slice(0, 7);
+      prov.set(p, (prov.get(p) ?? 0) + o.grand_total);
+      zone.set(z, (zone.get(z) ?? 0) + o.grand_total);
+      month.set(m, (month.get(m) ?? 0) + o.grand_total);
+    }
+    return {
+      zone: [...zone.entries()].map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value),
+      province: [...prov.entries()].map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value),
+      month: [...month.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([m, v]) => ({ label: `${m.slice(5)}/${m.slice(2, 4)}`, value: v })),
+    };
+  }, [rows, branches, PERI]); // eslint-disable-line react-hooks/exhaustive-deps
   const trend = useMemo(() => {
     const m = new Map<string, number>();
     pays.forEach((p) => m.set(dayKey(p.at), (m.get(dayKey(p.at)) ?? 0) + p.amount));
@@ -150,38 +169,40 @@ export default function AdminFinancePage() {
         </div>
 
         {view === "dash" ? (<>
-        {/* แนวโน้ม */}
-        <Card className="p-4">
-          <CardHeader title={<span className="inline-flex items-center gap-1.5"><TrendingUp size={15} className="text-brand" /> {L("แนวโน้มยอดชำระ", "Payment trend", "收款趋势")}</span>} subtitle={L("ยอดชำระตามบิล รายวัน · บาท", "Paid by bill, daily · THB", "每日账单收款 · 泰铢")} />
-          <div className="mt-2">{trend.length ? <SalesAreaTrend data={trend} config={trendCfg} valueFormat={nf} /> : <p className="py-12 text-center text-xs text-muted">{L("ไม่มีข้อมูลในช่วงนี้", "No data in this range", "暂无数据")}</p>}</div>
-        </Card>
-
-        {/* วิธีรับชำระ + รายสาขา */}
-        <div className="grid lg:grid-cols-2 gap-4">
-          <Card className="p-4">
-            <CardHeader title={L("วิธีรับชำระ", "Payment methods", "收款方式")} subtitle={L("สัดส่วนยอดตามวิธีจ่าย", "By payment method", "按方式")} right={<CreditCard size={16} className="text-muted" />} />
+        {/* ───────── bento dashboard ───────── */}
+        <div className="grid grid-cols-12 gap-4">
+          {/* แนวโน้ม (ย่อลง col-8) */}
+          <Card className="col-span-12 lg:col-span-8 p-4">
+            <CardHeader title={<span className="inline-flex items-center gap-1.5"><TrendingUp size={15} className="text-brand" /> {L("แนวโน้มยอดชำระ", "Payment trend", "收款趋势")}</span>} subtitle={L("รายวัน · บาท", "daily · THB", "每日 · 泰铢")} />
+            <div className="mt-2">{trend.length ? <SalesAreaTrend data={trend} config={trendCfg} valueFormat={nf} className="aspect-auto h-44 w-full" /> : <p className="py-10 text-center text-xs text-muted">{L("ไม่มีข้อมูลในช่วงนี้", "No data", "暂无数据")}</p>}</div>
+          </Card>
+          {/* วิธีรับชำระ */}
+          <Card className="col-span-12 lg:col-span-4 p-4">
+            <CardHeader title={L("วิธีรับชำระ", "Methods", "方式")} subtitle={L("สัดส่วนตามวิธีจ่าย", "by method", "按方式")} right={<CreditCard size={16} className="text-muted" />} />
             <div className="mt-3">{byPay.length ? <InsightBars data={byPay.map((p, i) => ({ label: p.label, value: p.value, highlight: i === 0 }))} config={barCfg} valueFormat={nf} onBarClick={() => setDetail("paid")} /> : <p className="py-8 text-center text-xs text-muted">{L("ไม่มีข้อมูล", "No data", "暂无")}</p>}</div>
           </Card>
-          <Card className="p-4">
-            <CardHeader title={L("ยอดชำระรายสาขา", "Paid by branch", "按门店收款")} subtitle={L("อันดับสูงสุด", "Top branches", "门店排名")} right={<Store size={16} className="text-muted" />} />
+          {/* ตามโซน */}
+          <Card className="col-span-12 md:col-span-6 lg:col-span-4 p-4">
+            <CardHeader title={L("ตามโซน", "By zone", "按区域")} subtitle={L("กทม · ปริมณฑล · ต่างจังหวัด", "BKK · Greater · Upcountry", "曼谷·周边·外府")} right={<Globe2 size={16} className="text-muted" />} />
+            <div className="mt-3">{geo.zone.length ? <InsightBars data={geo.zone.map((z, i) => ({ label: z.label, value: z.value, highlight: i === 0 }))} config={barCfg} valueFormat={nf} /> : <p className="py-8 text-center text-xs text-muted">{L("ไม่มีข้อมูล", "No data", "暂无")}</p>}</div>
+          </Card>
+          {/* ตามจังหวัด */}
+          <Card className="col-span-12 md:col-span-6 lg:col-span-4 p-4">
+            <CardHeader title={L("ตามจังหวัด", "By province", "按省")} subtitle={L("ยอดสูงสุด", "top", "排名")} right={<MapPin size={16} className="text-muted" />} />
+            <div className="mt-3">{geo.province.length ? <InsightBars data={geo.province.slice(0, 8).map((p, i) => ({ label: p.label, value: p.value, highlight: i === 0 }))} config={barCfg} valueFormat={nf} /> : <p className="py-8 text-center text-xs text-muted">{L("ไม่มีข้อมูล", "No data", "暂无")}</p>}</div>
+          </Card>
+          {/* รายสาขา */}
+          <Card className="col-span-12 lg:col-span-4 p-4">
+            <CardHeader title={L("ยอดชำระรายสาขา", "By branch", "按门店")} subtitle={L("อันดับสูงสุด", "top", "排名")} right={<Store size={16} className="text-muted" />} />
             <div className="mt-3">{byBr.length ? <InsightBars data={byBr.slice(0, 8).map((b, i) => ({ label: b.label, value: b.gross, highlight: i === 0 }))} config={barCfg} valueFormat={nf} onBarClick={() => setDetail("branch")} /> : <p className="py-8 text-center text-xs text-muted">{L("ไม่มีข้อมูล", "No data", "暂无")}</p>}</div>
           </Card>
-        </div>
-
-        {/* EDC/ธนาคาร + ต้องดำเนินการ */}
-        <div className="grid lg:grid-cols-2 gap-4">
-          <Card className="p-4">
-            <CardHeader title={L("EDC / ธนาคาร", "EDC / Bank", "EDC/银行")} subtitle={L("ยอดตามผู้รับบัตร · settlement ยังไม่เชื่อม", "By acquirer · settlement N/A", "按收单行")} right={<button onClick={() => setDetail("edc")} className="text-[11px] text-brand hover:underline inline-flex items-center gap-0.5">{L("ดูทั้งหมด", "View all", "全部")}<ChevronRight size={12} /></button>} />
-            <div className="mt-2 divide-y divide-line">
-              {byAcq.length ? byAcq.slice(0, 5).map((a) => (
-                <div key={a.bank} className="flex items-center justify-between gap-2 py-2.5">
-                  <span className="text-sm font-medium truncate">{a.bank}</span>
-                  <div className="flex items-center gap-3 shrink-0"><span className="tnum text-sm">{nf(a.value)}</span><Badge tone="neutral">{L("ยังไม่จับคู่", "N/A", "未对账")}</Badge></div>
-                </div>
-              )) : <EmptyState icon={<CreditCard size={22} />} title={L("ไม่มีข้อมูลผู้รับบัตร", "No acquirer data", "无收单数据")} body={L("บิลยังไม่ระบุธนาคารผู้รับบัตร", "Bills have no acquirer yet", "账单未填")} />}
-            </div>
+          {/* รายเดือน */}
+          <Card className="col-span-12 lg:col-span-8 p-4">
+            <CardHeader title={L("ยอดชำระรายเดือน", "Monthly", "按月")} subtitle={L("เทียบแต่ละเดือน", "month by month", "逐月对比")} right={<CalendarRange size={16} className="text-muted" />} />
+            <div className="mt-3">{geo.month.length ? <InsightBars data={geo.month.map((m, i) => ({ label: m.label, value: m.value, highlight: i === geo.month.length - 1 }))} config={barCfg} valueFormat={nf} /> : <p className="py-8 text-center text-xs text-muted">{L("ไม่มีข้อมูล", "No data", "暂无")}</p>}</div>
           </Card>
-          <Card className="p-4">
+          {/* ต้องดำเนินการ */}
+          <Card className="col-span-12 lg:col-span-4 p-4">
             <CardHeader title={L("ต้องดำเนินการ", "To do", "待处理")} subtitle={L("งานค้างที่ต้องตามต่อ", "Follow-up items", "跟进项")} right={<AlertTriangle size={15} className="text-amber-500" />} />
             <div className="mt-1 divide-y divide-line">
               <button onClick={() => setDetail("paid")} className="w-full flex items-center justify-between gap-2 py-2.5 text-left hover:opacity-80">
