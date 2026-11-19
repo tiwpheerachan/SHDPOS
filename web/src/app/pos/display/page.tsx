@@ -25,7 +25,7 @@ export default function CustomerDisplayPage() {
   );
 
   return (
-    <div className="customer-display min-h-screen bg-bg flex flex-col">
+    <div className="customer-display min-h-screen bg-bg flex flex-col h-screen">
       <header className="px-8 py-5 border-b border-line flex items-center gap-4">
         {data.brandLogo ? (
           <img src={data.brandLogo} alt={data.brandName ?? ""} className="h-11 max-w-[160px] object-contain" />
@@ -39,13 +39,17 @@ export default function CustomerDisplayPage() {
       </header>
 
       {data.state === "idle" ? (
-        <div className="flex-1 grid place-items-center text-center px-8">
-          <div>
-            <ShoppingBag size={64} className="mx-auto text-brand/30 mb-6" />
-            <h1 className="text-4xl font-semibold">{t.display.welcome}</h1>
-            <p className="text-muted mt-3">ยินดีให้บริการ · Welcome · 欢迎光临</p>
+        data.banners && data.banners.length ? (
+          <BannerCarousel banners={data.banners} />
+        ) : (
+          <div className="flex-1 grid place-items-center text-center px-8">
+            <div>
+              <ShoppingBag size={64} className="mx-auto text-brand/30 mb-6" />
+              <h1 className="text-4xl font-semibold">{t.display.welcome}</h1>
+              <p className="text-muted mt-3">ยินดีให้บริการ · Welcome · 欢迎光临</p>
+            </div>
           </div>
-        </div>
+        )
       ) : data.state === "done" ? (
         <div className="flex-1 grid place-items-center text-center px-8">
           <div>
@@ -117,6 +121,34 @@ export default function CustomerDisplayPage() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function BannerCarousel({ banners }: { banners: NonNullable<DisplayPayload["banners"]> }) {
+  const [idx, setIdx] = useState(0);
+  useEffect(() => { setIdx(0); }, [banners.length]);
+  const cur = banners[idx % banners.length];
+  useEffect(() => {
+    if (!cur || cur.media_type === "video" || banners.length < 2) return; // วิดีโอเลื่อนตอนจบคลิป
+    const t = setTimeout(() => setIdx((i) => (i + 1) % banners.length), Math.max(2, cur.duration_sec) * 1000);
+    return () => clearTimeout(t);
+  }, [idx, cur, banners.length]);
+  if (!cur) return null;
+  const style = { objectFit: cur.fit, objectPosition: `${cur.pos_x}% ${cur.pos_y}%` } as const;
+  const next = () => setIdx((i) => (i + 1) % banners.length);
+  return (
+    <div className="flex-1 relative bg-neutral-900 overflow-hidden min-h-0">
+      {cur.media_type === "video" ? (
+        <video key={cur.media_url + idx} src={cur.media_url} className="absolute inset-0 w-full h-full" style={style} muted autoPlay playsInline onEnded={next} />
+      ) : (
+        <img key={cur.media_url + idx} src={cur.media_url} alt="" className="absolute inset-0 w-full h-full" style={style} />
+      )}
+      {banners.length > 1 ? (
+        <div className="absolute bottom-6 left-0 right-0 flex justify-center gap-2">
+          {banners.map((_, i) => <span key={i} className={`h-1.5 rounded-full transition-all duration-300 ${i === idx % banners.length ? "w-7 bg-white" : "w-1.5 bg-white/45"}`} />)}
+        </div>
+      ) : null}
     </div>
   );
 }

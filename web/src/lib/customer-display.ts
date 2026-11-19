@@ -13,6 +13,8 @@ export interface DisplayPayload {
   branchName?: string;
   brandName?: string;
   brandLogo?: string;
+  /** แบนเนอร์หมุนวนตอนจอว่าง (รายแบรนด์) */
+  banners?: { media_url: string; media_type: "image" | "video"; fit: "cover" | "contain"; pos_x: number; pos_y: number; duration_sec: number }[];
   lines: (Pick<CartLine, "lineId" | "name" | "qty" | "unit_price"> & { image_url?: string | null; is_gift?: boolean })[];
   subtotal: number;
   discount: number;          // ส่วนลดพนักงาน (บรรทัด+ท้ายบิล)

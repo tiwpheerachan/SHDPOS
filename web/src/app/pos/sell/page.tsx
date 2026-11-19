@@ -29,7 +29,7 @@ import { DiscountModal, SerialModal, type PrintStatus } from "@/components/pos/s
 import { resolveSerial } from "@/lib/data/serials";
 import { ReceiptPreview } from "@/components/pos/receipt-preview";
 import { ApprovalModal, type ApprovalRequestInput } from "@/components/pos/approval-modal";
-import { pushDisplay } from "@/lib/customer-display";
+import { pushDisplay, type DisplayPayload } from "@/lib/customer-display";
 import { CustomerPicker } from "@/components/pos/customer-picker";
 import { BranchSwitcher } from "@/components/pos/branch-switcher";
 import { maxRedeemablePoints, POINT_VALUE_THB } from "@/lib/loyalty";
@@ -81,6 +81,7 @@ export default function SellPage() {
   const [cartExpanded, setCartExpanded] = useState(false);
   const [brandLogo, setBrandLogo] = useState<string | null>(null);
   const [brandName, setBrandName] = useState<string | null>(null);
+  const [banners, setBanners] = useState<DisplayPayload["banners"]>([]);
   const [promos, setPromos] = useState<PromoCampaign[]>([]);
   const [promoOpen, setPromoOpen] = useState(false); // การ์ดเลือกแคมเปญส่วนลด
   const [promoShowAll, setPromoShowAll] = useState(false); // ดูภาพรวม (ทุกแคมเปญ)
@@ -128,6 +129,7 @@ export default function SellPage() {
     branchName: branch ? pick({ th: branch.name_th, en: branch.name, zh: branch.name }) : undefined,
     brandName: brandName ?? undefined,
     brandLogo: brandLogo ?? undefined,
+    banners,
     lines: cart.lines.map((l) => ({ lineId: l.lineId, name: l.name, qty: l.qty, unit_price: l.unit_price, image_url: l.image_url ?? null, is_gift: !!l.is_gift })),
     subtotal: totals.subtotal,
     discount: totals.discountTotal,
@@ -135,7 +137,7 @@ export default function SellPage() {
     redeem: totals.redeemAmount,
     vat: totals.vatAmount,
     grandTotal: totals.grandTotal,
-  }), [branch, brandName, brandLogo, pick, cart.lines, totals.subtotal, totals.discountTotal, totals.couponAmount, totals.redeemAmount, totals.vatAmount, totals.grandTotal]);
+  }), [branch, brandName, brandLogo, banners, pick, cart.lines, totals.subtotal, totals.discountTotal, totals.couponAmount, totals.redeemAmount, totals.vatAmount, totals.grandTotal]);
 
   // ส่งข้อมูลไปจอลูกค้าทุกครั้งที่ตะกร้าเปลี่ยน (เว้นตอนเปิดหน้าชำระเงิน — ให้ modal คุมจอ)
   useEffect(() => {
@@ -164,6 +166,14 @@ export default function SellPage() {
     });
     return () => { alive = false; };
   }, [branch?.brand_id, pick]);
+
+  // แบนเนอร์จอลูกค้า (ตามแบรนด์ของสาขา) — public read
+  useEffect(() => {
+    let alive = true;
+    void fetch(`/api/display-banners?brand=${branch?.brand_id ?? ""}`, { cache: "no-store" })
+      .then((r) => r.json()).then((j) => { if (alive) setBanners(j.banners ?? []); }).catch(() => undefined);
+    return () => { alive = false; };
+  }, [branch?.brand_id]);
 
   // โหลดยอดกระเป๋าแบรนด์ของสาขา เมื่อผูกลูกค้า (แต้ม/เครดิตแยกตามแบรนด์)
   useEffect(() => {

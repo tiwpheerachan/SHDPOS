@@ -8,7 +8,7 @@ import clsx from "clsx";
 import {
   LayoutDashboard, TrendingUp, Users, Package, Boxes, ArrowLeftRight, ScanLine,
   ShieldCheck, ScrollText, Settings2, Store, Sun, Moon, Languages, Menu, X, Bell,
-  Search, PanelLeftClose, PanelLeftOpen, ChevronDown, Command, Home, Activity, FileText, LogOut, Contact, CalendarClock, Ticket, Network, Landmark, Wand2, CreditCard,
+  Search, PanelLeftClose, PanelLeftOpen, ChevronDown, Command, Home, Activity, FileText, LogOut, Contact, CalendarClock, Ticket, Network, Landmark, Wand2, CreditCard, MonitorPlay,
 } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { useTheme } from "@/lib/theme";
@@ -43,6 +43,7 @@ const NAV: NavGroup[] = [
       { href: "/admin/customers", icon: Contact, key: "customers" },
       { href: "/admin/tasks", icon: CalendarClock, key: "tasks" },
       { href: "/admin/campaigns", icon: Ticket, key: "campaigns" },
+      { href: "/admin/display", icon: MonitorPlay, key: "display" },
       { href: "/admin/employees", icon: Users, key: "employees", perm: "report.employee_perf" },
       { href: "/admin/org", icon: Network, key: "org", perm: "admin.employee_manage" },
     ],
@@ -167,6 +168,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
     stores: L("ร้าน", "Stores", "店铺"),
     tasks: L("ติดตามลูกค้า", "Follow-ups", "跟进任务"),
     campaigns: L("แคมเปญ", "Campaigns", "活动"),
+    display: L("จอลูกค้า", "Customer display", "客显"),
     coupons: L("คูปอง", "Coupons", "优惠券"),
     branches: L("สาขา", "Branches", "门店"),
     activity: L("บันทึกการแก้ไข", "Activity log", "操作日志"),
