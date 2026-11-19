@@ -1,454 +1,305 @@
 "use client";
-
-import { Fragment, useEffect, useMemo, useState } from "react";
-import { Wallet, Banknote, CreditCard, Receipt, Sparkles, AlertTriangle, CircleCheck, Info, Landmark, Search, ChevronRight, Package, Store, User } from "lucide-react";
+// =====================================================================
+// Admin → การเงิน (Finance) — โครงใหม่: 4 หมวด + ตัวกรองร่วม + Dashboard/ตาราง
+//   หมวด: เงินรับชำระ | EDC/ธนาคาร | คืนเงิน | รายสาขา
+//   ซื่อสัตย์ต่อข้อมูล: ไม่เรียก payment ว่า "เงินเข้า", แยก "ไม่ระบุ" จาก 0,
+//   settlement ยังไม่เชื่อม → แสดง "ยังไม่เชื่อมข้อมูล" ไม่ปั้นเลข
+// =====================================================================
+import { useEffect, useMemo, useState } from "react";
+import { Wallet, CreditCard, Receipt, AlertTriangle, Landmark, Clock, Store, RotateCcw, ChevronRight, Link2Off, Loader2 } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { useSession } from "@/lib/store/session";
-import { listOrders, listEmployees } from "@/lib/data/repo";
-import type { Order, Employee } from "@/lib/types";
-import { Card, CardHeader, Table, Th, Td, Badge, EmptyState, KpiTile, Segmented, Input } from "@/components/ui";
+import { listOrders } from "@/lib/data/repo";
+import type { Order } from "@/lib/types";
+import { Card, CardHeader, Table, Th, Td, Badge, EmptyState, KpiTile, Segmented } from "@/components/ui";
 import { ExportShareBar } from "@/components/admin/export-share";
 import { FilterBar, useAdminScope, useDefaultFilter } from "@/components/admin/filters";
-import { filterOrders, salesSeries, topProducts, byEmployee } from "@/lib/analytics";
-import {
-  financeSummary, byPaymentDetail, byChannelDetail, byAcquirer, financeByBranch,
-  opsSummary, dailyBrief, productDrill, type BriefBullet, type ProdAgg,
-} from "@/lib/finance";
+import { filterOrders } from "@/lib/analytics";
+import { financeSummary, byPaymentDetail, byAcquirer, financeByBranch, bucketOf, paymentLabel } from "@/lib/finance";
 import { formatTHB, formatInt } from "@/lib/money";
 import { can, visibleBranchIds } from "@/lib/permissions";
-import { MixDonut, SalesAreaTrend, InsightBars } from "@/components/charts-rich";
+import { SalesAreaTrend, InsightBars } from "@/components/charts-rich";
 import type { ChartConfig } from "@/components/ui/chart";
 
-type Tab = "money" | "drill" | "daily" | "ops";
+type Tab = "paid" | "edc" | "refund" | "branch";
+type View = "dash" | "table";
+const dayKey = (iso: string) => new Date(iso).toLocaleDateString("en-CA");
+const SYSTEM = new Set(["card", "transfer", "qr"]); // ถังที่คาดเข้าบัญชี (ไม่ใช่เงินสด)
 
-const dayKey = (iso: string) => new Date(iso).toLocaleDateString("en-CA"); // YYYY-MM-DD local
+interface PayRow { id: string; orderNo: string; at: string; branchId: string; branch: string; method: string; methodLabel: string; amount: number; ref: string | null; bucket: string; fee: number | null }
 
 export default function AdminFinancePage() {
-  const { t, locale } = useI18n();
+  const { locale } = useI18n();
   const { employee } = useSession();
   const { branches, brands } = useAdminScope();
   const [filter, setFilter] = useDefaultFilter();
   const [orders, setOrders] = useState<Order[]>([]);
-  const [employees, setEmployees] = useState<Employee[]>([]);
-  const [tab, setTab] = useState<Tab>("money");
+  const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState<Tab>("paid");
+  const [view, setView] = useState<View>("dash");
   const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
 
-  useEffect(() => { void listOrders().then(setOrders); void listEmployees().then(setEmployees); }, []);
+  useEffect(() => { void listOrders().then((o) => { setOrders(o); setLoading(false); }); }, []);
 
   const scoped = useMemo(() => {
     const ids = visibleBranchIds(employee, branches.map((b) => b.id));
     return orders.filter((o) => ids.includes(o.branch_id));
   }, [orders, employee, branches]);
-
   const rows = useMemo(() => filterOrders(scoped, { ...filter, branches }), [scoped, filter, branches]);
+  const branchName = (id: string) => { const b = branches.find((x) => x.id === id); return b ? (locale === "th" ? b.name_th ?? b.name : b.name) : id; };
 
-  // สิทธิ์: ต้องมี finance.view
+  // ── payment-level (เฉพาะบิลที่ไม่ voided) ──
+  const pays = useMemo<PayRow[]>(() => {
+    const out: PayRow[] = [];
+    for (const o of rows) {
+      if (o.status === "voided") continue;
+      o.payments.forEach((p, i) => {
+        const feeRaw = (p as unknown as { fee_amount?: number }).fee_amount;
+        out.push({ id: `${o.id}-${i}`, orderNo: o.order_no, at: o.created_at, branchId: o.branch_id, branch: branchName(o.branch_id), method: p.method, methodLabel: paymentLabel(p.method, locale), amount: p.amount, ref: p.reference_no ?? null, bucket: bucketOf(p.method), fee: feeRaw ?? null });
+      });
+    }
+    return out.sort((a, b) => (a.at < b.at ? 1 : -1));
+  }, [rows, locale]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const sum = useMemo(() => financeSummary(rows), [rows]);
+  const systemPaid = useMemo(() => pays.filter((p) => SYSTEM.has(p.bucket)).reduce((s, p) => s + p.amount, 0), [pays]);
+  // รายการที่ต้องตรวจสอบ: จ่ายผ่านระบบแต่ไม่มีเลขอ้างอิง (ขาดหลักฐานจับคู่)
+  const toReview = useMemo(() => pays.filter((p) => SYSTEM.has(p.bucket) && !p.ref), [pays]);
+  const feeKnown = useMemo(() => { const sysc = pays.filter((p) => SYSTEM.has(p.bucket)); return { known: sysc.filter((p) => p.fee !== null).length, total: sysc.length }; }, [pays]);
+  const feeIncomplete = feeKnown.total > 0 && feeKnown.known < feeKnown.total;
+
+  const refunds = useMemo(() => rows.filter((o) => o.status === "voided" || o.status === "refunded" || o.status === "partially_refunded")
+    .map((o) => ({ id: o.id, orderNo: o.order_no, at: o.created_at, branch: branchName(o.branch_id), status: o.status, amount: o.grand_total, reason: o.void_reason ?? null }))
+    .sort((a, b) => (a.at < b.at ? 1 : -1)), [rows]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const byPay = useMemo(() => byPaymentDetail(rows, locale), [rows, locale]);
+  const byAcq = useMemo(() => byAcquirer(rows), [rows]);
+  const byBr = useMemo(() => financeByBranch(rows, branches, locale), [rows, branches, locale]);
+
+  // แนวโน้มยอดชำระรายวัน
+  const trend = useMemo(() => {
+    const m = new Map<string, number>();
+    pays.forEach((p) => m.set(dayKey(p.at), (m.get(dayKey(p.at)) ?? 0) + p.amount));
+    return [...m.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([d, v]) => ({ label: d.slice(5), value: v }));
+  }, [pays]);
+
   if (employee && !can(employee, "finance.view")) {
-    return (
-      <div className="p-6">
-        <EmptyState icon={<Wallet size={28} />} title={L("ไม่มีสิทธิ์ดูการเงิน", "No finance access", "无财务权限")}
-          body={L("ติดต่อเจ้าของกิจการเพื่อขอสิทธิ์ finance.view", "Ask the owner for finance.view", "请向企业主申请 finance.view")} />
-      </div>
-    );
+    return <div className="p-6"><EmptyState icon={<Wallet size={28} />} title={L("ไม่มีสิทธิ์ดูการเงิน", "No finance access", "无财务权限")} body={L("ติดต่อเจ้าของกิจการเพื่อขอสิทธิ์ finance.view", "Ask the owner for finance.view", "请向企业主申请 finance.view")} /></div>;
   }
 
   const TABS: { value: Tab; label: string }[] = [
-    { value: "money", label: L("เงินเข้า & ช่องทาง", "Money & channels", "资金与渠道") },
-    { value: "drill", label: L("เจาะลึกสินค้า", "Product drill-down", "商品钻取") },
-    { value: "daily", label: L("สรุปรายวัน (AI)", "Daily (AI)", "每日 (AI)") },
-    { value: "ops", label: L("การดำเนินกิจการ", "Operations", "经营概况") },
+    { value: "paid", label: L("เงินรับชำระ", "Payments", "收款") },
+    { value: "edc", label: L("EDC / ธนาคาร", "EDC / Bank", "EDC/银行") },
+    { value: "refund", label: L("คืนเงิน", "Refunds", "退款") },
+    { value: "branch", label: L("รายสาขา", "By branch", "按门店") },
   ];
+  const nf = (n: number) => formatTHB(n, false);
+  const trendCfg: ChartConfig = { value: { label: L("ยอดชำระตามบิล", "Paid (by bill)", "账单收款"), color: "rgb(var(--chart-1))" } };
+  const barCfg: ChartConfig = { value: { label: L("ยอดชำระ", "Paid", "收款"), color: "rgb(var(--chart-1))" } };
+
+  // export rows ตามหมวด/มุมมองปัจจุบัน
+  const exportConf = (() => {
+    if (tab === "paid") return { name: "payments", rows: pays, cols: [
+      { key: "at", label: L("วันชำระ", "Date", "日期"), map: (r: PayRow) => dayKey(r.at) },
+      { key: "orderNo", label: L("บิล", "Bill", "单号") }, { key: "branch", label: L("สาขา", "Branch", "门店") },
+      { key: "methodLabel", label: L("วิธีชำระ", "Method", "方式") }, { key: "amount", label: L("ยอด", "Amount", "金额"), map: (r: PayRow) => nf(r.amount) },
+      { key: "ref", label: L("เลขอ้างอิง", "Reference", "参考号"), map: (r: PayRow) => r.ref ?? L("ไม่ระบุ", "N/A", "未填") },
+      { key: "fee", label: L("ค่าธรรมเนียม", "Fee", "手续费"), map: (r: PayRow) => r.fee === null ? L("ไม่ระบุ", "N/A", "未知") : nf(r.fee) },
+    ] };
+    if (tab === "edc") return { name: "edc-bank", rows: byAcq, cols: [
+      { key: "bank", label: L("ผู้รับบัตร/ธนาคาร", "Acquirer", "收单行") }, { key: "value", label: L("ยอดก่อนหัก", "Gross", "总额"), map: (r: typeof byAcq[number]) => nf(r.value) },
+      { key: "fee", label: L("ค่าธรรมเนียม", "Fee", "手续费"), map: (r: typeof byAcq[number]) => r.fee ? nf(r.fee) : L("ไม่ระบุ", "N/A", "未知") },
+      { key: "count", label: L("ธุรกรรม", "Txns", "笔数") },
+    ] };
+    if (tab === "refund") return { name: "refunds", rows: refunds, cols: [
+      { key: "at", label: L("วันที่", "Date", "日期"), map: (r: typeof refunds[number]) => dayKey(r.at) }, { key: "orderNo", label: L("บิลเดิม", "Bill", "原单") },
+      { key: "branch", label: L("สาขา", "Branch", "门店") }, { key: "status", label: L("สถานะ", "Status", "状态") },
+      { key: "amount", label: L("ยอด", "Amount", "金额"), map: (r: typeof refunds[number]) => nf(r.amount) }, { key: "reason", label: L("เหตุผล", "Reason", "原因"), map: (r: typeof refunds[number]) => r.reason ?? "-" },
+    ] };
+    return { name: "by-branch", rows: byBr, cols: [
+      { key: "label", label: L("สาขา", "Branch", "门店") }, { key: "gross", label: L("ยอดชำระ", "Paid", "收款"), map: (r: typeof byBr[number]) => nf(r.gross) },
+      { key: "card", label: L("บัตร/EDC", "Card", "刷卡"), map: (r: typeof byBr[number]) => nf(r.card) }, { key: "transfer", label: L("โอน", "Transfer", "转账"), map: (r: typeof byBr[number]) => nf(r.transfer) },
+      { key: "qr", label: "QR", map: (r: typeof byBr[number]) => nf(r.qr) }, { key: "fee", label: L("ค่าธรรมเนียม", "Fee", "手续费"), map: (r: typeof byBr[number]) => nf(r.fee) },
+      { key: "net", label: L("สุทธิ", "Net", "净额"), map: (r: typeof byBr[number]) => nf(r.net) }, { key: "orders", label: L("บิล", "Bills", "单") },
+    ] };
+  })();
 
   return (
     <div className="p-4 sm:p-6 space-y-4 w-full">
+      {/* หัว */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-bold flex items-center gap-2"><Landmark size={20} className="text-brand" />{L("การเงิน", "Finance", "财务")}</h1>
-          <p className="text-sm text-muted">{L("เงินมาจากไหน เข้าช่องทางไหน รายสาขา/แบรนด์", "Where money comes from, by channel, branch & brand", "资金来源 · 渠道 · 门店与品牌")}</p>
+          <p className="text-[11px] font-semibold tracking-wider text-muted uppercase">Finance / Overview</p>
+          <h1 className="text-xl font-bold flex items-center gap-2"><Landmark size={20} className="text-brand" /> {L("การเงิน", "Finance", "财务")}</h1>
+          <p className="text-sm text-muted mt-0.5">{L("ยอดรับชำระ สถานะเงิน และรายการที่ต้องติดตาม", "Payments, money status & items to follow up", "收款、资金状态与待跟进")}</p>
         </div>
-        <Segmented value={tab} options={TABS} onChange={setTab} />
+        <ExportShareBar filename={exportConf.name} title={L("การเงิน", "Finance", "财务")} rows={exportConf.rows as Record<string, unknown>[]} columns={exportConf.cols as never} size="sm" />
       </div>
 
+      {/* แท็บหมวด */}
+      <div className="border-b border-line flex gap-1 overflow-x-auto">
+        {TABS.map((tb) => (
+          <button key={tb.value} onClick={() => setTab(tb.value)} className={`px-3.5 h-10 text-sm font-medium whitespace-nowrap border-b-2 -mb-px transition-colors ${tab === tb.value ? "border-brand text-brand" : "border-transparent text-muted hover:text-ink"}`}>{tb.label}</button>
+        ))}
+      </div>
+
+      {/* ตัวกรองร่วม */}
       <FilterBar value={filter} onChange={setFilter} branches={branches} brands={brands} />
 
-      {tab === "money" && <MoneyTab rows={rows} branches={branches} locale={locale} L={L} />}
-      {tab === "drill" && <DrillTab rows={rows} branches={branches} employees={employees} locale={locale} L={L} showGp={can(employee, "report.gross_profit")} />}
-      {tab === "daily" && <DailyTab scoped={scoped} branches={branches} locale={locale} L={L} />}
-      {tab === "ops" && <OpsTab rows={rows} branches={branches} employee={employee} locale={locale} L={L} t={t} />}
-
-      <p className="text-[11px] text-muted flex items-center gap-1.5 pt-1">
-        <Info size={13} />
-        {L("ยอด \"เข้าระบบ\" อ้างอิงจากสลิป/บิลในระบบ — ยังไม่ได้กระทบยอดกับ statement ธนาคารจริง (เฟสถัดไป)",
-           "\"To-bank\" figures are from POS slips — not yet reconciled with real bank statements (next phase)",
-           "\"入账\"金额来自POS单据 — 尚未与银行对账单核对（下一阶段）")}
-      </p>
-    </div>
-  );
-}
-
-type LFn = (th: string, en: string, zh: string) => string;
-
-// ─────────────────────────────────────────────────────────────────────
-// แท็บ 1: เงินเข้า & ช่องทาง
-// ─────────────────────────────────────────────────────────────────────
-function MoneyTab({ rows, branches, locale, L }: { rows: Order[]; branches: ReturnType<typeof useAdminScope>["branches"]; locale: "th" | "en" | "zh"; L: LFn }) {
-  const sum = useMemo(() => financeSummary(rows), [rows]);
-  const byPay = useMemo(() => byPaymentDetail(rows, locale), [rows, locale]);
-  const byChan = useMemo(() => byChannelDetail(rows, locale), [rows, locale]);
-  const byBank = useMemo(() => byAcquirer(rows), [rows]);
-  const byBr = useMemo(() => financeByBranch(rows, branches, locale), [rows, branches, locale]);
-
-  const payData = byPay.map((p) => ({ key: p.method, value: p.value }));
-  const payConfig: ChartConfig = Object.fromEntries(byPay.map((p, i) => [p.method, { label: p.label, color: `rgb(var(--chart-${(i % 5) + 1}))` }]));
-  const chanData = byChan.map((c) => ({ key: c.channel, value: c.value }));
-  const chanConfig: ChartConfig = Object.fromEntries(byChan.map((c, i) => [c.channel, { label: c.label, color: `rgb(var(--chart-${(i % 5) + 1}))` }]));
-
-  const cashPct = sum.gross > 0 ? Math.round((sum.cash / sum.gross) * 100) : 0;
-
-  return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-        <KpiTile label={L("ยอดรับชำระ", "Payments in", "收款总额")} value={formatTHB(sum.gross)} variant="ink" icon={<Wallet size={15} />} />
-        <KpiTile label={L("เงินสด", "Cash", "现金")} value={formatTHB(sum.cash)} sub={`${cashPct}% · ${L("นับ/นำฝากเอง", "manual deposit", "人工存款")}`} tone="warn" icon={<Banknote size={15} />} />
-        <KpiTile label={L("เข้าระบบ (บัตร/โอน/QR)", "To-bank (card/transfer)", "入账")} value={formatTHB(sum.system)} tone="brand" icon={<CreditCard size={15} />} />
-        <KpiTile label={L("ค่าธรรมเนียม", "Fees", "手续费")} value={formatTHB(sum.fee)} tone="danger" icon={<Receipt size={15} />} />
-        <KpiTile label={L("รับสุทธิ", "Net received", "净收")} value={formatTHB(sum.net)} tone="ok" icon={<CircleCheck size={15} />} />
+      {/* สวิตช์มุมมอง */}
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <span className="text-xs text-muted">{filter.branchIds.length ? `${filter.branchIds.length} ${L("สาขา", "branches", "门店")}` : L("ทุกสาขา", "All branches", "全部门店")} · {(tab === "paid" ? pays.length : tab === "edc" ? byAcq.length : tab === "refund" ? refunds.length : byBr.length)} {L("รายการ", "records", "条")}</span>
+        <Segmented value={view} onChange={(v) => setView(v as View)} options={[{ value: "dash", label: L("Dashboard", "Dashboard", "仪表板") }, { value: "table", label: L("ตารางรายการ", "Table", "明细表") }]} />
       </div>
 
-      <div className="grid lg:grid-cols-2 gap-4">
-        <Card className="p-4">
-          <CardHeader title={L("สัดส่วนวิธีรับเงิน", "Payment methods", "收款方式占比")} />
-          {payData.length ? <MixDonut data={payData} config={payConfig} /> : <EmptyState title={L("ยังไม่มีข้อมูล", "No data", "暂无数据")} />}
-        </Card>
-        <Card className="p-4">
-          <CardHeader title={L("สัดส่วนช่องทางขาย", "Sales channels", "销售渠道占比")} />
-          {chanData.length ? <MixDonut data={chanData} config={chanConfig} /> : <EmptyState title={L("ยังไม่มีข้อมูล", "No data", "暂无数据")} />}
-        </Card>
-      </div>
+      {loading ? (
+        <Card className="p-16 text-center text-muted"><Loader2 className="inline animate-spin mr-2" size={18} /> {L("กำลังเตรียมข้อมูลการเงิน…", "Preparing finance data…", "正在准备财务数据…")}</Card>
+      ) : (<>
 
-      <Card className="p-4">
-        <CardHeader title={L("เงินเข้ารายสาขา", "Money in by branch", "各门店资金")}
-          subtitle={L("แยกตามวิธีรับเงิน — เงินสดต้องนำฝาก, ส่วนที่เหลือเข้าบัญชี", "By method — cash to deposit, rest to bank", "按方式 — 现金需存入")}
-          right={<ExportShareBar<(typeof byBr)[number]>
-            filename="finance-by-branch" title={L("เงินเข้ารายสาขา", "Money in by branch", "各门店资金")} rows={byBr} size="sm"
-            columns={[
-              { key: "label", label: L("สาขา", "Branch", "门店") },
-              { key: "cash", label: L("เงินสด", "Cash", "现金"), map: (r) => formatTHB(r.cash, false) },
-              { key: "card", label: L("บัตร/EDC", "Card/EDC", "刷卡"), map: (r) => formatTHB(r.card, false) },
-              { key: "transfer", label: L("โอน", "Transfer", "转账"), map: (r) => formatTHB(r.transfer, false) },
-              { key: "qr", label: "QR", map: (r) => formatTHB(r.qr, false) },
-              { key: "fee", label: L("ค่าธรรมเนียม", "Fees", "手续费"), map: (r) => formatTHB(r.fee, false) },
-              { key: "net", label: L("รับสุทธิ", "Net", "净收"), map: (r) => formatTHB(r.net, false) },
-              { key: "orders", label: L("บิล", "Bills", "单") },
-            ]}
-          />} />
-        {byBr.length ? (
-          <div className="overflow-x-auto">
-            <Table>
-              <thead><tr>
-                <Th>{L("สาขา", "Branch", "门店")}</Th>
-                <Th align="right">{L("เงินสด", "Cash", "现金")}</Th>
-                <Th align="right">{L("บัตร/EDC", "Card/EDC", "刷卡")}</Th>
-                <Th align="right">{L("โอน", "Transfer", "转账")}</Th>
-                <Th align="right">QR</Th>
-                <Th align="right">{L("ค่าธรรมเนียม", "Fees", "手续费")}</Th>
-                <Th align="right">{L("รับสุทธิ", "Net", "净收")}</Th>
-                <Th align="right">{L("บิล", "Bills", "单")}</Th>
-              </tr></thead>
-              <tbody>
-                {byBr.map((r) => (
-                  <tr key={r.id}>
-                    <Td>{r.label}</Td>
-                    <Td align="right" className="tnum">{formatTHB(r.cash, false)}</Td>
-                    <Td align="right" className="tnum">{formatTHB(r.card, false)}</Td>
-                    <Td align="right" className="tnum">{formatTHB(r.transfer, false)}</Td>
-                    <Td align="right" className="tnum">{formatTHB(r.qr, false)}</Td>
-                    <Td align="right" className="tnum text-danger">{r.fee ? formatTHB(r.fee, false) : "—"}</Td>
-                    <Td align="right" className="tnum font-semibold">{formatTHB(r.net, false)}</Td>
-                    <Td align="right" className="tnum text-muted">{formatInt(r.orders)}</Td>
-                  </tr>
-                ))}
-              </tbody>
-            </Table>
+      {/* ───────── เงินรับชำระ ───────── */}
+      {tab === "paid" && (view === "dash" ? (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <KpiTile label={L("ยอดชำระตามบิล", "Paid (by bill)", "账单收款")} value={`฿${nf(sum.gross)}`} sub={L("ตามรายการที่เลือก · ไม่ใช่ยอด statement", "Selected records · not statement", "按所选 · 非对账单")} icon={<Wallet size={16} />} accent="mint" />
+            <KpiTile label={L("สุทธิคาดรับ", "Net expected", "预计净收")} value={`฿${nf(sum.net)}`} sub={feeIncomplete ? L(`หักค่าธรรมเนียม ฿${nf(sum.fee)} · ข้อมูลยังไม่ครบ`, `fee ฿${nf(sum.fee)} · incomplete`, `手续费不全`) : L(`หักค่าธรรมเนียม ฿${nf(sum.fee)}`, `less fee ฿${nf(sum.fee)}`, `扣手续费`)} icon={<Receipt size={16} />} accent="lavender" />
+            <KpiTile label={L("รอเงินเข้า (ยังไม่จับคู่)", "Awaiting settlement", "待入账")} value={`฿${nf(systemPaid)}`} sub={L("ยังไม่เชื่อมข้อมูลธนาคาร", "bank not connected", "未接银行")} icon={<Clock size={16} />} accent="peach" />
+            <KpiTile label={L("ต้องตรวจสอบ", "To review", "需核查")} value={`${toReview.length} ${L("รายการ", "items", "项")}`} sub={L("ขาดเลขอ้างอิง/หลักฐาน", "missing reference", "缺参考号")} icon={<AlertTriangle size={16} />} accent={toReview.length ? "coral" : "neutral"} />
           </div>
-        ) : <EmptyState title={L("ยังไม่มีข้อมูล", "No data", "暂无数据")} />}
-      </Card>
 
-      {byBank.length ? (
-        <Card className="p-4">
-          <CardHeader title={L("รายธนาคาร/ผู้รับบัตร (EDC)", "By acquirer bank (EDC)", "按收单行 (EDC)")}
-            subtitle={L("ปลายทางที่เงินบัตรควรเข้า", "Where card money should land", "刷卡资金去向")} />
-          <div className="overflow-x-auto">
-            <Table>
-              <thead><tr>
-                <Th>{L("ธนาคาร/ผู้รับบัตร", "Acquirer", "收单行")}</Th>
-                <Th align="right">{L("ยอดรับ", "Amount", "金额")}</Th>
-                <Th align="right">{L("ค่าธรรมเนียม", "Fees", "手续费")}</Th>
-                <Th align="right">{L("รายการ", "Txns", "笔数")}</Th>
-              </tr></thead>
-              <tbody>
-                {byBank.map((b) => (
-                  <tr key={b.bank}>
-                    <Td><Badge tone="brand">{b.bank}</Badge></Td>
-                    <Td align="right" className="tnum">{formatTHB(b.value, false)}</Td>
-                    <Td align="right" className="tnum text-danger">{b.fee ? formatTHB(b.fee, false) : "—"}</Td>
-                    <Td align="right" className="tnum text-muted">{formatInt(b.count)}</Td>
-                  </tr>
-                ))}
-              </tbody>
-            </Table>
+          <Card className="p-4">
+            <CardHeader title={L("แนวโน้มยอดชำระ", "Payment trend", "收款趋势")} subtitle={L("ยอดชำระตามบิล รายวัน · บาท", "Paid by bill, daily · THB", "每日账单收款 · 泰铢")} />
+            <div className="mt-2">{trend.length ? <SalesAreaTrend data={trend} config={trendCfg} valueFormat={nf} /> : <p className="py-10 text-center text-xs text-muted">{L("ไม่มีข้อมูลในช่วงนี้", "No data", "暂无数据")}</p>}</div>
+          </Card>
+
+          <div className="grid lg:grid-cols-2 gap-3">
+            <Card className="p-4">
+              <CardHeader title={L("วิธีรับชำระ", "Payment methods", "收款方式")} subtitle={L("กดช่องทางเพื่อดูรายการ", "Tap a method to view records", "点击查看明细")} right={<CreditCard size={16} className="text-muted" />} />
+              <div className="mt-3">{byPay.length ? <InsightBars data={byPay.map((p, i) => ({ label: p.label, value: p.value, highlight: i === 0 }))} config={barCfg} valueFormat={nf} onBarClick={() => setView("table")} /> : <p className="py-8 text-center text-xs text-muted">{L("ไม่มีข้อมูล", "No data", "暂无")}</p>}</div>
+            </Card>
+            <Card className="p-4">
+              <CardHeader title={L("ต้องดำเนินการ", "To do", "待处理")} subtitle={L("งานค้างที่ต้องตามต่อ", "Follow-up items", "跟进项")} right={<AlertTriangle size={15} className="text-amber-500" />} />
+              <div className="mt-2 divide-y divide-line">
+                <button onClick={() => setView("table")} className="w-full flex items-center justify-between gap-2 py-2.5 text-left hover:opacity-80">
+                  <div><p className="text-sm font-medium">{L("เลขอ้างอิง / หลักฐานไม่ครบ", "Missing reference / proof", "缺参考号/凭证")}</p><p className="text-[11px] text-muted">{toReview.length} {L("รายการในตัวกรองนี้", "items in filter", "项")}</p></div>
+                  <ChevronRight size={16} className="text-muted shrink-0" />
+                </button>
+                <div className="flex items-center justify-between gap-2 py-2.5">
+                  <div className="inline-flex items-center gap-1.5"><Link2Off size={14} className="text-muted" /><div><p className="text-sm font-medium text-muted">{L("รอ settlement / จับคู่ธนาคาร", "Awaiting settlement", "待对账")}</p><p className="text-[11px] text-muted">{L("ยังไม่เชื่อมข้อมูลธนาคาร", "bank data not connected", "未接银行数据")}</p></div></div>
+                  <Badge tone="neutral">{L("ยังไม่เชื่อม", "N/A", "未接")}</Badge>
+                </div>
+              </div>
+            </Card>
           </div>
-        </Card>
-      ) : null}
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────
-// แท็บ: เจาะลึกสินค้า × สาขา × พนักงาน
-// ─────────────────────────────────────────────────────────────────────
-function MiniRank({ rows, icon, title, max, L }: {
-  rows: { id: string; label: string; qty: number; gross: number }[];
-  icon: React.ReactNode; title: string; max: number; L: LFn;
-}) {
-  return (
-    <div className="flex-1 min-w-0">
-      <p className="text-[11px] font-semibold text-muted uppercase tracking-wide mb-2 flex items-center gap-1.5">{icon}{title} · {rows.length}</p>
-      <div className="space-y-1.5">
-        {rows.slice(0, 12).map((r) => (
-          <div key={r.id} className="relative rounded-lg bg-surface2 overflow-hidden">
-            <div className="absolute inset-y-0 left-0 bg-brand/12" style={{ width: `${max > 0 ? (r.gross / max) * 100 : 0}%` }} />
-            <div className="relative flex items-center justify-between gap-2 px-2.5 py-1.5">
-              <span className="text-xs truncate">{r.label}</span>
-              <span className="text-xs tnum font-medium shrink-0">{formatTHB(r.gross, false)} <span className="text-muted">· {formatInt(r.qty)}{L("ชิ้น", "", "")}</span></span>
-            </div>
-          </div>
-        ))}
-        {rows.length > 12 ? <p className="text-[11px] text-muted text-center pt-0.5">+{rows.length - 12} {L("รายการ", "more", "项")}</p> : null}
-      </div>
-    </div>
-  );
-}
-
-function DrillTab({ rows, branches, employees, locale, L, showGp }: {
-  rows: Order[]; branches: ReturnType<typeof useAdminScope>["branches"]; employees: Employee[];
-  locale: "th" | "en" | "zh"; L: LFn; showGp: boolean;
-}) {
-  const [q, setQ] = useState("");
-  const [sort, setSort] = useState<"gross" | "qty" | "gp">("gross");
-  const [open, setOpen] = useState<string | null>(null);
-
-  const prods = useMemo(() => productDrill(rows, branches, employees, locale), [rows, branches, employees, locale]);
-  const filtered = useMemo(() => {
-    const term = q.trim().toLowerCase();
-    const list = term ? prods.filter((p) => p.name.toLowerCase().includes(term) || p.sku.toLowerCase().includes(term)) : prods;
-    const key = sort === "qty" ? (p: ProdAgg) => p.qty : sort === "gp" ? (p: ProdAgg) => p.gp : (p: ProdAgg) => p.gross;
-    return [...list].sort((a, b) => key(b) - key(a));
-  }, [prods, q, sort]);
-  const shown = filtered.slice(0, 150);
-
-  const totQty = prods.reduce((s, p) => s + p.qty, 0);
-  const totGross = prods.reduce((s, p) => s + p.gross, 0);
-
-  return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <KpiTile label={L("จำนวนสินค้า (SKU)", "Products (SKU)", "商品数")} value={formatInt(prods.length)} variant="ink" icon={<Package size={15} />} />
-        <KpiTile label={L("ยอดขายรวม", "Total sales", "总销售")} value={formatTHB(totGross)} tone="brand" />
-        <KpiTile label={L("จำนวนชิ้นรวม", "Total units", "总件数")} value={formatInt(totQty)} />
-        <KpiTile label={L("กำลังแสดง", "Showing", "显示中")} value={`${formatInt(shown.length)}/${formatInt(filtered.length)}`} />
-      </div>
-
-      <Card className="p-4">
-        <div className="flex flex-wrap items-center gap-2 mb-3">
-          <div className="relative flex-1 min-w-[180px]">
-            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
-            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={L("ค้นหาสินค้า / SKU…", "Search product / SKU…", "搜索商品 / SKU…")} className="pl-9 h-9" />
-          </div>
-          <Segmented size="sm" value={sort} onChange={setSort} options={[
-            { value: "gross", label: L("ยอดขาย", "Sales", "销售") },
-            { value: "qty", label: L("จำนวน", "Qty", "数量") },
-            { value: "gp", label: L("กำไร", "Profit", "利润") },
-          ]} />
         </div>
-        <p className="text-[11px] text-muted mb-2">{L("กดแถวเพื่อดูว่าสินค้านั้นขายจากสาขาไหน พนักงานคนไหน", "Tap a row to see which branches & staff sold it", "点击查看该商品的门店与员工分布")}</p>
-        {shown.length ? (
-          <div className="overflow-x-auto">
-            <Table>
-              <thead><tr>
-                <Th>{L("สินค้า", "Product", "商品")}</Th>
-                <Th align="right">{L("ยอดขาย", "Sales", "销售")}</Th>
-                <Th align="right">{L("ชิ้น", "Units", "件")}</Th>
-                {showGp ? <Th align="right">{L("กำไร", "Profit", "利润")}</Th> : null}
-                <Th align="center">{L("สาขา", "Branch", "门店")}</Th>
-                <Th align="center">{L("คน", "Staff", "员工")}</Th>
-                <Th align="right"> </Th>
-              </tr></thead>
-              <tbody>
-                {shown.map((p) => {
-                  const isOpen = open === p.sku;
-                  const maxB = p.branches[0]?.gross ?? 0;
-                  const maxE = p.employees[0]?.gross ?? 0;
-                  return (
-                    <Fragment key={p.sku}>
-                      <tr className="cursor-pointer hover:bg-surface2" onClick={() => setOpen(isOpen ? null : p.sku)}>
-                        <Td>
-                          <div className="flex items-center gap-2">
-                            <ChevronRight size={14} className={`text-muted transition-transform ${isOpen ? "rotate-90" : ""}`} />
-                            <div className="min-w-0">
-                              <p className="text-sm font-medium truncate max-w-[220px]">{p.name}</p>
-                              <p className="text-[11px] text-muted">{p.sku}</p>
-                            </div>
-                          </div>
-                        </Td>
-                        <Td align="right" className="tnum font-semibold">{formatTHB(p.gross, false)}</Td>
-                        <Td align="right" className="tnum">{formatInt(p.qty)}</Td>
-                        {showGp ? <Td align="right" className="tnum text-ok">{formatTHB(p.gp, false)}<span className="text-[10px] text-muted"> · {p.gpPct}%</span></Td> : null}
-                        <Td align="center"><Badge tone="brand">{p.branches.length}</Badge></Td>
-                        <Td align="center"><Badge>{p.employees.length}</Badge></Td>
-                        <Td align="right"><span className="text-[11px] text-brand">{isOpen ? L("ซ่อน", "Hide", "收起") : L("ดู", "View", "查看")}</span></Td>
-                      </tr>
-                      {isOpen ? (
-                        <tr>
-                          <td colSpan={showGp ? 7 : 6} className="px-3 pb-4 pt-1 bg-surface2/40">
-                            <div className="flex flex-col sm:flex-row gap-5 p-2">
-                              <MiniRank rows={p.branches} icon={<Store size={13} />} title={L("ขายจากสาขา", "Sold by branch", "按门店")} max={maxB} L={L} />
-                              <MiniRank rows={p.employees} icon={<User size={13} />} title={L("ขายโดยพนักงาน", "Sold by staff", "按员工")} max={maxE} L={L} />
-                            </div>
-                          </td>
-                        </tr>
-                      ) : null}
-                    </Fragment>
-                  );
-                })}
-              </tbody>
-            </Table>
+      ) : (
+        <Card className="overflow-x-auto">
+          <Table>
+            <thead><tr><Th>{L("วันชำระ", "Date", "日期")}</Th><Th>{L("บิล", "Bill", "单号")}</Th><Th>{L("สาขา", "Branch", "门店")}</Th><Th>{L("วิธีชำระ", "Method", "方式")}</Th><Th align="right">{L("ยอด", "Amount", "金额")}</Th><Th>{L("เลขอ้างอิง", "Reference", "参考号")}</Th><Th align="right">{L("ค่าธรรมเนียม", "Fee", "手续费")}</Th></tr></thead>
+            <tbody>{pays.slice(0, 400).map((p) => (
+              <tr key={p.id}>
+                <Td className="text-xs whitespace-nowrap">{dayKey(p.at)}</Td>
+                <Td className="font-mono text-[11px] text-muted">{p.orderNo}</Td>
+                <Td className="text-xs text-muted">{p.branch}</Td>
+                <Td className="text-xs">{p.methodLabel}</Td>
+                <Td align="right" className="tnum font-medium">{nf(p.amount)}</Td>
+                <Td className="text-xs">{p.ref ? <span className="font-mono">{p.ref}</span> : (SYSTEM.has(p.bucket) ? <Badge tone="warn">{L("ไม่ระบุ", "N/A", "未填")}</Badge> : <span className="text-muted">—</span>)}</Td>
+                <Td align="right" className="text-xs">{p.fee === null ? <span className="text-muted">{L("ไม่ระบุ", "N/A", "未知")}</span> : <span className="tnum">{nf(p.fee)}</span>}</Td>
+              </tr>
+            ))}</tbody>
+          </Table>
+          {!pays.length ? <p className="py-10 text-center text-sm text-muted">{L("ไม่มีรายการ", "No records", "无记录")}</p> : null}
+        </Card>
+      ))}
+
+      {/* ───────── EDC / ธนาคาร ───────── */}
+      {tab === "edc" && (view === "dash" ? (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <KpiTile label={L("ยอดบัตร/EDC", "Card/EDC", "刷卡/EDC")} value={`฿${nf(byPay.filter((p) => bucketOf(p.method) === "card").reduce((s, p) => s + p.value, 0))}`} icon={<CreditCard size={16} />} accent="lavender" />
+            <KpiTile label={L("ค่าธรรมเนียมรวม", "Total fees", "总手续费")} value={feeKnown.known ? `฿${nf(sum.fee)}` : L("ไม่ระบุ", "N/A", "未知")} sub={feeIncomplete ? L("ข้อมูลยังไม่ครบ", "incomplete", "不全") : undefined} icon={<Receipt size={16} />} accent="peach" />
+            <KpiTile label={L("รอ settlement", "Awaiting settlement", "待对账")} value={L("ยังไม่เชื่อม", "N/A", "未接")} sub={L("ต้องเชื่อมข้อมูลผู้รับบัตร", "connect acquirer data", "需接收单数据")} icon={<Link2Off size={16} />} accent="neutral" />
+            <KpiTile label={L("จับคู่แล้ว", "Matched", "已对账")} value={L("ยังไม่เชื่อม", "N/A", "未接")} icon={<Landmark size={16} />} accent="neutral" />
           </div>
-        ) : <EmptyState icon={<Package size={24} />} title={L("ไม่พบสินค้า", "No products", "无商品")} body={L("ลองปรับตัวกรองช่วงเวลา/สาขา", "Adjust date/branch filter", "调整筛选")} />}
-      </Card>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────
-// แท็บ 2: สรุปรายวัน (AI)
-// ─────────────────────────────────────────────────────────────────────
-function DailyTab({ scoped, branches, locale, L }: { scoped: Order[]; branches: ReturnType<typeof useAdminScope>["branches"]; locale: "th" | "en" | "zh"; L: LFn }) {
-  const { today, yest } = useMemo(() => {
-    const now = new Date();
-    const tKey = now.toLocaleDateString("en-CA");
-    const yKey = new Date(now.getTime() - 86400000).toLocaleDateString("en-CA");
-    return {
-      today: scoped.filter((o) => dayKey(o.created_at) === tKey),
-      yest: scoped.filter((o) => dayKey(o.created_at) === yKey),
-    };
-  }, [scoped]);
-
-  const brief = useMemo(() => dailyBrief(today, yest, branches, locale), [today, yest, branches, locale]);
-  const sumT = useMemo(() => financeSummary(today), [today]);
-
-  // แนวโน้ม 14 วันล่าสุด
-  const trend = useMemo(() => salesSeries(scoped, "day").slice(-14), [scoped]);
-  const areaData = trend.map((s) => ({ label: s.label, value: s.value }));
-  const areaConfig: ChartConfig = { value: { label: L("ยอดขาย", "Sales", "销售额"), color: "rgb(var(--chart-1))" } };
-
-  const toneIcon = (tone: BriefBullet["tone"]) =>
-    tone === "ok" ? <CircleCheck size={16} className="text-ok shrink-0" /> :
-    tone === "warn" ? <AlertTriangle size={16} className="text-danger shrink-0" /> :
-    <Info size={16} className="text-brand shrink-0" />;
-
-  return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <KpiTile label={L("ยอดวันนี้", "Today", "今日")} value={formatTHB(sumT.gross)} variant="ink" />
-        <KpiTile label={L("บิลวันนี้", "Bills today", "今日单数")} value={formatInt(sumT.orders)} />
-        <KpiTile label={L("เงินสดวันนี้", "Cash today", "今日现金")} value={formatTHB(sumT.cash)} tone="warn" />
-        <KpiTile label={L("เข้าระบบวันนี้", "To-bank today", "今日入账")} value={formatTHB(sumT.system)} tone="brand" />
-      </div>
-
-      <Card className="p-4">
-        <div className="flex items-center gap-2 mb-3">
-          <span className="w-7 h-7 rounded-full grid place-items-center bg-brand/12 text-brand"><Sparkles size={15} /></span>
-          <div>
-            <p className="text-sm font-semibold">{L("สรุป AI รายวัน", "AI daily brief", "AI 每日简报")}</p>
-            <p className="text-xs text-muted">{brief.headline}</p>
-          </div>
-          <Badge tone="brand" className="ml-auto">AI</Badge>
+          <Card className="p-4">
+            <CardHeader title={L("ยอดตามผู้รับบัตร/ธนาคาร", "By acquirer/bank", "按收单行")} subtitle={L("จากข้อมูล EDC ในบิล", "From EDC data on bills", "来自账单 EDC")} />
+            <div className="mt-3">{byAcq.length ? <InsightBars data={byAcq.map((a, i) => ({ label: a.bank, value: a.value, highlight: i === 0 }))} config={barCfg} valueFormat={nf} /> : <EmptyState icon={<CreditCard size={22} />} title={L("ไม่มีข้อมูลผู้รับบัตร", "No acquirer data", "无收单数据")} body={L("บิลยังไม่ระบุธนาคารผู้รับบัตร", "Bills have no acquirer bank yet", "账单未填收单行")} />}</div>
+          </Card>
         </div>
-        <ul className="space-y-2">
-          {brief.bullets.map((b, i) => (
-            <li key={i} className="flex items-start gap-2.5 text-sm">
-              {toneIcon(b.tone)}
-              <span className={b.tone === "warn" ? "text-ink" : "text-ink"}>{b.text}</span>
-            </li>
-          ))}
-        </ul>
-        <p className="text-[11px] text-muted mt-3 pt-3 border-t border-line">
-          {L("วิเคราะห์อัตโนมัติจากข้อมูลในระบบ · ต่อยอดเป็น LLM สรุปเชิงลึกได้ในเฟสถัดไป",
-             "Auto-generated from live data · can upgrade to LLM deep-dive next phase",
-             "基于实时数据自动生成 · 下阶段可升级为 LLM 深度分析")}
-        </p>
-      </Card>
-
-      <Card className="p-4">
-        <CardHeader title={L("แนวโน้มยอดขาย 14 วัน", "14-day sales trend", "14天销售趋势")} />
-        {areaData.length ? <SalesAreaTrend data={areaData} config={areaConfig} valueFormat={(n) => formatTHB(n, false)} />
-          : <EmptyState title={L("ยังไม่มีข้อมูล", "No data", "暂无数据")} />}
-      </Card>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────
-// แท็บ 3: การดำเนินกิจการ
-// ─────────────────────────────────────────────────────────────────────
-function OpsTab({ rows, branches, employee, locale, L, t }: {
-  rows: Order[]; branches: ReturnType<typeof useAdminScope>["branches"];
-  employee: Employee | null; locale: "th" | "en" | "zh"; L: LFn; t: ReturnType<typeof useI18n>["t"];
-}) {
-  const ops = useMemo(() => opsSummary(rows), [rows]);
-  const showGp = can(employee, "report.gross_profit");
-  const top = useMemo(() => topProducts(rows, 8), [rows]);
-  const staff = useMemo(() => byEmployee(rows, []).slice(0, 8), [rows]);
-
-  const brandName = (bid: string | null) => branches.find((b) => b.id === bid)?.name ?? "";
-  void brandName; void t;
-
-  const barData = top.map((p) => ({ label: p.name.slice(0, 10), value: p.gross, highlight: false }));
-  const barConfig: ChartConfig = { value: { label: L("ยอดขาย", "Sales", "销售额"), color: "rgb(var(--chart-1))" } };
-
-  return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <KpiTile label={L("จำนวนบิล", "Orders", "订单")} value={formatInt(ops.orders)} variant="ink" />
-        <KpiTile label={L("เฉลี่ย/บิล", "Avg bill", "客单价")} value={formatTHB(ops.aov)} />
-        <KpiTile label={L("จำนวนชิ้น", "Units", "件数")} value={formatInt(ops.units)} />
-        <KpiTile label={L("ลูกค้า (มีโปรไฟล์)", "Customers", "客户")} value={formatInt(ops.customers)} />
-        <KpiTile label={L("ส่วนลดรวม", "Discounts", "折扣")} value={formatTHB(ops.discount)} tone="warn" />
-        {showGp ? <KpiTile label={L("กำไรขั้นต้น", "Gross profit", "毛利")} value={formatTHB(ops.gp)} tone="ok" sub={`${ops.gpPct}%`} /> : null}
-      </div>
-
-      <div className="grid lg:grid-cols-2 gap-4">
-        <Card className="p-4">
-          <CardHeader title={L("สินค้าขายดี (ยอดเงิน)", "Top products (sales)", "热销商品")} />
-          {barData.length ? <InsightBars data={barData} config={barConfig} valueFormat={(n) => formatTHB(n, false)} /> : <EmptyState title={L("ยังไม่มีข้อมูล", "No data", "暂无数据")} />}
+      ) : (
+        <Card className="overflow-x-auto">
+          <Table>
+            <thead><tr><Th>{L("ผู้รับบัตร/ธนาคาร", "Acquirer", "收单行")}</Th><Th align="right">{L("ยอดก่อนหัก", "Gross", "总额")}</Th><Th align="right">{L("ค่าธรรมเนียม", "Fee", "手续费")}</Th><Th align="right">{L("ยอดคาดรับ", "Expected net", "预计净")}</Th><Th>{L("วันคาดรับ", "Expected date", "预计日")}</Th><Th>{L("จับคู่", "Match", "对账")}</Th><Th align="right">{L("ธุรกรรม", "Txns", "笔数")}</Th></tr></thead>
+            <tbody>{byAcq.map((a) => (
+              <tr key={a.bank}>
+                <Td className="text-sm font-medium">{a.bank}</Td>
+                <Td align="right" className="tnum">{nf(a.value)}</Td>
+                <Td align="right" className="text-xs">{a.fee ? <span className="tnum text-danger">{nf(a.fee)}</span> : <span className="text-muted">{L("ไม่ระบุ", "N/A", "未知")}</span>}</Td>
+                <Td align="right" className="tnum font-medium">{nf(a.value - a.fee)}</Td>
+                <Td><Badge tone="neutral">{L("ยังไม่เชื่อม", "N/A", "未接")}</Badge></Td>
+                <Td><Badge tone="neutral">{L("ยังไม่เชื่อม", "N/A", "未接")}</Badge></Td>
+                <Td align="right" className="tnum text-muted">{a.count}</Td>
+              </tr>
+            ))}</tbody>
+          </Table>
+          {!byAcq.length ? <p className="py-10 text-center text-sm text-muted">{L("ไม่มีข้อมูลผู้รับบัตร", "No acquirer data", "无数据")}</p> : null}
         </Card>
-        <Card className="p-4">
-          <CardHeader title={L("พนักงานขายสูงสุด", "Top sellers", "销售冠军")} />
-          {staff.length ? (
-            <div className="overflow-x-auto">
-              <Table>
-                <thead><tr><Th>{L("พนักงาน", "Staff", "员工")}</Th><Th align="right">{L("ยอดขาย", "Sales", "销售")}</Th><Th align="right">{L("บิล", "Bills", "单")}</Th></tr></thead>
-                <tbody>
-                  {staff.map((s) => (
-                    <tr key={s.id}><Td>{s.label}</Td><Td align="right" className="tnum">{formatTHB(s.value, false)}</Td><Td align="right" className="tnum text-muted">{formatInt(s.orders)}</Td></tr>
-                  ))}
-                </tbody>
-              </Table>
-            </div>
-          ) : <EmptyState title={L("ยังไม่มีข้อมูล", "No data", "暂无数据")} />}
+      ))}
+
+      {/* ───────── คืนเงิน ───────── */}
+      {tab === "refund" && (view === "dash" ? (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <KpiTile label={L("จำนวนคืนเงิน/ยกเลิก", "Refunds/voids", "退款/作废")} value={`${refunds.length}`} icon={<RotateCcw size={16} />} accent="coral" />
+          <KpiTile label={L("ยอดที่เกี่ยวข้อง", "Amount affected", "涉及金额")} value={`฿${nf(refunds.reduce((s, r) => s + r.amount, 0))}`} sub={L("ยอดบิลที่คืน/ยกเลิก", "voided/refunded bills", "退/作废账单")} icon={<Receipt size={16} />} accent="peach" />
+          <KpiTile label={L("ผลจากผู้ให้บริการ", "Provider result", "服务商结果")} value={L("ยังไม่เชื่อม", "N/A", "未接")} icon={<Link2Off size={16} />} accent="neutral" />
+          <KpiTile label={L("รอผลคืนเงิน", "Pending refund", "待退款")} value={L("ยังไม่เชื่อม", "N/A", "未接")} icon={<Clock size={16} />} accent="neutral" />
+        </div>
+      ) : (
+        <Card className="overflow-x-auto">
+          <Table>
+            <thead><tr><Th>{L("วันที่", "Date", "日期")}</Th><Th>{L("บิลเดิม", "Bill", "原单")}</Th><Th>{L("สาขา", "Branch", "门店")}</Th><Th>{L("สถานะ", "Status", "状态")}</Th><Th align="right">{L("ยอด", "Amount", "金额")}</Th><Th>{L("เหตุผล", "Reason", "原因")}</Th></tr></thead>
+            <tbody>{refunds.map((r) => (
+              <tr key={r.id}>
+                <Td className="text-xs whitespace-nowrap">{dayKey(r.at)}</Td>
+                <Td className="font-mono text-[11px] text-muted">{r.orderNo}</Td>
+                <Td className="text-xs text-muted">{r.branch}</Td>
+                <Td><Badge tone={r.status === "voided" ? "danger" : "warn"}>{r.status === "voided" ? L("ยกเลิก", "Voided", "作废") : r.status === "refunded" ? L("คืนเต็ม", "Refunded", "全退") : L("คืนบางส่วน", "Partial", "部分退")}</Badge></Td>
+                <Td align="right" className="tnum">{nf(r.amount)}</Td>
+                <Td className="text-xs text-muted"><span className="block max-w-[220px] truncate" title={r.reason ?? ""}>{r.reason ?? "—"}</span></Td>
+              </tr>
+            ))}</tbody>
+          </Table>
+          {!refunds.length ? <p className="py-10 text-center text-sm text-muted">{L("ไม่มีรายการคืนเงิน/ยกเลิก", "No refunds/voids", "无退款")}</p> : null}
         </Card>
-      </div>
+      ))}
+
+      {/* ───────── รายสาขา ───────── */}
+      {tab === "branch" && (view === "dash" ? (
+        <Card className="p-4">
+          <CardHeader title={L("ยอดชำระรายสาขา", "Paid by branch", "按门店收款")} subtitle={L("จัดอันดับตามยอดชำระ", "Ranked by paid", "按收款排名")} right={<Store size={16} className="text-muted" />} />
+          <div className="mt-3">{byBr.length ? <InsightBars data={byBr.map((b, i) => ({ label: b.label, value: b.gross, highlight: i === 0 }))} config={barCfg} valueFormat={nf} /> : <p className="py-8 text-center text-xs text-muted">{L("ไม่มีข้อมูล", "No data", "暂无")}</p>}</div>
+        </Card>
+      ) : (
+        <Card className="overflow-x-auto">
+          <Table>
+            <thead><tr><Th>{L("สาขา", "Branch", "门店")}</Th><Th align="right">{L("ยอดชำระ", "Paid", "收款")}</Th><Th align="right">{L("บัตร/EDC", "Card", "刷卡")}</Th><Th align="right">{L("โอน", "Transfer", "转账")}</Th><Th align="right">QR</Th><Th align="right">{L("ค่าธรรมเนียม", "Fee", "手续费")}</Th><Th align="right">{L("สุทธิ", "Net", "净额")}</Th><Th align="right">{L("บิล", "Bills", "单")}</Th></tr></thead>
+            <tbody>{byBr.map((b) => (
+              <tr key={b.id}>
+                <Td className="text-sm font-medium">{b.label}</Td>
+                <Td align="right" className="tnum">{nf(b.gross)}</Td>
+                <Td align="right" className="tnum text-xs">{nf(b.card)}</Td>
+                <Td align="right" className="tnum text-xs">{nf(b.transfer)}</Td>
+                <Td align="right" className="tnum text-xs">{nf(b.qr)}</Td>
+                <Td align="right" className="tnum text-xs text-danger">{b.fee ? nf(b.fee) : "—"}</Td>
+                <Td align="right" className="tnum font-semibold">{nf(b.net)}</Td>
+                <Td align="right" className="tnum text-muted">{formatInt(b.orders)}</Td>
+              </tr>
+            ))}</tbody>
+          </Table>
+          {!byBr.length ? <p className="py-10 text-center text-sm text-muted">{L("ไม่มีข้อมูล", "No data", "无数据")}</p> : null}
+        </Card>
+      ))}
+
+      </>)}
     </div>
   );
 }
