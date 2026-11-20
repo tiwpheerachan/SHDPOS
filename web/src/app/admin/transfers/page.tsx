@@ -556,6 +556,25 @@ export default function AdminTransfersPage() {
             {tab === "overview" ? (
               <div className="p-5 space-y-4">
                 <TransferStepper status={detail.status} locale={locale} L={L} />
+                {/* สิ่งที่ต้องทำตอนนี้ — บอกเป็นขั้น ๆ ว่าใครทำอะไร กดปุ่มไหน */}
+                {(() => {
+                  const S = detail.status;
+                  let hint: { tone: string; icon: React.ReactNode; title: string; text: string } | null = null;
+                  if (canApprove(detail)) hint = { tone: "info", icon: <Check size={16} />, title: L("ขั้นที่ 1 · รออนุมัติ (ต้นทาง)", "Step 1 · Approve", "待批准"), text: L("ตรวจรายการ แล้วกดปุ่ม “อนุมัติ” (มุมขวาบน) เพื่อเริ่มโอน — หรือ “ปฏิเสธ” ถ้าไม่ถูกต้อง", "Review items, then tap Approve (top right) to start — or Reject", "核对后点批准") };
+                  else if (canScanOut(detail) && S !== "packed") hint = { tone: "teal", icon: <ScanLine size={16} />, title: L("ขั้นที่ 2 · สแกนของออก (ต้นทาง)", "Step 2 · Scan out", "扫描出库"), text: L("กดปุ่ม “สแกน SN” ที่สินค้าแต่ละรายการให้ครบจำนวน แล้วกด “ยืนยันสแกนออก” (มุมขวาบน)", "Scan each item's SN in full, then Confirm scan-out", "逐件扫SN后确认") };
+                  else if (canScanOut(detail) && S === "packed") hint = { tone: "teal", icon: <Truck size={16} />, title: L("ขั้นที่ 3 · ส่งมอบให้ขนส่ง (ต้นทาง)", "Step 3 · Hand over", "交付"), text: L("เลือกขนส่ง → เรียกรถ → เมื่อของออกจากคลัง กด “ยืนยันส่งมอบสินค้า”", "Pick carrier, then Confirm handover when goods leave", "选承运后确认交付") };
+                  else if (canReceive(detail)) hint = { tone: "ok", icon: <PackageCheck size={16} />, title: L("ขั้นที่ 4 · รับของเข้าสาขา (ปลายทาง)", "Step 4 · Receive", "收货入库"), text: L("ตรวจของ → กด “สแกน SN/ใส่จำนวน” ที่แต่ละรายการ → ถ้าครบกด “ยืนยันรับเข้า”. ⚠ ถ้าของชำรุด / SN ไม่ตรง / ขาด ให้กดปุ่ม “แจ้งปัญหา” สีแดงด้านล่างก่อน (ของจะถูกพักไว้ ขายไม่ได้จนตรวจเสร็จ)", "Check goods → Scan/enter qty → Confirm receive. If damaged / wrong SN / short, tap the red Report problem button below first", "核对后确认；有损坏/SN错/缺量先点下方报告") };
+                  else if (waitingSide(detail) === "dest") hint = { tone: "neutral", icon: <Clock size={16} />, title: L("รอปลายทางรับเข้า", "Waiting for destination", "等待收货"), text: L(`ของกำลังไป ${bName(detail.to_branch_id)} — ฝั่งเราไม่ต้องทำอะไร รอสาขาปลายทางตรวจรับ`, `Awaiting ${bName(detail.to_branch_id)} to receive`, "等待目的地收货") };
+                  else if (waitingSide(detail) === "source") hint = { tone: "neutral", icon: <Clock size={16} />, title: L("รอต้นทางส่งของ", "Waiting for source", "等待发货"), text: L(`รอ ${bName(detail.from_branch_id)} สแกนออกและจัดส่ง`, `Awaiting ${bName(detail.from_branch_id)} to ship`, "等待调出方发货") };
+                  if (!hint) return null;
+                  const c = { info: "border-sky-300 bg-sky-50 text-sky-900", teal: "border-teal-300 bg-teal-50 text-teal-900", ok: "border-emerald-300 bg-emerald-50 text-emerald-900", neutral: "border-line bg-surface2 text-ink" }[hint.tone] ?? "border-line bg-surface2 text-ink";
+                  return (
+                    <div className={`rounded-2xl border p-3.5 flex items-start gap-3 ${c}`}>
+                      <span className="shrink-0 w-9 h-9 rounded-xl bg-white/70 grid place-items-center">{hint.icon}</span>
+                      <div className="min-w-0"><p className="text-sm font-bold">{hint.title}</p><p className="text-[12.5px] leading-relaxed mt-0.5 opacity-90">{hint.text}</p></div>
+                    </div>
+                  );
+                })()}
                 <div className="rounded-2xl border border-line divide-y divide-line/60 px-4">
                   <DetailRow label={t.transfer.from}>{detail.from_kind === "warehouse" ? "" : ""}{bName(detail.from_branch_id)}</DetailRow>
                   <DetailRow label={t.transfer.to}>{bName(detail.to_branch_id)}</DetailRow>
@@ -796,7 +815,7 @@ export default function AdminTransfersPage() {
                               </div>
                             </div>
                           ) : (
-                            <button onClick={() => setRepOpen(true)} className="text-[11px] text-rose-600 hover:underline font-medium inline-flex items-center gap-1"><CircleAlert size={12} /> {["in_transit", "partial_received"].includes(detail.status) ? L("แจ้งไม่พบ/สูญหาย · ชำรุด · SN ผิด", "Report missing / damaged / wrong SN", "报失/损坏/SN错") : L("แจ้งของชำรุด / SN ผิด (พักตรวจ ไม่ให้ขาย)", "Report damaged / wrong SN", "报告损坏/SN错")}</button>
+                            <button onClick={() => setRepOpen(true)} className="w-full h-11 rounded-xl border-2 border-rose-300 bg-rose-50 text-rose-700 font-bold text-sm inline-flex items-center justify-center gap-2 hover:bg-rose-100 transition-colors"><CircleAlert size={16} /> {["in_transit", "partial_received"].includes(detail.status) ? L("แจ้งปัญหา: ไม่พบ/สูญหาย · ชำรุด · SN ไม่ตรง", "Report: missing / damaged / wrong SN", "报告：丢失/损坏/SN错") : L("แจ้งปัญหา: ของชำรุด / SN ไม่ตรง (พักไว้ ขายไม่ได้)", "Report: damaged / wrong SN", "报告：损坏/SN错")}</button>
                           )}
                         </div>
                       ) : null}
