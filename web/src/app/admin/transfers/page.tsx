@@ -85,7 +85,11 @@ export default function AdminTransfersPage() {
   useEffect(() => {
     void (async () => {
       const [b, p, c, e, st, ar] = await Promise.all([listBranches(), listProducts(), owCarriers(), listEmployees(), stockAll(), listApprovalRules()]);
-      setBranches(b); setProducts(p); setCarriers(c); setEmployees(e); setStock(st); setRules(ar); setFrom(b[0]?.id ?? ""); setTo(b[1]?.id ?? "");
+      setBranches(b); setProducts(p); setCarriers(c); setEmployees(e); setStock(st); setRules(ar);
+      // ต้นทางเริ่มต้น = สาขาปัจจุบัน (ถ้าเป็นสาขาจริง) ไม่งั้นสาขาจริงแรก — เลี่ยง default เป็นคลัง (สต๊อก 0)
+      const real = b.filter((x) => x.branch_type !== "warehouse");
+      const defFrom = sessionBranchId && b.some((x) => x.id === sessionBranchId && x.branch_type !== "warehouse") ? sessionBranchId : (real[0]?.id ?? b[0]?.id ?? "");
+      setFrom(defFrom); setTo((real.find((x) => x.id !== defFrom) ?? b.find((x) => x.id !== defFrom))?.id ?? "");
       await reload();
     })();
   }, []);
@@ -246,6 +250,14 @@ export default function AdminTransfersPage() {
       const auto = isSuperApprover(employee) || (cfg ? cfg.includes(employee.id) : can(employee, "transfer.approve"));
       // ต้นทางเป็นคลัง (warehouse) → OneWarehouse จัดการยอดฝั่งนั้น (ข้ามจอง/ตรวจ Available ของสาขา)
       const fromKind = branches.find((b) => b.id === from)?.branch_type === "warehouse" ? "warehouse" : "branch";
+      // ตรวจของพร้อมโอนที่ต้นทางก่อน — แจ้งชัดว่าสินค้าไหนไม่พอ (กันเด้ง error รวม ๆ)
+      if (fromKind === "branch") {
+        const need: Record<string, { name: string; qty: number }> = {};
+        for (const l of ls) { const e = (need[l.product_id] ??= { name: l.name, qty: 0 }); e.qty += l.qty; }
+        const short = Object.entries(need).filter(([pid, v]) => v.qty > availAt(from, pid))
+          .map(([pid, v]) => `${v.name} (${L("พร้อม", "avail", "可")} ${availAt(from, pid)} / ${L("ขอ", "req", "需")} ${v.qty})`);
+        if (short.length) { toast.push({ tone: "danger", title: L(`สต๊อก “${bName(from)}” ไม่พอโอน`, "Source stock not enough", "源店库存不足"), body: short.join(" · ") }); return; }
+      }
       await owCreate(from, to, employee.id, ls, note, auto, fromKind);
       setOpen(false); setLines([]); setNote(""); await reload();
       toast.push({ tone: "ok", title: t.transfer.title });
@@ -979,6 +991,7 @@ export default function AdminTransfersPage() {
                   <button key={p.id} type="button" onClick={() => { addLine(p.id); setAddQ(""); }} className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-brand/5 text-left">
                     {p.image_url ? <img src={p.image_url} alt="" className="w-8 h-8 rounded-lg object-cover border border-line bg-white shrink-0" /> : <div className="w-8 h-8 rounded-lg border border-line bg-surface grid place-items-center shrink-0 text-muted/40"><Boxes size={13} /></div>}
                     <div className="min-w-0 flex-1"><p className="text-sm font-medium truncate">{p.name_th}{p.track_serial ? <Barcode size={11} className="inline ml-1 text-brand" /> : null}</p><p className="font-mono text-[10px] text-muted truncate">{p.sku} · {(p.barcodes ?? [])[0] ?? "—"}</p></div>
+                    {(() => { const av = availAt(from, p.id); return <span className={`text-[10px] tnum shrink-0 font-semibold ${av > 0 ? "text-ok" : "text-danger"}`}>{av > 0 ? `${L("พร้อม", "avail", "可")} ${av}` : L("ต้นทางไม่มี", "none at src", "源店无")}</span>; })()}
                     <Plus size={15} className="text-brand shrink-0" />
                   </button>
                 ))}
@@ -990,7 +1003,8 @@ export default function AdminTransfersPage() {
             <tbody>
               {lines.map((l) => { const p = products.find((x) => x.id === l.product_id); return (
                 <tr key={l.id}>
-                  <Td className="text-xs">{p?.name_th}{p?.track_serial ? <Barcode size={11} className="inline ml-1 text-brand" /> : null}</Td>
+                  <Td className="text-xs">{p?.name_th}{p?.track_serial ? <Barcode size={11} className="inline ml-1 text-brand" /> : null}
+                    {p ? (() => { const av = availAt(from, p.id); const over = l.qty > av; return <span className={`block text-[10px] tnum ${over ? "text-danger font-semibold" : "text-muted"}`}>{L("พร้อมโอนที่ต้นทาง", "available at source", "源店可调")} {av}{over ? ` · ${L("ขอเกิน!", "exceeds!", "超量!")}` : ""}</span>; })() : null}</Td>
                   <Td align="center">
                     {p?.track_serial ? (
                       <button onClick={() => setCreateScan(l.id)} className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-brand/40 text-brand text-xs font-medium hover:bg-brand/10 transition-colors">
