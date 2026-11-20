@@ -8,6 +8,8 @@ import { useAdminScope } from "@/components/admin/filters";
 import { Card, Badge, Button, EmptyState } from "@/components/ui";
 import { resolveSerial, recentSerials, type SerialInfo, type SerialEventKind } from "@/lib/data/serials";
 import { listEmployees } from "@/lib/data/repo";
+import { owStatus, owSerial, type OwSerial } from "@/lib/onewarehouse/ow-client";
+import { branchForWarehouseId } from "@/lib/onewarehouse/warehouse-map";
 import type { Employee } from "@/lib/types";
 import { coordOf } from "@/lib/geo";
 import { formatTHB } from "@/lib/money";
@@ -49,20 +51,25 @@ export default function AdminSerialsPage() {
   const [history, setHistory] = useState<Scanned[]>([]);
   const [copied, setCopied] = useState<"" | "sn" | "link">("");
   const [emps, setEmps] = useState<Employee[]>([]);
+  const [owConn, setOwConn] = useState<boolean | null>(null);   // เชื่อม OneWarehouse แล้ว (มี token+sub)
+  const [owInfo, setOwInfo] = useState<OwSerial | null>(null);  // ข้อมูล SN สดจาก OW
   const inputRef = useRef<HTMLInputElement>(null);
   const empName = (id?: string | null) => { if (!id) return ""; const e = emps.find((x) => x.id === id); return e ? (e.nickname || `${e.first_name ?? ""} ${e.last_name ?? ""}`.trim() || id) : ""; };
 
-  useEffect(() => { void recentSerials(16).then(setRecent); void listEmployees().then(setEmps).catch(() => {}); inputRef.current?.focus(); }, []);
+  useEffect(() => { void recentSerials(16).then(setRecent); void listEmployees().then(setEmps).catch(() => {}); void owStatus().then((s) => setOwConn(s.authConfigured)).catch(() => setOwConn(false)); inputRef.current?.focus(); }, []);
   useEffect(() => { if (snParam) { setQ(snParam); void lookup(snParam); } /* eslint-disable-next-line */ }, [snParam]);
 
   async function lookup(sn: string) {
     const v = sn.trim();
     if (!v) return;
     setBusy(true);
+    setOwInfo(null);
     try {
       const r = await resolveSerial(v);
       setInfo(r);
       if (r.status !== "unknown") setHistory((h) => [{ serialNo: r.serialNo, name: r.product?.name ?? "", image: r.product?.image_url ?? null, status: r.status, at: Date.now() }, ...h.filter((x) => x.serialNo !== r.serialNo)].slice(0, 20));
+      // ดึงสถานะสดจาก OneWarehouse (ถ้าเชื่อมต่อแล้ว) — ไม่บล็อก/ไม่ทำให้ fail ถ้าไม่มี
+      if (owConn) { const o = await owSerial(v); setOwInfo(o.ok ? (o.data ?? null) : null); }
     } finally { setBusy(false); inputRef.current?.select(); }
   }
 
@@ -118,6 +125,12 @@ export default function AdminSerialsPage() {
           <div>
             <h1 className="text-lg font-semibold tracking-tight">{L("ตามรอย Serial (SN)", "Serial tracking", "序列追踪")}</h1>
             <p className="text-[11px] text-muted">{L("สแกน SN เพื่อรู้สินค้า + เส้นทาง + ประกัน", "Scan a SN for product, journey & warranty", "扫描 SN 查看商品、流转与保修")}</p>
+            {owConn !== null ? (
+              <span className={`inline-flex items-center gap-1 mt-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full ${owConn ? "bg-emerald-500/10 text-emerald-600" : "bg-surface2 text-muted"}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${owConn ? "bg-emerald-500" : "bg-muted/40"}`} />
+                {owConn ? L("เชื่อม OneWarehouse (สด)", "OneWarehouse live", "已连OneWarehouse") : L("ข้อมูลภายใน (ยังไม่เชื่อม OW)", "Internal data (OW off)", "内部数据")}
+              </span>
+            ) : null}
           </div>
         </div>
 
@@ -252,6 +265,25 @@ export default function AdminSerialsPage() {
 
               {/* SMART PANELS */}
               <div className="lg:col-span-2 space-y-4">
+                {/* OneWarehouse — สถานะสด (เมื่อเชื่อมต่อ) */}
+                {owConn && owInfo ? (() => {
+                  const b = branchForWarehouseId(owInfo.warehouseId);
+                  return (
+                    <Card>
+                      <div className="p-4 space-y-1.5">
+                        <span className="text-sm font-semibold inline-flex items-center gap-1.5"><ShieldCheck size={15} className="text-emerald-600" /> {L("OneWarehouse (สด)", "OneWarehouse (live)", "OneWarehouse(实时)")}</span>
+                        <div className="text-[12px] space-y-0.5">
+                          <p>{L("สถานะ", "Status", "状态")}: <b>{owInfo.status}</b></p>
+                          <p className="text-muted">{L("คลัง", "Warehouse", "仓")}: {owInfo.warehouseId ? (b ? branchName(b) : owInfo.warehouseId) : "—"}</p>
+                          {owInfo.sku ? <p className="text-muted font-mono text-[11px]">{owInfo.sku}</p> : null}
+                        </div>
+                        <p className="text-[10px] text-muted/70">{L("ข้อมูลจริงจากคลังกลาง (JST ผ่าน OneWarehouse)", "Authoritative from central WMS", "中央仓权威数据")}</p>
+                      </div>
+                    </Card>
+                  );
+                })() : owConn && info ? (
+                  <Card><div className="p-3 text-[11px] text-muted inline-flex items-center gap-1.5"><ShieldCheck size={13} className="text-muted/50" /> {L("OneWarehouse: ไม่พบ SN นี้ในคลังกลาง (อาจเป็นข้อมูลภายใน)", "OW: serial not in central WMS", "中央仓无此序列号")}</div></Card>
+                ) : null}
                 {/* ประกัน */}
                 {insight?.warranty?.started ? (
                   <Card>
