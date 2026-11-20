@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { nanoid } from "nanoid";
-import { ArrowLeftRight, Plus, Trash2, Check, X, Clock, Barcode, CircleAlert, Printer, ScanLine, Truck, PackageCheck, Upload, FileText, Boxes, ChevronRight, ChevronLeft, RotateCcw, Share2, Link as LinkIcon, ExternalLink, FileDown, Download, Copy } from "lucide-react";
+import { ArrowLeftRight, Plus, Trash2, Check, X, Clock, Barcode, CircleAlert, Printer, ScanLine, Truck, PackageCheck, Upload, FileText, Boxes, ChevronRight, ChevronLeft, RotateCcw, Share2, Link as LinkIcon, ExternalLink, FileDown, Download, Copy, Home, MapPin, CornerDownRight } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { useSession } from "@/lib/store/session";
 import { useToast } from "@/components/toast-host";
@@ -515,7 +515,7 @@ export default function AdminTransfersPage() {
       </Card>
 
       {/* detail drawer (monitor + approve) */}
-      <Drawer open={Boolean(detail)} onClose={closeDoc} width="lg"
+      <Drawer open={Boolean(detail)} onClose={closeDoc} width="xl"
         title={detail ? <span className="font-mono">{detail.transfer_no}</span> : ""}
         subtitle={detail ? `${detail.from_kind === "warehouse" ? "" : ""}${bName(detail.from_branch_id)} → ${bName(detail.to_branch_id)}` : ""}
         badge={detail ? <Badge tone={displayStatus(detail).tone}>{displayStatus(detail).label}</Badge> : null}
@@ -893,7 +893,7 @@ export default function AdminTransfersPage() {
                                 </div>))}
                               </div>
                             ) : null}
-                            {hint ? <div className="rounded-xl bg-white/70 border border-rose-200 px-3 py-2 text-[12px] text-rose-900 leading-relaxed">👉 {hint}</div> : null}
+                            {hint ? <div className="rounded-xl bg-white/70 border border-rose-200 px-3 py-2 text-[12px] text-rose-900 leading-relaxed flex items-start gap-1.5"><CornerDownRight size={14} className="shrink-0 mt-0.5" /><span>{hint}</span></div> : null}
                             {/* รายการ */}
                             <div className="text-[11px] text-muted space-y-0.5">
                               {(r.lines ?? []).map((l, i) => <div key={i}>{pName(l.product_id)} × {l.qty}{(l.qty_received ?? 0) > 0 ? ` · ${L("รับคืน", "recv", "收")} ${l.qty_received}/${l.qty}` : ""}{l.close_outcome ? ` · ${l.close_outcome === "release" ? L("ปล่อยขาย", "released", "放行") : l.close_outcome === "repair" ? L("ส่งซ่อม", "repair", "维修") : L("ตัดจำหน่าย", "disposed", "报废")}` : ""}</div>)}
@@ -948,7 +948,7 @@ export default function AdminTransfersPage() {
                           <p className="text-xs font-medium text-ink mb-1.5 truncate">{products.find((p) => p.id === it.product_id)?.name_th ?? it.sku}</p>
                           <div className="grid grid-cols-2 gap-2 text-[11px]">
                             <div className="rounded-lg bg-surface border border-line px-2 py-1.5">
-                              <p className="text-muted mb-1 truncate">🏠 {L("ต้นทาง", "Source", "源")} · {bName(detail.from_branch_id)}</p>
+                              <p className="text-muted mb-1 truncate inline-flex items-center gap-1"><Home size={12} className="shrink-0 text-ink/50" /> {L("ต้นทาง", "Source", "源")} · {bName(detail.from_branch_id)}</p>
                               <div className="flex flex-wrap gap-1">
                                 <Chip n={sv.available} label={L("พร้อมขาย", "avail", "可售")} tone="bg-emerald-100 text-emerald-700" />
                                 <Chip n={sv.reservedOut} label={L("จองส่ง", "reserved", "预留")} tone="bg-sky-100 text-sky-700" />
@@ -958,7 +958,7 @@ export default function AdminTransfersPage() {
                               </div>
                             </div>
                             <div className="rounded-lg bg-surface border border-line px-2 py-1.5">
-                              <p className="text-muted mb-1 truncate">📍 {L("ปลายทาง", "Dest", "目的")} · {bName(detail.to_branch_id)}</p>
+                              <p className="text-muted mb-1 truncate inline-flex items-center gap-1"><MapPin size={12} className="shrink-0 text-ink/50" /> {L("ปลายทาง", "Dest", "目的")} · {bName(detail.to_branch_id)}</p>
                               <div className="flex flex-wrap gap-1">
                                 <Chip n={dv.available} label={L("พร้อมขาย", "avail", "可售")} tone="bg-emerald-100 text-emerald-700" />
                                 <Chip n={dv.quarantine} label={L("พักตรวจ", "quarantine", "暂扣")} tone="bg-rose-100 text-rose-700" />
