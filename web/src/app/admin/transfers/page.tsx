@@ -9,7 +9,7 @@ import { useI18n } from "@/lib/i18n/provider";
 import { useSession } from "@/lib/store/session";
 import { useToast } from "@/components/toast-host";
 import { listBranches, listProducts, listEmployees, stockAll } from "@/lib/data/repo";
-import { availableQty } from "@/lib/stock";
+import { availableQty, stockView } from "@/lib/stock";
 import { coordOf, haversineKm, fmtKm } from "@/lib/geo";
 import { resolveSerial } from "@/lib/data/serials";
 import { listApprovalRules, resolveApprovers, type ApprovalRule } from "@/lib/data/approval-rules";
@@ -64,6 +64,8 @@ export default function AdminTransfersPage() {
   const [repOpen, setRepOpen] = useState(false); // ฟอร์มแจ้งของมีปัญหา (พักตรวจ)
   const [repPid, setRepPid] = useState(""); const [repQty, setRepQty] = useState(1); const [repKind, setRepKind] = useState<"damaged" | "wrong_sn" | "lost">("damaged");
   const [retTracking, setRetTracking] = useState(""); // เลขติดตามขาส่งคืน
+  const [openQty, setOpenQty] = useState<Record<string, number>>({});      // จำนวนที่เลือกส่งคืน (รายผลต่าง)
+  const [retLineQty, setRetLineQty] = useState<Record<string, number>>({});  // จำนวนที่รับคืนจริง (รายบรรทัดใบส่งคืน)
   // create
   const [open, setOpen] = useState(false);
   const [from, setFrom] = useState("");
@@ -153,6 +155,7 @@ export default function AdminTransfersPage() {
   // ── คำขอสินค้าเข้าสาขา: เลือกสินค้า → แนะนำสาขาที่มีของ เรียงใกล้สุด → ส่งคำขอ (สร้าง transfer source→dest, รออนุมัติต้นทาง) ──
   const stockMap = useMemo(() => { const m = new Map<string, StockLevel>(); for (const s of stock) m.set(`${s.branch_id}:${s.product_id}`, s); return m; }, [stock]);
   const availAt = (bid: string, pid: string) => { const s = stockMap.get(`${bid}:${pid}`); return s ? availableQty(s) : 0; };
+  const viewAt = (bid: string, pid: string) => stockView(stockMap.get(`${bid}:${pid}`));
   const reqProduct = products.find((p) => p.id === reqProductId) || null;
   const reqSources = useMemo(() => {
     if (!reqProductId || !reqDest) return [] as { b: Branch; avail: number; km: number | null }[];
@@ -403,15 +406,17 @@ export default function AdminTransfersPage() {
   // ปฏิเสธรับ → ส่งคืน → ต้นทางรับคืน
   // ── ใบส่งคืน (Return Doc) ──
   const discOf = (tr: Transfer, discId: string) => (tr.discrepancies ?? []).find((d) => d.id === discId);
-  const doOpenReturn = (tr: Transfer, dc: NonNullable<Transfer["discrepancies"]>[number], outcome: "return_source" | "repair") =>
-    void act(() => owOpenReturn(tr, employee!.id, { disc_ids: [dc.id], outcome, reason_kind: (dc.kind === "wrong_sn" ? "wrong_sn" : "damaged"), reason: null, lines: [{ product_id: dc.product_id, qty: dc.qty, sns_expected: dc.serialNo ? [dc.serialNo] : [] }] }),
-      outcome === "repair" ? L("เปิดใบส่งซ่อมแล้ว", "Repair return opened", "已开维修单") : L("เปิดใบส่งคืนแล้ว", "Return opened", "已开退回单"));
+  const doOpenReturn = (tr: Transfer, dc: NonNullable<Transfer["discrepancies"]>[number], outcome: "return_source" | "repair") => {
+    const qty = Math.max(1, Math.min(dc.qty, openQty[dc.id] ?? dc.qty));
+    void act(() => owOpenReturn(tr, employee!.id, { disc_ids: [dc.id], outcome, reason_kind: (dc.kind === "wrong_sn" ? "wrong_sn" : "damaged"), reason: null, lines: [{ product_id: dc.product_id, qty, sns_expected: dc.serialNo ? [dc.serialNo] : [] }] }),
+      outcome === "repair" ? L(`เปิดใบส่งซ่อม ${qty} ชิ้น`, "Repair return opened", "已开维修单") : L(`เปิดใบส่งคืน ${qty} ชิ้น`, "Return opened", "已开退回单"));
+  };
   const doReqReturn = (tr: Transfer, retId: string) => void act(() => owRequestReturnApproval(tr, employee!.id, retId), L("ส่งให้หัวหน้าตรวจแล้ว", "Sent for approval", "已送审"));
   const doApproveReturn = (tr: Transfer, retId: string) => void act(() => owApproveReturn(tr, employee!.id, retId), L("อนุมัติใบส่งคืนแล้ว — รอจัดส่ง", "Return approved", "已批准"));
   const doCancelReturn = (tr: Transfer, retId: string) => void act(() => owCancelReturn(tr, employee!.id, retId), L("ยกเลิกใบส่งคืนแล้ว", "Return cancelled", "已取消"));
   const doDispatchReturn = (tr: Transfer, retId: string) => void act(() => owDispatchReturn(tr, employee!.id, retId, { carrier: carrier || null, tracking: retTracking || null }), L("ยืนยันส่งคืนแล้ว (ของออกจากสาขา)", "Return dispatched", "已发出退回"));
   const doReturnShipStage = (tr: Transfer, retId: string, stage: "called" | "picked_up" | "handed") => void act(() => owSetReturnShipStage(tr, employee!.id, retId, stage), L("อัปเดตสถานะขนส่งแล้ว", "Shipping updated", "已更新物流"));
-  const doReceiveRet = (tr: Transfer, r: NonNullable<Transfer["returns"]>[number]) => void act(() => owReceiveReturnLines(tr, employee!.id, r.id, (r.lines ?? []).map((l) => ({ product_id: l.product_id, qty: l.qty - (l.qty_received ?? 0), sns_found: l.sns_found }))), L("ต้นทางรับคืนแล้ว — เข้าพักตรวจ (ยังไม่ขาย)", "Received into quarantine", "已收回·暂扣"));
+  const doReceiveRet = (tr: Transfer, r: NonNullable<Transfer["returns"]>[number]) => void act(() => owReceiveReturnLines(tr, employee!.id, r.id, (r.lines ?? []).map((l) => { const remain = l.qty - (l.qty_received ?? 0); const q = retLineQty[`${r.id}:${l.product_id}`]; return { product_id: l.product_id, qty: q === undefined ? remain : Math.max(0, Math.min(remain, q)), sns_found: l.sns_found }; })), L("รับคืนแล้ว — เข้าพักตรวจ (ยังไม่ขาย)", "Received into quarantine", "已收回·暂扣"));
   const doCloseReturn = (tr: Transfer, r: NonNullable<Transfer["returns"]>[number], oc: "release" | "repair" | "dispose") => void act(() => owCloseReturn(tr, employee!.id, r.id, Object.fromEntries((r.lines ?? []).map((l) => [l.product_id, oc]))), oc === "release" ? L("ปิดงาน — ปล่อยขายแล้ว", "Closed — released to sale", "已放行") : oc === "repair" ? L("ปิดงาน — ส่งซ่อม (คงพักตรวจ)", "Closed — to repair", "已送修") : L("ปิดงาน — ตัดจำหน่ายแล้ว", "Closed — disposed", "已报废"));
   // ยกเลิกตามสถานะ: ก่อนสแกนออกยกเลิกได้ (ปล่อยจอง) · หลังส่ง/เสร็จ → โอนกลับ
   const canCancelTr = (tr: Transfer) => ["approved", "picking"].includes(tr.status) && atSource(tr) && canOut;
@@ -797,6 +802,7 @@ export default function AdminTransfersPage() {
                                   <Badge tone={stt.tone}>{stt.label}</Badge>
                                   {/* ของพักตรวจ (ชำรุด/SN ผิด) — เลือกวิธีจัดการ */}
                                   {dc.status === "open" && (dc.kind === "damaged" || dc.kind === "wrong_sn") && canRequest ? <>
+                                    {dc.qty > 1 ? <span className="inline-flex items-center gap-0.5 text-muted">{L("จำนวน", "qty", "数")}<input type="number" min={1} max={dc.qty} value={openQty[dc.id] ?? dc.qty} onChange={(e) => setOpenQty((o) => ({ ...o, [dc.id]: Math.max(1, Math.min(dc.qty, Number(e.target.value) || 1)) }))} className="w-11 h-6 text-center rounded border border-line bg-surface text-[11px]" />/{dc.qty}</span> : null}
                                     <button onClick={() => doOpenReturn(detail, dc, "return_source")} className="text-brand hover:underline font-medium">{L("ส่งคืนต้นทาง", "Return", "退回")}</button>
                                     <button onClick={() => doOpenReturn(detail, dc, "repair")} className="text-amber-600 hover:underline font-medium">{L("ส่งซ่อม", "Repair", "维修")}</button>
                                     <button onClick={() => doRequestResolve(detail, dc.id)} className="text-muted hover:underline font-medium">{L("ส่งอนุมัติปิด", "Request close", "送审")}</button>
@@ -904,9 +910,12 @@ export default function AdminTransfersPage() {
                                 <Button variant="primary" className="h-9" loading={busy} onClick={() => doDispatchReturn(detail, r.id)}><Truck size={14} /> {L("ยืนยันส่งคืน", "Confirm return", "确认退回")}</Button>
                                 <Button variant="ghost" className="h-9 text-rose-600" loading={busy} onClick={() => doCancelReturn(detail, r.id)}>{L("ยกเลิก", "Cancel", "取消")}</Button>
                               </> : null}
-                              {r.status === "returning" ? <>
-                                {isDest ? <div className="inline-flex gap-1">{([["called", L("เรียกรถ", "Called", "叫车")], ["picked_up", L("รับแล้ว", "Picked", "取货")], ["handed", L("ส่งมอบ", "Handed", "交付")]] as const).map(([k, lb]) => <button key={k} onClick={() => doReturnShipStage(detail, r.id, k)} className={`h-8 px-2 rounded-lg border text-[11px] ${r.ship_stage === k ? "border-brand bg-brand/10 text-brand" : "border-line text-muted"}`}>{lb}</button>)}</div> : null}
-                                {canRecvRet ? <Button variant="primary" className="h-9" loading={busy} onClick={() => doReceiveRet(detail, r)}><PackageCheck size={14} /> {L("ยืนยันรับคืน", "Confirm receive", "确认收回")}</Button> : null}
+                              {r.status === "returning" || r.status === "partial_received" ? <>
+                                {isDest && r.status === "returning" ? <div className="inline-flex gap-1">{([["called", L("เรียกรถ", "Called", "叫车")], ["picked_up", L("รับแล้ว", "Picked", "取货")], ["handed", L("ส่งมอบ", "Handed", "交付")]] as const).map(([k, lb]) => <button key={k} onClick={() => doReturnShipStage(detail, r.id, k)} className={`h-8 px-2 rounded-lg border text-[11px] ${r.ship_stage === k ? "border-brand bg-brand/10 text-brand" : "border-line text-muted"}`}>{lb}</button>)}</div> : null}
+                                {canRecvRet ? <>
+                                  {(r.lines ?? []).some((l) => (l.qty - (l.qty_received ?? 0)) > 1) ? <div className="w-full flex flex-wrap gap-2 items-center">{(r.lines ?? []).filter((l) => (l.qty - (l.qty_received ?? 0)) > 0).map((l) => { const remain = l.qty - (l.qty_received ?? 0); return <span key={l.product_id} className="inline-flex items-center gap-1 text-[11px] text-muted">{L("รับ", "recv", "收")}<input type="number" min={0} max={remain} value={retLineQty[`${r.id}:${l.product_id}`] ?? remain} onChange={(e) => setRetLineQty((o) => ({ ...o, [`${r.id}:${l.product_id}`]: Math.max(0, Math.min(remain, Number(e.target.value) || 0)) }))} className="w-12 h-7 text-center rounded border border-line bg-surface" />/{remain}</span>; })}</div> : null}
+                                  <Button variant="primary" className="h-9" loading={busy} onClick={() => doReceiveRet(detail, r)}><PackageCheck size={14} /> {L("ยืนยันรับคืน", "Confirm receive", "确认收回")}</Button>
+                                </> : null}
                               </> : null}
                               {(r.status === "received" || r.status === "partial_received") && canResolve ? <>
                                 <span className="text-[11px] text-muted">{L("ตรวจสภาพ", "Inspect", "检查")} ({recv}/{total}):</span>
@@ -922,10 +931,47 @@ export default function AdminTransfersPage() {
                   );
                 })()}
 
-                {/* สถานะสต๊อก — ของนับเป็นอะไรตอนนี้ */}
-                <div className="rounded-2xl border border-line p-3 flex items-center justify-between gap-3">
-                  <span className="text-sm text-muted inline-flex items-center gap-1.5 shrink-0"><Boxes size={15} /> {L("สถานะสต๊อก", "Stock status", "库存状态")}</span>
-                  <Badge tone={stockStatus(detail.status).tone} className="text-right">{stockStatus(detail.status).label}</Badge>
+                {/* มอนิเตอร์สต๊อก — ของอยู่สาขาไหน จำนวนเท่าไร สถานะอะไร (คู่กับสถานะใบโอน) */}
+                <div className="rounded-2xl border border-line p-3.5 space-y-2.5">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <span className="text-sm font-medium inline-flex items-center gap-1.5"><Boxes size={15} /> {L("มอนิเตอร์สต๊อก — ของอยู่ไหนตอนนี้", "Stock monitor — where is it now", "库存位置")}</span>
+                    <Badge tone={stockStatus(detail.status).tone}>{stockStatus(detail.status).label}</Badge>
+                  </div>
+                  {(() => {
+                    const retLines = (detail.returns ?? []).filter((r) => ["returning", "partial_received"].includes(r.status as string)).flatMap((r) => r.lines ?? []);
+                    const inReturn = (pid: string) => retLines.filter((l) => l.product_id === pid).reduce((s, l) => s + (l.qty - (l.qty_received ?? 0)), 0);
+                    const Chip = ({ n, label, tone }: { n: number; label: string; tone: string }) => n > 0 ? <span className={`text-[10.5px] px-1.5 py-0.5 rounded-md font-medium ${tone}`}>{label} {n}</span> : null;
+                    return detail.items.map((it) => {
+                      const sv = viewAt(detail.from_branch_id, it.product_id); const dv = viewAt(detail.to_branch_id, it.product_id); const ir = inReturn(it.product_id);
+                      return (
+                        <div key={it.product_id} className="rounded-xl border border-line/70 bg-surface2/30 p-2.5">
+                          <p className="text-xs font-medium text-ink mb-1.5 truncate">{products.find((p) => p.id === it.product_id)?.name_th ?? it.sku}</p>
+                          <div className="grid grid-cols-2 gap-2 text-[11px]">
+                            <div className="rounded-lg bg-surface border border-line px-2 py-1.5">
+                              <p className="text-muted mb-1 truncate">🏠 {L("ต้นทาง", "Source", "源")} · {bName(detail.from_branch_id)}</p>
+                              <div className="flex flex-wrap gap-1">
+                                <Chip n={sv.available} label={L("พร้อมขาย", "avail", "可售")} tone="bg-emerald-100 text-emerald-700" />
+                                <Chip n={sv.reservedOut} label={L("จองส่ง", "reserved", "预留")} tone="bg-sky-100 text-sky-700" />
+                                <Chip n={sv.otwo} label={L("กำลังส่งออก", "in-transit", "在途")} tone="bg-indigo-100 text-indigo-700" />
+                                <Chip n={sv.quarantine} label={L("พักตรวจ", "quarantine", "暂扣")} tone="bg-rose-100 text-rose-700" />
+                                {sv.available + sv.reservedOut + sv.otwo + sv.quarantine === 0 ? <span className="text-muted">—</span> : null}
+                              </div>
+                            </div>
+                            <div className="rounded-lg bg-surface border border-line px-2 py-1.5">
+                              <p className="text-muted mb-1 truncate">📍 {L("ปลายทาง", "Dest", "目的")} · {bName(detail.to_branch_id)}</p>
+                              <div className="flex flex-wrap gap-1">
+                                <Chip n={dv.available} label={L("พร้อมขาย", "avail", "可售")} tone="bg-emerald-100 text-emerald-700" />
+                                <Chip n={dv.quarantine} label={L("พักตรวจ", "quarantine", "暂扣")} tone="bg-rose-100 text-rose-700" />
+                                <Chip n={ir} label={L("กำลังส่งคืน", "returning", "退回中")} tone="bg-amber-100 text-amber-700" />
+                                {dv.available + dv.quarantine + ir === 0 ? <span className="text-muted">—</span> : null}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    });
+                  })()}
+                  <p className="text-[10px] text-muted leading-relaxed">{L("พร้อมขาย=ขายได้ · จองส่ง=กันไว้รอส่ง · กำลังส่งออก=ออกจากต้นทางยังไม่ถึงปลายทาง · พักตรวจ=ชำรุด/รอตรวจ ขายไม่ได้ · กำลังส่งคืน=อยู่ระหว่างคืนต้นทาง", "avail=sellable · reserved=held · in-transit=left source · quarantine=held for inspection · returning=being returned", "")}</p>
                 </div>
 
                 {/* เอกสาร / รูปแนบ (ไม่จำกัด) */}
