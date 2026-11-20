@@ -173,6 +173,8 @@ export default function AdminTransfersPage() {
       await owCreate(reqSource, reqDest, employee.id, [{ product_id: reqProduct.id, sku: reqProduct.sku, name: reqProduct.name_th, qty: reqQty, isSerialized: !!reqProduct.track_serial }], L(`คำขอจาก ${bName(reqDest)}`, `Request from ${bName(reqDest)}`, `申请`), false, srcB?.branch_type === "warehouse" ? "warehouse" : "branch");
       setReqOpen(false); await reload();
       toast.push({ tone: "ok", title: L("ส่งคำขอแล้ว — รอต้นทางอนุมัติ", "Request sent — awaiting source approval", "已发送申请") });
+    } catch (e) {
+      toast.push({ tone: "danger", title: owErrorMessage(e instanceof Error ? e.message : "error", locale) });
     } finally { setBusy(false); }
   }
   const sMeta = (s: Transfer["status"]) => statusMeta(s, locale);
@@ -247,6 +249,8 @@ export default function AdminTransfersPage() {
       await owCreate(from, to, employee.id, ls, note, auto, fromKind);
       setOpen(false); setLines([]); setNote(""); await reload();
       toast.push({ tone: "ok", title: t.transfer.title });
+    } catch (e) {
+      toast.push({ tone: "danger", title: owErrorMessage(e instanceof Error ? e.message : "error", locale) });
     } finally { setBusy(false); }
   }
   async function act(fn: () => Promise<Transfer>, okTitle: string) {
