@@ -15,7 +15,8 @@ import { resolveSerial } from "@/lib/data/serials";
 import { listApprovalRules, resolveApprovers, type ApprovalRule } from "@/lib/data/approval-rules";
 import {
   owListAll, owCreate, owApprove, owReject, owReverse, owGet, owTimeline,
-  owScanOut, owDispatch, owReceive, owCloseShort, owRecordDisc, owRequestResolveDisc, owResolveDisc, owRejectReceipt, owShipReturn, owReceiveReturn, owCarriers, owSetAttachments, owShipStage, owSetPickupStage,
+  owScanOut, owDispatch, owReceive, owCloseShort, owRecordDisc, owRequestResolveDisc, owResolveDisc, owCarriers, owSetAttachments, owShipStage, owSetPickupStage,
+  owOpenReturn, owRequestReturnApproval, owApproveReturn, owCancelReturn, owDispatchReturn, owSetReturnShipStage, owReceiveReturnLines, owCloseReturn,
   statusMeta, isActive, isIssue, owErrorMessage,
 } from "@/lib/onewarehouse";
 import { TransferStepper, ItemJourney, TransferTimeline } from "@/components/admin/transfer-ui";
@@ -62,7 +63,7 @@ export default function AdminTransfersPage() {
   const [shareOpen, setShareOpen] = useState(false); // เมนูแชร์ฟอร์ม
   const [repOpen, setRepOpen] = useState(false); // ฟอร์มแจ้งของมีปัญหา (พักตรวจ)
   const [repPid, setRepPid] = useState(""); const [repQty, setRepQty] = useState(1); const [repKind, setRepKind] = useState<"damaged" | "wrong_sn" | "lost">("damaged");
-  const [rejOpen, setRejOpen] = useState(false); const [rejPid, setRejPid] = useState(""); const [rejQty, setRejQty] = useState(1); const [rejReason, setRejReason] = useState(""); // ฟอร์มปฏิเสธรับ
+  const [retTracking, setRetTracking] = useState(""); // เลขติดตามขาส่งคืน
   // create
   const [open, setOpen] = useState(false);
   const [from, setFrom] = useState("");
@@ -396,13 +397,22 @@ export default function AdminTransfersPage() {
   };
   const doCloseShort = (tr: Transfer) => void act(() => owCloseShort(tr, employee!.id), L("ปิดรับแล้ว (ยอมรับส่วนขาด)", "Closed with shortage", "已结单(接受缺量)"));
   const doRequestResolve = (tr: Transfer, discId: string) => void act(() => owRequestResolveDisc(tr, discId, employee!.id), L("ส่งให้หัวหน้าอนุมัติปิดแล้ว", "Sent for approval", "已送审批"));
-  const doResolveDisc = (tr: Transfer, discId: string, outcome?: "release" | "dispose") => void act(() => owResolveDisc(tr, discId, employee!.id, outcome), outcome === "release" ? L("ผ่านตรวจ — คืนขายแล้ว", "Released to sale", "已放行") : outcome === "dispose" ? L("อนุมัติตัดทิ้งแล้ว", "Disposed", "已报废") : L("หัวหน้าอนุมัติปิดผลต่างแล้ว", "Discrepancy resolved", "已关闭差异"));
+  const doResolveDisc = (tr: Transfer, discId: string, outcome?: "release" | "dispose") => void act(() => owResolveDisc(tr, discId, employee!.id, outcome), outcome === "release" ? L("ผ่านตรวจ — ปล่อยขายแล้ว", "Released to sale", "已放行") : outcome === "dispose" ? L("อนุมัติตัดทิ้งแล้ว", "Disposed", "已报废") : L("หัวหน้าอนุมัติปิดผลต่างแล้ว", "Discrepancy resolved", "已关闭差异"));
   // แจ้งของมีปัญหา (ชำรุด/SN ผิด) → พักตรวจ ขายไม่ได้ จนกว่าหัวหน้าจะตัดสิน
   const doRecordDamage = (tr: Transfer, product_id: string, kind: "damaged" | "wrong_sn" | "lost", qty: number) => void act(() => owRecordDisc(tr, employee!.id, { product_id, kind, qty, note: null, responsible_by: null, serialNo: null }), kind === "lost" ? L("แจ้งไม่พบ/สูญหายแล้ว — กำลังติดตาม", "Reported missing — tracking", "已报失·跟踪中") : L("บันทึกพักตรวจแล้ว (ขายไม่ได้)", "Quarantined", "已暂扣"));
   // ปฏิเสธรับ → ส่งคืน → ต้นทางรับคืน
-  const doReject = (tr: Transfer, product_id: string, qty: number, reason: string) => void act(() => owRejectReceipt(tr, employee!.id, { product_id, qty, reason: reason || null }), L("ปฏิเสธรับแล้ว — รอส่งคืน", "Rejected — awaiting return", "已拒收"));
-  const doShipReturn = (tr: Transfer, returnId: string) => void act(() => owShipReturn(tr, returnId, employee!.id), L("ส่งคืนแล้ว — รอต้นทางรับ", "Returned — awaiting source", "已退回"));
-  const doReceiveReturn = (tr: Transfer, returnId: string) => void act(() => owReceiveReturn(tr, returnId, employee!.id), L("ต้นทางรับคืนแล้ว (ยอดกลับเข้าต้นทาง)", "Return received", "已收回"));
+  // ── ใบส่งคืน (Return Doc) ──
+  const discOf = (tr: Transfer, discId: string) => (tr.discrepancies ?? []).find((d) => d.id === discId);
+  const doOpenReturn = (tr: Transfer, dc: NonNullable<Transfer["discrepancies"]>[number], outcome: "return_source" | "repair") =>
+    void act(() => owOpenReturn(tr, employee!.id, { disc_ids: [dc.id], outcome, reason_kind: (dc.kind === "wrong_sn" ? "wrong_sn" : "damaged"), reason: null, lines: [{ product_id: dc.product_id, qty: dc.qty, sns_expected: dc.serialNo ? [dc.serialNo] : [] }] }),
+      outcome === "repair" ? L("เปิดใบส่งซ่อมแล้ว", "Repair return opened", "已开维修单") : L("เปิดใบส่งคืนแล้ว", "Return opened", "已开退回单"));
+  const doReqReturn = (tr: Transfer, retId: string) => void act(() => owRequestReturnApproval(tr, employee!.id, retId), L("ส่งให้หัวหน้าตรวจแล้ว", "Sent for approval", "已送审"));
+  const doApproveReturn = (tr: Transfer, retId: string) => void act(() => owApproveReturn(tr, employee!.id, retId), L("อนุมัติใบส่งคืนแล้ว — รอจัดส่ง", "Return approved", "已批准"));
+  const doCancelReturn = (tr: Transfer, retId: string) => void act(() => owCancelReturn(tr, employee!.id, retId), L("ยกเลิกใบส่งคืนแล้ว", "Return cancelled", "已取消"));
+  const doDispatchReturn = (tr: Transfer, retId: string) => void act(() => owDispatchReturn(tr, employee!.id, retId, { carrier: carrier || null, tracking: retTracking || null }), L("ยืนยันส่งคืนแล้ว (ของออกจากสาขา)", "Return dispatched", "已发出退回"));
+  const doReturnShipStage = (tr: Transfer, retId: string, stage: "called" | "picked_up" | "handed") => void act(() => owSetReturnShipStage(tr, employee!.id, retId, stage), L("อัปเดตสถานะขนส่งแล้ว", "Shipping updated", "已更新物流"));
+  const doReceiveRet = (tr: Transfer, r: NonNullable<Transfer["returns"]>[number]) => void act(() => owReceiveReturnLines(tr, employee!.id, r.id, (r.lines ?? []).map((l) => ({ product_id: l.product_id, qty: l.qty - (l.qty_received ?? 0), sns_found: l.sns_found }))), L("ต้นทางรับคืนแล้ว — เข้าพักตรวจ (ยังไม่ขาย)", "Received into quarantine", "已收回·暂扣"));
+  const doCloseReturn = (tr: Transfer, r: NonNullable<Transfer["returns"]>[number], oc: "release" | "repair" | "dispose") => void act(() => owCloseReturn(tr, employee!.id, r.id, Object.fromEntries((r.lines ?? []).map((l) => [l.product_id, oc]))), oc === "release" ? L("ปิดงาน — ปล่อยขายแล้ว", "Closed — released to sale", "已放行") : oc === "repair" ? L("ปิดงาน — ส่งซ่อม (คงพักตรวจ)", "Closed — to repair", "已送修") : L("ปิดงาน — ตัดจำหน่ายแล้ว", "Closed — disposed", "已报废"));
   // ยกเลิกตามสถานะ: ก่อนสแกนออกยกเลิกได้ (ปล่อยจอง) · หลังส่ง/เสร็จ → โอนกลับ
   const canCancelTr = (tr: Transfer) => ["approved", "picking"].includes(tr.status) && atSource(tr) && canOut;
   const canReverse = (tr: Transfer) => ["completed", "partial_received"].includes(tr.status) && atDest(tr) && canOut && tr.items.some((it) => (it.qty_received || 0) > 0);
@@ -785,10 +795,20 @@ export default function AdminTransfersPage() {
                                 <span className="truncate flex-1"><b className="text-ink/80">{DISC_LABEL[dc.kind]}</b> · {pName(dc.product_id)} × {dc.qty}{dc.responsible_by ? ` · ${L("ผู้รับผิดชอบ", "resp.", "负责")} ${empName(dc.responsible_by)}` : ""}</span>
                                 <span className="shrink-0 inline-flex items-center gap-1.5">
                                   <Badge tone={stt.tone}>{stt.label}</Badge>
-                                  {dc.status === "open" && canRequest ? <button onClick={() => doRequestResolve(detail, dc.id)} className="text-brand hover:underline font-medium">{L("ส่งอนุมัติปิด", "Request close", "送审")}</button> : null}
+                                  {/* ของพักตรวจ (ชำรุด/SN ผิด) — เลือกวิธีจัดการ */}
+                                  {dc.status === "open" && (dc.kind === "damaged" || dc.kind === "wrong_sn") && canRequest ? <>
+                                    <button onClick={() => doOpenReturn(detail, dc, "return_source")} className="text-brand hover:underline font-medium">{L("ส่งคืนต้นทาง", "Return", "退回")}</button>
+                                    <button onClick={() => doOpenReturn(detail, dc, "repair")} className="text-amber-600 hover:underline font-medium">{L("ส่งซ่อม", "Repair", "维修")}</button>
+                                    <button onClick={() => doRequestResolve(detail, dc.id)} className="text-muted hover:underline font-medium">{L("ส่งอนุมัติปิด", "Request close", "送审")}</button>
+                                  </> : null}
+                                  {/* ขาด/สูญหาย — ติดตาม หรือขออนุมัติปิด (ไม่มีส่งคืน) */}
+                                  {dc.status === "open" && (dc.kind === "short" || dc.kind === "lost") ? <>
+                                    <span className="text-amber-600 font-medium">{L("กำลังติดตามส่วนขาด", "Tracking shortage", "跟踪缺量")}</span>
+                                    {canRequest ? <button onClick={() => doRequestResolve(detail, dc.id)} className="text-muted hover:underline font-medium">{L("ขออนุมัติปิด", "Request close", "送审")}</button> : null}
+                                  </> : null}
                                   {dc.status === "pending_approval" && canResolve ? (
                                     (dc.kind === "damaged" || dc.kind === "wrong_sn")
-                                      ? <><button onClick={() => doResolveDisc(detail, dc.id, "release")} className="text-ok hover:underline font-medium">{L("คืนขาย", "Release", "放行")}</button><button onClick={() => doResolveDisc(detail, dc.id, "dispose")} className="text-rose-600 hover:underline font-medium">{L("ตัดทิ้ง", "Dispose", "报废")}</button></>
+                                      ? <><button onClick={() => doResolveDisc(detail, dc.id, "release")} className="text-ok hover:underline font-medium">{L("ปล่อยขายหลังตรวจ", "Release to sale", "放行")}</button><button onClick={() => doResolveDisc(detail, dc.id, "dispose")} className="text-rose-600 hover:underline font-medium">{L("อนุมัติตัดจำหน่าย", "Approve write-off", "批准报废")}</button></>
                                       : <button onClick={() => doResolveDisc(detail, dc.id)} className="text-brand hover:underline font-medium">{dc.kind === "lost" ? L("อนุมัติตัดสูญหาย", "Approve loss", "批准损失") : L("อนุมัติปิด", "Approve close", "批准")}</button>
                                   ) : null}
                                 </span>
@@ -823,48 +843,81 @@ export default function AdminTransfersPage() {
                   );
                 })()}
 
-                {/* ปฏิเสธรับ → ส่งคืน → ต้นทางรับคืน */}
+                {/* ใบส่งคืน (Return Doc) — วงจร 7 ขั้น + สถานะขนส่ง */}
                 {(() => {
                   const pName = (pid: string) => products.find((p) => p.id === pid)?.name_th ?? detail.items.find((i) => i.product_id === pid)?.sku ?? pid;
-                  const returns = detail.returns ?? [];
-                  const canReject = atDest(detail) && ["in_transit", "partial_received", "completed"].includes(detail.status);
-                  if (!returns.length && !canReject) return null;
-                  const RET_ST: Record<string, { label: string; tone: "warn" | "info" | "ok" }> = {
-                    rejected: { label: L("ปฏิเสธรับ · รอส่งคืน", "Rejected · to return", "拒收·待退"), tone: "warn" },
-                    returning: { label: L("กำลังส่งคืน", "Returning", "退回中"), tone: "info" },
-                    received: { label: L("ต้นทางรับคืนแล้ว", "Return received", "已收回"), tone: "ok" },
+                  const returns = (detail.returns ?? []).filter((r) => (r.lines?.length ?? 0) > 0);
+                  if (!returns.length) return null;
+                  const canResolve = can(employee, "transfer.approve") || isSuperApprover(employee);
+                  const isDest = atDest(detail); const canRecvRet = canRecv && atSource(detail);
+                  const STEPS = [L("ร่าง", "Draft", "草稿"), L("รออนุมัติ", "Approve", "待批"), L("อนุมัติ", "Approved", "已批"), L("ส่งคืน", "Ship", "退回"), L("รับคืน", "Receive", "收回"), L("ปิดงาน", "Closed", "结案")];
+                  const STEP_OF: Record<string, number> = { draft: 0, pending_approval: 1, approved: 2, preparing: 2, returning: 3, partial_received: 4, received: 4, closed: 5, cancelled: -1 };
+                  const RET_ST: Record<string, { label: string; tone: "warn" | "info" | "ok" | "neutral" | "danger" }> = {
+                    draft: { label: L("ร่าง", "Draft", "草稿"), tone: "neutral" }, pending_approval: { label: L("รออนุมัติ", "Pending", "待批"), tone: "warn" },
+                    approved: { label: L("อนุมัติ · รอจัดส่ง", "Approved", "已批"), tone: "info" }, preparing: { label: L("เตรียมส่ง", "Preparing", "备货"), tone: "info" },
+                    returning: { label: L("กำลังส่งคืน", "Returning", "退回中"), tone: "info" }, partial_received: { label: L("รับคืนบางส่วน", "Partial", "部分收回"), tone: "warn" },
+                    received: { label: L("รับคืนครบ", "Received", "已收回"), tone: "ok" }, closed: { label: L("ปิดงาน", "Closed", "结案"), tone: "ok" }, cancelled: { label: L("ยกเลิก", "Cancelled", "已取消"), tone: "danger" },
                   };
                   return (
-                    <div className="rounded-2xl border border-rose-500/30 bg-rose-500/5 p-3 space-y-2.5">
-                      <p className="text-sm font-medium inline-flex items-center gap-1.5"><RotateCcw size={14} className="text-rose-600" /> {L("ปฏิเสธรับ / ส่งคืน", "Reject / return", "拒收/退回")}</p>
-                      {returns.map((r) => (
-                        <div key={r.id} className="flex items-center justify-between gap-2 text-[11px]">
-                          <span className="truncate flex-1">{pName(r.product_id)} × {r.qty}{r.reason ? ` · ${r.reason}` : ""}</span>
-                          <span className="shrink-0 inline-flex items-center gap-1.5">
-                            <Badge tone={RET_ST[r.status].tone}>{RET_ST[r.status].label}</Badge>
-                            {r.status === "rejected" && atDest(detail) ? <button onClick={() => doShipReturn(detail, r.id)} className="text-brand hover:underline font-medium">{L("ส่งคืน", "Return", "退回")}</button> : null}
-                            {r.status === "returning" && atSource(detail) ? <button onClick={() => doReceiveReturn(detail, r.id)} className="text-brand hover:underline font-medium">{L("รับคืน", "Receive", "收回")}</button> : null}
-                          </span>
-                        </div>
-                      ))}
-                      {canReject ? (
-                        <div className="pt-1">
-                          {rejOpen ? (
-                            <div className="space-y-2">
-                              <p className="text-[11px] text-muted leading-relaxed">{L("ปฏิเสธของที่ส่งผิด/ผิดรุ่น — ของจะ \"รอส่งคืน\" (ขายไม่ได้) · ยอดคืนต้นทางเมื่อต้นทางรับจริงเท่านั้น", "Reject wrong items — awaiting return, credited only when source receives", "拒收错货")}</p>
-                              <Select value={rejPid || detail.items[0]?.product_id} onChange={(e) => setRejPid(e.target.value)} className="h-9 w-full text-xs">{detail.items.map((it) => <option key={it.product_id} value={it.product_id}>{pName(it.product_id)}</option>)}</Select>
-                              <Input value={rejReason} onChange={(e) => setRejReason(e.target.value)} placeholder={L("เหตุผล (เช่น ส่งผิดรุ่น)", "Reason", "原因")} className="h-9 w-full text-xs" />
-                              <div className="flex gap-1.5">
-                                <Input type="number" min={1} value={rejQty} onChange={(e) => setRejQty(Math.max(1, Math.round(Number(e.target.value) || 1)))} className="h-9 w-20 text-xs" />
-                                <Button variant="primary" className="h-9 flex-1" loading={busy} onClick={() => { doReject(detail, rejPid || detail.items[0].product_id, rejQty, rejReason); setRejOpen(false); setRejQty(1); setRejPid(""); setRejReason(""); }}><RotateCcw size={13} /> {L("ปฏิเสธรับ (ขอส่งคืน)", "Reject", "拒收")}</Button>
-                                <Button variant="ghost" className="h-9" onClick={() => setRejOpen(false)}><X size={13} /></Button>
-                              </div>
+                    <div className="space-y-2.5">
+                      {returns.map((r) => {
+                        const total = (r.lines ?? []).reduce((s, l) => s + l.qty, 0); const recv = (r.lines ?? []).reduce((s, l) => s + (l.qty_received ?? 0), 0);
+                        const si = STEP_OF[r.status] ?? 0; const st = RET_ST[r.status] ?? RET_ST.draft;
+                        let hint = ""; const isRepair = r.outcome === "repair";
+                        if (r.status === "draft" && isDest) hint = L("กด “ส่งคำขอตรวจ” ให้หัวหน้าอนุมัติ", "Tap Request approval", "送审");
+                        else if (r.status === "pending_approval" && canResolve) hint = L("หัวหน้ากด “อนุมัติใบส่งคืน”", "Supervisor approves", "审批");
+                        else if ((r.status === "approved" || r.status === "preparing") && isDest) hint = L("เลือกขนส่ง + เลขติดตาม แล้วกด “ยืนยันส่งคืน” (ของออกจากสาขา)", "Pick carrier + tracking, then Confirm return", "选承运后确认");
+                        else if (r.status === "returning" && canRecvRet) hint = L("ของถึงต้นทางแล้ว กด “ยืนยันรับคืน” (เข้าพักตรวจ ไม่ขายอัตโนมัติ)", "Confirm receive (into quarantine)", "确认收回·暂扣");
+                        else if (r.status === "returning") hint = L("กำลังส่งคืน — รอต้นทางรับ", "Returning — awaiting source", "退回中");
+                        else if ((r.status === "received" || r.status === "partial_received") && canResolve) hint = L("ตรวจสภาพแล้วเลือก: ปล่อยขาย / ส่งซ่อม / ตัดจำหน่าย", "Inspect then release / repair / dispose", "检后处理");
+                        return (
+                          <div key={r.id} className="rounded-2xl border border-rose-500/30 bg-rose-500/5 p-3.5 space-y-2.5">
+                            <div className="flex items-center justify-between gap-2 flex-wrap">
+                              <span className="text-sm font-semibold inline-flex items-center gap-1.5"><RotateCcw size={14} className="text-rose-600" /> {r.return_no ?? L("ใบส่งคืน", "Return", "退回单")}
+                                <Badge tone={isRepair ? "warn" : "neutral"}>{isRepair ? L("ส่งซ่อม", "Repair", "维修") : L("ส่งคืนต้นทาง", "Return to source", "退回")}</Badge></span>
+                              <Badge tone={st.tone === "neutral" ? "info" : st.tone === "danger" ? "danger" : st.tone}>{st.label}</Badge>
                             </div>
-                          ) : (
-                            <button onClick={() => setRejOpen(true)} className="text-[11px] text-rose-600 hover:underline font-medium inline-flex items-center gap-1"><RotateCcw size={12} /> {L("ปฏิเสธรับ (ส่งผิด/ผิดรุ่น → ขอส่งคืน)", "Reject receipt (wrong item → return)", "拒收退回")}</button>
-                          )}
-                        </div>
-                      ) : null}
+                            {/* stepper ย่อ */}
+                            {r.status !== "cancelled" ? (
+                              <div className="flex items-center gap-1">
+                                {STEPS.map((s, i) => (<div key={i} className="flex items-center gap-1 flex-1 last:flex-none">
+                                  <span className={`w-5 h-5 rounded-full grid place-items-center text-[9px] font-bold shrink-0 ${i < si ? "bg-ok text-white" : i === si ? "bg-brand text-white" : "bg-surface2 text-muted"}`}>{i < si ? "✓" : i + 1}</span>
+                                  <span className={`text-[9px] ${i === si ? "text-ink font-medium" : "text-muted"} hidden sm:inline`}>{s}</span>
+                                  {i < STEPS.length - 1 ? <span className={`flex-1 h-px ${i < si ? "bg-ok" : "bg-line"}`} /> : null}
+                                </div>))}
+                              </div>
+                            ) : null}
+                            {hint ? <div className="rounded-xl bg-white/70 border border-rose-200 px-3 py-2 text-[12px] text-rose-900 leading-relaxed">👉 {hint}</div> : null}
+                            {/* รายการ */}
+                            <div className="text-[11px] text-muted space-y-0.5">
+                              {(r.lines ?? []).map((l, i) => <div key={i}>{pName(l.product_id)} × {l.qty}{(l.qty_received ?? 0) > 0 ? ` · ${L("รับคืน", "recv", "收")} ${l.qty_received}/${l.qty}` : ""}{l.close_outcome ? ` · ${l.close_outcome === "release" ? L("ปล่อยขาย", "released", "放行") : l.close_outcome === "repair" ? L("ส่งซ่อม", "repair", "维修") : L("ตัดจำหน่าย", "disposed", "报废")}` : ""}</div>)}
+                              {r.reason ? <div className="italic">“{r.reason}”</div> : null}
+                              {r.carrier ? <div>{L("ขนส่ง", "Carrier", "承运")}: {carriers.find((c) => c.id === r.carrier)?.name ?? r.carrier}{r.tracking ? ` · ${r.tracking}` : ""}</div> : null}
+                            </div>
+                            {/* ปุ่มตามขั้น */}
+                            <div className="flex items-center gap-2 flex-wrap">
+                              {r.status === "draft" && isDest ? <><Button variant="primary" className="h-9" loading={busy} onClick={() => doReqReturn(detail, r.id)}>{L("ส่งคำขอตรวจ", "Request approval", "送审")}</Button><Button variant="ghost" className="h-9 text-rose-600" loading={busy} onClick={() => doCancelReturn(detail, r.id)}>{L("ยกเลิก", "Cancel", "取消")}</Button></> : null}
+                              {r.status === "pending_approval" && canResolve ? <><Button variant="primary" className="h-9" loading={busy} onClick={() => doApproveReturn(detail, r.id)}><Check size={14} /> {L("อนุมัติ", "Approve", "批准")}</Button><Button variant="ghost" className="h-9 text-rose-600" loading={busy} onClick={() => doCancelReturn(detail, r.id)}>{L("ยกเลิก", "Cancel", "取消")}</Button></> : null}
+                              {(r.status === "approved" || r.status === "preparing") && isDest ? <>
+                                <Select value={carrier} onChange={(e) => setCarrier(e.target.value)} className="h-9 w-32"><option value="">{L("ขนส่ง…", "Carrier…", "承运…")}</option>{carriers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</Select>
+                                <Input value={retTracking} onChange={(e) => setRetTracking(e.target.value)} placeholder={L("เลขติดตาม", "Tracking", "单号")} className="h-9 w-32 text-xs" />
+                                <Button variant="primary" className="h-9" loading={busy} onClick={() => doDispatchReturn(detail, r.id)}><Truck size={14} /> {L("ยืนยันส่งคืน", "Confirm return", "确认退回")}</Button>
+                                <Button variant="ghost" className="h-9 text-rose-600" loading={busy} onClick={() => doCancelReturn(detail, r.id)}>{L("ยกเลิก", "Cancel", "取消")}</Button>
+                              </> : null}
+                              {r.status === "returning" ? <>
+                                {isDest ? <div className="inline-flex gap-1">{([["called", L("เรียกรถ", "Called", "叫车")], ["picked_up", L("รับแล้ว", "Picked", "取货")], ["handed", L("ส่งมอบ", "Handed", "交付")]] as const).map(([k, lb]) => <button key={k} onClick={() => doReturnShipStage(detail, r.id, k)} className={`h-8 px-2 rounded-lg border text-[11px] ${r.ship_stage === k ? "border-brand bg-brand/10 text-brand" : "border-line text-muted"}`}>{lb}</button>)}</div> : null}
+                                {canRecvRet ? <Button variant="primary" className="h-9" loading={busy} onClick={() => doReceiveRet(detail, r)}><PackageCheck size={14} /> {L("ยืนยันรับคืน", "Confirm receive", "确认收回")}</Button> : null}
+                              </> : null}
+                              {(r.status === "received" || r.status === "partial_received") && canResolve ? <>
+                                <span className="text-[11px] text-muted">{L("ตรวจสภาพ", "Inspect", "检查")} ({recv}/{total}):</span>
+                                <Button variant="soft" className="h-9" loading={busy} onClick={() => doCloseReturn(detail, r, "release")}>{L("ปล่อยขาย", "Release", "放行")}</Button>
+                                <Button variant="ghost" className="h-9 text-amber-600" loading={busy} onClick={() => doCloseReturn(detail, r, "repair")}>{L("ส่งซ่อม", "Repair", "维修")}</Button>
+                                <Button variant="ghost" className="h-9 text-rose-600" loading={busy} onClick={() => doCloseReturn(detail, r, "dispose")}>{L("ตัดจำหน่าย", "Dispose", "报废")}</Button>
+                              </> : null}
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   );
                 })()}

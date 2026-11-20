@@ -20,7 +20,7 @@ import { stockView } from "../stock";
 import type {
   Branch, Brand, Category, Employee, Order, OrderDraft, OrderItem, Product,
   Shift, StockLevel, Terminal, AuditEntry, FieldChange, Customer, ReturnDoc, ApprovalRequest,
-  CountType, StockCountSession, Transfer, TransferStatus, TransferAttachment, TransferReceipt, TransferDiscrepancy, TransferReturn,
+  CountType, StockCountSession, Transfer, TransferStatus, TransferAttachment, TransferReceipt, TransferDiscrepancy, TransferReturn, RtnLine, RtnOutcome, RtnReason, RtnShipStage,
 } from "../types";
 
 const CATALOG_VERSION = "2026-11-19.1";
@@ -743,52 +743,155 @@ export async function resolveDiscrepancy(tr: Transfer, discId: string, employeeI
   return next;
 }
 
-// ── ปฏิเสธรับ → ส่งคืน → ต้นทางรับคืน (ข้อ 2) ──
-//   บัญชี: ของที่ปฏิเสธคงเป็น OTWO+Reserved ต้นทางตลอดทางกลับ (ไม่เครดิตจนต้นทางรับจริง) → นับที่เดียว กันซ้ำ 2 คลัง
-/** ปลายทางปฏิเสธรับ N ชิ้น (ส่งผิดรุ่น/ผิด SN) → สร้างรายการส่งคืนอ้างอิงใบเดิม · ไม่แตะยอด */
-export async function rejectReceipt(tr: Transfer, employeeId: string, input: { product_id: string; qty: number; serials?: string[]; reason?: string | null }): Promise<Transfer> {
-  const ret: TransferReturn = { id: nanoid(8), product_id: input.product_id, qty: Math.max(1, Math.round(input.qty)), serials: input.serials, reason: input.reason ?? null, status: "rejected", by: employeeId, at: new Date().toISOString() };
+// ── ส่งคืนจากการรับโอน: ใช้ Return Doc flow ด้านล่าง (openReturn → … → closeReturn) ──
+
+// ====================================================================
+// ใบส่งคืนจากการรับโอน (Return Doc) — วงจร 7 ขั้น + สถานะขนส่ง
+//   ใช้กับของที่รับเข้าปลายทางแล้ว "พักตรวจ" (quarantine) — ชำรุด/SN ไม่ตรง
+//   บัญชี: ย้ายของจริง ปลายทาง on_hand(+quarantine) → ต้นทาง on_hand(+quarantine)
+//          ของนับที่เดียวเสมอ · ต้นทางรับแล้ว "ไม่ขายอัตโนมัติ" (เข้าพักตรวจ)
+// ====================================================================
+function retNo(): string { return `RT-${new Date().toISOString().slice(2, 10).replace(/-/g, "")}-${nanoid(4).toUpperCase()}`; }
+function getRet(fresh: Transfer, retId: string): TransferReturn { const r = (fresh.returns ?? []).find((x) => x.id === retId); if (!r) throw new Error("return_not_found"); return r; }
+const retTotal = (r: TransferReturn) => (r.lines ?? []).reduce((s, l) => s + l.qty, 0);
+const retRecv = (r: TransferReturn) => (r.lines ?? []).reduce((s, l) => s + (l.qty_received ?? 0), 0);
+function patchRet(fresh: Transfer, retId: string, patch: Partial<TransferReturn>): Partial<Transfer> {
+  return { returns: (fresh.returns ?? []).map((x) => x.id === retId ? { ...x, ...patch } : x) };
+}
+
+/** เปิดใบส่งคืน (draft) — ยังไม่แตะสต๊อก (ของยังพักตรวจที่ปลายทาง) + ปิดผลต่างต้นเหตุเป็น "ส่งคืน/ส่งซ่อม" */
+export async function openReturn(tr: Transfer, employeeId: string, input: { disc_ids?: string[]; outcome: RtnOutcome; reason_kind: RtnReason; reason?: string | null; lines: RtnLine[]; photos?: string[] }): Promise<Transfer> {
+  const now = new Date().toISOString();
+  const ret: TransferReturn = {
+    id: nanoid(8), return_no: retNo(), disc_ids: input.disc_ids ?? [], outcome: input.outcome,
+    reason_kind: input.reason_kind, reason: input.reason ?? null, photos: input.photos ?? [],
+    lines: input.lines.map((l) => ({ ...l, qty: Math.max(1, Math.round(l.qty)), qty_received: 0 })),
+    status: "draft", created_by: employeeId, created_at: now,
+  };
+  const outLabel = input.outcome === "repair" ? "ส่งซ่อม" : "ส่งคืนต้นทาง";
   const next = await txTransfer(async () => {
     const fresh = await freshOrThrow(tr);
-    if (!["in_transit", "partial_received", "completed"].includes(fresh.status)) throw new Error("transfer_wrong_status");
-    return putTransferTx(fresh, { returns: [...(fresh.returns ?? []), ret] });
+    const ids = new Set(input.disc_ids ?? []);
+    const discrepancies = (fresh.discrepancies ?? []).map((d) => ids.has(d.id) ? { ...d, status: "resolved" as const, resolved_by: employeeId, resolved_at: now, resolution_note: `${outLabel} (${ret.return_no})` } : d);
+    return putTransferTx(fresh, { returns: [...(fresh.returns ?? []), ret], ...(ids.size ? { discrepancies } : {}) });
   });
-  await auditTransfer(next, employeeId, next.to_branch_id, { reject_receipt: input.product_id, qty: ret.qty });
+  await auditTransfer(next, employeeId, next.to_branch_id, { open_return: ret.return_no, outcome: input.outcome });
   return next;
 }
 
-/** ปลายทางกดส่งคืน → สถานะ returning (ยังไม่แตะยอด — รอต้นทางรับจริง) */
-export async function shipReturn(tr: Transfer, returnId: string, employeeId: string): Promise<Transfer> {
+/** draft → pending_approval (PC ปลายทางส่งให้หัวหน้าตรวจ) */
+export async function requestReturnApproval(tr: Transfer, employeeId: string, retId: string, note?: string): Promise<Transfer> {
   const now = new Date().toISOString();
   const next = await txTransfer(async () => {
-    const fresh = await freshOrThrow(tr);
-    const r = (fresh.returns ?? []).find((x) => x.id === returnId);
-    if (!r) throw new Error("transfer_not_found");
-    if (r.status !== "rejected") throw new Error("transfer_wrong_status");
-    const returns = (fresh.returns ?? []).map((x) => x.id === returnId ? { ...x, status: "returning" as const, returned_by: employeeId, returned_at: now } : x);
-    return putTransferTx(fresh, { returns });
+    const fresh = await freshOrThrow(tr); const r = getRet(fresh, retId);
+    if (r.status !== "draft") throw new Error("return_wrong_status");
+    return putTransferTx(fresh, patchRet(fresh, retId, { status: "pending_approval", requested_by: employeeId, requested_at: now, reason: note ?? r.reason }));
   });
-  await auditTransfer(next, employeeId, next.to_branch_id, { ship_return: returnId });
+  await auditTransfer(next, employeeId, next.to_branch_id, { return_request_approval: retId });
   return next;
 }
 
-/** ต้นทางรับคืน → received + เครดิตยอดต้นทาง (otwo−, reserved−, onHand+) · atomic */
-export async function receiveReturn(tr: Transfer, returnId: string, employeeId: string): Promise<Transfer> {
+/** pending_approval → approved (หัวหน้าอนุมัติ) */
+export async function approveReturn(tr: Transfer, employeeId: string, retId: string): Promise<Transfer> {
   const now = new Date().toISOString();
   const next = await txTransfer(async () => {
-    const fresh = await freshOrThrow(tr);
-    const r = (fresh.returns ?? []).find((x) => x.id === returnId);
-    if (!r) throw new Error("transfer_not_found");
-    if (r.status !== "returning") throw new Error("transfer_wrong_status");
-    if (fresh.from_kind !== "warehouse") {
-      await adjustOtwo(fresh.from_branch_id, r.product_id, -r.qty);     // ออกจาก in-transit
-      await reserveStock(fresh.from_branch_id, r.product_id, -r.qty);   // ปล่อยจอง
-      await adjustStock(fresh.from_branch_id, r.product_id, r.qty);     // กลับเข้า on_hand ต้นทาง (ขายได้)
+    const fresh = await freshOrThrow(tr); const r = getRet(fresh, retId);
+    if (r.status !== "pending_approval") throw new Error("return_wrong_status");
+    return putTransferTx(fresh, patchRet(fresh, retId, { status: "approved", approved_by: employeeId, approved_at: now }));
+  });
+  await auditTransfer(next, employeeId, next.to_branch_id, { return_approved: retId });
+  return next;
+}
+
+/** ยกเลิกใบส่งคืน — เฉพาะก่อนส่งจริง (ของยังพักตรวจที่ปลายทาง ไม่แตะยอด) */
+export async function cancelReturn(tr: Transfer, employeeId: string, retId: string, reason?: string): Promise<Transfer> {
+  const next = await txTransfer(async () => {
+    const fresh = await freshOrThrow(tr); const r = getRet(fresh, retId);
+    if (!["draft", "pending_approval", "approved", "preparing"].includes(r.status)) throw new Error("return_wrong_status");
+    return putTransferTx(fresh, patchRet(fresh, retId, { status: "cancelled", reason: reason ?? r.reason }));
+  });
+  await auditTransfer(next, employeeId, next.to_branch_id, { return_cancelled: retId });
+  return next;
+}
+
+/** approved → preparing (สแกน SN/แพ็ค ที่ปลายทาง) */
+export async function packReturn(tr: Transfer, employeeId: string, retId: string, snsByProduct: Record<string, string[]>): Promise<Transfer> {
+  const next = await txTransfer(async () => {
+    const fresh = await freshOrThrow(tr); const r = getRet(fresh, retId);
+    if (!["approved", "preparing"].includes(r.status)) throw new Error("return_wrong_status");
+    const lines = (r.lines ?? []).map((l) => ({ ...l, sns_found: snsByProduct[l.product_id] ?? l.sns_found }));
+    return putTransferTx(fresh, patchRet(fresh, retId, { status: "preparing", lines }));
+  });
+  await auditTransfer(next, employeeId, next.to_branch_id, { return_packed: retId });
+  return next;
+}
+
+/** preparing → returning (ยืนยันส่งคืน + ขนส่ง) → ปลายทาง On Hand − (ออกจากพักตรวจ) */
+export async function dispatchReturn(tr: Transfer, employeeId: string, retId: string, opts: { carrier?: string | null; tracking?: string | null }): Promise<Transfer> {
+  const now = new Date().toISOString();
+  const next = await txTransfer(async () => {
+    const fresh = await freshOrThrow(tr); const r = getRet(fresh, retId);
+    if (!["approved", "preparing"].includes(r.status)) throw new Error("return_wrong_status");
+    for (const l of r.lines ?? []) { await quarantineStock(fresh.to_branch_id, l.product_id, -l.qty); await adjustStock(fresh.to_branch_id, l.product_id, -l.qty); }
+    return putTransferTx(fresh, patchRet(fresh, retId, { status: "returning", carrier: opts.carrier ?? null, tracking: opts.tracking ?? null, shipped_by: employeeId, shipped_at: now }));
+  });
+  await auditTransfer(next, employeeId, next.to_branch_id, { return_dispatched: retId, carrier: opts.carrier ?? null });
+  return next;
+}
+
+/** อัปเดตสถานะขนส่งขาส่งคืน — ไม่แตะยอด */
+export async function setReturnShipStage(tr: Transfer, employeeId: string, retId: string, stage: RtnShipStage): Promise<Transfer> {
+  const next = await txTransfer(async () => {
+    const fresh = await freshOrThrow(tr); const r = getRet(fresh, retId);
+    if (r.status !== "returning") throw new Error("return_wrong_status");
+    return putTransferTx(fresh, patchRet(fresh, retId, { ship_stage: stage }));
+  });
+  await auditTransfer(next, employeeId, next.to_branch_id, { return_ship_stage: stage });
+  return next;
+}
+
+/** ต้นทางรับคืนจริง (บางส่วน/ครบ) → ต้นทาง On Hand + และเข้า "พักตรวจ" (ไม่ขายอัตโนมัติ) */
+export async function receiveReturnLines(tr: Transfer, employeeId: string, retId: string, recv: { product_id: string; qty: number; sns_found?: string[] }[]): Promise<Transfer> {
+  const now = new Date().toISOString();
+  const next = await txTransfer(async () => {
+    const fresh = await freshOrThrow(tr); const r = getRet(fresh, retId);
+    if (!["returning", "partial_received"].includes(r.status)) throw new Error("return_wrong_status");
+    const lines = (r.lines ?? []).map((l) => ({ ...l }));
+    for (const rc of recv) {
+      const l = lines.find((x) => x.product_id === rc.product_id); if (!l) continue;
+      const remain = l.qty - (l.qty_received ?? 0);
+      const take = Math.max(0, Math.min(remain, Math.round(rc.qty)));
+      if (take <= 0) continue;
+      await adjustStock(fresh.from_branch_id, l.product_id, take);
+      await quarantineStock(fresh.from_branch_id, l.product_id, take);
+      l.qty_received = (l.qty_received ?? 0) + take;
+      if (rc.sns_found?.length) l.sns_found = [...new Set([...(l.sns_found ?? []), ...rc.sns_found])];
     }
-    const returns = (fresh.returns ?? []).map((x) => x.id === returnId ? { ...x, status: "received" as const, received_by: employeeId, received_at: now } : x);
-    return putTransferTx(fresh, { returns });
+    const done = lines.every((l) => (l.qty_received ?? 0) >= l.qty);
+    return putTransferTx(fresh, patchRet(fresh, retId, { lines, status: done ? "received" : "partial_received", received_by: employeeId, received_at: now }));
   });
-  await auditTransfer(next, employeeId, next.from_branch_id, { receive_return: returnId, qty: (next.returns ?? []).find((x) => x.id === returnId)?.qty ?? 0 });
+  await auditTransfer(next, employeeId, next.from_branch_id, { return_received: retId });
+  return next;
+}
+
+/** ปิดงาน — สรุปผลตรวจที่ต้นทางต่อรายการ: release=ปล่อยขาย · repair=คงพักตรวจ(ส่งซ่อม) · dispose=ตัดจำหน่าย */
+export async function closeReturn(tr: Transfer, employeeId: string, retId: string, outcomes: Record<string, "release" | "repair" | "dispose">): Promise<Transfer> {
+  const now = new Date().toISOString();
+  const next = await txTransfer(async () => {
+    const fresh = await freshOrThrow(tr); const r = getRet(fresh, retId);
+    if (!["received", "partial_received"].includes(r.status)) throw new Error("return_wrong_status");
+    const lines = (r.lines ?? []).map((l) => ({ ...l }));
+    for (const l of lines) {
+      const q = l.qty_received ?? 0; if (q <= 0) continue;
+      const oc = outcomes[l.product_id] ?? (r.outcome === "repair" ? "repair" : "release");
+      if (oc === "release") { await quarantineStock(fresh.from_branch_id, l.product_id, -q); }
+      else if (oc === "dispose") { await quarantineStock(fresh.from_branch_id, l.product_id, -q); await adjustStock(fresh.from_branch_id, l.product_id, -q); }
+      // repair: คงพักตรวจไว้ (ไม่แตะยอด)
+      l.close_outcome = oc;
+    }
+    return putTransferTx(fresh, patchRet(fresh, retId, { lines, status: "closed", closed_by: employeeId, closed_at: now }));
+  });
+  await auditTransfer(next, employeeId, next.from_branch_id, { return_closed: retId });
   return next;
 }
 

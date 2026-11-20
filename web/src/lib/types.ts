@@ -470,17 +470,45 @@ export interface TransferAttachment {
 
 /** การปฏิเสธรับ + ส่งคืน (อ้างอิงใบโอนเดิม) — ปฏิเสธ → ส่งคืน → ต้นทางรับคืน
  *  บัญชี: ของที่ปฏิเสธคงเป็น OTWO+Reserved ของต้นทางตลอดทางกลับ (ไม่เครดิตจนต้นทางรับจริง) */
-export interface TransferReturn {
-  id: string;
+/** วงจรใบส่งคืน 7 ขั้น + ยกเลิก */
+export type RtnStatus = "draft" | "pending_approval" | "approved" | "preparing" | "returning" | "partial_received" | "received" | "closed" | "cancelled";
+export type RtnReason = "damaged" | "wrong_sn" | "wrong_item" | "other";
+/** ส่งคืนต้นทาง / ส่งซ่อม */
+export type RtnOutcome = "return_source" | "repair";
+/** สถานะขนส่งขาส่งคืน */
+export type RtnShipStage = "called" | "picked_up" | "handed";
+export interface RtnLine {
   product_id: string;
   qty: number;
-  serials?: string[];
+  sns_expected?: string[];   // SN ที่คาดว่าจะส่งคืน (ของเดิม)
+  sns_found?: string[];      // SN ที่พบ/สแกนจริงตอนแพ็ค — เก็บทั้งคู่ ห้ามเขียนทับ
+  qty_received?: number;     // ต้นทางรับคืนจริงกี่ชิ้น (คืนบางส่วน)
+  close_outcome?: "release" | "repair" | "dispose" | null;  // ผลตรวจสภาพที่ต้นทาง
+}
+/** ใบส่งคืน — เอกสารแยกแต่ฝังในใบโอนเดิม เชื่อมกับผลต่างการรับ */
+export interface TransferReturn {
+  id: string;
+  return_no?: string;                 // RT-YYMMDD-XXXX
+  disc_ids?: string[];                // ผลต่างที่เป็นต้นเหตุ
+  reason_kind?: RtnReason;
   reason?: string | null;
-  /** rejected=ปฏิเสธรับ(รอส่งคืน) · returning=กำลังส่งคืน · received=ต้นทางรับคืนแล้ว */
-  status: "rejected" | "returning" | "received";
-  by?: string | null; at: string;                  // ผู้ปฏิเสธ + เวลา
-  returned_by?: string | null; returned_at?: string | null;   // ผู้กดส่งคืน (ปลายทาง)
-  received_by?: string | null; received_at?: string | null;   // ผู้รับคืน (ต้นทาง)
+  outcome?: RtnOutcome;            // return_source | repair
+  lines?: RtnLine[];               // คืนได้หลายชิ้น/บางส่วน
+  photos?: string[];
+  status: RtnStatus | "rejected";  // "rejected" = ข้อมูลเก่า (back-compat)
+  carrier?: string | null;
+  tracking?: string | null;
+  ship_stage?: RtnShipStage | null;
+  created_by?: string | null; created_at?: string;
+  requested_by?: string | null; requested_at?: string | null;
+  approved_by?: string | null; approved_at?: string | null;
+  shipped_by?: string | null; shipped_at?: string | null;
+  closed_by?: string | null; closed_at?: string | null;
+  // ── ฟิลด์เก่า (ข้อมูลที่สร้างก่อนเวอร์ชันใบส่งคืน) ──
+  product_id?: string; qty?: number; serials?: string[];
+  by?: string | null; at?: string;
+  returned_by?: string | null; returned_at?: string | null;
+  received_by?: string | null; received_at?: string | null;
 }
 
 /** ใบรับย่อยหนึ่งรอบ (รับหลายรอบต่อ 1 ใบโอน) */
