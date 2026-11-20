@@ -91,14 +91,25 @@ export function SerialScanDrawer({
           <Button variant="soft" onClick={() => add()}><Plus size={16} /></Button>
         </div>
 
-        {/* กระทบ SN (โหมดรับเข้า) */}
+        {/* กระทบ SN (โหมดรับเข้า) — คาด/พบ/ตรง/ขาด/นอกใบโอน */}
         {mode === "in" && rec ? (
-          <div className="flex flex-wrap gap-1.5 text-[11px]">
-            <Badge tone="ok">{L("ตรง", "Matched", "匹配")} {rec.matched.length}</Badge>
-            {rec.missing.length ? <Badge tone="warn">{L("ขาด", "Missing", "缺")} {rec.missing.length}</Badge> : null}
-            {rec.extra.length ? <Badge tone="danger">{L("ไม่ตรง/เกิน", "Not shipped", "多出")} {rec.extra.length}</Badge> : null}
-            {rec.duplicates.length ? <Badge tone="danger">{L("ซ้ำ", "Dup", "重复")} {rec.duplicates.length}</Badge> : null}
-            {rec.ok ? <Badge tone="brand">{L("ครบถูกต้อง ✓", "All correct ✓", "全部正确 ✓")}</Badge> : null}
+          <div className="space-y-1.5">
+            <div className="flex flex-wrap gap-1.5 text-[11px]">
+              <Badge tone="neutral">{L("คาด", "Expected", "应收")} {shipped.length}</Badge>
+              <Badge tone="info">{L("พบจริง", "Scanned", "实收")} {list.length}</Badge>
+              <Badge tone="ok">{L("ตรง", "Matched", "匹配")} {rec.matched.length}</Badge>
+              {rec.missing.length ? <Badge tone="warn">{L("ขาด", "Missing", "缺")} {rec.missing.length}</Badge> : null}
+              {rec.extra.length ? <Badge tone="danger">{L("นอกใบโอน", "Not in order", "不在单")} {rec.extra.length}</Badge> : null}
+              {rec.duplicates.length ? <Badge tone="danger">{L("ซ้ำ", "Dup", "重复")} {rec.duplicates.length}</Badge> : null}
+              {rec.ok ? <Badge tone="brand">{L("ครบถูกต้อง ✓", "All correct ✓", "全部正确 ✓")}</Badge> : null}
+            </div>
+            {rec.extra.length || rec.missing.length ? (
+              <p className="text-[10.5px] text-muted leading-relaxed">
+                {rec.extra.length ? L(`• SN นอกใบโอน ${rec.extra.length} → รับไว้ที่ “พักตรวจ” (ขายไม่ได้) เปิดเคสพิสูจน์ที่มา`, `• ${rec.extra.length} not-in-order → quarantined, case opened`, `• ${rec.extra.length}个不在单→暂扣`) : ""}
+                {rec.extra.length && rec.missing.length ? <br /> : null}
+                {rec.missing.length ? L(`• SN ที่ส่งมาแต่ยังไม่พบ ${rec.missing.length} → คงค้าง “ติดตาม” (ไม่หายจากระบบ)`, `• ${rec.missing.length} missing → kept for tracking`, `• ${rec.missing.length}个缺→跟踪`) : ""}
+              </p>
+            ) : null}
           </div>
         ) : null}
 
@@ -110,7 +121,7 @@ export function SerialScanDrawer({
               <li key={s + i} className={`flex items-center gap-2 rounded-lg px-3 py-2 border ${bad ? "bg-danger/5 border-danger/40" : "bg-surface2 border-line"}`}>
                 <span className="text-[10px] text-muted w-5 tnum">{i + 1}</span>
                 <span className="text-xs font-mono flex-1 truncate">{s}</span>
-                {bad ? <Badge tone="danger">{rec!.duplicates.includes(s) ? L("ซ้ำ", "dup", "重复") : L("ไม่ตรง", "extra", "多")}</Badge> : <Check size={13} className="text-ok" />}
+                {bad ? <Badge tone="danger">{rec!.duplicates.includes(s) ? L("ซ้ำ", "dup", "重复") : L("นอกใบโอน", "not in order", "不在单")}</Badge> : <Check size={13} className="text-ok" />}
                 <button onClick={() => setList((l) => l.filter((_, idx) => idx !== i))} className="text-muted hover:text-danger shrink-0"><Trash2 size={13} /></button>
               </li>
             );

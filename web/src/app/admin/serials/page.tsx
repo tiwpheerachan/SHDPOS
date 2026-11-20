@@ -2,11 +2,13 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
-import { ScanLine, Package, ArrowDownLeft, ArrowUpRight, ShoppingCart, RotateCcw, MapPin, Search, X, ShieldCheck, Clock, Copy, Share2, Route, Store, History, ExternalLink, User, Printer, Check, Boxes } from "lucide-react";
+import { ScanLine, Package, ArrowDownLeft, ArrowUpRight, ShoppingCart, RotateCcw, MapPin, Search, X, ShieldCheck, Clock, Copy, Share2, Route, Store, History, ExternalLink, User, Printer, Check, Boxes, ShieldAlert, PackageX, CornerDownLeft } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { useAdminScope } from "@/components/admin/filters";
 import { Card, Badge, Button, EmptyState } from "@/components/ui";
 import { resolveSerial, recentSerials, type SerialInfo, type SerialEventKind } from "@/lib/data/serials";
+import { listEmployees } from "@/lib/data/repo";
+import type { Employee } from "@/lib/types";
 import { coordOf } from "@/lib/geo";
 import { formatTHB } from "@/lib/money";
 import { AnimatedScan } from "@/components/animated-icons";
@@ -15,13 +17,17 @@ const KIND_META: Record<SerialEventKind, { icon: typeof ArrowDownLeft; th: strin
   received: { icon: ArrowDownLeft, th: "รับเข้า", en: "Received", zh: "入库", color: "rgb(var(--c-mint))" },
   shipped: { icon: ArrowUpRight, th: "ส่งออก", en: "Shipped", zh: "出库", color: "rgb(var(--c-aqua))" },
   sold: { icon: ShoppingCart, th: "ขายออก", en: "Sold", zh: "售出", color: "rgb(var(--c-brand))" },
-  returned: { icon: RotateCcw, th: "รับคืน", en: "Returned", zh: "退货", color: "rgb(var(--c-peach))" },
+  returned: { icon: RotateCcw, th: "ส่งคืน", en: "Return shipped", zh: "退回发出", color: "rgb(var(--c-peach))" },
+  return_in: { icon: CornerDownLeft, th: "ต้นทางรับคืน", en: "Return received", zh: "退回收货", color: "rgb(var(--c-aqua))" },
+  quarantined: { icon: PackageX, th: "พักตรวจ (นอกใบโอน)", en: "Quarantined", zh: "暂扣", color: "rgb(var(--c-peach))" },
+  flagged: { icon: ShieldAlert, th: "ผลต่าง / ตรวจสอบ", en: "Discrepancy", zh: "差异", color: "#e11d48" },
 };
-const STATUS_META: Record<SerialInfo["status"], { th: string; en: string; zh: string; tone: "ok" | "info" | "brand" | "warn" | "neutral" }> = {
+const STATUS_META: Record<SerialInfo["status"], { th: string; en: string; zh: string; tone: "ok" | "info" | "brand" | "warn" | "neutral" | "danger" }> = {
   in_stock: { th: "อยู่ในคลัง", en: "In stock", zh: "在库", tone: "ok" },
   in_transit: { th: "กำลังส่ง (ระหว่างทาง)", en: "In transit", zh: "在途", tone: "info" },
   sold: { th: "ขายออกแล้ว", en: "Sold", zh: "已售", tone: "brand" },
-  returned: { th: "รับคืน", en: "Returned", zh: "已退货", tone: "warn" },
+  returned: { th: "รับคืนแล้ว", en: "Returned", zh: "已退货", tone: "warn" },
+  quarantined: { th: "พักตรวจ (ขายไม่ได้)", en: "Quarantined", zh: "暂扣", tone: "danger" },
   unknown: { th: "ไม่พบในระบบ", en: "Not found", zh: "未找到", tone: "neutral" },
 };
 
@@ -42,9 +48,11 @@ export default function AdminSerialsPage() {
   const [recent, setRecent] = useState<{ serialNo: string; name: string }[]>([]);
   const [history, setHistory] = useState<Scanned[]>([]);
   const [copied, setCopied] = useState<"" | "sn" | "link">("");
+  const [emps, setEmps] = useState<Employee[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
+  const empName = (id?: string | null) => { if (!id) return ""; const e = emps.find((x) => x.id === id); return e ? (e.nickname || `${e.first_name ?? ""} ${e.last_name ?? ""}`.trim() || id) : ""; };
 
-  useEffect(() => { void recentSerials(16).then(setRecent); inputRef.current?.focus(); }, []);
+  useEffect(() => { void recentSerials(16).then(setRecent); void listEmployees().then(setEmps).catch(() => {}); inputRef.current?.focus(); }, []);
   useEffect(() => { if (snParam) { setQ(snParam); void lookup(snParam); } /* eslint-disable-next-line */ }, [snParam]);
 
   async function lookup(sn: string) {
@@ -232,7 +240,8 @@ export default function AdminSerialsPage() {
                             <p className="text-sm font-semibold">{L(m.th, m.en, m.zh)} <span className="text-muted font-normal">· {branchName(ev.branchId)}</span></p>
                             <span className="text-[11px] text-muted tnum">{dt(ev.at)}</span>
                           </div>
-                          <p className="text-[11px] text-muted font-mono mt-0.5">{ev.refNo}</p>
+                          <p className="text-[11px] text-muted font-mono mt-0.5">{ev.refNo}{ev.actor ? ` · ${empName(ev.actor)}` : ""}</p>
+                          {ev.detail ? <p className="text-[11px] mt-0.5 inline-flex items-center gap-1" style={{ color: m.color }}>{ev.detail}</p> : null}
                           {gap > 60000 ? <p className="text-[10px] text-muted/70 mt-1.5 inline-flex items-center gap-1"><Clock size={10} /> {next ? L("อยู่", "stayed", "停留") : L("อยู่มาแล้ว", "here for", "至今")} {fmtDur(gap)}{next ? L(" ก่อนเดินทางต่อ", " before next", "后流转") : ""}</p> : null}
                         </li>
                       );

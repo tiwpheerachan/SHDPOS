@@ -11,18 +11,18 @@ import { useToast } from "@/components/toast-host";
 import { listBranches, listProducts, listEmployees, stockAll } from "@/lib/data/repo";
 import { availableQty, stockView } from "@/lib/stock";
 import { coordOf, haversineKm, fmtKm } from "@/lib/geo";
-import { resolveSerial } from "@/lib/data/serials";
+import { resolveSerial, locateSerial } from "@/lib/data/serials";
 import { listApprovalRules, resolveApprovers, type ApprovalRule } from "@/lib/data/approval-rules";
 import {
   owListAll, owCreate, owApprove, owReject, owReverse, owGet, owTimeline,
   owScanOut, owDispatch, owReceive, owCloseShort, owRecordDisc, owRequestResolveDisc, owResolveDisc, owCarriers, owSetAttachments, owShipStage, owSetPickupStage,
-  owOpenReturn, owRequestReturnApproval, owApproveReturn, owCancelReturn, owDispatchReturn, owSetReturnShipStage, owReceiveReturnLines, owCloseReturn,
-  statusMeta, isActive, isIssue, owErrorMessage,
+  owOpenReturn, owRequestReturnApproval, owApproveReturn, owCancelReturn, owDispatchReturn, owSetReturnShipStage, owReceiveReturnLines, owCloseReturn, owPackReturn, owMarkReplacement,
+  reconcileSerials, statusMeta, isActive, isIssue, owErrorMessage,
 } from "@/lib/onewarehouse";
 import { TransferStepper, ItemJourney, TransferTimeline } from "@/components/admin/transfer-ui";
 import { SerialScanDrawer } from "@/components/admin/serial-scan-drawer";
 import { printTransferCO } from "@/lib/transfer/print-co";
-import type { Branch, Product, Transfer, TransferStatus, TransferAttachment, AuditEntry, Employee, StockLevel } from "@/lib/types";
+import type { Branch, Product, Transfer, TransferStatus, TransferAttachment, AuditEntry, Employee, StockLevel, SerialLocated } from "@/lib/types";
 import { Button, Card, Input, Field, Select, Table, Th, Td, Badge, EmptyState, Drawer, DrawerTabs, DetailRow, Avatar } from "@/components/ui";
 import { can, visibleBranchIds, ROLE_LABEL, isSuperadmin } from "@/lib/permissions";
 
@@ -55,6 +55,7 @@ export default function AdminTransfersPage() {
   const [carriers, setCarriers] = useState<{ id: string; name: string }[]>([]);
   const [carrier, setCarrier] = useState("");
   const [scan, setScan] = useState<{ pid: string; mode: "out" | "in" } | null>(null);
+  const [retScan, setRetScan] = useState<{ retId: string; pid: string; name: string; expected: string[]; initial: string[]; mode: "pack" | "recv" } | null>(null);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [rules, setRules] = useState<ApprovalRule[]>([]); // สายอนุมัติที่ตั้งไว้ (ตามแบรนด์/สาขา)
   const [approveNote, setApproveNote] = useState("");
@@ -63,6 +64,8 @@ export default function AdminTransfersPage() {
   const [shareOpen, setShareOpen] = useState(false); // เมนูแชร์ฟอร์ม
   const [repOpen, setRepOpen] = useState(false); // ฟอร์มแจ้งของมีปัญหา (พักตรวจ)
   const [repPid, setRepPid] = useState(""); const [repQty, setRepQty] = useState(1); const [repKind, setRepKind] = useState<"damaged" | "wrong_sn" | "lost">("damaged");
+  const [repSn, setRepSn] = useState("");  // SN ที่เลือกแจ้งปัญหา (สินค้ามี SN)
+  const [packSns, setPackSns] = useState<Record<string, string[]>>({}); // SN ที่สแกนแพ็คส่งคืน (รายบรรทัด)
   const [retTracking, setRetTracking] = useState(""); // เลขติดตามขาส่งคืน
   const [openQty, setOpenQty] = useState<Record<string, number>>({});      // จำนวนที่เลือกส่งคืน (รายผลต่าง)
   const [retLineQty, setRetLineQty] = useState<Record<string, number>>({});  // จำนวนที่รับคืนจริง (รายบรรทัดใบส่งคืน)
@@ -395,14 +398,45 @@ export default function AdminTransfersPage() {
   // รับเข้า → completed/partial
   const doReceive = (tr: Transfer) => {
     const received: Record<string, { serials?: string[]; qty?: number }> = {};
-    for (const it of tr.items) received[it.product_id] = it.isSerialized ? { serials: scanned[it.product_id] ?? [] } : { qty: Number(recvQty[it.product_id] || 0) };
-    void act(() => owReceive(tr, employee!.id, received), L("บันทึกการรับรอบนี้แล้ว", "Receipt recorded", "已记录本次收货"));
+    const extras: string[] = [];
+    for (const it of tr.items) {
+      if (it.isSerialized) {
+        const scn = (scanned[it.product_id] ?? []).map((s) => s.trim().toUpperCase()).filter(Boolean);
+        received[it.product_id] = { serials: scn };
+        const shippedSet = new Set((it.shippedSerials ?? []).map((s) => s.serialNo.toUpperCase()));
+        for (const sn of scn) if (!shippedSet.has(sn)) extras.push(sn);
+      } else received[it.product_id] = { qty: Number(recvQty[it.product_id] || 0) };
+    }
+    void act(async () => {
+      // ตรวจที่มา SN นอกใบโอนก่อน (กัน SN เดียวอยู่สองสาขา) — ติดผลลงผลต่าง
+      const located: Record<string, SerialLocated> = {};
+      for (const sn of extras) { try { located[sn] = await locateSerial(sn); } catch { /* ignore */ } }
+      return owReceive(tr, employee!.id, received, undefined, { located });
+    }, extras.length ? L(`รับแล้ว — พบ SN นอกใบโอน ${extras.length} (พักตรวจ)`, `Received — ${extras.length} unexpected SN quarantined`, `已收·${extras.length}个异常SN暂扣`) : L("บันทึกการรับรอบนี้แล้ว", "Receipt recorded", "已记录本次收货"));
   };
   const doCloseShort = (tr: Transfer) => void act(() => owCloseShort(tr, employee!.id), L("ปิดรับแล้ว (ยอมรับส่วนขาด)", "Closed with shortage", "已结单(接受缺量)"));
   const doRequestResolve = (tr: Transfer, discId: string) => void act(() => owRequestResolveDisc(tr, discId, employee!.id), L("ส่งให้หัวหน้าอนุมัติปิดแล้ว", "Sent for approval", "已送审批"));
   const doResolveDisc = (tr: Transfer, discId: string, outcome?: "release" | "dispose") => void act(() => owResolveDisc(tr, discId, employee!.id, outcome), outcome === "release" ? L("ผ่านตรวจ — ปล่อยขายแล้ว", "Released to sale", "已放行") : outcome === "dispose" ? L("อนุมัติตัดทิ้งแล้ว", "Disposed", "已报废") : L("หัวหน้าอนุมัติปิดผลต่างแล้ว", "Discrepancy resolved", "已关闭差异"));
   // แจ้งของมีปัญหา (ชำรุด/SN ผิด) → พักตรวจ ขายไม่ได้ จนกว่าหัวหน้าจะตัดสิน
-  const doRecordDamage = (tr: Transfer, product_id: string, kind: "damaged" | "wrong_sn" | "lost", qty: number) => void act(() => owRecordDisc(tr, employee!.id, { product_id, kind, qty, note: null, responsible_by: null, serialNo: null }), kind === "lost" ? L("แจ้งไม่พบ/สูญหายแล้ว — กำลังติดตาม", "Reported missing — tracking", "已报失·跟踪中") : L("บันทึกพักตรวจแล้ว (ขายไม่ได้)", "Quarantined", "已暂扣"));
+  const doRecordDamage = (tr: Transfer, product_id: string, kind: "damaged" | "wrong_sn" | "lost", qty: number, serialNo?: string | null) => void act(() => owRecordDisc(tr, employee!.id, { product_id, kind, qty, note: null, responsible_by: null, serialNo: serialNo?.trim().toUpperCase() || null }), kind === "lost" ? L("แจ้งไม่พบ/สูญหายแล้ว — กำลังติดตาม", "Reported missing — tracking", "已报失·跟踪中") : L("บันทึกพักตรวจแล้ว (ขายไม่ได้)", "Quarantined", "已暂扣"));
+  // ── ปิดเคสราย SN ──
+  const doResolveSn = (tr: Transfer, discId: string, outcome: "accept" | "dispose" | "found_source" | "confirmed_lost") => void act(() => owResolveDisc(tr, discId, employee!.id, outcome), outcome === "accept" ? L("ยอมรับที่ปลายทาง — ปล่อยขายแล้ว", "Accepted at destination", "已接收·放行") : outcome === "dispose" ? L("ตัดจำหน่ายแล้ว", "Disposed", "已报废") : outcome === "found_source" ? L("พบที่ต้นทาง — คืนสต๊อกต้นทางแล้ว", "Found at source", "源门店已找到") : L("ยืนยันสูญหาย — ตัดยอดแล้ว", "Confirmed lost", "确认丢失"));
+  // ใบส่งทดแทน (SN ขาด) — สร้างใบโอนใหม่ ต้นทาง→ปลายทาง 1 ชิ้น เชื่อมเคส
+  async function doMakeReplacement(tr: Transfer, dc: NonNullable<Transfer["discrepancies"]>[number]) {
+    if (!employee) return; setBusy(true);
+    try {
+      const p = products.find((x) => x.id === dc.product_id);
+      const rep = await owCreate(tr.from_branch_id, tr.to_branch_id, employee.id,
+        [{ product_id: dc.product_id, sku: p?.sku ?? dc.product_id, name: p?.name_th ?? "", qty: 1, isSerialized: !!p?.track_serial }],
+        L(`ส่งทดแทน SN ${dc.serialNo ?? ""} (อ้างอิง ${tr.transfer_no})`, `Replacement for ${dc.serialNo ?? ""} (ref ${tr.transfer_no})`, `替代 ${dc.serialNo ?? ""}`),
+        false, tr.from_kind === "warehouse" ? "warehouse" : "branch", { transfer_no: tr.transfer_no, disc_id: dc.id, serialNo: dc.serialNo ?? null });
+      await owMarkReplacement(tr, dc.id, employee.id, rep.transfer_no);
+      await reload(); openDoc(rep);
+      toast.push({ tone: "ok", title: L(`สร้างใบส่งทดแทนแล้ว ${rep.transfer_no} — รอต้นทางอนุมัติ`, `Replacement created ${rep.transfer_no}`, `已建替代单 ${rep.transfer_no}`) });
+    } catch (e) { toast.push({ tone: "danger", title: owErrorMessage(e instanceof Error ? e.message : "error", locale) }); } finally { setBusy(false); }
+  }
+  // แพ็ค + สแกน SN ที่ส่งคืนจริง (serialized) → preparing
+  const doPackReturn = (tr: Transfer, retId: string, snsByProduct: Record<string, string[]>) => void act(() => owPackReturn(tr, employee!.id, retId, snsByProduct), L("แพ็ค + สแกน SN ส่งคืนแล้ว", "Packed + scanned", "已打包扫描"));
   // ปฏิเสธรับ → ส่งคืน → ต้นทางรับคืน
   // ── ใบส่งคืน (Return Doc) ──
   const discOf = (tr: Transfer, discId: string) => (tr.discrepancies ?? []).find((d) => d.id === discId);
@@ -416,7 +450,23 @@ export default function AdminTransfersPage() {
   const doCancelReturn = (tr: Transfer, retId: string) => void act(() => owCancelReturn(tr, employee!.id, retId), L("ยกเลิกใบส่งคืนแล้ว", "Return cancelled", "已取消"));
   const doDispatchReturn = (tr: Transfer, retId: string) => void act(() => owDispatchReturn(tr, employee!.id, retId, { carrier: carrier || null, tracking: retTracking || null }), L("ยืนยันส่งคืนแล้ว (ของออกจากสาขา)", "Return dispatched", "已发出退回"));
   const doReturnShipStage = (tr: Transfer, retId: string, stage: "called" | "picked_up" | "handed") => void act(() => owSetReturnShipStage(tr, employee!.id, retId, stage), L("อัปเดตสถานะขนส่งแล้ว", "Shipping updated", "已更新物流"));
-  const doReceiveRet = (tr: Transfer, r: NonNullable<Transfer["returns"]>[number]) => void act(() => owReceiveReturnLines(tr, employee!.id, r.id, (r.lines ?? []).map((l) => { const remain = l.qty - (l.qty_received ?? 0); const q = retLineQty[`${r.id}:${l.product_id}`]; return { product_id: l.product_id, qty: q === undefined ? remain : Math.max(0, Math.min(remain, q)), sns_found: l.sns_found }; })), L("รับคืนแล้ว — เข้าพักตรวจ (ยังไม่ขาย)", "Received into quarantine", "已收回·暂扣"));
+  // รับคืน "ทั้งใบ" — เฉพาะสินค้าไม่มี SN (ตามจำนวน) · สินค้ามี SN ต้องสแกนรับคืนทีละตัว (ปุ่มสแกน)
+  const doReceiveRet = (tr: Transfer, r: NonNullable<Transfer["returns"]>[number]) => void act(() => owReceiveReturnLines(tr, employee!.id, r.id, (r.lines ?? []).map((l) => {
+    const serialized = !!products.find((p) => p.id === l.product_id)?.track_serial;
+    if (serialized) return { product_id: l.product_id, qty: 0 };
+    const remain = l.qty - (l.qty_received ?? 0);
+    const q = retLineQty[`${r.id}:${l.product_id}`];
+    return { product_id: l.product_id, qty: q === undefined ? remain : Math.max(0, Math.min(remain, q)) };
+  })), L("รับคืนแล้ว — เข้าพักตรวจ (ยังไม่ขาย)", "Received into quarantine", "已收回·暂扣"));
+  // บันทึก SN จากป๊อปอัปขาส่งคืน — pack=บันทึก SN ที่ส่งคืนจริง · recv=ต้นทางสแกนรับคืน
+  function saveRetScan(sns: string[]) {
+    if (!retScan || !detail) { setRetScan(null); return; }
+    const { retId, pid, mode } = retScan;
+    const clean = sns.map((s) => s.trim().toUpperCase()).filter(Boolean);
+    if (mode === "pack") doPackReturn(detail, retId, { [pid]: clean });
+    else void act(() => owReceiveReturnLines(detail, employee!.id, retId, [{ product_id: pid, qty: clean.length, sns_found: clean }]), L("ต้นทางรับคืนแล้ว (สแกน SN ตรง) — เข้าพักตรวจ", "Received back (SN matched)", "已收回·暂扣"));
+    setRetScan(null);
+  }
   const doCloseReturn = (tr: Transfer, r: NonNullable<Transfer["returns"]>[number], oc: "release" | "repair" | "dispose") => void act(() => owCloseReturn(tr, employee!.id, r.id, Object.fromEntries((r.lines ?? []).map((l) => [l.product_id, oc]))), oc === "release" ? L("ปิดงาน — ปล่อยขายแล้ว", "Closed — released to sale", "已放行") : oc === "repair" ? L("ปิดงาน — ส่งซ่อม (คงพักตรวจ)", "Closed — to repair", "已送修") : L("ปิดงาน — ตัดจำหน่ายแล้ว", "Closed — disposed", "已报废"));
   // ยกเลิกตามสถานะ: ก่อนสแกนออกยกเลิกได้ (ปล่อยจอง) · หลังส่ง/เสร็จ → โอนกลับ
   const canCancelTr = (tr: Transfer) => ["approved", "picking"].includes(tr.status) && atSource(tr) && canOut;
@@ -703,6 +753,22 @@ export default function AdminTransfersPage() {
                         ) : null}
                       </div>
                       <ItemJourney req={it.qty_requested} shipped={it.qty_shipped} received={it.qty_received} L={L} />
+                      {it.isSerialized && (it.shippedSerials?.length || it.quarantinedSerials?.length) ? (() => {
+                        // กระทบ SN: คาด (ส่งมา) · ตรง (รับแล้ว) · นอกใบโอน (พักตรวจ) · ขาด (ส่งมาแต่ยังไม่พบ)
+                        const shippedSN = (it.shippedSerials ?? []).map((s) => s.serialNo);
+                        const recvSN = new Set((it.receivedSerials ?? []).map((s) => s.serialNo));
+                        const quar = (it.quarantinedSerials ?? []).map((s) => s.serialNo);
+                        const missing = shippedSN.filter((sn) => !recvSN.has(sn));
+                        return (
+                          <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10.5px]">
+                            <span className="text-muted">{L("กระทบ SN", "SN reconcile", "SN核对")}:</span>
+                            <Badge tone="neutral">{L("คาด", "Exp", "应")} {shippedSN.length}</Badge>
+                            <Badge tone="ok">{L("ตรง", "Matched", "匹配")} {recvSN.size}</Badge>
+                            {missing.length ? <span title={missing.join(", ")}><Badge tone="warn">{L("ขาด", "Missing", "缺")} {missing.length}</Badge></span> : null}
+                            {quar.length ? <span title={quar.join(", ")}><Badge tone="danger">{L("นอกใบโอน", "Not in order", "不在单")} {quar.length}</Badge></span> : null}
+                          </div>
+                        );
+                      })() : null}
                     </div>
                   ))}
                 </div>
@@ -757,7 +823,8 @@ export default function AdminTransfersPage() {
 
                 {/* ผลต่างการรับ (ขาด/เกิน) + ปิดรับส่วนขาด + ปิดเรื่อง */}
                 {(() => {
-                  const DISC_LABEL: Record<string, string> = { short: L("ขาด", "Short", "缺"), over: L("เกิน", "Over", "超"), damaged: L("ชำรุด", "Damaged", "损坏"), lost: L("สูญหาย", "Lost", "丢失"), wrong_sn: L("ผิด SN", "Wrong SN", "SN错误") };
+                  const DISC_LABEL: Record<string, string> = { short: L("ขาด (SN ไม่มา)", "Missing SN", "缺SN"), over: L("เกิน", "Over", "超"), damaged: L("ชำรุด", "Damaged", "损坏"), lost: L("สูญหาย", "Lost", "丢失"), wrong_sn: L("ผิด SN", "Wrong SN", "SN错误"), unexpected_sn: L("นอกใบโอน", "Not in order", "不在单") };
+                  const locWhere = (w?: string | null) => w === "sold" ? L("ขายไปแล้ว", "sold", "已售") : w === "in_transit" ? L("กำลังส่ง", "in transit", "在途") : w === "in_stock" ? L("อยู่ในสต๊อก", "in stock", "在库") : L("ไม่รู้จักในระบบ", "unknown", "未知");
                   const pName = (pid: string) => products.find((p) => p.id === pid)?.name_th ?? detail.items.find((i) => i.product_id === pid)?.sku ?? pid;
                   const diffs = detail.items.map((it) => { const target = it.qty_shipped || it.qty_requested; return { pid: it.product_id, target, recv: it.qty_received || 0, diff: (it.qty_received || 0) - target }; }).filter((d) => d.diff !== 0);
                   const discs = detail.discrepancies ?? [];
@@ -768,8 +835,9 @@ export default function AdminTransfersPage() {
                   const canResolve = can(employee, "transfer.approve") || isSuperApprover(employee); // หัวหน้า/เจ้าของ = อนุมัติปิด
                   const canRequest = atDest(detail) || canRecv || isSuperApprover(employee);        // ผู้รับปลายทาง = ขออนุมัติปิด
                   // สถานะผลต่าง 3 ขั้น
-                  const DISC_ST: Record<string, { label: string; tone: "teal" | "warn" | "ok" }> = {
+                  const DISC_ST: Record<string, { label: string; tone: "teal" | "warn" | "ok" | "info" }> = {
                     open: { label: L("รอตรวจสอบ", "Reviewing", "待核"), tone: "teal" },
+                    handling: { label: L("กำลังส่งคืน", "Returning", "退回中"), tone: "info" },
                     pending_approval: { label: L("รออนุมัติปิด", "Pending approval", "待批"), tone: "warn" },
                     resolved: { label: L("แก้ไขแล้ว", "Resolved", "已处理"), tone: "ok" },
                   };
@@ -795,27 +863,42 @@ export default function AdminTransfersPage() {
                           <p className="text-[11px] font-medium text-muted">{L("สถานะผลต่าง (แยกจากสถานะใบโอน)", "Discrepancy status (separate from transfer)", "差异状态")}</p>
                           {discs.map((dc) => {
                             const stt = DISC_ST[dc.status] ?? DISC_ST.open;
+                            const isQuar = dc.kind === "damaged" || dc.kind === "wrong_sn" || dc.kind === "unexpected_sn"; // ของพักตรวจปลายทาง
+                            const isMissing = dc.kind === "short" || dc.kind === "lost";                                   // SN ไม่มา
                             return (
-                              <div key={dc.id} className="flex items-center justify-between gap-2 text-[11px]">
-                                <span className="truncate flex-1"><b className="text-ink/80">{DISC_LABEL[dc.kind]}</b> · {pName(dc.product_id)} × {dc.qty}{dc.responsible_by ? ` · ${L("ผู้รับผิดชอบ", "resp.", "负责")} ${empName(dc.responsible_by)}` : ""}</span>
-                                <span className="shrink-0 inline-flex items-center gap-1.5">
+                              <div key={dc.id} className="flex items-start justify-between gap-2 text-[11px] flex-wrap">
+                                <span className="min-w-0 flex-1">
+                                  <b className="text-ink/80">{DISC_LABEL[dc.kind]}</b> · {pName(dc.product_id)} × {dc.qty}
+                                  {dc.serialNo ? <code className="ml-1 px-1 py-0.5 rounded bg-surface border border-line font-mono text-[10px]">{dc.serialNo}</code> : null}
+                                  {dc.kind === "unexpected_sn" && dc.located ? <span className="ml-1 text-muted">· {L("ที่มา", "origin", "来源")}: {locWhere(dc.located.where)}{dc.located.branchId ? ` (${bName(dc.located.branchId)})` : ""}</span> : null}
+                                  {dc.handled_by_return ? <span className="ml-1 text-sky-600">· {L("กำลังส่งคืน", "returning via", "退回")} {dc.handled_by_return}</span> : null}
+                                  {dc.replacement_no ? <span className="ml-1 text-brand">· {L("ส่งทดแทน", "replacement", "替代")} {dc.replacement_no}</span> : null}
+                                  {dc.responsible_by ? <span className="text-muted"> · {L("ผู้รับผิดชอบ", "resp.", "负责")} {empName(dc.responsible_by)}</span> : null}
+                                </span>
+                                <span className="shrink-0 inline-flex items-center gap-1.5 flex-wrap justify-end">
                                   <Badge tone={stt.tone}>{stt.label}</Badge>
-                                  {/* ของพักตรวจ (ชำรุด/SN ผิด) — เลือกวิธีจัดการ */}
-                                  {dc.status === "open" && (dc.kind === "damaged" || dc.kind === "wrong_sn") && canRequest ? <>
+                                  {/* พักตรวจ (ชำรุด/SN ผิด/นอกใบโอน) — ส่งคืน · ยอมรับ · ตัดทิ้ง */}
+                                  {dc.status === "open" && isQuar && canRequest ? <>
                                     {dc.qty > 1 ? <span className="inline-flex items-center gap-0.5 text-muted">{L("จำนวน", "qty", "数")}<input type="number" min={1} max={dc.qty} value={openQty[dc.id] ?? dc.qty} onChange={(e) => setOpenQty((o) => ({ ...o, [dc.id]: Math.max(1, Math.min(dc.qty, Number(e.target.value) || 1)) }))} className="w-11 h-6 text-center rounded border border-line bg-surface text-[11px]" />/{dc.qty}</span> : null}
                                     <button onClick={() => doOpenReturn(detail, dc, "return_source")} className="text-brand hover:underline font-medium">{L("ส่งคืนต้นทาง", "Return", "退回")}</button>
-                                    <button onClick={() => doOpenReturn(detail, dc, "repair")} className="text-amber-600 hover:underline font-medium">{L("ส่งซ่อม", "Repair", "维修")}</button>
-                                    <button onClick={() => doRequestResolve(detail, dc.id)} className="text-muted hover:underline font-medium">{L("ส่งอนุมัติปิด", "Request close", "送审")}</button>
+                                    {dc.kind === "unexpected_sn"
+                                      ? (canResolve ? <button onClick={() => doResolveSn(detail, dc.id, "accept")} className="text-ok hover:underline font-medium">{L("ยอมรับที่ปลายทาง", "Accept here", "此处接收")}</button> : <button onClick={() => doRequestResolve(detail, dc.id)} className="text-muted hover:underline font-medium">{L("ส่งอนุมัติ", "Request", "送审")}</button>)
+                                      : <><button onClick={() => doOpenReturn(detail, dc, "repair")} className="text-amber-600 hover:underline font-medium">{L("ส่งซ่อม", "Repair", "维修")}</button><button onClick={() => doRequestResolve(detail, dc.id)} className="text-muted hover:underline font-medium">{L("ส่งอนุมัติปิด", "Request close", "送审")}</button></>}
                                   </> : null}
-                                  {/* ขาด/สูญหาย — ติดตาม หรือขออนุมัติปิด (ไม่มีส่งคืน) */}
-                                  {dc.status === "open" && (dc.kind === "short" || dc.kind === "lost") ? <>
-                                    <span className="text-amber-600 font-medium">{L("กำลังติดตามส่วนขาด", "Tracking shortage", "跟踪缺量")}</span>
-                                    {canRequest ? <button onClick={() => doRequestResolve(detail, dc.id)} className="text-muted hover:underline font-medium">{L("ขออนุมัติปิด", "Request close", "送审")}</button> : null}
+                                  {/* SN ไม่มา (ขาด/สูญหาย) — ส่งทดแทน · ติดตาม · ปิดเคส */}
+                                  {dc.status === "open" && isMissing ? <>
+                                    {dc.sn_outcome !== "replaced" ? <button onClick={() => doMakeReplacement(detail, dc)} className="text-brand hover:underline font-medium">{L("ส่งทดแทน", "Send replacement", "补发")}</button> : <span className="text-brand">{L("ส่งทดแทนแล้ว", "replacement sent", "已补发")}</span>}
+                                    {canResolve
+                                      ? <><button onClick={() => doResolveSn(detail, dc.id, "found_source")} className="text-ok hover:underline font-medium">{L("พบที่ต้นทาง", "Found at source", "源门店找到")}</button><button onClick={() => doResolveSn(detail, dc.id, "confirmed_lost")} className="text-rose-600 hover:underline font-medium">{L("ยืนยันสูญหาย", "Confirm lost", "确认丢失")}</button></>
+                                      : (canRequest ? <button onClick={() => doRequestResolve(detail, dc.id)} className="text-muted hover:underline font-medium">{L("ขออนุมัติปิด", "Request close", "送审")}</button> : <span className="text-amber-600 font-medium">{L("กำลังติดตาม", "Tracking", "跟踪中")}</span>)}
                                   </> : null}
+                                  {/* รออนุมัติปิด (หัวหน้า) */}
                                   {dc.status === "pending_approval" && canResolve ? (
-                                    (dc.kind === "damaged" || dc.kind === "wrong_sn")
-                                      ? <><button onClick={() => doResolveDisc(detail, dc.id, "release")} className="text-ok hover:underline font-medium">{L("ปล่อยขายหลังตรวจ", "Release to sale", "放行")}</button><button onClick={() => doResolveDisc(detail, dc.id, "dispose")} className="text-rose-600 hover:underline font-medium">{L("อนุมัติตัดจำหน่าย", "Approve write-off", "批准报废")}</button></>
-                                      : <button onClick={() => doResolveDisc(detail, dc.id)} className="text-brand hover:underline font-medium">{dc.kind === "lost" ? L("อนุมัติตัดสูญหาย", "Approve loss", "批准损失") : L("อนุมัติปิด", "Approve close", "批准")}</button>
+                                    dc.kind === "unexpected_sn"
+                                      ? <><button onClick={() => doResolveSn(detail, dc.id, "accept")} className="text-ok hover:underline font-medium">{L("ยอมรับที่ปลายทาง", "Accept here", "接收")}</button><button onClick={() => doResolveSn(detail, dc.id, "dispose")} className="text-rose-600 hover:underline font-medium">{L("ตัดจำหน่าย", "Dispose", "报废")}</button></>
+                                      : (dc.kind === "damaged" || dc.kind === "wrong_sn")
+                                        ? <><button onClick={() => doResolveDisc(detail, dc.id, "release")} className="text-ok hover:underline font-medium">{L("ปล่อยขายหลังตรวจ", "Release to sale", "放行")}</button><button onClick={() => doResolveDisc(detail, dc.id, "dispose")} className="text-rose-600 hover:underline font-medium">{L("อนุมัติตัดจำหน่าย", "Approve write-off", "批准报废")}</button></>
+                                        : <><button onClick={() => doResolveSn(detail, dc.id, "found_source")} className="text-ok hover:underline font-medium">{L("พบที่ต้นทาง", "Found at source", "源门店找到")}</button><button onClick={() => doResolveSn(detail, dc.id, "confirmed_lost")} className="text-rose-600 hover:underline font-medium">{L("ยืนยันสูญหาย", "Confirm lost", "确认丢失")}</button></>
                                   ) : null}
                                 </span>
                               </div>
@@ -833,10 +916,23 @@ export default function AdminTransfersPage() {
                                   <button key={k} onClick={() => setRepKind(k)} className={`flex-1 h-8 rounded-lg border text-[11px] font-medium ${repKind === k ? "border-rose-400 bg-rose-500/10 text-rose-600" : "border-line text-muted"}`}>{k === "damaged" ? L("ชำรุด", "Damaged", "损坏") : k === "wrong_sn" ? L("SN ผิด", "Wrong SN", "SN错") : L("ไม่พบ/สูญหาย", "Missing/lost", "丢失")}</button>
                                 ))}
                               </div>
-                              <Select value={repPid || detail.items[0]?.product_id} onChange={(e) => setRepPid(e.target.value)} className="h-9 w-full text-xs">{detail.items.map((it) => <option key={it.product_id} value={it.product_id}>{pName(it.product_id)}</option>)}</Select>
+                              <Select value={repPid || detail.items[0]?.product_id} onChange={(e) => { setRepPid(e.target.value); setRepSn(""); }} className="h-9 w-full text-xs">{detail.items.map((it) => <option key={it.product_id} value={it.product_id}>{pName(it.product_id)}</option>)}</Select>
+                              {(() => {
+                                const ri = detail.items.find((i) => i.product_id === (repPid || detail.items[0]?.product_id));
+                                if (!ri?.isSerialized) return null;
+                                const recv = new Set((ri.receivedSerials ?? []).map((s) => s.serialNo));
+                                // ชำรุด/SN ผิด → เลือกจาก SN ที่รับแล้ว · ไม่พบ/สูญหาย → เลือกจาก SN ที่ส่งมาแต่ยังไม่พบ
+                                const opts = repKind === "lost" ? (ri.shippedSerials ?? []).map((s) => s.serialNo).filter((sn) => !recv.has(sn)) : [...recv];
+                                return (
+                                  <Select value={repSn} onChange={(e) => setRepSn(e.target.value)} className="h-9 w-full text-xs font-mono">
+                                    <option value="">{opts.length ? L("— เลือก SN ที่มีปัญหา —", "— pick affected SN —", "— 选SN —") : L("(ไม่มี SN ให้เลือก)", "(no SN)", "(无SN)")}</option>
+                                    {opts.map((sn) => <option key={sn} value={sn}>{sn}</option>)}
+                                  </Select>
+                                );
+                              })()}
                               <div className="flex gap-1.5">
-                                <Input type="number" min={1} value={repQty} onChange={(e) => setRepQty(Math.max(1, Math.round(Number(e.target.value) || 1)))} className="h-9 w-20 text-xs" />
-                                <Button variant="primary" className="h-9 flex-1" loading={busy} onClick={() => { doRecordDamage(detail, repPid || detail.items[0].product_id, repKind, repQty); setRepOpen(false); setRepQty(1); setRepPid(""); }}><CircleAlert size={13} /> {repKind === "lost" ? L("แจ้งไม่พบ (ติดตาม)", "Report missing", "报失") : L("พักตรวจ (ขายไม่ได้)", "Quarantine", "暂扣")}</Button>
+                                <Input type="number" min={1} value={repSn ? 1 : repQty} disabled={!!repSn} onChange={(e) => setRepQty(Math.max(1, Math.round(Number(e.target.value) || 1)))} className="h-9 w-20 text-xs" />
+                                <Button variant="primary" className="h-9 flex-1" loading={busy} onClick={() => { doRecordDamage(detail, repPid || detail.items[0].product_id, repKind, repSn ? 1 : repQty, repSn || null); setRepOpen(false); setRepQty(1); setRepPid(""); setRepSn(""); }}><CircleAlert size={13} /> {repKind === "lost" ? L("แจ้งไม่พบ (ติดตาม)", "Report missing", "报失") : L("พักตรวจ (ขายไม่ได้)", "Quarantine", "暂扣")}</Button>
                                 <Button variant="ghost" className="h-9" onClick={() => setRepOpen(false)}><X size={13} /></Button>
                               </div>
                             </div>
@@ -869,10 +965,13 @@ export default function AdminTransfersPage() {
                       {returns.map((r) => {
                         const total = (r.lines ?? []).reduce((s, l) => s + l.qty, 0); const recv = (r.lines ?? []).reduce((s, l) => s + (l.qty_received ?? 0), 0);
                         const si = STEP_OF[r.status] ?? 0; const st = RET_ST[r.status] ?? RET_ST.draft;
+                        // สินค้ามี SN ต้องสแกนของที่จะส่งคืนให้ครบก่อน dispatch
+                        const serialLines = (r.lines ?? []).filter((l) => products.find((p) => p.id === l.product_id)?.track_serial);
+                        const packedOk = serialLines.every((l) => (l.sns_found?.length ?? 0) >= l.qty);
                         let hint = ""; const isRepair = r.outcome === "repair";
                         if (r.status === "draft" && isDest) hint = L("กด “ส่งคำขอตรวจ” ให้หัวหน้าอนุมัติ", "Tap Request approval", "送审");
                         else if (r.status === "pending_approval" && canResolve) hint = L("หัวหน้ากด “อนุมัติใบส่งคืน”", "Supervisor approves", "审批");
-                        else if ((r.status === "approved" || r.status === "preparing") && isDest) hint = L("เลือกขนส่ง + เลขติดตาม แล้วกด “ยืนยันส่งคืน” (ของออกจากสาขา)", "Pick carrier + tracking, then Confirm return", "选承运后确认");
+                        else if ((r.status === "approved" || r.status === "preparing") && isDest) hint = !packedOk ? L("สแกน SN ของที่จะส่งคืนให้ครบก่อน แล้วเลือกขนส่ง → “ยืนยันส่งคืน”", "Scan return serials first, then confirm", "先扫描退回SN") : L("เลือกขนส่ง + เลขติดตาม แล้วกด “ยืนยันส่งคืน” (ของออกจากสาขา)", "Pick carrier + tracking, then Confirm return", "选承运后确认");
                         else if (r.status === "returning" && canRecvRet) hint = L("ของถึงต้นทางแล้ว กด “ยืนยันรับคืน” (เข้าพักตรวจ ไม่ขายอัตโนมัติ)", "Confirm receive (into quarantine)", "确认收回·暂扣");
                         else if (r.status === "returning") hint = L("กำลังส่งคืน — รอต้นทางรับ", "Returning — awaiting source", "退回中");
                         else if ((r.status === "received" || r.status === "partial_received") && canResolve) hint = L("ตรวจสภาพแล้วเลือก: ปล่อยขาย / ส่งซ่อม / ตัดจำหน่าย", "Inspect then release / repair / dispose", "检后处理");
@@ -896,7 +995,7 @@ export default function AdminTransfersPage() {
                             {hint ? <div className="rounded-xl bg-white/70 border border-rose-200 px-3 py-2 text-[12px] text-rose-900 leading-relaxed flex items-start gap-1.5"><CornerDownRight size={14} className="shrink-0 mt-0.5" /><span>{hint}</span></div> : null}
                             {/* รายการ */}
                             <div className="text-[11px] text-muted space-y-0.5">
-                              {(r.lines ?? []).map((l, i) => <div key={i}>{pName(l.product_id)} × {l.qty}{(l.qty_received ?? 0) > 0 ? ` · ${L("รับคืน", "recv", "收")} ${l.qty_received}/${l.qty}` : ""}{l.close_outcome ? ` · ${l.close_outcome === "release" ? L("ปล่อยขาย", "released", "放行") : l.close_outcome === "repair" ? L("ส่งซ่อม", "repair", "维修") : L("ตัดจำหน่าย", "disposed", "报废")}` : ""}</div>)}
+                              {(r.lines ?? []).map((l, i) => { const sns = [...new Set([...(l.sns_found ?? []), ...(l.sns_expected ?? [])])]; return <div key={i} className="flex flex-wrap items-center gap-1">{pName(l.product_id)} × {l.qty}{(l.qty_received ?? 0) > 0 ? ` · ${L("รับคืน", "recv", "收")} ${l.qty_received}/${l.qty}` : ""}{l.close_outcome ? ` · ${l.close_outcome === "release" ? L("ปล่อยขาย", "released", "放行") : l.close_outcome === "repair" ? L("ส่งซ่อม", "repair", "维修") : L("ตัดจำหน่าย", "disposed", "报废")}` : ""}{sns.map((s) => <code key={s} className={`px-1 py-0.5 rounded font-mono text-[9.5px] border ${(l.sns_found ?? []).includes(s) ? "bg-ok/10 border-ok/40 text-ok" : "bg-surface border-line"}`} title={(l.sns_found ?? []).includes(s) ? L("สแกนยืนยันแล้ว", "scanned", "已扫") : L("SN ที่ต้องคืน", "expected", "应退")}>{s}</code>)}</div>; })}
                               {r.reason ? <div className="italic">“{r.reason}”</div> : null}
                               {r.carrier ? <div>{L("ขนส่ง", "Carrier", "承运")}: {carriers.find((c) => c.id === r.carrier)?.name ?? r.carrier}{r.tracking ? ` · ${r.tracking}` : ""}</div> : null}
                             </div>
@@ -905,16 +1004,19 @@ export default function AdminTransfersPage() {
                               {r.status === "draft" && isDest ? <><Button variant="primary" className="h-9" loading={busy} onClick={() => doReqReturn(detail, r.id)}>{L("ส่งคำขอตรวจ", "Request approval", "送审")}</Button><Button variant="ghost" className="h-9 text-rose-600" loading={busy} onClick={() => doCancelReturn(detail, r.id)}>{L("ยกเลิก", "Cancel", "取消")}</Button></> : null}
                               {r.status === "pending_approval" && canResolve ? <><Button variant="primary" className="h-9" loading={busy} onClick={() => doApproveReturn(detail, r.id)}><Check size={14} /> {L("อนุมัติ", "Approve", "批准")}</Button><Button variant="ghost" className="h-9 text-rose-600" loading={busy} onClick={() => doCancelReturn(detail, r.id)}>{L("ยกเลิก", "Cancel", "取消")}</Button></> : null}
                               {(r.status === "approved" || r.status === "preparing") && isDest ? <>
+                                {(r.lines ?? []).filter((l) => products.find((p) => p.id === l.product_id)?.track_serial).map((l) => <button key={l.product_id} onClick={() => setRetScan({ retId: r.id, pid: l.product_id, name: pName(l.product_id), expected: l.sns_expected ?? [], initial: l.sns_found ?? l.sns_expected ?? [], mode: "pack" })} className={`h-9 px-2.5 rounded-lg border text-xs inline-flex items-center gap-1 ${(l.sns_found?.length ?? 0) >= l.qty ? "border-ok/50 text-ok bg-ok/5" : "border-brand/40 text-brand"}`}><ScanLine size={13} /> {L("สแกน SN", "Scan SN", "扫码")} ({l.sns_found?.length ?? 0}/{l.qty})</button>)}
                                 <Select value={carrier} onChange={(e) => setCarrier(e.target.value)} className="h-9 w-32"><option value="">{L("ขนส่ง…", "Carrier…", "承运…")}</option>{carriers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</Select>
                                 <Input value={retTracking} onChange={(e) => setRetTracking(e.target.value)} placeholder={L("เลขติดตาม", "Tracking", "单号")} className="h-9 w-32 text-xs" />
-                                <Button variant="primary" className="h-9" loading={busy} onClick={() => doDispatchReturn(detail, r.id)}><Truck size={14} /> {L("ยืนยันส่งคืน", "Confirm return", "确认退回")}</Button>
+                                <Button variant="primary" className="h-9" loading={busy} disabled={!packedOk} title={!packedOk ? L("สแกน SN ให้ครบก่อน", "Scan serials first", "先扫码") : undefined} onClick={() => doDispatchReturn(detail, r.id)}><Truck size={14} /> {L("ยืนยันส่งคืน", "Confirm return", "确认退回")}</Button>
                                 <Button variant="ghost" className="h-9 text-rose-600" loading={busy} onClick={() => doCancelReturn(detail, r.id)}>{L("ยกเลิก", "Cancel", "取消")}</Button>
                               </> : null}
                               {r.status === "returning" || r.status === "partial_received" ? <>
                                 {isDest && r.status === "returning" ? <div className="inline-flex gap-1">{([["called", L("เรียกรถ", "Called", "叫车")], ["picked_up", L("รับแล้ว", "Picked", "取货")], ["handed", L("ส่งมอบ", "Handed", "交付")]] as const).map(([k, lb]) => <button key={k} onClick={() => doReturnShipStage(detail, r.id, k)} className={`h-8 px-2 rounded-lg border text-[11px] ${r.ship_stage === k ? "border-brand bg-brand/10 text-brand" : "border-line text-muted"}`}>{lb}</button>)}</div> : null}
                                 {canRecvRet ? <>
-                                  {(r.lines ?? []).some((l) => (l.qty - (l.qty_received ?? 0)) > 1) ? <div className="w-full flex flex-wrap gap-2 items-center">{(r.lines ?? []).filter((l) => (l.qty - (l.qty_received ?? 0)) > 0).map((l) => { const remain = l.qty - (l.qty_received ?? 0); return <span key={l.product_id} className="inline-flex items-center gap-1 text-[11px] text-muted">{L("รับ", "recv", "收")}<input type="number" min={0} max={remain} value={retLineQty[`${r.id}:${l.product_id}`] ?? remain} onChange={(e) => setRetLineQty((o) => ({ ...o, [`${r.id}:${l.product_id}`]: Math.max(0, Math.min(remain, Number(e.target.value) || 0)) }))} className="w-12 h-7 text-center rounded border border-line bg-surface" />/{remain}</span>; })}</div> : null}
-                                  <Button variant="primary" className="h-9" loading={busy} onClick={() => doReceiveRet(detail, r)}><PackageCheck size={14} /> {L("ยืนยันรับคืน", "Confirm receive", "确认收回")}</Button>
+                                  {/* สินค้ามี SN → สแกน SN รับคืน ทีละตัว (ยืนยันว่าตรงกับที่ส่งคืน) */}
+                                  {(r.lines ?? []).filter((l) => products.find((p) => p.id === l.product_id)?.track_serial && (l.qty - (l.qty_received ?? 0)) > 0).map((l) => <button key={l.product_id} onClick={() => setRetScan({ retId: r.id, pid: l.product_id, name: pName(l.product_id), expected: l.sns_found?.length ? l.sns_found : (l.sns_expected ?? []), initial: [], mode: "recv" })} className="h-9 px-2.5 rounded-lg border border-brand/40 text-brand text-xs inline-flex items-center gap-1"><ScanLine size={13} /> {L("สแกน SN รับคืน", "Scan to receive", "扫码收回")}</button>)}
+                                  {(r.lines ?? []).some((l) => !products.find((p) => p.id === l.product_id)?.track_serial && (l.qty - (l.qty_received ?? 0)) > 1) ? <div className="w-full flex flex-wrap gap-2 items-center">{(r.lines ?? []).filter((l) => !products.find((p) => p.id === l.product_id)?.track_serial && (l.qty - (l.qty_received ?? 0)) > 0).map((l) => { const remain = l.qty - (l.qty_received ?? 0); return <span key={l.product_id} className="inline-flex items-center gap-1 text-[11px] text-muted">{L("รับ", "recv", "收")}<input type="number" min={0} max={remain} value={retLineQty[`${r.id}:${l.product_id}`] ?? remain} onChange={(e) => setRetLineQty((o) => ({ ...o, [`${r.id}:${l.product_id}`]: Math.max(0, Math.min(remain, Number(e.target.value) || 0)) }))} className="w-12 h-7 text-center rounded border border-line bg-surface" />/{remain}</span>; })}</div> : null}
+                                  {(r.lines ?? []).some((l) => !products.find((p) => p.id === l.product_id)?.track_serial && (l.qty - (l.qty_received ?? 0)) > 0) ? <Button variant="primary" className="h-9" loading={busy} onClick={() => doReceiveRet(detail, r)}><PackageCheck size={14} /> {L("ยืนยันรับคืน (ไม่มี SN)", "Receive non-serial", "收回(无SN)")}</Button> : null}
                                 </> : null}
                               </> : null}
                               {(r.status === "received" || r.status === "partial_received") && canResolve ? <>
@@ -1021,6 +1123,21 @@ export default function AdminTransfersPage() {
           />
         );
       })() : null}
+
+      {/* สแกน SN ขาส่งคืน — pack (บันทึก SN ที่คืน) / recv (ต้นทางสแกนรับคืน ยืนยันตรง) */}
+      {retScan ? (
+        <SerialScanDrawer
+          open
+          onClose={() => setRetScan(null)}
+          mode="in"
+          product={{ name: retScan.name, image: prodImg(retScan.pid) }}
+          qty={retScan.expected.length || 0}
+          shipped={retScan.expected}
+          initial={retScan.initial}
+          onSave={saveRetScan}
+          locale={locale as "th" | "en" | "zh"}
+        />
+      ) : null}
 
       {/* คำขอสินค้าเข้าสาขา (slide-over ขวา) — ปลายทางเปิดคำขอ ระบบแนะนำสาขาที่มีของ+ใกล้สุด */}
       <Drawer open={reqOpen} onClose={() => setReqOpen(false)} title={L("ขอสินค้าเข้าสาขา", "Request stock in", "申请调入")} width="lg"
