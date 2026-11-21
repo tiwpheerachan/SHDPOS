@@ -27,6 +27,7 @@ export {
   setReturnShipStage as owSetReturnShipStage,
   receiveReturnLines as owReceiveReturnLines,
   closeReturn as owCloseReturn,
+  markDiscReplacement as owMarkReplacement,
   advanceShipStage as owShipStage,
   setPickupStage as owSetPickupStage,
   reserveStock as owReserve,

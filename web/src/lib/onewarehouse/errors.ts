@@ -23,6 +23,8 @@ const MSG: Record<string, { th: string; en: string; zh: string }> = {
   transfer_not_found: { th: "ไม่พบใบโอนนี้", en: "Transfer not found", zh: "未找到单据" },
   return_not_found: { th: "ไม่พบใบส่งคืนนี้", en: "Return not found", zh: "未找到退回单" },
   return_wrong_status: { th: "สถานะใบส่งคืนไม่ถูกต้องสำหรับขั้นนี้", en: "Wrong return status for this step", zh: "退回单状态不符" },
+  return_serials_required: { th: "ต้องสแกน SN ของที่จะส่งคืนให้ครบก่อน", en: "Scan all return serials first", zh: "请先扫描退回序列号" },
+  return_serial_mismatch: { th: "SN ที่รับคืนไม่ตรงกับ SN ที่ส่งคืน", en: "Received SN not in the returned set", zh: "收回序列号与退回不符" },
 };
 
 /** แปลง error code → ข้อความตามภาษา (params ใส่ต่อท้ายถ้ามี) */

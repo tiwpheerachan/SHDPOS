@@ -397,8 +397,8 @@ export interface Shift {
   closed_at?: string | null;
 }
 
-/** Serial ที่สแกน (ออก/เข้า) พร้อมเวลา */
-export interface TransferSerial { serialNo: string; at: string }
+/** Serial ที่สแกน (ออก/เข้า) พร้อมเวลา + ผู้ทำ */
+export interface TransferSerial { serialNo: string; at: string; by?: string | null }
 export interface TransferItem {
   product_id: string;
   sku: string;
@@ -410,6 +410,8 @@ export interface TransferItem {
   isSerialized?: boolean | null;
   shippedSerials?: TransferSerial[];
   receivedSerials?: TransferSerial[];
+  /** SN ที่สแกนรับได้แต่ "ไม่อยู่ในใบโอน" (นอกใบโอน) → พักตรวจที่ปลายทาง ยังไม่ขาย ต้องพิสูจน์ที่มา */
+  quarantinedSerials?: TransferSerial[];
   note?: string | null;
 }
 export interface Transfer {
@@ -431,6 +433,8 @@ export interface Transfer {
   discrepancies?: TransferDiscrepancy[];
   /** การปฏิเสธรับ → ส่งคืน (อ้างอิงใบนี้) */
   returns?: TransferReturn[];
+  /** ใบนี้สร้างเพื่อ "ส่งทดแทน" SN ที่ขาด/ส่งผิด (เชื่อมเคสเดิม) */
+  replacement_of?: { transfer_no: string; disc_id?: string | null; serialNo?: string | null } | null;
   note?: string | null;
   created_at: string;
   /** concurrency — เพิ่มทุกการเขียน */
@@ -481,7 +485,8 @@ export interface RtnLine {
   product_id: string;
   qty: number;
   sns_expected?: string[];   // SN ที่คาดว่าจะส่งคืน (ของเดิม)
-  sns_found?: string[];      // SN ที่พบ/สแกนจริงตอนแพ็ค — เก็บทั้งคู่ ห้ามเขียนทับ
+  sns_found?: string[];      // SN ที่สแกนจริงตอน "แพ็ค/ส่งคืน" (ขาส่ง) — เก็บทั้งคู่ ห้ามเขียนทับ
+  sns_received_back?: string[]; // SN ที่ต้นทาง "สแกนรับคืน" จริง (ขารับ) — แยกจากขาส่ง
   qty_received?: number;     // ต้นทางรับคืนจริงกี่ชิ้น (คืนบางส่วน)
   close_outcome?: "release" | "repair" | "dispose" | null;  // ผลตรวจสภาพที่ต้นทาง
 }
@@ -520,7 +525,15 @@ export interface TransferReceipt {
   lines: { product_id: string; qty: number; serials?: string[] }[];
 }
 
-export type DiscrepancyKind = "short" | "over" | "damaged" | "lost" | "wrong_sn";
+//  short=ขาด(SN ที่ส่งมาแต่ไม่พบ) · over=เกินจำนวน · damaged=ชำรุด · lost=ยืนยันสูญหาย
+//  wrong_sn=SN ผิด(ของเดิม) · unexpected_sn=พบ SN นอกใบโอน(ไม่ได้ส่งมา) → พักตรวจ
+export type DiscrepancyKind = "short" | "over" | "damaged" | "lost" | "wrong_sn" | "unexpected_sn";
+/** ผลตรวจที่อยู่ของ SN ในระบบ ณ เวลาที่รายงาน — กัน SN เดียวอยู่สองสาขา */
+export interface SerialLocated { where: "in_stock" | "in_transit" | "sold" | "unknown"; branchId?: string | null; refNo?: string | null }
+/** เส้นทางปิดเคสราย SN:
+ *  unexpected: accept=ยอมรับที่ปลายทาง · return_source=ส่งคืน · dispose=ตัดทิ้ง
+ *  missing(short): found_source=พบที่ต้นทาง · tracking=ติดตามต่อ · confirmed_lost=ยืนยันสูญหาย · replaced=ส่งทดแทนแล้ว */
+export type SerialOutcome = "accept" | "return_source" | "dispose" | "found_source" | "tracking" | "confirmed_lost" | "replaced";
 /** ผลต่าง 1 รายการ — มีผู้รับผิดชอบ + ขั้นปิดเรื่อง */
 export interface TransferDiscrepancy {
   id: string;
@@ -528,10 +541,18 @@ export interface TransferDiscrepancy {
   kind: DiscrepancyKind;
   qty: number;
   serialNo?: string | null;
+  /** ผลตรวจที่มาของ SN ตอนรับเข้า (unexpected_sn) — โชว์ว่า SN นี้รู้จักในระบบไหม อยู่ไหน */
+  located?: SerialLocated | null;
+  /** เส้นทาง/ผลสรุปปิดเคสราย SN */
+  sn_outcome?: SerialOutcome | null;
+  /** ใบส่งทดแทนที่สร้างจากเคสนี้ (SN ขาด) */
+  replacement_no?: string | null;
+  /** เลขใบส่งคืนที่กำลังจัดการเคสนี้ (status=handling) — ปิดจริงเมื่อใบคืนปิดงาน */
+  handled_by_return?: string | null;
   note?: string | null;
   responsible_by?: string | null;   // ผู้รับผิดชอบ
-  /** วงจรผลต่าง: open=รอตรวจสอบ · pending_approval=รออนุมัติปิด · resolved=แก้ไขแล้ว */
-  status: "open" | "pending_approval" | "resolved";
+  /** วงจรผลต่าง: open=รอตรวจสอบ · handling=กำลังจัดการด้วยใบส่งคืน · pending_approval=รออนุมัติปิด · resolved=แก้ไขแล้ว */
+  status: "open" | "handling" | "pending_approval" | "resolved";
   /** ผู้ขออนุมัติปิด (open → pending_approval) + เวลา + เหตุผล/วิธีจัดการ */
   requested_by?: string | null;
   requested_at?: string | null;
