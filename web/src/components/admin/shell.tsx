@@ -8,7 +8,7 @@ import clsx from "clsx";
 import {
   LayoutDashboard, TrendingUp, Users, Package, Boxes, ArrowLeftRight, ScanLine,
   ShieldCheck, ScrollText, Settings2, Store, Sun, Moon, Languages, Menu, X, Bell,
-  Search, PanelLeftClose, PanelLeftOpen, ChevronDown, Command, Home, Activity, FileText, LogOut, Contact, CalendarClock, Ticket, Network, Landmark, Wand2, CreditCard, MonitorPlay,
+  Search, PanelLeftClose, PanelLeftOpen, ChevronDown, Command, Home, Activity, FileText, LogOut, Contact, CalendarClock, Ticket, Network, Landmark, Wand2, CreditCard, MonitorPlay, Cloud,
 } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { useTheme } from "@/lib/theme";
@@ -56,6 +56,7 @@ const NAV: NavGroup[] = [
       { href: "/admin/transfers", icon: ArrowLeftRight, key: "transfers", perm: "transfer.request" },
       { href: "/admin/serials", icon: ScanLine, key: "serials", perm: "inventory.view" },
       { href: "/admin/products", icon: Package, key: "products" },
+      { href: "/admin/onewarehouse", icon: Cloud, key: "onewarehouse" },
     ],
   },
   {
@@ -176,6 +177,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
     org: L("ผังสาขา", "Branch map", "门店地图"),
     finance: L("การเงิน", "Finance", "财务"),
     insights: L("ผู้ช่วย AI", "AI assistant", "AI 助手"),
+    onewarehouse: L("เชื่อมคลังกลาง", "OneWarehouse", "中央仓"),
   };
   const sectionLabel: Record<string, string> = {
     overview: t.cmd.secOverview, sales: t.cmd.secSales, operations: t.cmd.secOps,
