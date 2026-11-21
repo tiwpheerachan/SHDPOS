@@ -31,6 +31,8 @@ export default function AdminOneWarehousePage() {
   const [wh, setWh] = useState("33856");
   const [owStockMap, setOwStockMap] = useState<Record<string, number>>({});
   const [owPriceMap, setOwPriceMap] = useState<Record<string, number | null>>({});
+  const [owExist, setOwExist] = useState<Record<string, boolean>>({}); // SKU ที่ "มีจริง" ใน OW (ยืนยันด้วย /products)
+  const [checkedN, setCheckedN] = useState(0);
   const [q, setQ] = useState("");
   const [view, setView] = useState<"all" | "matched" | "missing">("all");
   const [loading, setLoading] = useState(true);
@@ -62,9 +64,10 @@ export default function AdminOneWarehousePage() {
   // ดึงสต๊อก OW สดทุก SKU ของเรา (batch ≤50) + ราคาของ SKU ที่จับคู่ได้
   async function syncFromOw() {
     if (!connected) return;
-    setSyncing(true);
+    setSyncing(true); setCheckedN(0);
     try {
       const skus = products.map((p) => p.sku).filter(Boolean);
+      // 1) สต๊อก (batch ≤50) — เลขยอด
       const smap: Record<string, number> = {};
       for (let i = 0; i < skus.length; i += 50) {
         const chunk = skus.slice(i, i + 50);
@@ -72,20 +75,26 @@ export default function AdminOneWarehousePage() {
         if (r.ok && r.data) for (const row of r.data) smap[row.sku] = row.qty;
       }
       setOwStockMap(smap);
-      // ราคา: ดึงเฉพาะ SKU ที่จับคู่ได้ (มีใน OW) จำกัด 60 ตัวแรก กัน N calls บานปลาย
-      const matched = skus.filter((s) => s in smap).slice(0, 60);
-      const pmap: Record<string, number | null> = {};
-      for (const s of matched) { const op = await owProductBySku(s).catch(() => null); pmap[s] = op ? op.sale_price : null; }
-      setOwPriceMap(pmap);
+      // 2) ยืนยัน "มีจริงใน OW" ด้วย /products — เพราะ /stock คืน 0 ให้ SKU ที่ไม่รู้จักด้วย (เลขเดียวเชื่อไม่ได้)
+      //    ⚠️ ยังไม่มี bulk/paginated list ฝั่ง OW → ตรวจทีละ SKU (จำกัด 120 ตัว กัน N calls บานปลาย)
+      const exist: Record<string, boolean> = {}; const pmap: Record<string, number | null> = {};
+      const check = skus.slice(0, 120);
+      for (let i = 0; i < check.length; i++) {
+        const op = await owProductBySku(check[i]).catch(() => null);
+        if (op) { exist[check[i]] = true; pmap[check[i]] = op.sale_price; }
+        if (i % 5 === 0) setCheckedN(i + 1);
+      }
+      setOwExist(exist); setOwPriceMap(pmap); setCheckedN(check.length);
     } finally { setSyncing(false); }
   }
   useEffect(() => { if (connected && products.length) void syncFromOw(); /* eslint-disable-next-line */ }, [connected, products.length, wh]);
 
   const rows: Row[] = useMemo(() => products.map((p) => ({
     p, ourOnHand: ourOnHandBySku[p.sku] ?? 0,
-    owQty: p.sku in owStockMap ? owStockMap[p.sku] : null,
-    owPrice: p.sku in owPriceMap ? owPriceMap[p.sku] : null,
-  })), [products, ourOnHandBySku, owStockMap, owPriceMap]);
+    // "มีใน OW" = ยืนยันด้วย /products เท่านั้น (ไม่ใช่แค่ /stock คืน 0)
+    owQty: owExist[p.sku] ? (owStockMap[p.sku] ?? 0) : null,
+    owPrice: owExist[p.sku] ? (owPriceMap[p.sku] ?? null) : null,
+  })), [products, ourOnHandBySku, owStockMap, owPriceMap, owExist]);
 
   const matchedN = useMemo(() => rows.filter((r) => r.owQty !== null).length, [rows]);
   const filtered = useMemo(() => {
@@ -116,6 +125,7 @@ export default function AdminOneWarehousePage() {
             <span className={`w-1.5 h-1.5 rounded-full ${connected ? "bg-emerald-500" : "bg-muted/40"}`} />
             {connected ? L("เชื่อมต่อแล้ว (สด)", "Connected (live)", "已连接") : L("ยังไม่เชื่อม", "Not connected", "未连接")}
           </span>
+          {syncing && checkedN > 0 ? <span className="text-[11px] text-muted tabular-nums">{L("ตรวจ", "Checking", "检查")} {checkedN}/{Math.min(products.length, 120)}</span> : null}
           <Button variant="soft" loading={syncing || loading} disabled={!connected} onClick={() => void syncFromOw()}><RefreshCw size={14} /> {L("ซิงค์", "Sync", "同步")}</Button>
         </div>
       </div>

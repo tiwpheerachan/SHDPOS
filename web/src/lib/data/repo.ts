@@ -57,8 +57,43 @@ async function doBootstrap(): Promise<void> {
     }
     await kvSet("catalog_version", CATALOG_VERSION);
   }
-  // รีเฟรช/สร้างข้อมูลจำลอง (วันที่ล่าสุด) — ทำงานทุกโหมด แต่แตะเฉพาะเมื่อ orders เป็น demo เท่านั้น
-  await ensureDemoData();
+  // โหมดจริง (default) = ไม่มีข้อมูลจำลองเลย + ล้างของจำลองเก่าทิ้ง · เปิด demo ได้เฉพาะ NEXT_PUBLIC_DEMO_MODE=1
+  if (isDemoMode()) await ensureDemoData();
+  else await purgeDemoDataOnce();
+}
+
+/** โหมดจำลอง — เปิดเฉพาะเมื่อสั่งชัด (NEXT_PUBLIC_DEMO_MODE=1) · production/ของจริง = ปิดเสมอ */
+export function isDemoMode(): boolean {
+  return typeof process !== "undefined" && process.env.NEXT_PUBLIC_DEMO_MODE === "1";
+}
+
+/** โหลดสต๊อกจริงจาก Supabase ใหม่ (ทับสต๊อกจำลองที่เคย seed) */
+async function reloadStockFromSupabase(): Promise<void> {
+  const sb = supabase(); if (!sb) return;
+  const d = db();
+  const stock = await sb.from("stock_levels").select("*");
+  await d.transaction("rw", [d.stock], async () => {
+    await d.stock.clear();
+    if (stock.data) await d.stock.bulkPut((stock.data as StockLevel[]).map((s) => ({ ...s, key: stockKey(s.branch_id, s.product_id) })));
+  });
+}
+
+/** โหมดจริง: ล้างข้อมูลจำลองที่เคย seed ไว้ (ครั้งเดียวต่อเครื่อง) — ออเดอร์/ลูกค้า/audit จำลอง + โหลดสต๊อกจริง */
+async function purgeDemoDataOnce(): Promise<void> {
+  const d = db();
+  if ((await kvGet<string>("demo_purged_version", "")) === DEMO_DATA_VERSION) return;
+  const orders = await d.orders.toArray();
+  const demoOrderIds = orders.filter((o) => DEMO_ORDER_ID.test(o.id)).map((o) => o.id);
+  const demoCustIds = DEMO_CUSTOMERS.map((c) => c.id);
+  await d.transaction("rw", [d.orders, d.customers, d.audit], async () => {
+    if (demoOrderIds.length) await d.orders.bulkDelete(demoOrderIds);
+    await d.customers.bulkDelete(demoCustIds);
+    // audit จำลองสร้างจากออเดอร์จำลอง — ล้างทั้งหมด (จะสร้างใหม่จากงานจริง) ถ้าไม่มีออเดอร์จริงเลย
+    const realOrders = orders.filter((o) => !DEMO_ORDER_ID.test(o.id));
+    if (realOrders.length === 0) await d.audit.clear();
+  });
+  if (isLiveMode()) { try { await reloadStockFromSupabase(); } catch { /* ออฟไลน์ */ } }
+  await kvSet("demo_purged_version", DEMO_DATA_VERSION);
 }
 
 // สร้าง/รีเฟรชข้อมูลจำลองให้เป็นวันที่ล่าสุด — ปลอดภัยกับข้อมูลจริง (เช็ค id pattern ก่อน)

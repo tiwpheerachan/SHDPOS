@@ -75,7 +75,8 @@ export async function owProductBySku(sku: string): Promise<OwProduct | null> {
   const r = await owProducts(sku);
   if (!r.ok || !r.data?.length) return null;
   const up = sku.trim().toUpperCase();
-  return r.data.find((p) => p.sku.toUpperCase() === up) ?? r.data[0];
+  // ตรง exact SKU เท่านั้น — ไม่ตรงคืน null (ห้ามหยิบผลลัพธ์ตัวแรกแทน กันได้สินค้าผิดตัว)
+  return r.data.find((p) => p.sku.toUpperCase() === up) ?? null;
 }
 /** ส่วนประกอบคอมโบ (ตอนนี้ OW คืน 501 — contract นิ่ง เขียนรอได้) */
 export async function owComponents(sku: string): Promise<OwResult<OwComponents>> {
@@ -101,17 +102,19 @@ export async function owCarriersApi(): Promise<OwResult<OwCarrier[]>> {
 
 // ── mapper: OW product → ฟิลด์ที่ตรงกับ Product ของเรา (บางส่วน) ──
 //   หมายเหตุ: OW ไม่มี id/brand_id/category_id ภายในของเรา + image_url ว่างเสมอ (รูปมาจากฝั่งเรา)
+// แปลงเฉพาะฟิลด์ที่ JST "มีค่าจริง" — ห้ามใส่ค่าว่าง/null/false ที่อาจลบข้อมูลเดิมตอน merge
+//   • serial_tracking=null (ยังไม่ทราบ) → ไม่แตะ track_serial (รอจัดประเภท ไม่กลายเป็น "ไม่ต้องใช้ SN")
+//   • image/barcode ว่าง → ไม่ทับรูป/บาร์โค้ดของเรา
+//   • ราคา null → ไม่ตั้ง (0 เท่านั้นถือว่าตั้งจริง) · ชื่อ = ชื่อต้นทาง (POS เก็บชื่อไทยของตัวเองแยกได้)
 export function owProductToPartial(p: OwProduct): Partial<Product> & { sku: string } {
-  return {
-    sku: p.sku,
-    name_th: p.name || p.sku,
-    short_name: p.short_name || null,
-    // ราคา: ตั้งเฉพาะเมื่อ JST ให้ค่ามา (ไม่ null) — null = ไม่ตั้ง, ปล่อยให้ layer ตัดสิน (ห้ามถือเป็น 0/ฟรี)
-    ...(p.sale_price != null ? { price: p.sale_price } : {}),
-    ...(p.cost_price != null ? { cost: p.cost_price } : {}),
-    track_serial: p.serial_tracking === true,
-    barcodes: p.barcode ? [p.barcode] : [],
-    image_url: p.image_url || null, // OW ว่างเสมอ → ให้ layer เรียกเติมรูปจาก catalog เราเอง
-  };
-  // price tiers อื่น (member/wholesale/tag) + is_combined + serial_tracking===null (ยังไม่จัดประเภท) อ่านจาก OwProduct ดิบ
+  const out: Partial<Product> & { sku: string } = { sku: p.sku };
+  if (p.name) out.name_th = p.name;
+  if (p.short_name) out.short_name = p.short_name;
+  if (p.sale_price != null) out.price = p.sale_price;
+  if (p.cost_price != null) out.cost = p.cost_price;
+  if (typeof p.serial_tracking === "boolean") out.track_serial = p.serial_tracking;
+  if (p.barcode) out.barcodes = [p.barcode];
+  if (p.image_url) out.image_url = p.image_url;
+  return out;
+  // price tiers อื่น (member/wholesale/tag) + is_combined + serial_tracking===null อ่านจาก OwProduct ดิบ
 }
