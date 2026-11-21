@@ -665,7 +665,8 @@ export interface Customer {
 // =====================================================================
 // Stock Count Sessions (Phase 6) — นับสต๊อกแบบมีรอบ + workflow
 // =====================================================================
-export type CountType = "full" | "cycle" | "category" | "brand" | "random" | "serial";
+//  opening = นับสต๊อกเปิดระบบ (เริ่มใช้งานจริง) — รวมทุกสินค้า ตั้งยอดตั้งต้นจากของจริงหน้าร้าน
+export type CountType = "full" | "cycle" | "category" | "brand" | "random" | "serial" | "opening";
 export type CountStatus = "counting" | "submitted" | "completed" | "cancelled";
 
 export interface StockCountLine {

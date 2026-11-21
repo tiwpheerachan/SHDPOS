@@ -31,12 +31,13 @@ export default function StockCountPage() {
 
   const [createOpen, setCreateOpen] = useState(false);
   const [zone, setZone] = useState(ZONES[0]);
-  const [type, setType] = useState<CountType>("full");
+  const [type, setType] = useState<CountType>("opening");
   const [blind, setBlind] = useState(true);
   const [catId, setCatId] = useState("");
   const [brandId, setBrandId] = useState("");
 
   const typeLabel: Record<CountType, string> = {
+    opening: L("นับเปิดระบบ (ตั้งยอดตั้งต้น)", "Opening count", "开业盘点"),
     full: L("นับทั้งหมด", "Full Count", "全盘"), cycle: L("นับหมุนเวียน", "Cycle Count", "循环盘点"),
     category: L("ตามหมวด", "Category", "按品类"), brand: L("ตามแบรนด์", "Brand", "按品牌"),
     random: L("สุ่มนับ", "Random", "随机"), serial: L("นับ Serial", "Serial", "序列号"),
@@ -222,6 +223,13 @@ export default function StockCountPage() {
             <Field label={L("โซน", "Zone", "区域")}><Select value={zone} onChange={(e) => setZone(e.target.value)}>{ZONES.map((z) => <option key={z}>{z}</option>)}</Select></Field>
             <Field label={L("ประเภท", "Type", "类型")}><Select value={type} onChange={(e) => setType(e.target.value as CountType)}>{(Object.keys(typeLabel) as CountType[]).map((k) => <option key={k} value={k}>{typeLabel[k]}</option>)}</Select></Field>
           </div>
+          {type === "opening" ? (
+            <div className="rounded-xl border border-brand/30 bg-brand/5 px-3 py-2.5 text-[12px] text-ink/80 leading-relaxed">
+              {L("นับสต๊อกจริงหน้าร้าน ณ ตอนเริ่มใช้ระบบ — รวมสินค้าทุกตัว (แม้ยอดในระบบยังเป็น 0) · ยอดที่นับได้จะกลายเป็น “ยอดตั้งต้น” ของสาขาหลังอนุมัติ",
+                "Count physical stock at go-live — includes every product (even 0 in system). Counted qty becomes the branch opening balance after approval.",
+                "开业实盘：含所有商品，审批后作为门店初始库存")}
+            </div>
+          ) : null}
           {type === "category" ? (
             <Field label={L("หมวดหมู่", "Category", "品类")}><Select value={catId} onChange={(e) => setCatId(e.target.value)}><option value="">—</option>{categories.map((c) => <option key={c.id} value={c.id}>{pick({ th: c.name_th, en: c.name_en, zh: c.name_zh })}</option>)}</Select></Field>
           ) : null}

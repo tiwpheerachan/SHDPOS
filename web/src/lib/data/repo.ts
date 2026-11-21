@@ -1056,7 +1056,9 @@ export async function createCountSession(
   opts: { zone: string; type: CountType; blind: boolean; categoryId?: string; brandId?: string; note?: string }
 ): Promise<StockCountSession> {
   const [products, stock] = await Promise.all([db().products.toArray(), stockForBranch(branchId)]);
-  let candidates = products.filter((p) => p.is_stocked && stock.has(p.id));
+  // opening = นับเปิดระบบ → รวม "ทุกสินค้า is_stocked" แม้ยังไม่มีแถวสต๊อก (ยอดตั้งต้น = ของจริงที่นับได้)
+  //  type อื่น → เฉพาะที่มีแถวสต๊อกอยู่แล้ว
+  let candidates = products.filter((p) => p.is_stocked && (opts.type === "opening" || stock.has(p.id)));
   if (opts.type === "category" && opts.categoryId) candidates = candidates.filter((p) => p.category_id === opts.categoryId);
   if (opts.type === "brand" && opts.brandId) candidates = candidates.filter((p) => p.brand_id === opts.brandId);
   if (opts.type === "serial") candidates = candidates.filter((p) => p.track_serial);
@@ -1067,7 +1069,7 @@ export async function createCountSession(
     id: nanoid(),
     count_no: `SC-${new Date().toISOString().slice(2, 10).replace(/-/g, "")}-${nanoid(4).toUpperCase()}`,
     branch_id: branchId, zone: opts.zone, type: opts.type, status: "counting", blind: opts.blind, note: opts.note ?? null,
-    lines: candidates.map((p) => ({ product_id: p.id, sku: p.sku, name: p.name_th, expected: stock.get(p.id)!.qty_on_hand, counted: null })),
+    lines: candidates.map((p) => ({ product_id: p.id, sku: p.sku, name: p.name_th, expected: stock.get(p.id)?.qty_on_hand ?? 0, counted: null })),
     created_by: employeeId, created_at: now,
   };
   await db().stock_counts.put(session);
