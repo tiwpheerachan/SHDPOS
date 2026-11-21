@@ -6,7 +6,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import clsx from "clsx";
 import {
   ShoppingCart, ReceiptText, RotateCcw, Boxes, FileText, ClipboardList,
-  Settings, LogOut, Wifi, WifiOff, RefreshCw, Sun, Moon, Monitor, Languages, Clock, Home,
+  Settings, ShieldCheck, LogOut, Wifi, WifiOff, RefreshCw, Sun, Moon, Monitor, Languages, Clock, Home,
   LayoutDashboard, PauseCircle, SlidersHorizontal, Search, ArrowLeftRight, PackagePlus,
 } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
@@ -24,6 +24,7 @@ import { formatTHB } from "@/lib/money";
 const NAV = [
   { href: "/pos/dashboard", icon: LayoutDashboard, key: "dashboard" },
   { href: "/pos/sell", icon: ShoppingCart, key: "sell" },
+  { href: "/pos/recovery", icon: ShieldCheck, key: "recovery" },
   { href: "/pos/orders", icon: ReceiptText, key: "orders" },
   { href: "/pos/holds", icon: PauseCircle, key: "holds" },
   { href: "/pos/returns", icon: RotateCcw, key: "returns" },
@@ -68,6 +69,7 @@ export function PosTopBar() {
     dashboard: t.admin.dashboard,
     sell: t.pos.sell,
     orders: t.orders.title,
+    recovery: locale === "th" ? "ตรวจรายการรับชำระ" : "Checkout recovery",
     holds: t.cmd.heldOrders,
     returns: t.returns.title,
     stock: t.inventory.title,

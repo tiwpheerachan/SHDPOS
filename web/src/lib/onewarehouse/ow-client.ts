@@ -4,6 +4,7 @@
 //   → service token ไม่มีทางโผล่ฝั่ง client
 //   endpoint: products · products/{sku}/components · stock · warehouses · serials/{sn}
 // =====================================================================
+import { decodePage, type ProductPage } from "../catalog-sync/model";
 import type { Product } from "../types";
 
 // ── รูปแบบข้อมูลจาก OW (JST-faithful, ตรงตาม OpenAPI schema) ──
@@ -69,6 +70,14 @@ export async function owStatus(): Promise<OwStatus> {
 /** ค้นสินค้า — exact SKU = ดึง JST สด · ชื่อ = fuzzy local index */
 export async function owProducts(q: string): Promise<OwResult<OwProduct[]>> {
   return owGet<OwProduct[]>(`products?q=${encodeURIComponent(q)}`);
+}
+/** Enumerate catalog; list mode does not establish prices or bundle classification. */
+export async function owProductPage(cursor:string|null=null,limit=200):Promise<OwResult<ProductPage>> {
+ const params=new URLSearchParams({limit:String(Math.min(200,Math.max(1,Math.floor(limit))))});
+ if(cursor)params.set("cursor",cursor);
+ const result=await owGet<unknown>(`products?${params}`);
+ if(!result.ok)return {ok:false,status:result.status,error:result.error};
+ try{return {ok:true,status:result.status,data:decodePage(result.data,cursor)};}catch(error){return {ok:false,status:502,error:error instanceof Error?error.message:"invalid_page"};}
 }
 /** สินค้า 1 ตัวจาก exact SKU (คืนตัวแรกที่ตรง) */
 export async function owProductBySku(sku: string): Promise<OwProduct | null> {

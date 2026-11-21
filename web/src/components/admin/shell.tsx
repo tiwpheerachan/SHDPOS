@@ -57,6 +57,7 @@ const NAV: NavGroup[] = [
       { href: "/admin/serials", icon: ScanLine, key: "serials", perm: "inventory.view" },
       { href: "/admin/products", icon: Package, key: "products" },
       { href: "/admin/onewarehouse", icon: Cloud, key: "onewarehouse" },
+      { href: "/admin/catalog-sync", icon: Cloud, key: "catalogsync", perm: "admin.product_manage" },
     ],
   },
   {
@@ -178,6 +179,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
     finance: L("การเงิน", "Finance", "财务"),
     insights: L("ผู้ช่วย AI", "AI assistant", "AI 助手"),
     onewarehouse: L("เชื่อมคลังกลาง", "OneWarehouse", "中央仓"),
+    catalogsync: L("นำเข้าแคตตาล็อก", "Catalog import", "目录导入"),
   };
   const sectionLabel: Record<string, string> = {
     overview: t.cmd.secOverview, sales: t.cmd.secSales, operations: t.cmd.secOps,

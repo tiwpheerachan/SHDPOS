@@ -296,6 +296,8 @@ export interface OrderDraft {
   /** จองของ/ส่งทีหลัง: จอง Reserved Order แทนตัด On Hand ทันที (ส่งมอบภายหลัง) */
   reserve?: boolean;
   reserve_days?: number;
+  /** Server already committed the sale; local persistence must not deduct stock a second time. */
+  central_committed?: boolean;
   is_offline_origin: boolean;
   device_created_at: string;
   discount_approved_by?: string | null;

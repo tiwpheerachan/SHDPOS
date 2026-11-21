@@ -33,6 +33,9 @@ import { pushDisplay, type DisplayPayload } from "@/lib/customer-display";
 import { CustomerPicker } from "@/components/pos/customer-picker";
 import { BranchSwitcher } from "@/components/pos/branch-switcher";
 import { maxRedeemablePoints, POINT_VALUE_THB } from "@/lib/loyalty";
+import { checkoutRequest, checkoutIdentity, clearCheckoutIdentity } from "@/lib/checkout";
+import { refreshBranchSnapshot } from "@/lib/offline/refresh";
+import { isLiveMode } from "@/lib/supabase/client";
 import { uuidv4 } from "@/lib/uuid";
 import { buildReceipt } from "@/lib/printing/receipt";
 import { printEscPos, openCashDrawer } from "@/lib/printing/bridge";
@@ -63,6 +66,9 @@ export default function SellPage() {
   const searchRef = useRef<HTMLInputElement>(null);
 
   const [payOpen, setPayOpen] = useState(false);
+  const checkoutId = useRef<string | null>(null);
+  const [checkoutPreparing, setCheckoutPreparing] = useState(false);
+  const [restoredPayments,setRestoredPayments]=useState<PaymentEntry[] | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   const [lineDiscountId, setLineDiscountId] = useState<string | null>(null);
   const [billDiscountOpen, setBillDiscountOpen] = useState(false);
@@ -102,6 +108,12 @@ export default function SellPage() {
     if (!branchId) return;
     setStock(await stockForBranch(branchId));
   }, [branchId]);
+
+  useEffect(()=>{
+    const refresh=()=>void reloadStock();
+    window.addEventListener("pos-data-refreshed",refresh);
+    return ()=>window.removeEventListener("pos-data-refreshed",refresh);
+  },[reloadStock]);
 
   useEffect(() => {
     if (!branchId) return;
@@ -212,6 +224,12 @@ export default function SellPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cart.lines, giftCampaigns, productBySku, stock]);
 
+  useEffect(()=>{
+    const refresh=()=>void listProducts().then(setProducts);
+    window.addEventListener("pos-catalog-refreshed",refresh);
+    return ()=>window.removeEventListener("pos-catalog-refreshed",refresh);
+  },[]);
+
   // ------------------------------------------------------------------
   // สินค้าที่แสดง — เฉพาะแบรนด์ของสาขา + ค้นหา
   // ------------------------------------------------------------------
@@ -283,12 +301,48 @@ export default function SellPage() {
     }
   }
 
+  useEffect(() => {
+    if(!payOpen || !isLiveMode() || !branchId) return;
+    const timer=setInterval(()=>{
+      if(checkoutId.current) void checkoutRequest("renew",checkoutId.current,branchId).catch(error=>{
+        setPayOpen(false);
+        toast.push({tone:"danger",title:L("ต้องตรวจสอบการจองก่อนรับชำระต่อ","Reservation needs review","请检查预留"),body:error.message});
+      });
+    }, 180_000);
+    return ()=>clearInterval(timer);
+  },[payOpen,branchId]);
+
+  async function beginCheckout() {
+    if (!employee || !branchId || checkoutPreparing || busy) return;
+    const missing = cart.lines.find(l => l.track_serial && l.serials.length !== l.qty);
+    if (missing) { setSerialLineId(missing.lineId); toast.push({tone:"warn",title:t.pos.serialRequired,body:missing.name}); return; }
+    setCheckoutPreparing(true);
+    try {
+      const draft = {
+        branch_id:branchId, terminal_id:session.terminalId, shift_id:session.shift?.id ?? null,
+        salesperson_id:cart.defaultSalespersonId ?? employee.id, customer_id:cart.customerId,
+        customer_name:cart.customerName,customer_phone:cart.customerPhone,channel:session.channel,
+        items:cart.lines,subtotal:totals.subtotal,discount_total:round2(totals.discountTotal+totals.redeemAmount+totals.couponAmount),
+        grand_total:totals.grandTotal,reserve:reserveMode,redeem_points:cart.redeemPoints,coupon_code:cart.couponCode,
+      };
+      const id=checkoutIdentity(branchId,employee.id,JSON.stringify(draft));
+      if(isLiveMode()) {
+        await checkoutRequest("reserve",id,branchId,{draft});
+        const status=await checkoutRequest("status",id,branchId);
+        setRestoredPayments(status.payments??[]);
+      }
+      checkoutId.current=id;
+      setPayOpen(true);
+    } catch(error) { toast.push({tone:"danger",title:L("ยังไม่พร้อมรับชำระ","Checkout unavailable","暂时无法结账"),body:error instanceof Error?error.message:String(error)}); }
+    finally { setCheckoutPreparing(false); }
+  }
+
   // คีย์ลัด: F2 = ชำระเงิน, F4 = พักบิล, / = ไปช่องค้นหา
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "F2" && cart.lines.length) {
         e.preventDefault();
-        setPayOpen(true);
+        void beginCheckout();
       }
       if (e.key === "F4" && cart.lines.length) {
         e.preventDefault();
@@ -302,7 +356,7 @@ export default function SellPage() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cart.lines.length]);
+  }, [cart.lines, totals, employee, branchId, checkoutPreparing, busy]);
 
   // ------------------------------------------------------------------
   // ส่วนลด
@@ -430,8 +484,14 @@ export default function SellPage() {
 
     setBusy(true);
     try {
+      const operationId = checkoutId.current ?? uuidv4();
+      if (isLiveMode()) {
+        if (!checkoutId.current) throw new Error("ไม่พบการจองกลาง กรุณาตรวจรายการก่อนรับเงินซ้ำ");
+        await checkoutRequest("commit", operationId, branchId, {payments});
+      }
       const { order } = await commitSale({
-        client_uuid: uuidv4(),
+        client_uuid: operationId,
+        central_committed: isLiveMode(),
         branch_id: branchId,
         terminal_id: session.terminalId,
         shift_id: session.shift?.id ?? null,
@@ -476,8 +536,11 @@ export default function SellPage() {
       // ถึงตรงนี้ = ขายสำเร็จแล้ว (บิลถูกบันทึก + ตัดสต๊อกแล้ว)
       setPayOpen(false);
       setLastOrder(order);
+      clearCheckoutIdentity(branchId, employee.id);
+      checkoutId.current = null;
       cart.clear();
       if (reserveMode) { setReserveMode(false); setResvOrders(await listReservedOrders([branchId])); }
+      if (isLiveMode()) { try { await refreshBranchSnapshot(); } catch { /* recovery remains available */ } }
       await reloadStock();
       const sh = await currentShift(branchId);
       session.setShift(sh ?? null);
@@ -926,7 +989,7 @@ export default function SellPage() {
           </div>
           <div className="flex items-center justify-between gap-2 px-0.5">
             <label className="flex items-center gap-2 cursor-pointer text-xs select-none">
-              <input type="checkbox" checked={reserveMode} onChange={(e) => setReserveMode(e.target.checked)} className="w-4 h-4 accent-[rgb(var(--c-brand))]" />
+              <input type="checkbox" disabled={isLiveMode()} title={isLiveMode() ? "รอกระบวนการส่งมอบส่วนกลาง" : undefined} checked={reserveMode} onChange={(e) => setReserveMode(e.target.checked)} className="w-4 h-4 accent-[rgb(var(--c-brand))]" />
               <span className={reserveMode ? "text-brand font-medium" : "text-muted"}>{L("ส่งทีหลัง (จองของ)", "Deliver later (reserve)", "延后交付")}</span>
             </label>
             <button onClick={() => setResvOpen(true)} className="text-xs text-muted hover:text-brand inline-flex items-center gap-1">{L("ออเดอร์จอง", "Reserved", "预留单")}{resvOrders.length ? <span className="min-w-[16px] h-4 px-1 grid place-items-center rounded-full bg-brand/15 text-brand text-[10px] font-bold">{resvOrders.length}</span> : null}</button>
@@ -934,8 +997,9 @@ export default function SellPage() {
           <Button
             variant="ok"
             className={`w-full h-14 text-base ${reserveMode ? "!bg-brand hover:!bg-brand-hover" : ""}`}
-            disabled={!cart.lines.length}
-            onClick={() => setPayOpen(true)}
+            disabled={!cart.lines.length || checkoutPreparing || busy}
+            loading={checkoutPreparing}
+            onClick={() => void beginCheckout()}
           >
             {reserveMode ? L("รับเงิน + จองของ", "Pay + reserve", "收款+预留") : t.pos.pay} · {formatTHB(totals.grandTotal)}
           </Button>
@@ -945,6 +1009,12 @@ export default function SellPage() {
 
       {/* ================= Modals ================= */}
       <PaymentModal
+        checkoutId={checkoutId.current}
+        restoredPayments={restoredPayments}
+        onRecordPayment={isLiveMode() ? async payment => {
+          if(!branchId || !checkoutId.current)throw new Error("ไม่พบรายการจองกลาง");
+          await checkoutRequest("record",checkoutId.current,branchId,{payment});
+        } : undefined}
         open={payOpen}
         onClose={() => setPayOpen(false)}
         grandTotal={totals.grandTotal}

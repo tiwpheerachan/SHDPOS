@@ -12,3 +12,6 @@ npm-debug.log*
 .vercel
 *.tsbuildinfo
 next-env.d.ts
+
+# Isolated verification/preview builds
+.next-*/

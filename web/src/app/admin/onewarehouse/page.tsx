@@ -1,23 +1,25 @@
 "use client";
+import Link from "next/link";
 
 // =====================================================================
 // คลังกลาง (OneWarehouse) — แมพสินค้าของเรา ↔ สต๊อก/ราคา JST สด (ฟีเจอร์เดียวกับแอป)
 //   จับคู่ด้วย SKU · โชว์ สต๊อกเรา vs OW, ราคาเรา vs OW, สถานะ sync
-//   ⚠️ ปลายทาง JST UAT (test) — SKU จริงเรายังไม่โหลดเข้า (ลองด่วนด้วย MOVA-Z200)
+//   List mode uses paginated catalog import; exact-SKU tools below inspect individual items.
 // =====================================================================
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Cloud, CloudOff, Search, RefreshCw, AlertTriangle, CheckCircle2, Boxes } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { listProducts, stockAll, listBranches } from "@/lib/data/repo";
 import type { Product, StockLevel, Branch } from "@/lib/types";
 import { Card, Table, Th, Td, Badge, Input, Button, Select, KpiTile, EmptyState } from "@/components/ui";
+import { branchForWarehouseId,loadWarehouseMap } from "@/lib/onewarehouse/warehouse-map";
 import { formatTHB, formatInt } from "@/lib/money";
 import {
-  owStatus, owWarehouses, owStock, owProductBySku,
+  owStatus, owWarehouses, owStock, owProductBySku, owProducts,
   type OwStatus, type OwWarehouse, type OwProduct,
 } from "@/lib/onewarehouse/ow-client";
 
-type Row = { p: Product; ourOnHand: number; owQty: number | null; owPrice: number | null };
+type Row = { lookup: string; p: Product; ourOnHand: number | null; owQty: number | null; owPrice: number | null };
 type JstRow = { sku: string; found: boolean; product: OwProduct | null; qty: number | null };
 
 export default function AdminOneWarehousePage() {
@@ -34,6 +36,8 @@ export default function AdminOneWarehousePage() {
   const [owPriceMap, setOwPriceMap] = useState<Record<string, number | null>>({});
   const [owExist, setOwExist] = useState<Record<string, boolean>>({}); // SKU ที่ "มีจริง" ใน OW (ยืนยันด้วย /products)
   const [checkedN, setCheckedN] = useState(0);
+  const [lookup, setLookup] = useState<Record<string,string>>({});
+  const syncGeneration = useRef(0);
   // ดึงจาก JST ตาม SKU (paste รายการ) — ใช้ exact lookup ที่ OW รองรับ
   const [jstSkus, setJstSkus] = useState("MOVA-Z200");
   const [jstRows, setJstRows] = useState<JstRow[]>([]);
@@ -46,6 +50,7 @@ export default function AdminOneWarehousePage() {
   // โหลดฐานของเรา + สถานะ OW
   useEffect(() => {
     void (async () => {
+      await loadWarehouseMap().catch(()=>undefined);
       const [p, s, b, st] = await Promise.all([listProducts(), stockAll(), listBranches(), owStatus().catch(() => null)]);
       setProducts(p); setOurStock(s); setBranches(b); setStatus(st);
       if (st?.authConfigured) {
@@ -58,18 +63,19 @@ export default function AdminOneWarehousePage() {
   }, []);
 
   const connected = !!status?.authConfigured;
+  const mappedBranch = branchForWarehouseId(wh);
   const ourOnHandBySku = useMemo(() => {
     const byId = new Map<string, number>();
-    for (const s of ourStock) byId.set(s.product_id, (byId.get(s.product_id) ?? 0) + (s.qty_on_hand ?? 0));
-    const m: Record<string, number> = {};
-    for (const p of products) m[p.sku] = byId.get(p.id) ?? 0;
-    return m;
-  }, [ourStock, products]);
+    if (!mappedBranch) return {} as Record<string,number>;
+    for (const s of ourStock.filter(s => s.branch_id === mappedBranch)) byId.set(s.product_id, (byId.get(s.product_id) ?? 0) + (s.qty_on_hand ?? 0));
+    return Object.fromEntries(products.map(p => [p.sku,byId.get(p.id) ?? 0]));
+  }, [ourStock, products, mappedBranch]);
 
   // ดึงสต๊อก OW สดทุก SKU ของเรา (batch ≤50) + ราคาของ SKU ที่จับคู่ได้
   async function syncFromOw() {
     if (!connected) return;
-    setSyncing(true); setCheckedN(0);
+    const generation=++syncGeneration.current;
+    setSyncing(true); setCheckedN(0); setLookup({}); setOwStockMap({}); setOwExist({});
     try {
       const skus = products.map((p) => p.sku).filter(Boolean);
       // 1) สต๊อก (batch ≤50) — เลขยอด
@@ -79,20 +85,25 @@ export default function AdminOneWarehousePage() {
         const r = await owStock(wh, chunk);
         if (r.ok && r.data) for (const row of r.data) smap[row.sku] = row.qty;
       }
-      setOwStockMap(smap);
+      if(generation!==syncGeneration.current)return;
       // 2) ยืนยัน "มีจริงใน OW" ด้วย /products — เพราะ /stock คืน 0 ให้ SKU ที่ไม่รู้จักด้วย (เลขเดียวเชื่อไม่ได้)
       //    ⚠️ ยังไม่มี bulk/paginated list ฝั่ง OW → ตรวจทีละ SKU (จำกัด 120 ตัว กัน N calls บานปลาย)
       const exist: Record<string, boolean> = {}; const pmap: Record<string, number | null> = {};
       const check = skus.slice(0, 120);
+      const states:Record<string,string>={};
       for (let i = 0; i < check.length; i++) {
-        const op = await owProductBySku(check[i]).catch(() => null);
-        if (op) { exist[check[i]] = true; pmap[check[i]] = op.sale_price; }
-        if (i % 5 === 0) setCheckedN(i + 1);
+        const result = await owProducts(check[i]);
+        if(generation!==syncGeneration.current)return;
+        if(!result.ok) {states[check[i]]="error";continue;}
+        const op = result.data?.find(p => p.sku.trim().toUpperCase()===check[i].trim().toUpperCase());
+        states[check[i]]=op?"found":"missing";
+        if(op){exist[check[i]]=true;pmap[check[i]]=op.sale_price;}
+        if(i%5===0)setCheckedN(i+1);
       }
-      setOwExist(exist); setOwPriceMap(pmap); setCheckedN(check.length);
-    } finally { setSyncing(false); }
+      if(generation===syncGeneration.current){setOwStockMap(smap);setLookup(states);setOwExist(exist);setOwPriceMap(pmap);setCheckedN(check.length);}
+    } finally { if(generation===syncGeneration.current)setSyncing(false); }
   }
-  useEffect(() => { if (connected && products.length) void syncFromOw(); /* eslint-disable-next-line */ }, [connected, products.length, wh]);
+  useEffect(() => { if (connected && products.length) void syncFromOw(); return ()=>{syncGeneration.current++;}; /* eslint-disable-next-line */ }, [connected, products, wh]);
 
   // ดึงจาก JST ตาม SKU ที่ใส่ (exact lookup + stock) — ของจริงจาก JST ต่อให้ไม่มีในแคตตาล็อกเรา
   async function pullFromJst() {
@@ -110,18 +121,18 @@ export default function AdminOneWarehousePage() {
   }
 
   const rows: Row[] = useMemo(() => products.map((p) => ({
-    p, ourOnHand: ourOnHandBySku[p.sku] ?? 0,
+    p, lookup:lookup[p.sku]??"unchecked", ourOnHand:mappedBranch ? (ourOnHandBySku[p.sku] ?? 0) : null,
     // "มีใน OW" = ยืนยันด้วย /products เท่านั้น (ไม่ใช่แค่ /stock คืน 0)
-    owQty: owExist[p.sku] ? (owStockMap[p.sku] ?? 0) : null,
+    owQty: owExist[p.sku] ? (owStockMap[p.sku] ?? null) : null,
     owPrice: owExist[p.sku] ? (owPriceMap[p.sku] ?? null) : null,
-  })), [products, ourOnHandBySku, owStockMap, owPriceMap, owExist]);
+  })), [products, ourOnHandBySku, owStockMap, owPriceMap, owExist,lookup,mappedBranch]);
 
   const matchedN = useMemo(() => rows.filter((r) => r.owQty !== null).length, [rows]);
   const filtered = useMemo(() => {
     const kw = q.trim().toLowerCase();
     return rows.filter((r) => {
       if (view === "matched" && r.owQty === null) return false;
-      if (view === "missing" && r.owQty !== null) return false;
+      if (view === "missing" && r.lookup !== "missing") return false;
       if (kw && !(`${r.p.name_th} ${r.p.sku}`.toLowerCase().includes(kw))) return false;
       return true;
     });
@@ -150,13 +161,12 @@ export default function AdminOneWarehousePage() {
         </div>
       </div>
 
+      <Link href="/admin/catalog-sync" className="inline-flex items-center gap-2 rounded-xl bg-brand px-4 py-3 text-sm font-medium text-white hover:opacity-90"><Cloud size={16}/>อ่านทุกรายการและตรวจนำเข้าแคตตาล็อก</Link>
       {/* UAT NOTICE */}
       {connected ? (
         <div className="rounded-2xl border border-amber-400/40 bg-amber-50/60 dark:bg-amber-500/5 px-4 py-2.5 flex items-start gap-2 text-[12px] text-amber-800 dark:text-amber-300">
           <AlertTriangle size={15} className="shrink-0 mt-0.5" />
-          <span>{L("เชื่อมต่อสำเร็จ — แต่ปลายทางเป็น JST UAT (ทดสอบ) ที่ยังไม่มี SKU จริงของเรา จึงจับคู่ได้ 0 ตอนนี้ · พอทีม OW โหลด SKU/สาขาจริงเข้า UAT แล้ว ตัวเลขสต๊อก/ราคา OW จะขึ้นอัตโนมัติ",
-            "Connected — but JST UAT (test) has none of our real SKUs yet, so 0 matched. OW stock/price fills in automatically once real SKUs are loaded into UAT.",
-            "已连接·当前JST UAT无我方SKU")}</span>
+          <span>{L("เชื่อมต่อ OneWarehouse ได้แล้ว · ใช้หน้าซิงก์แคตตาล็อกเพื่ออ่านสินค้าทุกหน้า แล้วเติมรายละเอียดด้วย exact SKU ส่วนรายการที่ขาดใน UAT จะแสดงแยกตามผลจริง", "Connected. Use catalog import to enumerate pages and hydrate exact SKU details. Missing UAT SKUs are reported individually.", "已连接，可分页导入目录并补全SKU详情")}</span>
         </div>
       ) : (
         <div className="rounded-2xl border border-line bg-surface2 px-4 py-2.5 text-[12px] text-muted">{L("ยังไม่เชื่อมต่อ OneWarehouse — ตั้ง ONEWAREHOUSE_SERVICE_TOKEN ใน env (local/deploy) แล้วรีสตาร์ท", "Not connected — set ONEWAREHOUSE_SERVICE_TOKEN in env", "未连接")}</div>
@@ -166,8 +176,7 @@ export default function AdminOneWarehousePage() {
       <Card>
         <div className="px-4 pt-3.5 pb-1 text-sm font-semibold inline-flex items-center gap-1.5"><Cloud size={15} className="text-brand" /> {L("ดึงจาก JST ตาม SKU", "Pull from JST by SKU", "按SKU从JST拉取")}</div>
         <div className="p-4 pt-2 space-y-3">
-          <p className="text-[11.5px] text-muted leading-relaxed">{L("JST ให้ดึงได้เฉพาะ \"SKU เป๊ะ\" (ไม่มี list ทั้งหมด) — ใส่ SKU ที่รู้ (เว้นบรรทัด/คอมมา) แล้วดึงของจริงจาก JST สด · พอ OW ส่งรายการ SKU ทั้งหมดมา ก็วางทั้งหมดได้เลย",
-            "JST only allows exact-SKU lookup (no list-all). Paste known SKUs to pull live JST data.", "仅支持精确SKU")}</p>
+          <p className="text-[11.5px] text-muted leading-relaxed">{L("ช่องนี้ใช้ตรวจ exact SKU ทีละรายการ ส่วนการอ่านสินค้าทั้งหมดแบบแบ่งหน้าให้ใช้เมนูนำเข้าแคตตาล็อก", "Use this tool for exact-SKU checks. Use Catalog import for the paginated list.", "此处查询精确SKU，批量请使用目录导入")}</p>
           <div className="flex flex-col sm:flex-row gap-2">
             <textarea value={jstSkus} onChange={(e) => setJstSkus(e.target.value)} rows={2} placeholder="MOVA-Z200, ..." className="flex-1 rounded-xl bg-surface2 border border-line px-3 py-2 text-sm font-mono outline-none focus:ring-2 focus:ring-brand/30 resize-y" />
             <div className="flex sm:flex-col gap-2">
@@ -234,7 +243,7 @@ export default function AdminOneWarehousePage() {
           <tbody>
             {filtered.length ? filtered.slice(0, 300).map((r) => {
               const owQty = r.owQty;
-              const diff = owQty !== null && owQty !== r.ourOnHand;
+              const diff = owQty !== null && r.ourOnHand !== null && owQty !== r.ourOnHand;
               return (
                 <tr key={r.p.id}>
                   <Td>
@@ -243,13 +252,13 @@ export default function AdminOneWarehousePage() {
                       <div className="min-w-0"><p className="text-sm font-medium truncate">{r.p.name_th}</p><p className="text-[10px] text-muted font-mono">{r.p.sku}</p></div>
                     </div>
                   </Td>
-                  <Td className="text-right tabular-nums">{formatInt(r.ourOnHand)}</Td>
+                  <Td className="text-right tabular-nums">{r.ourOnHand === null ? "—" : formatInt(r.ourOnHand)}</Td>
                   <Td className="text-right tabular-nums">{owQty === null ? <span className="text-muted/50">—</span> : <span className={diff ? "text-amber-600 font-semibold" : "text-emerald-600 font-medium"}>{formatInt(owQty)}</span>}</Td>
                   <Td className="text-right tabular-nums text-muted">{formatTHB(r.p.price, false)}</Td>
                   <Td className="text-right tabular-nums">{r.owPrice == null ? <span className="text-muted/50">—</span> : formatTHB(r.owPrice, false)}</Td>
                   <Td className="text-center">
-                    {owQty === null ? <Badge tone="neutral">{L("ไม่พบ", "Not in OW", "未匹配")}</Badge>
-                      : diff ? <Badge tone="warn">{L("ต่างกัน", "Differs", "不符")}</Badge>
+                    {owQty === null ? <Badge tone="neutral">{r.lookup === "missing" ? L("ไม่พบจริง", "Not found", "未找到") : r.lookup === "error" ? L("อ่านไม่สำเร็จ", "Read failed", "读取失败") : L("ยังไม่ทราบยอด", "Not verified", "未核实")}</Badge>
+                      : r.ourOnHand === null ? <Badge tone="neutral">{L("ยังไม่ผูกคลัง", "Warehouse not mapped", "未映射仓库")}</Badge> : diff ? <Badge tone="warn">{L("ต่างกัน", "Differs", "不符")}</Badge>
                         : <Badge tone="ok">{L("ตรง", "In sync", "一致")}</Badge>}
                   </Td>
                 </tr>

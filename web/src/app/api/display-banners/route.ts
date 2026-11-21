@@ -3,13 +3,15 @@
 //   คืนเฉพาะ active เรียงตาม sort_order; รวมแบนเนอร์ global (brand_id null)
 // =====================================================================
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase/admin";
+import { supabaseAdmin, hasAdminClient } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
-  const brand = req.nextUrl.searchParams.get("brand");
+  if (!hasAdminClient()) return NextResponse.json({banners:[]});
+  const value = req.nextUrl.searchParams.get("brand");
+  const brand = value && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value) ? value : null;
   const sb = supabaseAdmin();
   let q = sb.from("display_banners").select("id,brand_id,media_url,media_type,fit,pos_x,pos_y,duration_sec,sort_order").eq("active", true);
   // แบรนด์ที่ระบุ + global (brand_id null)

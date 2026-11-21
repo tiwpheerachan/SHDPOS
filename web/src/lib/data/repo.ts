@@ -1,3 +1,4 @@
+import { can } from "../permissions";
 // =====================================================================
 // Repository — ชั้นเดียวที่ UI คุยด้วย
 //
@@ -9,7 +10,7 @@
 import { nanoid } from "nanoid";
 import { uuidv4 } from "../uuid";
 import { db, kvGet, kvSet, stockKey, type HeldBill } from "../offline/db";
-import { enqueue } from "../offline/sync";
+import { enqueue, refreshCounts, flush } from "../offline/sync";
 import { supabase, isLiveMode } from "../supabase/client";
 import {
   DEMO_BRANDS, DEMO_BRANCHES, DEMO_TERMINALS, DEMO_EMPLOYEES, DEMO_PRODUCTS,
@@ -83,15 +84,14 @@ async function purgeDemoDataOnce(): Promise<void> {
   await d.transaction("rw", [d.orders, d.customers, d.audit], async () => {
     if (demoOrderIds.length) await d.orders.bulkDelete(demoOrderIds);
     await d.customers.bulkDelete(demoCustIds);
-    const realOrders = orders.filter((o) => !DEMO_ORDER_ID.test(o.id));
-    if (realOrders.length === 0) await d.audit.clear();
+    const demoNumbers = new Set(orders.filter(o => DEMO_ORDER_ID.test(o.id)).map(o => o.order_no));
+    const demoAudit = (await d.audit.toArray()).filter(a => a.ref_no && demoNumbers.has(a.ref_no));
+    if (demoAudit.length) await d.audit.bulkDelete(demoAudit.map(a => a.id));
   });
   // live: ล้างแคตตาล็อก/สต๊อกที่ค้าง (รวม demo products) แล้วโหลดจาก Supabase ใหม่ → เหลือแต่ของจริง
   if (isLiveMode() && supabase()) {
-    await d.transaction("rw", [d.products, d.categories, d.brands, d.stock], async () => {
-      await Promise.all([d.products.clear(), d.categories.clear(), d.brands.clear(), d.stock.clear()]);
-    });
-    try { await loadCatalogFromSupabase(); } catch { /* ออฟไลน์: ปล่อยว่างไว้ก่อน */ }
+    // Stage and validate the response before replacing any cached catalog.
+    try { await loadCatalogFromSupabase(true); } catch { return; }
   }
   await kvSet("demo_purged_version", DEMO_PURGE_VERSION);
 }
@@ -195,7 +195,7 @@ async function seedDemo(): Promise<void> {
   await kvSet("demo_data_version", DEMO_DATA_VERSION);
 }
 
-async function loadCatalogFromSupabase(): Promise<void> {
+async function loadCatalogFromSupabase(replaceCatalog = false): Promise<void> {
   const sb = supabase();
   if (!sb) return seedDemo();
   const d = db();
@@ -210,7 +210,17 @@ async function loadCatalogFromSupabase(): Promise<void> {
     sb.from("stock_levels").select("*"),
   ]);
 
+  for (const result of [brands, branches, terminals, employees, products, categories, stock]) {
+    if (result.error || !result.data) throw new Error("โหลดแคตตาล็อกไม่ครบ เก็บข้อมูลเดิมไว้ก่อน");
+  }
+  const pendingWrites = await d.pending.where("status").notEqual("done").count();
+  const localTransfers = (await d.transfers.toArray()).some(t => t.sync_state !== "synced");
+  const preserveStock = pendingWrites > 0 || localTransfers;
   await d.transaction("rw", [d.brands, d.branches, d.terminals, d.employees, d.products, d.categories, d.stock], async () => {
+    if (replaceCatalog) {
+      await Promise.all([d.products.clear(), d.categories.clear(), d.brands.clear()]);
+      if (!preserveStock) await d.stock.clear();
+    }
     if (brands.data) await d.brands.bulkPut(brands.data as Brand[]);
     if (branches.data) await d.branches.bulkPut(branches.data as Branch[]);
     if (terminals.data) await d.terminals.bulkPut(terminals.data as Terminal[]);
@@ -232,7 +242,7 @@ async function loadCatalogFromSupabase(): Promise<void> {
       );
     }
     if (categories.data) await d.categories.bulkPut(categories.data as Category[]);
-    if (stock.data) {
+    if (stock.data && !preserveStock) {
       await d.stock.bulkPut(
         (stock.data as StockLevel[]).map((s) => ({ ...s, key: stockKey(s.branch_id, s.product_id) }))
       );
@@ -490,6 +500,7 @@ export async function reserveOrderStock(branchId: string, productId: string, del
 
 /** รัน read-write transaction คลุม transfers+stock+audit — ปรับยอด+ใบโอนสำเร็จพร้อมกัน (error ใดๆ → rollback ทั้งหมด) */
 function txTransfer<T>(fn: () => Promise<T>): Promise<T> {
+  if (isLiveMode()) throw new Error("การโอนจริงรอ API รับ/ส่งเหตุการณ์จาก OneWarehouse ระบบจะไม่เปลี่ยนยอดเฉพาะในเครื่องให้คลาดกับคลังกลาง");
   return db().transaction("rw", db().transfers, db().stock, db().audit, fn);
 }
 /** อ่านยอดปัจจุบันของ (สาขา, สินค้า) เพื่อตรวจก่อนจอง/ส่ง */
@@ -498,6 +509,7 @@ async function readStockView(branchId: string, productId: string) {
 }
 /** อ่านใบโอนสด + เช็ค version ภายใน transaction (กันยอดเปลี่ยนแต่สถานะชน) */
 async function freshOrThrow(tr: Transfer): Promise<Transfer> {
+  if (isLiveMode()) throw new Error("การโอนจริงรอ API รับ/ส่งเหตุการณ์จาก OneWarehouse");
   const fresh = await db().transfers.get(tr.id);
   if (!fresh) throw new Error("transfer_not_found");
   if ((fresh.version ?? 1) !== (tr.version ?? 1)) throw new Error("transfer_version_conflict");
@@ -948,7 +960,14 @@ export async function dispatchReturn(tr: Transfer, employeeId: string, retId: st
       const it = fresh.items.find((x) => x.product_id === l.product_id);
       const serialized = it?.isSerialized === true;
       // สินค้ามี SN: ต้อง "สแกนของที่จะส่งจริง" ให้ครบก่อน (packReturn ตั้ง sns_found) — ห้ามใช้ SN ที่คาดหวังแทน
-      if (serialized && (l.sns_found?.length ?? 0) < l.qty) throw new Error("return_serials_required");
+      if (serialized) {
+        const sns = (l.sns_found ?? []).map((sn) => sn.trim().toUpperCase()).filter(Boolean);
+        if (sns.length !== l.qty) throw new Error("return_serials_required");
+        if (new Set(sns).size !== sns.length) throw new Error("serial_duplicate");
+        const held = new Set((it?.quarantinedSerials ?? []).map((sn) => sn.serialNo.trim().toUpperCase()));
+        if (sns.some((sn) => !held.has(sn))) throw new Error("return_serial_not_quarantined");
+        l.sns_found = sns;
+      }
       await quarantineStock(fresh.to_branch_id, l.product_id, -l.qty);
       await adjustStock(fresh.to_branch_id, l.product_id, -l.qty);
       if (serialized) { const rm = new Set(l.sns_found ?? []); items = items.map((x) => x.product_id === l.product_id ? { ...x, quarantinedSerials: (x.quarantinedSerials ?? []).filter((s) => !rm.has(s.serialNo)) } : x); }
@@ -1087,23 +1106,47 @@ export async function saveCountSession(session: StockCountSession): Promise<void
 
 /** อนุมัติรอบนับ → ปรับสต๊อกตามส่วนต่าง + เขียน ledger (audit) + ปิดรอบ */
 export async function approveCountSession(session: StockCountSession, approverId: string): Promise<void> {
-  for (const l of session.lines) {
-    if (l.counted == null) continue;
-    const delta = round2(l.counted - l.expected);
-    if (delta === 0) continue;
-    await adjustStock(session.branch_id, l.product_id, delta);
-    await writeAudit({
-      action: "stock_count",
-      actor_id: approverId,
-      branch_id: session.branch_id,
-      ref_table: "stock_counts",
-      ref_no: session.count_no,
-      amount: null,
-      after_data: { sku: l.sku, product_id: l.product_id, before: l.expected, after: l.counted, delta, stock_count_id: session.id },
-      is_offline: false,
-    });
+  const d = db();
+  const emp = await d.employees.get(approverId);
+  if (!emp || emp.status !== "active" || !can(emp, "inventory.adjust")) throw new Error("count_approval_forbidden");
+  if (isLiveMode()) {
+    const fresh=await d.stock_counts.get(session.id);
+    if(!fresh || fresh.status!=="submitted") {
+      if(fresh?.status==="completed")return;
+      throw new Error("count_wrong_status");
+    }
+    const response=await fetch("/api/pos/count",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(fresh)});
+    const result=await response.json();if(!response.ok)throw new Error(result.error);
+    await d.stock_counts.update(fresh.id,{status:"completed",approved_by:approverId,approved_at:new Date().toISOString()});
+    await (await import("../offline/refresh")).refreshBranchSnapshot();
+    return;
   }
-  await db().stock_counts.update(session.id, { status: "completed", approved_by: approverId, approved_at: new Date().toISOString() });
+  await d.transaction("rw", [d.stock_counts, d.stock, d.audit, d.pending], async () => {
+    const fresh = await d.stock_counts.get(session.id);
+    if (!fresh) throw new Error("count_not_found");
+    if (fresh.status === "completed") return; // Repeated approval must not change stock.
+    if (fresh.status !== "submitted") throw new Error("count_wrong_status");
+    for (const l of fresh.lines) {
+      if (l.counted == null) continue;
+      if (!Number.isFinite(l.counted) || l.counted < 0) throw new Error("count_invalid_quantity");
+      const current = (await d.stock.get(stockKey(fresh.branch_id, l.product_id)))?.qty_on_hand ?? 0;
+      if (current !== l.expected) throw new Error("count_stock_changed: สต๊อกเปลี่ยนระหว่างนับ กรุณาตรวจสอบรอบนับใหม่");
+      const delta = round2(l.counted - l.expected);
+      if (!delta) continue;
+      await adjustStock(fresh.branch_id, l.product_id, delta);
+      const row: AuditEntry = {
+        id: nanoid(), action: "stock_count", actor_id: approverId,
+        actor_name: emp?.nickname ?? emp?.first_name ?? null,
+        branch_id: fresh.branch_id, ref_table: "stock_counts", ref_no: fresh.count_no,
+        amount: null, occurred_at: new Date().toISOString(), is_offline: false,
+        after_data: { sku: l.sku, product_id: l.product_id, before: l.expected, after: l.counted, delta, stock_count_id: fresh.id },
+      };
+      await d.audit.put(row);
+      const { id, actor_name, ...payload } = row;
+      await d.pending.add({ op: "audit", client_uuid: id, payload, created_at: row.occurred_at, attempts: 0, status: "pending" });
+    }
+    await d.stock_counts.update(fresh.id, { status: "completed", approved_by: approverId, approved_at: new Date().toISOString() });
+  });
 }
 
 /**
@@ -1113,6 +1156,7 @@ export async function recordGoodsReceipt(
   branchId: string, employeeId: string, supplier: string, poRef: string, note: string,
   lines: { productId: string; sku: string; name: string; qty: number }[]
 ): Promise<string> {
+  if (isLiveMode()) throw new Error("การรับเข้าจริงต้องอ้างใบส่งจาก OneWarehouse กรุณารอการเชื่อมรายการรอรับ ห้ามเพิ่มยอดด้วยการกรอกจำนวนเอง");
   const grNo = `GR-${new Date().toISOString().slice(2, 10).replace(/-/g, "")}-${nanoid(4).toUpperCase()}`;
   for (const l of lines) {
     if (l.qty <= 0) continue;
@@ -1139,6 +1183,12 @@ export async function recordAdjustment(
   lines: { productId: string; sku: string; before: number; after: number }[]
 ): Promise<string> {
   const adjustNo = `ADJ-${new Date().toISOString().slice(2, 10).replace(/-/g, "")}-${nanoid(4).toUpperCase()}`;
+  if (isLiveMode()) {
+    const response=await fetch("/api/pos/count",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({id:adjustNo,branch_id:branchId,note:`${reason}: ${note}`,lines:lines.map(l=>({product_id:l.productId,expected:l.before,counted:l.after}))})});
+    const result=await response.json();if(!response.ok)throw new Error(result.error);
+    await (await import("../offline/refresh")).refreshBranchSnapshot();
+    return adjustNo;
+  }
   for (const l of lines) {
     const delta = round2(l.after - l.before);
     if (delta === 0) continue;
@@ -1167,6 +1217,31 @@ export interface SaleResult {
 }
 
 export async function commitSale(draft: OrderDraft): Promise<SaleResult> {
+  const d = db();
+  const result = await d.transaction("rw", [d.orders, d.stock, d.shifts, d.audit, d.pending, d.employees, d.products, d.branches, d.terminals, d.customers, d.kv], async () => {
+    const existing = await d.orders.where("client_uuid").equals(draft.client_uuid).first();
+    if (existing) return { order: existing, offline: existing.is_offline_origin };
+    const cashier = await d.employees.get(draft.cashier_id);
+    if (!draft.client_uuid) throw new Error("sale_missing_operation_id");
+    if (!cashier || cashier.status !== "active" || !can(cashier, "pos.sell")) throw new Error("sale_forbidden");
+    const needed = new Map<string, number>();
+    for (const item of draft.items) {
+      if (!Number.isFinite(item.qty) || item.qty <= 0) throw new Error("sale_invalid_quantity");
+      if (item.product_id) needed.set(item.product_id, (needed.get(item.product_id) ?? 0) + item.qty);
+    }
+    for (const [id, qty] of needed) {
+      const product = await d.products.get(id);
+      if (!product) throw new Error("product_not_found");
+      if (!draft.central_committed && product.is_stocked && (await readStockView(draft.branch_id, id)).available < qty) throw new Error("insufficient_available_stock");
+    }
+    return commitSaleTx(draft);
+  });
+  await refreshCounts();
+  void flush();
+  return result;
+}
+
+async function commitSaleTx(draft: OrderDraft): Promise<SaleResult> {
   // ยอดเงินเชื่อถือจาก draft (หน้าขายคำนวณรวมส่วนลดท้ายบิล + ส่วนลดจากแต้มแล้ว)
   // computeTotals ใช้แค่คิดต้นทุน/กำไรระดับบรรทัด
   const lineAgg = computeTotals(draft.items);
@@ -1247,6 +1322,7 @@ export async function commitSale(draft: OrderDraft): Promise<SaleResult> {
     deliveries: [],
   };
 
+  if (draft.central_committed) await kvSet("central_commit_generation", draft.client_uuid);
   // 1) บันทึกบิลลงเครื่องก่อน — ถึงตรงนี้ถือว่าขายสำเร็จแล้ว
   await db().orders.put(order);
 
@@ -1254,7 +1330,7 @@ export async function commitSale(draft: OrderDraft): Promise<SaleResult> {
   for (const it of items) {
     if (!it.product_id) continue;
     const p = await db().products.get(it.product_id);
-    if (!p?.is_stocked) continue;
+    if (!p?.is_stocked || draft.central_committed) continue;
     if (draft.reserve) await reserveOrderStock(order.branch_id, it.product_id, it.qty);
     else await adjustStock(order.branch_id, it.product_id, -it.qty);
   }
@@ -1417,6 +1493,7 @@ export async function listReservedOrders(branchIds?: string[]): Promise<Order[]>
 }
 
 export async function voidOrder(orderId: string, employeeId: string, reason: string): Promise<void> {
+  if (isLiveMode()) throw new Error("บิลจริงต้องผ่านการตรวจรายการชำระและกระบวนการยกเลิก/คืนเงินส่วนกลาง ไม่สามารถคืนสต๊อกหรือถือว่าคืนเงินแล้วจากปุ่มนี้");
   const order = await db().orders.get(orderId);
   if (!order || order.status === "voided") return;
 
@@ -1552,7 +1629,7 @@ export async function openShift(input: {
     opened_by: input.employeeId,
     member_ids: Array.from(new Set([input.employeeId, ...input.memberIds])),
     status: "open",
-    opening_cash: input.openingCash,
+    opening_cash: isLiveMode() ? 0 : input.openingCash,
     total_sales: 0,
     total_orders: 0,
     opened_at: now.toISOString(),
@@ -1609,8 +1686,8 @@ export async function closeShift(shiftId: string, countedCash: number, employeeI
 // ---------------------------------------------------------------------
 export async function holdBill(bill: HeldBill): Promise<void> {
   await db().holds.put(bill);
-  // พักบิล = จองออเดอร์ (Reserved Order) กันขายซ้ำ — เฉพาะสินค้าจริง (goods)
-  for (const l of bill.lines) if (l.product_id && l.kind === "goods") await reserveOrderStock(bill.branch_id, l.product_id, l.qty);
+  // Demo reserves locally; live held bills are drafts, central reservation begins at checkout.
+  for (const l of bill.lines) if (!isLiveMode() && l.product_id && l.kind === "goods") await reserveOrderStock(bill.branch_id, l.product_id, l.qty);
 }
 export async function listHolds(branchId: string): Promise<HeldBill[]> {
   return db().holds.where("branch_id").equals(branchId).reverse().toArray();
@@ -1618,7 +1695,7 @@ export async function listHolds(branchId: string): Promise<HeldBill[]> {
 export async function removeHold(id: string): Promise<void> {
   // คืนจองออเดอร์ตอนเอาบิลพักออก (เรียกคืน/ยกเลิก) — ของกลับไปพร้อมขาย/อยู่ในตะกร้า
   const h = await db().holds.get(id);
-  if (h) for (const l of h.lines) if (l.product_id && l.kind === "goods") await reserveOrderStock(h.branch_id, l.product_id, -l.qty);
+  if (h) for (const l of h.lines) if (!isLiveMode() && l.product_id && l.kind === "goods") await reserveOrderStock(h.branch_id, l.product_id, -l.qty);
   await db().holds.delete(id);
 }
 
@@ -1626,6 +1703,7 @@ export async function removeHold(id: string): Promise<void> {
 // RETURNS
 // ---------------------------------------------------------------------
 export async function createReturn(doc: ReturnDoc, employeeId: string): Promise<void> {
+  if (isLiveMode()) throw new Error("รายการจริงต้องผ่านคำขอคืนเงินและตรวจรับสินค้าคืนส่วนกลางก่อน ระบบจะไม่เพิ่มสต๊อกหรือบันทึกคืนเงินสำเร็จอัตโนมัติ");
   await db().returns.put(doc);
   if (doc.status === "completed" || doc.status === "approved") {
     for (const it of doc.items) {

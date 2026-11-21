@@ -148,6 +148,7 @@ export function ruleFor(employee: Employee | null, key: PermissionKey): Rule {
   const override = employee.permission_overrides?.[key] as PermissionEffect | undefined;
 
   if (key === "pos.discount") {
+    if (override === "deny" || override === "approval") return { effect: override, limit: 0 };
     // ส่วนลด: คุมด้วยเพดาน % รายคน (override role)
     const limit = employee.max_discount_percent ?? base?.limit ?? 0;
     return { effect: limit > 0 ? "allow" : "deny", limit };

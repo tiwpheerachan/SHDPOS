@@ -9,7 +9,13 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "sso:sync": "node scripts/sso-schema-sync.mjs"
+    "sso:sync": "node scripts/sso-schema-sync.mjs",
+    "test:real-users": "node scripts/test-real-user-regressions.cjs && node scripts/test-ow-access.cjs && node scripts/test-permissions.cjs",
+    "test:checkout-db": "node scripts/test-checkout-db.mjs",
+    "test:schema": "node scripts/test-full-schema.mjs",
+    "test:sale-validation": "node scripts/test-sale-validation.cjs",
+    "test:readiness": "npm run test:real-users && npm run test:sale-validation && node scripts/test-catalog-model.cjs && node scripts/test-catalog-access.cjs && npm run test:checkout-db && npm run test:schema && npm run typecheck -- --incremental false",
+    "test:catalog": "node scripts/test-catalog-model.cjs && node scripts/test-catalog-access.cjs && npm run test:schema"
   },
   "dependencies": {
     "@dicebear/collection": "^9.4.2",
@@ -32,6 +38,7 @@
     "zustand": "^4.5.5"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.5.17",
     "@types/node": "^20.16.10",
     "@types/react": "^18.3.11",
     "@types/react-dom": "^18.3.0",

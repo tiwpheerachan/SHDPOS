@@ -1,4 +1,5 @@
 "use client";
+import { IntegrationNotice } from "@/components/pos/integration-notice";
 
 import { useEffect, useMemo, useState } from "react";
 import { nanoid } from "nanoid";
@@ -55,7 +56,8 @@ export default function GoodsReceivePage() {
       setLines([]); setSupplier(""); setPoRef(""); setNote("");
       await reload();
       toast.push({ tone: "ok", title: t.cmd.goodsReceipt, body: `${grNo} · +${totalUnits} ${L("ชิ้น", "units", "件")}` });
-    } finally { setBusy(false); }
+    } catch (error) { toast.push({tone:"danger",title:L("ทำรายการไม่สำเร็จ","Operation failed","操作失败"),body:error instanceof Error?error.message:String(error)}); }
+    finally { setBusy(false); }
   }
 
   // group recent receipts by GR no
@@ -90,6 +92,7 @@ export default function GoodsReceivePage() {
         </>
       }
     >
+      <IntegrationNotice kind="receipt" />
       <div className="p-4 sm:p-6 grid lg:grid-cols-[1fr_360px] gap-4 items-start">
         {/* left: build receipt */}
         <div className="space-y-3">

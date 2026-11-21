@@ -1,4 +1,5 @@
 "use client";
+import { IntegrationNotice } from "@/components/pos/integration-notice";
 
 // หน้า admin — ติดตาม/อนุมัติใบโอนย้ายทุกสาขา (ใช้ engine + ดีไซน์เดียวกับ /pos/transfers)
 import { useEffect, useMemo, useState } from "react";
@@ -506,6 +507,7 @@ export default function AdminTransfersPage() {
 
   return (
     <div className="p-4 sm:p-6 space-y-4">
+      <IntegrationNotice kind="transfer" />
       <div className="flex items-center gap-3 flex-wrap">
         <h2 className="text-sm font-semibold flex items-center gap-2"><ArrowLeftRight size={16} className="text-brand" /> {t.transfer.title}</h2>
         <div className="flex gap-1.5 ml-auto">

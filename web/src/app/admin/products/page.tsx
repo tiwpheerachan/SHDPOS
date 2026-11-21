@@ -18,6 +18,11 @@ export default function AdminProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [brands, setBrands] = useState<Brand[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  useEffect(()=>{
+    const refresh=()=>void listProducts().then(setProducts);
+    window.addEventListener("pos-catalog-refreshed",refresh);
+    return ()=>window.removeEventListener("pos-catalog-refreshed",refresh);
+  },[]);
   const [q, setQ] = useState("");
   const [brandId, setBrandId] = useState("all");
 

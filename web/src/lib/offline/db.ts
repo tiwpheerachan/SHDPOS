@@ -22,6 +22,7 @@ export interface PendingOp {
   created_at: string;
   attempts: number;
   last_error?: string | null;
+  claimed_at?: string | null;
   status: "pending" | "syncing" | "failed" | "done";
 }
 

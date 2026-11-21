@@ -1,0 +1,11 @@
+const fs=require('node:fs'),ts=require('typescript'),vm=require('node:vm'),assert=require('node:assert/strict');
+const context={exports:{}};vm.createContext(context);vm.runInContext(ts.transpile(fs.readFileSync('src/lib/catalog-sync/model.ts','utf8'),{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}),context);
+const {decodePage,decodeProduct,matchProduct,readiness}=context.exports;
+const page=decodePage({items:[{sku:'ABC',sale_price:null,is_combined:null}],has_more:true,next_cursor:'next'},null);assert.equal(page.items[0].sale_price,null);assert.equal(page.items[0].is_combined,null);assert.equal(page.items[0].serial_tracking,null);
+assert.throws(()=>decodePage([]),/items/);assert.throws(()=>decodePage({items:[],has_more:true,next_cursor:'same'},'same'),/cursor/);assert.throws(()=>decodeProduct({sku:'ABC',sale_price:NaN}),/sale_price/);assert.equal(decodeProduct({sku:'ABC',sale_price:0}).sale_price,0);assert.equal(decodeProduct({sku:'ABC',barcode:'   '}).barcode,null);
+const product={id:'p',sku:'abc',name_th:'Local',price:10,cost:5,kind:'goods',track_serial:false,barcodes:['BAR']};
+const item={sku:'ABC',sku_key:'ABC',summary:page.items[0],detail:null,detail_status:'pending',stock_qty:null,bom_status:'unknown'};
+assert.equal(matchProduct(item,[product]).product.id,'p');assert.equal(matchProduct(item,[product,{...product,id:'other'}]).kind,'conflict');assert.equal(matchProduct({...item,detail:decodeProduct({sku:'ABC',barcode:'TAKEN'})},[product,{...product,id:'other',sku:'OTHER',barcodes:['TAKEN']}]).kind,'conflict');assert.equal(matchProduct(item,[product],'missing-link').kind,'conflict');
+assert.ok(readiness(item,matchProduct(item,[]),false).some(s=>s.includes('SN')));assert.ok(readiness(item,matchProduct(item,[]),false).some(s=>s.includes('คลัง')));
+assert.equal(matchProduct({...item,detail:decodeProduct({sku:'ABC',serial_tracking:true})},[product]).kind,'conflict');
+console.log('PASS: catalog parsing, null/zero semantics, matching, readiness and collision regressions');

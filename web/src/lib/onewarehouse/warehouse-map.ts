@@ -32,10 +32,21 @@ export function warehouseIdForBranch(branchId: string | null | undefined): strin
 /** หา branch POS จาก warehouse_id OW — null ถ้ายังไม่ผูก (คืนรหัสดิบให้ layer โชว์แทนได้) */
 export function branchForWarehouseId(warehouseId: string | null | undefined): string | null {
   if (!warehouseId) return null;
-  return WAREHOUSE_TO_BRANCH[warehouseId] ?? null;
+  return WAREHOUSE_TO_BRANCH[warehouseId] ?? Object.entries(BRANCH_TO_WAREHOUSE).find(([,w])=>w===warehouseId)?.[0] ?? null;
 }
 
 /** ผูก mapping ครบหรือยัง (ไว้เตือนหน้า admin) */
 export function isWarehouseMapReady(): boolean {
   return Object.keys(BRANCH_TO_WAREHOUSE).length > 0;
+}
+
+/** Refresh labels from the authorized central mapping; never grants access on the client. */
+export async function loadWarehouseMap(){
+ const r=await fetch('/api/ow/mappings',{cache:'no-store'});if(!r.ok)return;
+ const rows=await r.json();if(!Array.isArray(rows))return;
+ for(const key of Object.keys(BRANCH_TO_WAREHOUSE))delete BRANCH_TO_WAREHOUSE[key];
+ for(const key of Object.keys(WAREHOUSE_TO_BRANCH))delete WAREHOUSE_TO_BRANCH[key];
+ for(const row of rows)if(typeof row.branch_id==='string'&&typeof row.warehouse_id==='string'){
+  BRANCH_TO_WAREHOUSE[row.branch_id]??=row.warehouse_id;WAREHOUSE_TO_BRANCH[row.warehouse_id]=row.branch_id;
+ }
 }

@@ -68,7 +68,7 @@ export default function StockCountPage() {
     } finally { setBusy(false); }
   }
 
-  const canApprove = employee ? can(employee, "inventory.count") : false;
+  const canApprove = employee ? can(employee, "inventory.adjust") : false;
 
   function setCounted(pid: string, v: string) {
     if (!active) return;
@@ -89,13 +89,15 @@ export default function StockCountPage() {
     } finally { setBusy(false); }
   }
   async function approve() {
-    if (!active || !employee) return;
+    if (!active || !employee || !canApprove) return;
     setBusy(true);
     try {
       await approveCountSession(active, employee.id);
       const next = { ...active, status: "completed" as const, approved_by: employee.id };
       setActive(next); await reload();
       toast.push({ tone: "ok", title: statusMeta.completed.label, body: `${L("ปรับ", "adjusted", "调整")} ${diffLines.length} ${L("รายการ", "items", "项")}` });
+    } catch (error) {
+      toast.push({ tone: "danger", title: L("อนุมัติไม่สำเร็จ", "Approval failed", "批准失败"), body: error instanceof Error ? error.message : String(error) });
     } finally { setBusy(false); }
   }
   async function cancel() {

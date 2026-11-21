@@ -36,10 +36,19 @@ export const useSession = create<SessionState>()(
       printer: DEFAULT_PRINTER,
       channel: "offline",
       login: (employee, branchId, terminalId) => set({ employee, branchId, terminalId }),
-      logout: () => set({ employee: null, shift: null }),
+      logout: () => set({ employee: null, branchId: null, terminalId: null, shift: null }),
       refreshEmployee: async () => {
         const emp = get().employee;
         if (!emp || !isLiveMode() || !isUuid(emp.id)) return;
+        let central;
+        try {
+          const response = await fetch("/api/me", {cache:"no-store"});
+          if (!response.ok) return;
+          central = await response.json();
+        } catch { return; }
+        if (!central.authenticated || !central.authz?.allowed || central.authz.employee_id !== emp.id) {
+          set({employee:null,branchId:null,terminalId:null,shift:null}); return;
+        }
         const sb = supabase();
         if (!sb) return;
         // อ่านจาก view pos_employees (anon ได้) — role/data_scope/สาขา/แบรนด์/สถานะ ล่าสุด
@@ -48,19 +57,33 @@ export const useSession = create<SessionState>()(
           .select("role,data_scope,home_branch_id,branch_ids,brand_ids,max_discount_percent,can_open_drawer,status,photo_url,nickname,first_name,last_name")
           .eq("id", emp.id)
           .maybeSingle();
-        if (error || !data) return;
+        if (error) return;
+        if (!data) { set({ employee: null, branchId: null, terminalId: null, shift: null }); return; }
         // ถ้าถูกระงับ/ลบ → ออกจากระบบ
-        if (data.status && data.status !== "active") { set({ employee: null, shift: null }); return; }
-        const d = data as Record<string, unknown>;
+        if (data.status && data.status !== "active") { set({ employee: null, branchId: null, terminalId: null, shift: null }); return; }
+        const d:Record<string,unknown> = {...data,
+          role:central.authz.role,data_scope:central.authz.data_scope,
+          branch_ids:central.authz.branch_ids,brand_ids:central.authz.brand_ids,
+          max_discount_percent:central.authz.max_discount_percent,can_open_drawer:central.authz.can_open_drawer,
+        };
         const same =
+          JSON.stringify(central.authz.permission_overrides ?? {}) === JSON.stringify(emp.permission_overrides ?? {}) &&
           d.role === emp.role &&
           d.data_scope === emp.data_scope &&
+          d.home_branch_id === emp.home_branch_id &&
+          d.max_discount_percent === emp.max_discount_percent &&
+          Boolean(d.can_open_drawer) === Boolean(emp.can_open_drawer) &&
+          d.photo_url === emp.photo_url &&
+          d.nickname === emp.nickname &&
+          d.first_name === emp.first_name &&
+          d.last_name === emp.last_name &&
           JSON.stringify(d.branch_ids ?? []) === JSON.stringify(emp.branch_ids ?? []) &&
           JSON.stringify(d.brand_ids ?? []) === JSON.stringify(emp.brand_ids ?? []);
         if (same) return; // ไม่มีอะไรเปลี่ยน ไม่ต้อง set (กัน re-render)
         set({
           employee: {
-            ...emp, // คง email / permission_overrides (view ไม่มี) ไว้
+            ...emp,
+            permission_overrides: central.authz.permission_overrides ?? {},
             role: (d.role as Employee["role"]) ?? emp.role,
             data_scope: (d.data_scope as Employee["data_scope"]) ?? emp.data_scope,
             home_branch_id: (d.home_branch_id as string | null) ?? emp.home_branch_id,

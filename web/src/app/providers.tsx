@@ -5,6 +5,9 @@ import { I18nProvider, useI18n } from "@/lib/i18n/provider";
 import { ThemeProvider } from "@/lib/theme";
 import { ToastHost } from "@/components/toast-host";
 import { bootstrap } from "@/lib/data/repo";
+import { loadWarehouseMap } from "@/lib/onewarehouse/warehouse-map";
+import { refreshCatalogCache } from "@/lib/offline/catalog";
+import { refreshBranchSnapshot } from "@/lib/offline/refresh";
 import { startSyncWorker } from "@/lib/offline/sync";
 import { AiLoader } from "@/components/ui/ai-loader";
 import { CommandPalette } from "@/components/command-palette";
@@ -54,6 +57,24 @@ export function Providers({ children }: { children: React.ReactNode }) {
       alive = false;
     };
   }, []);
+
+  useEffect(() => {
+    const refresh=async()=>{
+      if(!useSession.getState().employee)return;
+      await useSession.getState().refreshEmployee();
+      if(!useSession.getState().employee)return;
+      await Promise.allSettled([loadWarehouseMap(),refreshCatalogCache(),refreshBranchSnapshot()]);
+    };
+    const visible=()=>{if(document.visibilityState==="visible")void refresh();};
+    void refresh();
+    const unsubscribe=useSession.subscribe((state,previous)=>{
+      if(state.employee?.id!==previous.employee?.id || state.branchId!==previous.branchId)void refresh();
+    });
+    const timer=setInterval(()=>void refresh(),60_000);
+    document.addEventListener("visibilitychange",visible);
+    window.addEventListener("online",visible);
+    return ()=>{unsubscribe();clearInterval(timer);document.removeEventListener("visibilitychange",visible);window.removeEventListener("online",visible);};
+  },[]);
 
   return (
     <ThemeProvider>

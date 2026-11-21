@@ -1,3 +1,4 @@
+import Dexie from "dexie";
 // =====================================================================
 // ตัวซิงก์ข้อมูลออฟไลน์ → Supabase
 //
@@ -8,7 +9,7 @@
 // =====================================================================
 
 import { db, type PendingOp } from "./db";
-import { supabase, isLiveMode } from "../supabase/client";
+import { isLiveMode } from "../supabase/client";
 
 export type SyncState = {
   online: boolean;
@@ -66,31 +67,26 @@ export async function enqueue(op: PendingOp["op"], client_uuid: string, payload:
     attempts: 0,
     status: "pending",
   });
-  await refreshCounts();
-  void flush();
+  // Keep queue insertion in the caller's transaction; never send before commit.
+  if (!Dexie.currentTransaction) {
+    await refreshCounts();
+    void flush();
+  }
 }
-
-const OP_RPC: Partial<Record<PendingOp["op"], string>> = {
-  create_order: "create_order",
-  void_order: "pos_void_order",
-  close_shift: "close_shift",
-  // ผ่าน SECURITY DEFINER RPC (ต้อง apply migration 0010_sync_rpcs.sql ก่อน)
-  audit: "sync_audit",
-  create_return: "sync_return",
-  open_shift: "sync_open_shift",
-  create_customer: "pos_customer_upsert",
-  redeem_points: "pos_redeem_points",
-  redeem_coupon: "pos_redeem_coupon",
-};
-
-const OP_TABLE: Partial<Record<PendingOp["op"], string>> = {
-  cash_movement: "cash_movements",
-  stock_count: "stock_counts",
-  create_quotation: "quotations",
-};
 
 /** ส่งงานค้างทั้งหมดขึ้น server — ปลอดภัยที่จะเรียกซ้ำ */
 export async function flush(): Promise<void> {
+  // Serialize workers across tabs sharing the same IndexedDB database.
+  if (typeof navigator !== "undefined" && navigator.locks) {
+    await navigator.locks.request("shd-pos-sync", { ifAvailable: true }, async (lock) => {
+      if (lock) await flushUnlocked();
+    });
+    return;
+  }
+  await flushUnlocked();
+}
+
+async function flushUnlocked(): Promise<void> {
   if (state.syncing) return;
   if (!isLiveMode()) {
     // โหมดสาธิต: ถือว่าซิงก์เสร็จทันที ไม่ต้องยิงไปไหน
@@ -99,41 +95,47 @@ export async function flush(): Promise<void> {
   }
   if (typeof navigator !== "undefined" && !navigator.onLine) return;
 
-  const sb = supabase();
-  if (!sb) return;
-
   state = { ...state, syncing: true, lastError: null };
   emit();
 
+  let didSync = false;
   try {
+    // A tab can close after claiming a job. Recover expired claims only; RPCs use client_uuid.
+    const abandoned = await db().pending.where("status").equals("syncing").toArray();
+    for (const item of abandoned) {
+      if (item.id != null) await db().transaction("rw",db().pending,async()=>{
+        const fresh=await db().pending.get(item.id!);
+        if(!fresh || fresh.status!=="syncing")return;
+        const claimed=Date.parse(fresh.claimed_at||"");
+        if(!Number.isFinite(claimed)||Date.now()-claimed>120_000)await db().pending.update(item.id!,{status:"pending",claimed_at:null});
+      });
+    }
     const batch = await db().pending.where("status").anyOf("pending", "failed").limit(50).toArray();
     for (const item of batch) {
       if (item.id == null) continue;
-      await db().pending.update(item.id, { status: "syncing", attempts: item.attempts + 1 });
+      const claimed = await db().transaction("rw", db().pending, async () => {
+        const current = await db().pending.get(item.id!);
+        if (!current || !["pending", "failed"].includes(current.status)) return false;
+        await db().pending.update(item.id!, { status: "syncing", claimed_at: new Date().toISOString(), attempts: current.attempts + 1 });
+        return true;
+      });
+      if (!claimed) continue;
       try {
-        const rpc = OP_RPC[item.op];
-        if (rpc) {
-          const { data, error } = await sb.rpc(rpc, rpcArgs(item));
-          if (error) throw error;
-          // เขียนเลขบิลที่ server ออกให้ กลับเข้าบิลในเครื่อง (อ้างอิงข้ามเครื่องได้)
-          if (item.op === "create_order" && data) {
-            const res = data as { order_no?: string } | null;
-            const cu = (item.payload as { client_uuid?: string })?.client_uuid;
-            if (res?.order_no && cu) {
-              const local = await db().orders.where("client_uuid").equals(cu).first();
-              if (local) await db().orders.update(local.id, { synced: true, server_order_no: res.order_no });
-            }
+        const response = await fetch("/api/pos/operations", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ op: item.op, client_uuid: item.client_uuid, payload: item.payload }), signal: AbortSignal.timeout(30_000),
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+        if (item.op === "create_order" && result.data?.order_no) {
+          const cu = (item.payload as { client_uuid?: string }).client_uuid;
+          if (cu) {
+            const local = await db().orders.where("client_uuid").equals(cu).first();
+            if (local) await db().orders.update(local.id, { synced: true, server_order_no: result.data.order_no });
           }
-        } else {
-          const table = OP_TABLE[item.op];
-          if (!table) throw new Error(`unknown op ${item.op}`);
-          const { error } = await sb.from(table).upsert(item.payload as never, {
-            onConflict: "client_uuid",
-            ignoreDuplicates: true,
-          });
-          if (error) throw error;
         }
         await db().pending.update(item.id, { status: "done", last_error: null });
+        didSync = true;
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         await db().pending.update(item.id, { status: "failed", last_error: msg });
@@ -151,43 +153,12 @@ export async function flush(): Promise<void> {
     state = { ...state, syncing: false };
     await refreshCounts();
     emit();
+    if (didSync) {
+      try { await (await import("./refresh")).refreshBranchSnapshot(); } catch { /* Preserve local cache. */ }
+    }
   }
 }
 
-function rpcArgs(item: PendingOp): Record<string, unknown> {
-  switch (item.op) {
-    case "create_order":
-    case "audit":
-    case "create_return":
-    case "open_shift":
-      return { p_payload: item.payload };
-    case "create_customer":
-      return { p_payload: item.payload };
-    case "redeem_points": {
-      const p = item.payload as { customer_id: string; points: number; client_uuid: string; note?: string };
-      return { p_customer_id: p.customer_id, p_points: p.points, p_client_uuid: p.client_uuid, p_note: p.note ?? null };
-    }
-    case "redeem_coupon": {
-      const p = item.payload as { code: string; customer_id: string | null; client_uuid: string; discount: number };
-      return { p_code: p.code, p_customer_id: p.customer_id, p_client_uuid: p.client_uuid, p_discount: p.discount };
-    }
-    case "void_order": {
-      const p = item.payload as { order_client_uuid: string; employee_id: string; reason: string };
-      return { p_client_uuid: p.order_client_uuid, p_employee_id: p.employee_id, p_reason: p.reason };
-    }
-    case "close_shift": {
-      const p = item.payload as { shift_id: string; counted_cash: number; employee_id: string; note?: string };
-      return {
-        p_shift_id: p.shift_id,
-        p_counted_cash: p.counted_cash,
-        p_employee_id: p.employee_id,
-        p_note: p.note ?? null,
-      };
-    }
-    default:
-      return {};
-  }
-}
 
 let started = false;
 

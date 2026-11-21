@@ -12,7 +12,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 function isLocalDev(req: NextRequest): boolean {
-  if (process.env.NODE_ENV === "production") return false;
+  if (process.env.NODE_ENV === "production" || process.env.NEXT_PUBLIC_DEMO_MODE !== "1") return false;
   const host = (req.headers.get("host") || "").split(":")[0].toLowerCase();
   return host === "localhost" || host === "127.0.0.1" || host === "[::1]" || host.endsWith(".localhost");
 }
@@ -28,7 +28,8 @@ async function handle(req: NextRequest) {
 
   const email = (req.nextUrl.searchParams.get("email") || defaultEmail()).trim();
   const name = req.nextUrl.searchParams.get("name") || "Dev Login";
-  const next = req.nextUrl.searchParams.get("next") || "/admin/campaigns";
+  const requestedNext = req.nextUrl.searchParams.get("next") || "/admin/campaigns";
+  const next = requestedNext.startsWith("/") && !requestedNext.startsWith("//") ? requestedNext : "/pos";
 
   let value: string, maxAge: number;
   try {

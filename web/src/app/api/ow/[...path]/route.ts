@@ -9,6 +9,12 @@
 // =====================================================================
 import { NextRequest, NextResponse } from "next/server";
 
+import { SSO_COOKIE, readSession } from "@/lib/sso/session-cookie";
+import { resolveAuthz } from "@/lib/sso/grants";
+import { hasPerm } from "@/lib/sso/guard";
+import { visibleBranchIds } from "@/lib/sso/scope";
+import { warehouseLinks } from "@/lib/server/warehouse-links";
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -33,6 +39,22 @@ function cfg() {
 export async function GET(req: NextRequest, { params }: { params: { path?: string[] } }) {
   const parts = params.path ?? [];
   const path = parts.join("/");
+
+  const profile = readSession(req.cookies.get(SSO_COOKIE)?.value);
+  if (!profile) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const authz = await resolveAuthz(profile);
+  if (!authz.allowed || !hasPerm(profile.email, authz, "inventory.view")) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
+  const branches = await visibleBranchIds(authz);
+  if(path === "mappings") {
+    try {return NextResponse.json(await warehouseLinks(branches));}catch{return NextResponse.json([]);}
+  }
+  if (path === "stock" && branches !== null) {
+    let maps:{warehouse_id:string;branch_id:string}[]=[];
+    try {maps=await warehouseLinks(branches);}catch{ /* no mapping means deny */ }
+    if(!maps.some(m=>m.warehouse_id===req.nextUrl.searchParams.get("warehouseId")))return NextResponse.json({error:"warehouse_forbidden"},{status:403});
+  }
 
   // สถานะการตั้งค่า — ให้ client รู้ว่าเปิดอ่าน OW ได้ไหม (ไม่เปิดเผยค่า secret)
   if (path === "status") {
@@ -64,8 +86,26 @@ export async function GET(req: NextRequest, { params }: { params: { path?: strin
   }
 
   try {
-    const upstream = await fetch(url, { headers, cache: "no-store" });
+    const upstream = await fetch(url, { headers, cache: "no-store", redirect: "error", signal: AbortSignal.timeout(15_000) });
     const body = await upstream.text();
+    if (upstream.ok && path !== "openapi.json") {
+      let data = JSON.parse(body);
+      if (path.startsWith("serials/") && branches !== null) {
+        const maps=await warehouseLinks(branches);
+        if (!maps.some(m=>m.warehouse_id===data.warehouseId)) return NextResponse.json({ error: "serial_forbidden" }, { status: 403 });
+      }
+      if (path === "warehouses" && branches !== null) {
+        const allowed = new Set((await warehouseLinks(branches)).map(m=>m.warehouse_id));
+        data = data.filter((w: { warehouse_id: string }) => allowed.has(w.warehouse_id));
+      }
+      if (path === "products" && !hasPerm(profile.email, authz, "report.cost")) {
+        const mask=(p:Record<string,unknown>)=>({...p,cost_price:null});
+        if(Array.isArray(data))data=data.map(mask);
+        else if(data && Array.isArray(data.items))data={...data,items:data.items.map(mask)};
+        else return NextResponse.json({error:"invalid_products_response"},{status:502});
+      }
+      return NextResponse.json(data);
+    }
     return new NextResponse(body, {
       status: upstream.status,
       headers: { "content-type": upstream.headers.get("content-type") || "application/json" },

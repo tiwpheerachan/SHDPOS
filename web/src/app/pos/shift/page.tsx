@@ -1,4 +1,5 @@
 "use client";
+import { isLiveMode } from "@/lib/supabase/client";
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -24,7 +25,7 @@ export default function ShiftPage() {
 
   const [staff, setStaff] = useState<Employee[]>([]);
   const [members, setMembers] = useState<string[]>([]);
-  const [openingCash, setOpeningCash] = useState("2000");
+  const [openingCash, setOpeningCash] = useState(isLiveMode() ? "0" : "2000");
   const [countedCash, setCountedCash] = useState("");
   const [closeOpen, setCloseOpen] = useState(false);
   const [orders, setOrders] = useState<Order[]>([]);
@@ -103,6 +104,7 @@ export default function ShiftPage() {
             <Field label={t.shift.openingCash}>
               <Input
                 value={openingCash}
+                disabled={isLiveMode()}
                 inputMode="decimal"
                 onChange={(e) => setOpeningCash(e.target.value.replace(/[^\d.]/g, ""))}
                 className="text-right text-lg tnum"

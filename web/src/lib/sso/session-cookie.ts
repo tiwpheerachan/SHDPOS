@@ -44,6 +44,7 @@ export function readSession(value: string | undefined | null): SsoSessionProfile
     const payload = JSON.parse(Buffer.from(body, "base64url").toString("utf8")) as Payload;
     if (!payload.exp || payload.exp < Math.floor(Date.now() / 1000)) return null;
     const { iat, exp, ...profile } = payload;
+    if (profile.union_id === "dev-login" && process.env.NEXT_PUBLIC_DEMO_MODE !== "1") return null;
     return profile;
   } catch {
     return null;

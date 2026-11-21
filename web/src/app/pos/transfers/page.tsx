@@ -1,4 +1,5 @@
 "use client";
+import { IntegrationNotice } from "@/components/pos/integration-notice";
 
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -152,6 +153,7 @@ export default function PosTransfersPage() {
         </>
       }
     >
+      <IntegrationNotice kind="transfer" />
       <div className="p-4 sm:p-6 space-y-4">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <StatChip label={L("รอรับเข้า", "To receive", "待收货")} value={String(stats.incoming)} accent={stats.incoming ? "coral" : "mint"} icon={<ArrowDownLeft size={16} />} />

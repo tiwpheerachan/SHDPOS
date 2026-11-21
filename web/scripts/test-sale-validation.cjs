@@ -1,0 +1,18 @@
+const fs=require('node:fs'),ts=require('typescript'),vm=require('node:vm'),assert=require('node:assert/strict');
+const ctx={exports:{},require:()=>({round2:n=>Math.round((n+Number.EPSILON)*100)/100})};vm.createContext(ctx);vm.runInContext(ts.transpile(fs.readFileSync('src/lib/server/sale-validation.ts','utf8'),{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}),ctx);
+const {validateQuote,validatePayments}=ctx.exports;
+const id='00000000-0000-4000-8000-000000000001';
+const product={id,sku:'SKU',name_th:'Test',price:100,cost:40,is_active:true,track_serial:true,is_stocked:true,is_discountable:true,max_discount_percent:10};
+const draft={client_uuid:id,branch_id:id,channel:'offline',items:[{product_id:id,qty:1,unit_price:100,serials:['sn001']}],discount_total:0,grand_total:100};
+const q=validateQuote({...draft,status:'voided',paid_total:99999},[product],5);assert.equal(q.items[0].serials[0],'SN001');assert.equal(q.status,'completed');assert.equal(q.paid_total,undefined);assert.equal(q.items[0].unit_cost,40);
+assert.throws(()=>validateQuote({...draft,items:[{...draft.items[0],unit_price:1}]},[product],5),/ราคา/);
+assert.throws(()=>validateQuote({...draft,grand_total:1},[product],5),/ยอดสุทธิ/);
+assert.throws(()=>validateQuote({...draft,discount_total:20,grand_total:80},[product],5),/ส่วนลด/);
+assert.throws(()=>validateQuote({...draft,items:[{...draft.items[0],qty:2,serials:['same','SAME']}]},[product],5),/SN ซ้ำ/);
+assert.throws(()=>validateQuote({...draft,items:[{...draft.items[0],qty:-1}]},[product],5),/จำนวน/);
+assert.throws(()=>validateQuote({...draft,redeem_points:100},[product],5),/แต้ม/);
+assert.throws(()=>validatePayments([{method:'cash',amount:100,reference_no:'R'}],100),/เงินสด/);
+assert.throws(()=>validatePayments([{method:'credit_card',amount:100}],100),/อ้างอิง/);
+assert.throws(()=>validatePayments([{method:'bank_transfer',amount:101,reference_no:'R'}],100),/เท่ากับ/);
+assert.equal(validatePayments([{method:'edc',amount:60,approval_code:'A'},{method:'bank_transfer',amount:40,reference_no:'B'}],100).length,2);
+console.log('PASS: 11 quote/payment validation regressions');
