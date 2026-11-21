@@ -53,5 +53,19 @@ const MOCK_CARRIERS = [
   { id: "thaipost", name: "ไปรษณีย์ไทย", enabled: true },
 ];
 export async function owCarriers(): Promise<{ id: string; name: string; enabled: boolean }[]> {
+  // ดึงรายชื่อขนส่งจริงจาก OW (/v1/carriers ผ่าน proxy) — client เท่านั้น · ไม่ได้/ยังไม่เชื่อม = ใช้ mock
+  if (typeof window !== "undefined") {
+    try {
+      const r = await fetch("/api/ow/carriers", { cache: "no-store" });
+      if (r.ok) {
+        const j = (await r.json()) as { id: string; name: string; enabled: boolean }[];
+        if (Array.isArray(j) && j.length) {
+          const live = j.filter((c) => c.enabled).map((c) => ({ id: c.id, name: c.name, enabled: true }));
+          // คงตัวเลือก "รับเอง/รถบริษัท" ไว้ (ไม่มีในรายการ OW)
+          return [{ id: "self", name: "รถบริษัท/รับเอง", enabled: true }, ...live];
+        }
+      }
+    } catch { /* fallback mock */ }
+  }
   return MOCK_CARRIERS.filter((c) => c.enabled);
 }
