@@ -14,10 +14,11 @@ import { Card, Table, Th, Td, Badge, Input, Button, Select, KpiTile, EmptyState 
 import { formatTHB, formatInt } from "@/lib/money";
 import {
   owStatus, owWarehouses, owStock, owProductBySku,
-  type OwStatus, type OwWarehouse,
+  type OwStatus, type OwWarehouse, type OwProduct,
 } from "@/lib/onewarehouse/ow-client";
 
 type Row = { p: Product; ourOnHand: number; owQty: number | null; owPrice: number | null };
+type JstRow = { sku: string; found: boolean; product: OwProduct | null; qty: number | null };
 
 export default function AdminOneWarehousePage() {
   const { locale } = useI18n();
@@ -33,6 +34,10 @@ export default function AdminOneWarehousePage() {
   const [owPriceMap, setOwPriceMap] = useState<Record<string, number | null>>({});
   const [owExist, setOwExist] = useState<Record<string, boolean>>({}); // SKU ที่ "มีจริง" ใน OW (ยืนยันด้วย /products)
   const [checkedN, setCheckedN] = useState(0);
+  // ดึงจาก JST ตาม SKU (paste รายการ) — ใช้ exact lookup ที่ OW รองรับ
+  const [jstSkus, setJstSkus] = useState("MOVA-Z200");
+  const [jstRows, setJstRows] = useState<JstRow[]>([]);
+  const [jstBusy, setJstBusy] = useState(false);
   const [q, setQ] = useState("");
   const [view, setView] = useState<"all" | "matched" | "missing">("all");
   const [loading, setLoading] = useState(true);
@@ -89,6 +94,21 @@ export default function AdminOneWarehousePage() {
   }
   useEffect(() => { if (connected && products.length) void syncFromOw(); /* eslint-disable-next-line */ }, [connected, products.length, wh]);
 
+  // ดึงจาก JST ตาม SKU ที่ใส่ (exact lookup + stock) — ของจริงจาก JST ต่อให้ไม่มีในแคตตาล็อกเรา
+  async function pullFromJst() {
+    const skus = Array.from(new Set(jstSkus.split(/[\s,]+/).map((s) => s.trim().toUpperCase()).filter(Boolean)));
+    if (!skus.length) return;
+    setJstBusy(true); setJstRows([]);
+    try {
+      const out: JstRow[] = [];
+      for (const sku of skus) {
+        const [p, st] = await Promise.all([owProductBySku(sku).catch(() => null), owStock(wh, [sku]).catch(() => null)]);
+        out.push({ sku, found: !!p, product: p, qty: st?.ok && st.data?.length ? st.data[0].qty : null });
+        setJstRows([...out]);
+      }
+    } finally { setJstBusy(false); }
+  }
+
   const rows: Row[] = useMemo(() => products.map((p) => ({
     p, ourOnHand: ourOnHandBySku[p.sku] ?? 0,
     // "มีใน OW" = ยืนยันด้วย /products เท่านั้น (ไม่ใช่แค่ /stock คืน 0)
@@ -141,6 +161,38 @@ export default function AdminOneWarehousePage() {
       ) : (
         <div className="rounded-2xl border border-line bg-surface2 px-4 py-2.5 text-[12px] text-muted">{L("ยังไม่เชื่อมต่อ OneWarehouse — ตั้ง ONEWAREHOUSE_SERVICE_TOKEN ใน env (local/deploy) แล้วรีสตาร์ท", "Not connected — set ONEWAREHOUSE_SERVICE_TOKEN in env", "未连接")}</div>
       )}
+
+      {/* ดึงจาก JST ตาม SKU (ของจริงจาก JST ต่อให้ไม่มีในแคตตาล็อกเรา) */}
+      <Card>
+        <div className="px-4 pt-3.5 pb-1 text-sm font-semibold inline-flex items-center gap-1.5"><Cloud size={15} className="text-brand" /> {L("ดึงจาก JST ตาม SKU", "Pull from JST by SKU", "按SKU从JST拉取")}</div>
+        <div className="p-4 pt-2 space-y-3">
+          <p className="text-[11.5px] text-muted leading-relaxed">{L("JST ให้ดึงได้เฉพาะ \"SKU เป๊ะ\" (ไม่มี list ทั้งหมด) — ใส่ SKU ที่รู้ (เว้นบรรทัด/คอมมา) แล้วดึงของจริงจาก JST สด · พอ OW ส่งรายการ SKU ทั้งหมดมา ก็วางทั้งหมดได้เลย",
+            "JST only allows exact-SKU lookup (no list-all). Paste known SKUs to pull live JST data.", "仅支持精确SKU")}</p>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <textarea value={jstSkus} onChange={(e) => setJstSkus(e.target.value)} rows={2} placeholder="MOVA-Z200, ..." className="flex-1 rounded-xl bg-surface2 border border-line px-3 py-2 text-sm font-mono outline-none focus:ring-2 focus:ring-brand/30 resize-y" />
+            <div className="flex sm:flex-col gap-2">
+              <Select value={wh} onChange={(e) => setWh(e.target.value)} className="w-28">{(warehouses.length ? warehouses.map((w) => w.warehouse_id) : ["33856", "33857"]).map((id) => <option key={id} value={id}>{L("คลัง", "WH", "仓")} {id}</option>)}</Select>
+              <Button variant="primary" loading={jstBusy} disabled={!connected} onClick={() => void pullFromJst()}><Search size={15} /> {L("ดึงจาก JST", "Pull", "拉取")}</Button>
+            </div>
+          </div>
+          {jstRows.length ? (
+            <div className="rounded-xl border border-line overflow-hidden divide-y divide-line/60">
+              {jstRows.map((r) => (
+                <div key={r.sku} className="flex items-center gap-3 px-3 py-2 text-[12px]">
+                  <code className="font-mono text-[11px] w-32 shrink-0 truncate">{r.sku}</code>
+                  {r.found && r.product ? <>
+                    <span className="flex-1 min-w-0 truncate font-medium">{r.product.name || "—"}{r.product.brand ? <span className="text-muted font-normal"> · {r.product.brand}</span> : null}</span>
+                    <span className="text-muted tabular-nums">{L("ราคา", "price", "价")} {r.product.sale_price == null ? "—" : formatTHB(r.product.sale_price, false)}</span>
+                    <span className="tabular-nums">{L("สต๊อก", "stock", "库")} <b className="text-emerald-600">{r.qty ?? "—"}</b></span>
+                    <Badge tone={r.product.serial_tracking === true ? "brand" : r.product.serial_tracking === null ? "warn" : "neutral"}>{r.product.serial_tracking === true ? "SN" : r.product.serial_tracking === null ? L("ยังไม่จัด", "?", "?") : L("ไม่มี SN", "no-SN", "无")}</Badge>
+                    <Badge tone="ok">{L("พบใน JST", "in JST", "有")}</Badge>
+                  </> : <><span className="flex-1 text-muted">—</span><Badge tone="neutral">{L("ไม่พบใน JST", "not in JST", "无")}</Badge></>}
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      </Card>
 
       {/* KPI */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
