@@ -29,4 +29,8 @@ const counted=await db.query('select qty_on_hand from stock_levels where branch_
 try{await db.query('select pos_release_checkout($1,$2)',[ids.sale,ids.actor]);throw Error('Committed checkout was released');}catch(e){if(!e.message.includes('already_committed'))throw e;}
 console.log('PASS: central count is idempotent and committed checkout cannot be released');
 await (await import('./test-catalog-lifecycle.mjs')).testCatalog(db,ids);
+await (await import('./test-operational-readiness.mjs')).testOperational(db,ids);
+await (await import('./test-promoted-checkout.mjs')).testPromotedCheckout(db,ids);
+await (await import('./test-deferred-sales.mjs')).testDeferredSales(db,ids);
+await (await import('./test-work-center.mjs')).testWorkCenter(db,ids);
 await db.close();

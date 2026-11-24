@@ -1,4 +1,6 @@
 "use client";
+
+import { useCatalogProducts } from "@/lib/hooks/use-catalog-products";
 import { IntegrationNotice } from "@/components/pos/integration-notice";
 
 import { useEffect, useMemo, useState } from "react";
@@ -55,7 +57,7 @@ export default function ReturnsPage() {
   // history
   const [history, setHistory] = useState<ReturnDoc[]>([]);
   const [orders30, setOrders30] = useState<Order[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
+  const [products, setProducts] = useCatalogProducts();
   const [detail, setDetail] = useState<ReturnDoc | null>(null);
 
   async function loadHistory() {

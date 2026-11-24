@@ -6,7 +6,7 @@ import { Network, Plus, Pencil, Trash2, UserPlus, Search, Check, ChevronDown, Re
 import clsx from "clsx";
 import { useI18n } from "@/lib/i18n/provider";
 import { useSession } from "@/lib/store/session";
-import { Card, CardHeader, Avatar, Button, Select, Field, Modal, EmptyState, Badge } from "@/components/ui";
+import { Card, CardHeader, Avatar, Button, Select, Field, Modal, Drawer, EmptyState, Badge } from "@/components/ui";
 import { useAdminScope } from "@/components/admin/filters";
 import { ROLE_LABEL, visibleBranchIds, can } from "@/lib/permissions";
 import { TeamFolders } from "@/components/admin/team-folders";
@@ -35,7 +35,7 @@ const ROLE_TONE: Record<string, string> = {
 };
 
 
-interface TreeNode { emp: OrgEmp; pos: OrgPos | null; children: TreeNode[] }
+interface TreeNode { emp: OrgEmp; pos: OrgPos | null; children: TreeNode[]; virtual?: boolean }
 
 export default function AdminOrgPage() {
   const { locale } = useI18n();
@@ -136,28 +136,61 @@ export default function AdminOrgPage() {
     return active.filter((e) => !assigned.has(e.id));
   }, [allEmps, branchId, shopBranches, posByEmp]);
 
-  // สร้างต้นไม้จาก reports_to (root = ไม่มีหัวหน้า หรือหัวหน้าไม่อยู่ในผัง)
-  const roots = useMemo<TreeNode[]>(() => {
+  // สร้างต้นไม้หลายชั้น: หัวหน้า = reports_to ในผัง (ถ้ามี) ไม่งั้นใช้หัวหน้าตาม SSO (manager_union_id)
+  //   ถ้าหัวหน้า (หรือหัวหน้าของหัวหน้า …) ไม่ได้อยู่ในผังสาขานี้ → ดึงมาแสดงเป็นโหนด "นอกสาขา" ด้านบน
+  //   กันวน + จำกัด 8 ชั้น
+  const { roots, virtualCount } = useMemo(() => {
+    const empById = new Map(emps.map((e) => [e.id, e]));
+    const byUnion = new Map<string, string>();
+    for (const e of emps) if (e.union_id) byUnion.set(e.union_id, e.id);
     const idSet = new Set(positioned.map((e) => e.id));
-    const childrenOf = new Map<string, OrgEmp[]>();
-    const rootEmps: OrgEmp[] = [];
-    for (const e of positioned) {
-      const p = posByEmp.get(e.id)!;
-      if (p.reports_to && idSet.has(p.reports_to)) {
-        (childrenOf.get(p.reports_to) ?? childrenOf.set(p.reports_to, []).get(p.reports_to)!).push(e);
-      } else rootEmps.push(e);
+    const parentOf = new Map<string, string>();
+    const virtualIds = new Set<string>();
+    const resolveParent = (e: OrgEmp): string | null => {
+      const rt = posByEmp.get(e.id)?.reports_to;
+      if (rt && rt !== e.id && empById.has(rt)) return rt;
+      const m = e.manager_union_id ? byUnion.get(e.manager_union_id) : undefined;
+      return m && m !== e.id ? m : null;
+    };
+    for (const start of positioned) {
+      let cur: OrgEmp | undefined = start;
+      const seen = new Set<string>([start.id]);
+      for (let depth = 0; cur && depth < 8; depth++) {
+        const pid = resolveParent(cur);
+        if (!pid || seen.has(pid)) break;
+        parentOf.set(cur.id, pid);
+        seen.add(pid);
+        if (idSet.has(pid) || virtualIds.has(pid)) break; // ชั้นบนถูก/จะถูกจัดการแล้ว
+        virtualIds.add(pid);
+        cur = empById.get(pid);
+      }
     }
-    const build = (e: OrgEmp): TreeNode => ({
-      emp: e,
-      pos: posByEmp.get(e.id) ?? null,
-      children: (childrenOf.get(e.id) ?? [])
-        .sort((a, b) => (posByEmp.get(a.id)?.sort_order ?? 0) - (posByEmp.get(b.id)?.sort_order ?? 0))
-        .map(build),
-    });
-    return rootEmps
-      .sort((a, b) => (posByEmp.get(a.id)?.sort_order ?? 0) - (posByEmp.get(b.id)?.sort_order ?? 0))
-      .map(build);
-  }, [positioned, posByEmp]);
+    const nodeIds = [...positioned.map((e) => e.id), ...virtualIds];
+    const childrenOf = new Map<string, string[]>();
+    for (const id of nodeIds) {
+      const pid = parentOf.get(id);
+      if (pid) (childrenOf.get(pid) ?? childrenOf.set(pid, []).get(pid)!).push(id);
+    }
+    const order = (id: string) => posByEmp.get(id)?.sort_order ?? (virtualIds.has(id) ? -1 : 0);
+    const reached = new Set<string>();
+    const build = (id: string): TreeNode | null => {
+      if (reached.has(id)) return null;
+      reached.add(id);
+      const emp = empById.get(id);
+      if (!emp) return null;
+      return {
+        emp,
+        pos: posByEmp.get(id) ?? null,
+        virtual: virtualIds.has(id),
+        children: (childrenOf.get(id) ?? []).sort((a, b) => order(a) - order(b)).map(build).filter(Boolean) as TreeNode[],
+      };
+    };
+    const rootIds = nodeIds.filter((id) => !parentOf.has(id) || !empById.has(parentOf.get(id)!)).sort((a, b) => order(a) - order(b));
+    const out = rootIds.map(build).filter(Boolean) as TreeNode[];
+    // โหนดที่อยู่ในวงวน (ไม่มี root) → แสดงเป็น root แทน ไม่ให้คนหาย
+    for (const id of nodeIds) if (!reached.has(id)) { const n = build(id); if (n) out.push(n); }
+    return { roots: out, virtualCount: virtualIds.size };
+  }, [emps, positioned, posByEmp]);
 
   async function savePos(employee_id: string, patch: { title?: string; reports_to?: string | null }) {
     const cur = posByEmp.get(employee_id);
@@ -257,6 +290,33 @@ export default function AdminOrgPage() {
     finally { setSyncing(false); }
   }
 
+  // ซิงก์สายบังคับบัญชาหลายชั้นจาก SSO → employees + org_positions (ฝั่งเซิร์ฟเวอร์)
+  const [chainSyncing, setChainSyncing] = useState(false);
+  async function syncChain() {
+    setChainSyncing(true);
+    try {
+      const r = await fetch("/api/admin/org/sync-sso", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dryRun: false }) });
+      const j = await r.json().catch(() => ({}));
+      if (r.ok) {
+        await refreshDirectory();
+        setAllEmps(await listEmployees());
+        if (branchId) await load(branchId);
+        toast.push({
+          tone: j.errors?.length ? "warn" : "ok",
+          title: L("ซิงก์สายบังคับบัญชาแล้ว", "Reporting lines synced", "已同步汇报线"),
+          body: L(
+            `หัวหน้าใหม่ ${j.managersCreated ?? 0} · เพิ่มเข้าผัง ${j.positionsCreated ?? 0} · แก้หัวหน้า ${j.reportsToChanged ?? 0}`,
+            `New managers ${j.managersCreated ?? 0} · added ${j.positionsCreated ?? 0} · re-linked ${j.reportsToChanged ?? 0}`,
+            `新上级 ${j.managersCreated ?? 0} · 新增 ${j.positionsCreated ?? 0} · 更新 ${j.reportsToChanged ?? 0}`,
+          ),
+        });
+      } else {
+        toast.push({ tone: "danger", title: j.error === "forbidden" ? L("ต้องเข้าสู่ระบบด้วย SSO", "SSO login required", "需用 SSO 登录") : (j.error ?? "sync failed") });
+      }
+    } catch { toast.push({ tone: "danger", title: L("ซิงก์ไม่สำเร็จ", "Sync failed", "同步失败") }); }
+    finally { setChainSyncing(false); }
+  }
+
   return (
     <div className="p-4 sm:p-6 space-y-4">
       {/* หัว + เลือกสาขา */}
@@ -291,6 +351,11 @@ export default function AdminOrgPage() {
           <Button variant="ghost" onClick={() => void syncSSO()} disabled={syncing}>
             <RefreshCw size={15} className={syncing ? "animate-spin" : ""} /> {L("ดึงข้อมูลจาก SSO", "Sync from SSO", "同步 SSO")}
           </Button>
+          {canManage ? (
+            <Button variant="ghost" onClick={() => void syncChain()} disabled={chainSyncing} title={L("ดึงหัวหน้าหลายชั้นจาก SSO/Lark แล้วจัดผังทุกสาขา", "Pull multi-level managers from SSO/Lark into every branch chart", "从 SSO/Lark 同步多级上级")}>
+              <Network size={15} className={chainSyncing ? "animate-pulse" : ""} /> {L("ซิงก์สายบังคับบัญชาจาก SSO", "Sync reporting lines from SSO", "从 SSO 同步汇报线")}
+            </Button>
+          ) : null}
           {unassigned.length ? (
             <Button variant="primary" onClick={() => setAddOpen(true)}><UserPlus size={16} /> {L("เพิ่มคนเข้าผัง", "Add to chart", "添加成员")}</Button>
           ) : null}
@@ -379,7 +444,7 @@ export default function AdminOrgPage() {
             <Card className="h-full">
               <CardHeader
                 title={L("โครงสร้างทีม (ผังตำแหน่ง)", "Team structure", "团队结构")}
-                subtitle={`${positioned.length} ${L("ตำแหน่ง", "positions", "个职位")}${unassigned.length ? ` · ${unassigned.length} ${L("ยังไม่จัดผัง", "unassigned", "未安排")}` : ""}`}
+                subtitle={`${positioned.length} ${L("ตำแหน่ง", "positions", "个职位")}${virtualCount ? ` · +${virtualCount} ${L("หัวหน้านอกสาขา", "managers outside branch", "门店外上级")}` : ""}${unassigned.length ? ` · ${unassigned.length} ${L("ยังไม่จัดผัง", "unassigned", "未安排")}` : ""}`}
               />
               <div className="p-4 overflow-x-auto">
                 <div className="shd-org min-w-max mx-auto">
@@ -448,36 +513,12 @@ export default function AdminOrgPage() {
         ) : undefined}
       />
 
-      {/* Modal: เพิ่มคนเข้าผัง */}
-      <Modal open={addOpen} onClose={() => setAddOpen(false)} size="sm" title={L("เพิ่มคนเข้าผัง", "Add to chart", "添加成员")}>
-        <div className="space-y-4">
-          {/* คนในระบบที่ยังไม่จัดผัง */}
-          {unassigned.length ? (
-            <div>
-              <p className="text-[11px] font-semibold text-muted uppercase tracking-wide mb-1.5">{L("ในระบบ", "In system", "系统内")}</p>
-              <div className="grid gap-2 max-h-[32vh] overflow-y-auto">
-                {unassigned.map((e) => (
-                  <button
-                    key={e.id}
-                    onClick={() => tryAddToChart(e)}
-                    className="flex items-center gap-3 p-2.5 rounded-xl border border-line hover:bg-surface2 text-left transition-colors"
-                  >
-                    <Avatar name={e.name} src={e.photo_url} size={34} />
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium truncate">{e.name}</p>
-                      <p className="text-[11px] text-muted truncate">{e.code} · {roleLabel(e.role)}{e.central_branch ? ` · ${e.central_branch}` : ""}</p>
-                    </div>
-                    {e.central_branch && larkBranchMismatch(e) ? <span className="text-[10px] text-warn shrink-0">{L("ต่างสาขา", "Diff. branch", "跨门店")}</span> : null}
-                    <Plus size={16} className="text-brand shrink-0" />
-                  </button>
-                ))}
-              </div>
-            </div>
-          ) : null}
-
-          {/* ค้นหาจากองค์กร (Lark directory) → เพิ่มแบบ org-only */}
-          <div className="pt-1 border-t border-line">
-            <p className="text-[11px] font-semibold text-muted uppercase tracking-wide mb-1.5 mt-3">{L("ค้นจากองค์กร (Lark)", "From org directory (Lark)", "组织目录 (Lark)")}</p>
+      {/* Drawer ขวา: เพิ่มคนเข้าผัง (ไม่บังผังตรงกลาง) */}
+      <Drawer open={addOpen} onClose={() => setAddOpen(false)} width="lg" title={L("เพิ่มคนเข้าผัง", "Add to chart", "添加成员")} subtitle={curStoreName || undefined}>
+        <div className="p-4 space-y-4">
+          {/* ค้นหาจากองค์กร (Lark directory) → บนสุด */}
+          <div>
+            <p className="text-[11px] font-semibold text-muted uppercase tracking-wide mb-1.5">{L("ค้นจากองค์กร (Lark)", "From org directory (Lark)", "组织目录 (Lark)")}</p>
             <BorderBeam radius={12} duration={3.2} active={centralBusy || !!centralQ.trim()} className="mb-2 block">
               <div className="relative">
                 <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted z-10" />
@@ -491,7 +532,7 @@ export default function AdminOrgPage() {
               </div>
             </BorderBeam>
             {centralBusy ? <p className="text-xs text-muted py-2 text-center">{L("กำลังค้นหา…", "Searching…", "搜索中…")}</p> : null}
-            <div className="grid gap-2 max-h-[32vh] overflow-y-auto">
+            <div className="grid gap-2">
               {centralRes.map((p) => (
                 <button
                   key={p.union_id}
@@ -512,11 +553,31 @@ export default function AdminOrgPage() {
             </div>
           </div>
 
+          {/* คนในระบบที่ยังไม่จัดผัง — ล่าง */}
+          {unassigned.length ? (
+            <div className="pt-3 border-t border-line">
+              <p className="text-[11px] font-semibold text-muted uppercase tracking-wide mb-1.5">{L("ในระบบ", "In system", "系统内")}</p>
+              <div className="grid gap-2">
+                {unassigned.map((e) => (
+                  <button key={e.id} onClick={() => tryAddToChart(e)} className="flex items-center gap-3 p-2.5 rounded-xl border border-line hover:bg-surface2 text-left transition-colors">
+                    <Avatar name={e.name} src={e.photo_url} size={34} />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium truncate">{e.name}</p>
+                      <p className="text-[11px] text-muted truncate">{e.code} · {roleLabel(e.role)}{e.central_branch ? ` · ${e.central_branch}` : ""}</p>
+                    </div>
+                    {e.central_branch && larkBranchMismatch(e) ? <span className="text-[10px] text-warn shrink-0">{L("ต่างสาขา", "Diff. branch", "跨门店")}</span> : null}
+                    <Plus size={16} className="text-brand shrink-0" />
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
           {!unassigned.length && !centralRes.length && !centralQ ? (
             <p className="text-sm text-muted text-center py-2">{L("ทุกคนอยู่ในผังแล้ว · หรือค้นจากองค์กรด้านบน", "Everyone placed · or search the org above", "全部已安排 · 或从上方搜索")}</p>
           ) : null}
         </div>
-      </Modal>
+      </Drawer>
 
       {/* Modal: ยืนยันเมื่อสาขาใน Lark ไม่ตรงกับสาขาที่กำลังเพิ่มเข้า */}
       <Modal open={!!pendingAdd} onClose={() => setPendingAdd(null)} size="sm" title={L("ยืนยันสาขา", "Confirm branch", "确认门店")}>
@@ -571,7 +632,7 @@ function OrgLevel({ nodes, onEdit, onPick, roleLabel, posLabel }: { nodes: TreeN
   return (
     <ul>
       {nodes.map((n) => {
-        const title = posLabel(n.pos?.title);
+        const title = n.virtual ? (n.emp.job_title ?? "") : (posLabel(n.pos?.title) || n.emp.job_title || "");
         return (
           <li key={n.emp.id}>
             <div
@@ -579,20 +640,23 @@ function OrgLevel({ nodes, onEdit, onPick, roleLabel, posLabel }: { nodes: TreeN
               onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onPick(n.emp.id); } }}
               role="button"
               tabIndex={0}
-              title={posLabel(n.pos?.title) || roleLabel(n.emp.role)}
-              className="group relative inline-flex flex-col items-center gap-1.5 w-44 rounded-2xl border border-line bg-surface hover:border-brand hover:shadow-pop px-3 py-3 transition-all cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
+              title={n.virtual ? "หัวหน้าตาม SSO (ไม่ได้ประจำสาขานี้)" : posLabel(n.pos?.title) || roleLabel(n.emp.role)}
+              className={clsx(
+                "group relative inline-flex flex-col items-center gap-1.5 w-44 rounded-2xl border px-3 py-3 transition-all cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-brand/40 hover:border-brand hover:shadow-pop",
+                n.virtual ? "border-dashed border-line bg-surface2/70" : "border-line bg-surface",
+              )}
             >
               <Avatar name={n.emp.name} src={n.emp.photo_url} size={44} />
               <p className="text-sm font-semibold leading-tight text-center line-clamp-1">{n.emp.name}</p>
               {title ? <p className="text-[11px] text-brand font-medium text-center line-clamp-2 leading-snug">{title}</p> : null}
-              <Badge tone="brand">{roleLabel(n.emp.role)}</Badge>
-              <button
+              {n.virtual ? <Badge tone="neutral">นอกสาขา · SSO</Badge> : <Badge tone="brand">{roleLabel(n.emp.role)}</Badge>}
+              {n.virtual ? null : <button
                 onClick={(e) => { e.stopPropagation(); onEdit(n.emp.id); }}
                 title="แก้ตำแหน่ง / สายบังคับบัญชา"
                 className="absolute top-1.5 right-1.5 p-1 rounded-lg text-muted opacity-0 group-hover:opacity-100 hover:bg-surface2 hover:text-brand transition-all"
               >
                 <Pencil size={13} />
-              </button>
+              </button>}
             </div>
             {n.children.length ? <OrgLevel nodes={n.children} onEdit={onEdit} onPick={onPick} roleLabel={roleLabel} posLabel={posLabel} /> : null}
           </li>

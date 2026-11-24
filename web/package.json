@@ -5,16 +5,17 @@
   "description": "SHD POS — หน้าร้าน (POS) + หลังบ้าน (Admin) บน Next.js + Supabase",
   "scripts": {
     "dev": "next dev -p 3000",
+    "ow:worker": "node scripts/ow-sync-worker.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "sso:sync": "node scripts/sso-schema-sync.mjs",
-    "test:real-users": "node scripts/test-real-user-regressions.cjs && node scripts/test-ow-access.cjs && node scripts/test-permissions.cjs",
+    "test:real-users": "node scripts/test-real-user-regressions.cjs && node scripts/test-central-sale-cache.cjs && node scripts/test-ow-access.cjs && node scripts/test-permissions.cjs && node scripts/test-pin-session.cjs && node scripts/test-cart-serials.cjs && node scripts/test-catalog-integration.cjs && node scripts/test-ow-full-sync.cjs",
     "test:checkout-db": "node scripts/test-checkout-db.mjs",
     "test:schema": "node scripts/test-full-schema.mjs",
     "test:sale-validation": "node scripts/test-sale-validation.cjs",
-    "test:readiness": "npm run test:real-users && npm run test:sale-validation && node scripts/test-catalog-model.cjs && node scripts/test-catalog-access.cjs && npm run test:checkout-db && npm run test:schema && npm run typecheck -- --incremental false",
+    "test:readiness": "npm run test:real-users && npm run test:sale-validation && node scripts/test-deferred-validation.cjs && node scripts/test-deferred-pagination.cjs && node scripts/test-work-model.cjs && node scripts/test-work-access.cjs && node scripts/test-catalog-model.cjs && node scripts/test-catalog-access.cjs && npm run test:checkout-db && npm run test:schema && npm run typecheck -- --incremental false",
     "test:catalog": "node scripts/test-catalog-model.cjs && node scripts/test-catalog-access.cjs && npm run test:schema"
   },
   "dependencies": {

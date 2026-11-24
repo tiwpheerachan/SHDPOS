@@ -1,5 +1,7 @@
 "use client";
 
+import { useCatalogProducts } from "@/lib/hooks/use-catalog-products";
+
 import { useEffect, useMemo, useState } from "react";
 import { SlidersHorizontal, Search, Save } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
@@ -9,15 +11,17 @@ import { listProducts, stockForBranch, recordAdjustment } from "@/lib/data/repo"
 import type { Product, StockLevel } from "@/lib/types";
 import { Button, Input, Select, Table, Th, Td, EmptyState, Badge } from "@/components/ui";
 import { PosPage, TablePanel } from "@/components/pos/page-shell";
+import { IntegrationNotice, useOwBranchLink } from "@/components/pos/integration-notice";
 import { can } from "@/lib/permissions";
 
 export default function StockAdjustPage() {
+  const owLink = useOwBranchLink(); // ผูกคลังกลาง = ปรับยอดที่ OneWarehouse เท่านั้น
   const { t, locale, pick } = useI18n();
   const toast = useToast();
   const { employee, branchId } = useSession();
   const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
 
-  const [products, setProducts] = useState<Product[]>([]);
+  const [products, setProducts] = useCatalogProducts();
   const [stock, setStock] = useState<Map<string, StockLevel>>(new Map());
   const [values, setValues] = useState<Record<string, string>>({});
   const [reason, setReason] = useState("correction");
@@ -91,12 +95,13 @@ export default function StockAdjustPage() {
             <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
             <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t.common.search} className="pl-9 h-9" />
           </div>
-          <Button variant="primary" loading={busy} disabled={!changed.length} onClick={() => void submit()}>
+          <Button variant="primary" loading={busy} disabled={!changed.length || owLink !== "unlinked"} onClick={() => void submit()}>
             <Save size={15} /> {t.common.save}
           </Button>
         </>
       }
     >
+      <IntegrationNotice kind="stock" />
       <div className="p-4 sm:p-6 space-y-3">
         <div className="flex items-center gap-2">
           <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder={L("หมายเหตุ (แนบทุกบรรทัดที่ปรับ)", "Note (attached to this adjustment)", "备注")} className="h-9 max-w-md" />

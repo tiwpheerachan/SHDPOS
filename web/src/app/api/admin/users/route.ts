@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/sso/guard";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { PERMISSION_KEYS } from "@/lib/permissions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -85,7 +86,7 @@ export async function POST(req: NextRequest) {
     data_scope: b.data_scope ?? existing?.data_scope ?? "branch",
     home_branch_id: branchIds[0] ?? existing?.home_branch_id ?? null,
     max_discount_percent: b.max_discount_percent ?? existing?.max_discount_percent ?? 0,
-    permission_overrides: b.permission_overrides ?? existing?.permission_overrides ?? {},
+    permission_overrides: b.permission_overrides ? cleanOverrides(b.permission_overrides) : existing?.permission_overrides ?? {},
     photo_url: b.photo_url ?? existing?.photo_url ?? null,
     status: b.is_active === false ? "suspended" : "active",
     updated_at: new Date().toISOString(),
@@ -128,4 +129,12 @@ export async function DELETE(req: NextRequest) {
   const { error } = await supabaseAdmin().from("employees").update({ status: "suspended" }).eq("id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
+}
+
+// รับเฉพาะคีย์สิทธิ์ที่มีจริง + ค่าที่ถูกต้อง (กันพิมพ์ผิด/คีย์เก่าค้างใน DB)
+function cleanOverrides(input: Record<string, string>): Record<string, string> {
+  const valid = new Set<string>(PERMISSION_KEYS);
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(input ?? {})) if (valid.has(k) && (v === "allow" || v === "deny" || v === "approval")) out[k] = v;
+  return out;
 }

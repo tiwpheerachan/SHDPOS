@@ -12,7 +12,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   Ticket, Plus, Trash2, Loader2, Pencil, TrendingUp, Users, Tag, Power, Gift, Search, X, Store, Layers, BarChart3,
 } from "lucide-react";
-import { Modal, EmptyState, Drawer, Segmented } from "@/components/ui";
+import { EmptyState, Drawer, Segmented } from "@/components/ui";
 import { CouponAnalytics } from "@/components/admin/coupon-analytics";
 import { useAdminScope } from "@/components/admin/filters";
 import { useI18n } from "@/lib/i18n/provider";
@@ -21,9 +21,9 @@ import { SearchSelect } from "@/components/admin/search-select";
 import { formatTHB } from "@/lib/money";
 import { Maximize2, Minimize2, ImagePlus } from "lucide-react";
 
-interface ProdRef { product_id: string | null; sku: string; name: string | null; gift_qty?: number }
+interface ProdRef { product_id: string | null; sku: string; name: string | null; gift_qty?: number; is_active?: boolean }
 interface Campaign {
-  id: string; name: string; description: string | null; code: string | null;
+  id: string; version: number; name: string; description: string | null; code: string | null;
   discount_type: string; discount_value: number; max_discount: number | null; min_spend: number;
   target_segment: string; starts_at: string | null; ends_at: string | null;
   usage_limit: number | null; per_customer_limit: number | null; active: boolean;
@@ -43,7 +43,7 @@ const CHANNELS: { v: string; label: string }[] = [
 ];
 
 const EMPTY = {
-  id: "", name: "", description: "", code: "", discount_type: "amount", discount_value: "",
+  id: "", version: 0, name: "", description: "", code: "", discount_type: "amount", discount_value: "",
   max_discount: "", min_spend: "", target_segment: "all", starts_at: "", ends_at: "",
   usage_limit: "", per_customer_limit: "1", active: true,
   brand_ids: [] as string[], branch_ids: [] as string[], channels: [] as string[], is_automatic: false,
@@ -103,7 +103,7 @@ export default function AdminCampaignsPage() {
   function openEdit(c: Campaign) {
     setExpanded(false);
     setForm({
-      id: c.id, name: c.name, description: c.description ?? "", code: c.code ?? "",
+      id: c.id, version:c.version, name: c.name, description: c.description ?? "", code: c.code ?? "",
       discount_type: c.discount_type, discount_value: String(c.discount_value ?? ""),
       max_discount: c.max_discount != null ? String(c.max_discount) : "",
       min_spend: String(c.min_spend ?? ""), target_segment: c.target_segment,
@@ -147,7 +147,7 @@ export default function AdminCampaignsPage() {
       }
       const body = {
         ...(form.id ? { id: form.id } : {}),
-        name: form.name, description: form.description, code: form.code,
+        version:form.version, name: form.name, description: form.description, code: form.code,
         discount_type: form.discount_type, discount_value: Number(form.discount_value || 0),
         max_discount: form.max_discount, min_spend: Number(form.min_spend || 0),
         target_segment: form.target_segment, starts_at: form.starts_at || null, ends_at: form.ends_at || null,
@@ -166,12 +166,14 @@ export default function AdminCampaignsPage() {
   }
 
   async function toggleActive(c: Campaign) {
-    await fetch("/api/admin/campaigns", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: c.id, active: !c.active }) });
-    await load();
+    const response = await fetch("/api/admin/campaigns", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: c.id, version:c.version, active: !c.active }) });
+    if (!response.ok) { const data = await response.json(); setErr(data.error || "เปลี่ยนสถานะแคมเปญไม่สำเร็จ"); return; }
+    setErr(""); await load();
   }
   async function remove(c: Campaign) {
-    if (!confirm(L(`ลบแคมเปญ "${c.name}"?`, `Delete campaign "${c.name}"?`, `删除活动 "${c.name}"？`))) return;
-    await fetch(`/api/admin/campaigns?id=${c.id}`, { method: "DELETE" });
+    if (!confirm(L(`เก็บแคมเปญ "${c.name}" เข้าประวัติและปิดใช้งาน?`, `Delete campaign "${c.name}"?`, `删除活动 "${c.name}"？`))) return;
+    const response=await fetch(`/api/admin/campaigns?id=${c.id}&version=${c.version}`, { method: "DELETE" });
+    if(!response.ok){const data=await response.json();setErr(data.error||"เก็บเข้าประวัติไม่สำเร็จ");return;}
     setItems((p) => p.filter((x) => x.id !== c.id));
   }
 
@@ -201,7 +203,7 @@ export default function AdminCampaignsPage() {
     setForm((f) => ({ ...f, [key]: f[key].includes(v) ? f[key].filter((x) => x !== v) : [...f[key], v] }));
   }
   function addProd(list: "eligible" | "gifts", p: ProdRef) {
-    setForm((f) => (f[list].some((x) => x.sku === p.sku) ? f : { ...f, [list]: [...f[list], { ...p, gift_qty: list === "gifts" ? 1 : undefined }] }));
+    setForm((f) => (f[list].some((x) => x.sku === p.sku) ? f : { ...f, active: p.is_active === false ? false : f.active, [list]: [...f[list], { ...p, gift_qty: list === "gifts" ? 1 : undefined }] }));
   }
   function rmProd(list: "eligible" | "gifts", sku: string) {
     setForm((f) => ({ ...f, [list]: f[list].filter((x) => x.sku !== sku) }));
@@ -209,6 +211,7 @@ export default function AdminCampaignsPage() {
 
   return (
     <div className="p-4 sm:p-6 space-y-5 w-full">
+      {err && !open ? <p role="alert" className="text-sm text-danger bg-danger/10 rounded-xl px-3 py-2">{err}</p> : null}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold flex items-center gap-2"><Ticket size={22} /> {L("แคมเปญ / คูปอง", "Campaigns / Coupons", "活动 / 优惠券")}</h1>
@@ -277,7 +280,9 @@ export default function AdminCampaignsPage() {
         </div>
       )}
 
-      <Modal open={open} onClose={() => setOpen(false)} size={expanded ? "xl" : "lg"}
+      {/* ฟอร์มสร้าง/แก้แคมเปญ — Drawer ด้านขวา (เห็นรายการแคมเปญด้านหลังได้) */}
+      <Drawer open={open} onClose={() => setOpen(false)} width={expanded ? "xl" : "lg"}
+        subtitle={L("ตั้งรูปปก ส่วนลด/ของแถม สินค้าที่ร่วม และข้อจำกัด", "Cover, discount/gifts, products and limits", "封面、折扣/赠品、商品和限制")}
         title={
           <span className="flex items-center gap-2">
             {form.id ? L("แก้ไขแคมเปญ", "Edit campaign", "编辑活动") : L("สร้างแคมเปญ", "Create campaign", "创建活动")}
@@ -289,6 +294,7 @@ export default function AdminCampaignsPage() {
         }
         footer={
           <>
+            <span className="flex-1" />
             <button onClick={() => setOpen(false)} className="h-10 px-4 rounded-xl bg-surface2 text-sm font-semibold text-muted">{L("ยกเลิก", "Cancel", "取消")}</button>
             <button onClick={() => void save()} disabled={saving || !form.name.trim()} className="h-10 px-5 rounded-xl bg-brand text-brandInk text-sm font-bold disabled:opacity-50 inline-flex items-center gap-1.5">
               {saving ? <Loader2 size={15} className="animate-spin" /> : null} {uploading ? L("กำลังอัปโหลด…", "Uploading…", "上传中…") : L("บันทึก", "Save", "保存")}
@@ -296,7 +302,7 @@ export default function AdminCampaignsPage() {
           </>
         }
       >
-        <div className="space-y-5">
+        <div className="space-y-5 p-5">
           {err && <p className="text-xs text-danger bg-danger/10 rounded-lg px-3 py-2">{err}</p>}
 
           {/* ข้อมูลหลัก */}
@@ -354,6 +360,7 @@ export default function AdminCampaignsPage() {
             </div>
           </Section>
 
+          {([...form.eligible, ...form.gifts].some(p=>p.is_active === false)) ? <p className="rounded-xl bg-warn/10 border border-warn/30 px-3 py-2 text-xs text-warn">{L("มีสินค้าที่ยังไม่เปิดขาย จึงตั้งเป็นแคมเปญแบบร่าง กรุณาตรวจและเปิดใช้งานสินค้าก่อนเปิดแคมเปญ", "Inactive products selected. This is a draft until products are reviewed and activated.", "包含未启用商品，请先审核启用商品再启用活动")}</p> : null}
           {/* สินค้าร่วมรายการ */}
           <Section title={L("สินค้าร่วมรายการ", "Eligible products", "参与商品")}>
             <div className="flex gap-2">
@@ -430,7 +437,7 @@ export default function AdminCampaignsPage() {
             </label>
           </Section>
         </div>
-      </Modal>
+      </Drawer>
 
       {/* รายงานแคมเปญ — วิเคราะห์เชิงลึกรายแคมเปญ (ล็อกแคมเปญ + breakdown + กรอง + ดาวน์โหลด) */}
       <Drawer open={Boolean(reportId)} onClose={() => setReportId(null)} width="xl" title={items.find((i) => i.id === reportId)?.name ?? L("รายงานแคมเปญ", "Campaign report", "活动报表")} subtitle={L("วิเคราะห์การใช้งานเชิงลึก — สาขา/แบรนด์/พนักงาน/ช่วงเวลา", "Deep usage analytics — branch/brand/staff/time", "深度分析")}>
@@ -476,40 +483,51 @@ function MultiChips({ label, opts, sel, onToggle }: { label: string; opts: { v: 
   );
 }
 
+type ProductHit = { id: string; sku: string; name: string; is_active: boolean; sources: string[] };
 function ProductPicker({ onPick }: { onPick: (p: ProdRef) => void }) {
   const { locale } = useI18n();
   const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
   const [q, setQ] = useState("");
-  const [hits, setHits] = useState<{ id: string; sku: string; name: string }[]>([]);
+  const [hits, setHits] = useState<ProductHit[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [more, setMore] = useState(false);
+  const [retry, setRetry] = useState(0);
+  const [showResults,setShowResults] = useState(true);
   useEffect(() => {
-    if (!q.trim()) { setHits([]); return; }
-    let alive = true; setLoading(true);
-    const id = setTimeout(async () => {
+    let alive = true;
+    const controller = new AbortController();
+    setLoading(true); setError(""); setHits([]); setMore(false);
+    const timer = setTimeout(async () => {
       try {
-        const j = await fetch(`/api/admin/products?q=${encodeURIComponent(q.trim())}`).then((r) => r.json());
-        if (alive) setHits((j.products ?? []).map((p: { id: string; sku: string; name: string }) => ({ id: p.id, sku: p.sku, name: p.name })));
-      } finally { if (alive) setLoading(false); }
-    }, 280);
-    return () => { alive = false; clearTimeout(id); };
-  }, [q]);
+        const response = await fetch(`/api/admin/products?q=${encodeURIComponent(q.trim())}`, {cache:"no-store",signal:controller.signal});
+        const data = await response.json();
+        if (!response.ok) throw Error(data.error || "ค้นหาสินค้าไม่สำเร็จ");
+        if (!Array.isArray(data.products)) throw Error("ข้อมูลแคตตาล็อกไม่ถูกต้อง");
+        if (alive) { setHits(data.products); setMore(data.has_more === true); }
+      } catch (err) { if (alive) setError(err instanceof Error ? err.message : "ค้นหาสินค้าไม่สำเร็จ"); }
+      finally { if (alive) setLoading(false); }
+    }, q.trim() ? 280 : 0);
+    return () => {alive = false;clearTimeout(timer);controller.abort();};
+  }, [q,retry]);
   return (
-    <div className="relative">
-      <Search size={15} className="absolute left-3 top-2.5 text-muted" />
-      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={L("ค้นหาสินค้า (ชื่อ/SKU)…", "Search products (name/SKU)…", "搜索商品（名称/SKU）…")} className="w-full h-9 pl-9 pr-3 rounded-xl bg-surface2/60 border border-line outline-none text-sm focus:border-brand/40" />
-      {loading && <Loader2 size={14} className="absolute right-3 top-2.5 animate-spin text-muted" />}
-      {hits.length > 0 && (
-        <ul className="mt-1 border border-line rounded-xl overflow-hidden divide-y divide-line/60 max-h-52 overflow-y-auto bg-surface">
-          {hits.map((p) => (
-            <li key={p.id}>
-              <button onClick={() => { onPick({ product_id: p.id, sku: p.sku, name: p.name }); setQ(""); setHits([]); }} className="w-full text-left px-3 py-2 hover:bg-surface2 flex items-center gap-2">
-                <span className="text-sm flex-1 truncate">{p.name}</span>
-                <span className="text-[11px] font-mono text-muted">{p.sku}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+    <div className="relative space-y-2">
+      <div className="relative">
+        <Search size={15} className="absolute left-3 top-2.5 text-muted" />
+        <input aria-label={L("ค้นหาสินค้ากลาง", "Search central catalog", "搜索中央目录")} value={q} onFocus={()=>setShowResults(true)} onChange={e=>{setQ(e.target.value);setShowResults(true);}} placeholder={L("ค้นหาชื่อ / SKU เช่น MOVA หรือ 70mai…", "Search name / SKU…", "搜索名称 / SKU…")} className="w-full h-9 pl-9 pr-8 rounded-xl bg-surface2/60 border border-line outline-none text-sm focus:border-brand/40" />
+        {loading ? <Loader2 size={14} className="absolute right-3 top-2.5 animate-spin text-muted"/> : null}
+      </div>
+      <p className="text-[11px] text-muted">{L("ใช้สินค้าใน POS รวมรายการนำเข้าจาก OW · รายการที่ยังไม่เปิดขายเลือกวางแผนได้ โดยบันทึกแคมเปญเป็นแบบร่าง", "Uses the POS catalog including OW imports. Inactive products can be planned in draft campaigns.", "使用POS目录（含OW导入），未启用商品可用于草稿活动")}</p>
+      {error ? <div role="alert" className="text-xs text-danger">{error} <button type="button" className="underline ml-2" onClick={()=>setRetry(v=>v+1)}>{L("ลองใหม่", "Retry", "重试")}</button></div> : null}
+      {showResults && !loading && !error && !hits.length ? <p className="text-xs text-muted">{L("ไม่พบสินค้าในแคตตาล็อก POS ตามคำค้นนี้", "No matching products in POS catalog", "POS目录中无匹配商品")}</p> : null}
+      {showResults && hits.length ? <ul className="border border-line rounded-xl overflow-hidden divide-y divide-line/60 max-h-52 overflow-y-auto bg-surface">
+        {hits.map(p=><li key={p.id}><button type="button" onClick={()=>{onPick({product_id:p.id,sku:p.sku,name:p.name,is_active:p.is_active});setQ("");setShowResults(false);}} className="w-full text-left px-3 py-2 hover:bg-surface2 flex items-center gap-2">
+          <span className="min-w-0 flex-1"><span className="text-sm block truncate">{p.name}</span><span className="text-[11px] font-mono text-muted">{p.sku}</span></span>
+          {p.sources?.length ? <span className="text-[10px] text-brand">{p.sources.some(v=>v.endsWith(":uat")) ? "OW UAT" : "OW"}</span> : null}
+          <span className={`text-[10px] px-2 py-1 rounded-full ${p.is_active ? "bg-ok/10 text-ok" : "bg-warn/10 text-warn"}`}>{p.is_active ? L("เปิดใช้งาน", "Active", "已启用") : L("ยังไม่เปิดขาย", "Inactive", "未启用")}</span>
+        </button></li>)}
+      </ul> : null}
+      {showResults && more ? <p className="text-[11px] text-muted">{L("แสดง 30 รายการแรก กรุณาพิมพ์ชื่อหรือ SKU ให้เจาะจงขึ้น", "Showing first 30. Refine the name or SKU.", "显示前30条，请细化搜索")}</p> : null}
     </div>
   );
 }
@@ -526,6 +544,7 @@ function ProdList({ list, gift, onRemove, onQty }: { list: ProdRef[]; gift?: boo
             <span className="text-sm truncate block">{p.name ?? p.sku}</span>
             <span className="text-[11px] font-mono text-muted">{p.sku}</span>
           </span>
+          {p.is_active === false ? <span className="text-[10px] text-warn">{L("แบบร่าง · ยังไม่เปิดขาย", "Draft · inactive", "草稿 · 未启用")}</span> : null}
           {gift && onQty && (
             <input type="number" min={1} value={p.gift_qty ?? 1} onChange={(e) => onQty(p.sku, Math.max(1, Number(e.target.value) || 1))}
               className="w-14 h-8 px-2 rounded-lg bg-surface2/60 border border-line text-sm text-center" title={L("จำนวน/ชุด", "Qty/set", "数量/套")} />

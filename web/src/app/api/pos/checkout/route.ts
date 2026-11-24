@@ -1,3 +1,5 @@
+import { legacyUuid } from "@/lib/server/legacy-ids";
+import { kickSaleOutbox } from "@/lib/server/ow-sales";
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import {
@@ -13,6 +15,18 @@ import {
 } from "@/lib/server/sale-validation";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+const quoteErrors:Record<string,string>={
+ campaign_usage_limit:"คูปองหรือแคมเปญถูกใช้ครบแล้ว กรุณาตรวจสิทธิ์อีกครั้ง",
+ campaign_customer_limit:"ลูกค้าใช้สิทธิ์แคมเปญนี้ครบแล้ว",campaign_customer_required:"กรุณาเลือกลูกค้าสมาชิกก่อนใช้สิทธิ์",
+ coupon_not_found:"ไม่พบคูปองที่ใช้กับรายการนี้",coupon_not_applicable:"คูปองไม่อยู่ในช่วงเวลา สาขา หรือช่องทางนี้",
+ coupon_minimum_not_met:"สินค้าร่วมรายการหรือยอดซื้อยังไม่ครบเงื่อนไข",coupon_customer_segment:"ลูกค้าไม่อยู่ในกลุ่มที่ได้รับสิทธิ์",
+ campaign_gifts_changed_reload:"สิทธิ์ของแถมเปลี่ยน กรุณาตรวจสิทธิ์ของแถมอีกครั้ง",campaign_gift_mismatch:"รายการหรือจำนวนของแถมไม่ตรงกับสิทธิ์",
+ insufficient_available_points:"แต้มคงเหลือถูกใช้หรือจองโดยบิลอื่น กรุณาตรวจยอดใหม่",insufficient_brand_points:"แต้มสำหรับแบรนด์นี้ไม่เพียงพอ",
+ promotion_total_changed_preview_required:"ยอดส่วนลดเปลี่ยน กรุณาตรวจคูปองและยอดชำระใหม่",invalid_expected_payable:"ยอดรับชำระไม่ถูกต้อง",
+ gift_product_not_ready:"สินค้าของแถมยังไม่พร้อมขาย กรุณาให้ผู้ดูแลตรวจสอบ",gift_serial_count_mismatch:"กรุณาสแกน SN ของแถมให้ครบจำนวน",
+ promotion_requires_positive_payable:"ส่วนลดและแต้มต้องเหลือยอดชำระมากกว่าศูนย์",
+};
+
 export async function POST(req: NextRequest) {
   try {
     requireSameOrigin(req);
@@ -21,8 +35,9 @@ export async function POST(req: NextRequest) {
       throw new PosError("รหัสรายการไม่ถูกต้อง");
     const ctx = await posContext(req, "pos.sell", body.branch_id),
       sb = supabaseAdmin();
-    if (body.action === "reserve") {
+    if (body.action === "reserve" || body.action === "preview") {
       const draft = object(body.draft);
+      if(!Array.isArray(draft.items))throw new PosError("รายการสินค้าไม่ถูกต้อง");
       const ids = [
         ...new Set((draft.items ?? []).map((i: any) => i.product_id)),
       ];
@@ -35,10 +50,20 @@ export async function POST(req: NextRequest) {
         )
         .in("id", ids);
       if (error) throw new PosError("อ่านแคตตาล็อกกลางไม่สำเร็จ", 503);
+      const gifts=draft.items.filter((i:any)=>i.is_gift);
+      if(gifts.some((i:any)=>i.gift_source!=="campaign"))throw new PosError("ของแถมที่เพิ่มเองต้องผ่านการอนุมัติส่วนกลางก่อน",409);
+      const manual=draft.manual_discount_total ?? ((!draft.coupon_code&&!draft.redeem_points)?draft.discount_total:NaN);
+      if(typeof manual!=="number"||!Number.isFinite(manual)||manual<0)throw new PosError("กรุณาโหลดหน้าใหม่เพื่อตรวจส่วนลดกับเซิร์ฟเวอร์");
+      if(body.action!=="preview"&&(typeof draft.grand_total!=="number"||!Number.isFinite(draft.grand_total)||draft.grand_total<=0))throw new PosError("ยอดรับชำระไม่ถูกต้อง");
+      const points=draft.redeem_points??0;if(!Number.isSafeInteger(points)||points<0)throw new PosError("จำนวนแต้มไม่ถูกต้อง");
+      if(draft.coupon_code!=null&&(typeof draft.coupon_code!=="string"||draft.coupon_code.length>100))throw new PosError("รหัสคูปองไม่ถูกต้อง");
+      // กะจากเครื่องรุ่นเก่า (nanoid) → UUID คงที่ตัวเดียวกับที่ sync_open_shift บันทึก
+      if (draft.shift_id) draft.shift_id = legacyUuid("shift", draft.shift_id);
       const quote = validateQuote(
-        { ...draft, client_uuid: body.id, branch_id: body.branch_id },
+        { ...draft, items:draft.items.filter((i:any)=>!i.is_gift),discount_total:manual,grand_total:Math.round((draft.subtotal-manual)*100)/100,coupon_code:null,redeem_points:0,client_uuid: body.id, branch_id: body.branch_id },
         data ?? [],
         !ctx.authz.isSuperadmin && ["deny", "approval"].includes(ctx.authz.permission_overrides["pos.discount"]) ? 0 : ctx.authz.max_discount_percent,
+        {preview:body.action==="preview"},
       );
       if (quote.salesperson_id && quote.salesperson_id !== ctx.actorId) {
         const [{ data: person }, { data: assignment }] = await Promise.all([
@@ -88,14 +113,13 @@ export async function POST(req: NextRequest) {
             409,
           );
       }
-      const r = await sb.rpc("pos_reserve_checkout", {
-        p_id: body.id,
-        p_actor: ctx.actorId,
-        p_branch: body.branch_id,
-        p_quote: quote,
+      const r = await sb.rpc("pos_prepare_promoted_checkout", {
+        p_id: body.id,p_actor: ctx.actorId,p_branch: body.branch_id,p_base:quote,
+        p_coupon:draft.coupon_code??null,p_points:points,p_gifts:gifts,
+        p_expected:body.action==="preview"?null:draft.grand_total,p_preview:body.action==="preview",
       });
       if (r.error)
-        throw new PosError(`จองสินค้าไม่สำเร็จ: ${r.error.message}`, 409);
+        throw new PosError(quoteErrors[r.error.message]||`จองสินค้าไม่สำเร็จ: ${r.error.message}`, 409);
       return NextResponse.json(r.data);
     }
     const { data: hold, error } = await sb
@@ -108,11 +132,13 @@ export async function POST(req: NextRequest) {
     if (error || !hold)
       throw new PosError("ไม่พบการจองกลาง กรุณาตรวจสถานะก่อนรับเงินซ้ำ", 409);
     if (body.action === "renew") {
-      const r = await sb.rpc("pos_reserve_checkout", {
-        p_id: hold.id,
-        p_actor: ctx.actorId,
-        p_branch: body.branch_id,
-        p_quote: hold.quote,
+      const promo=hold.quote?.promotion_request;
+      const r = promo ? await sb.rpc("pos_prepare_promoted_checkout", {
+        p_id:hold.id,p_actor:ctx.actorId,p_branch:body.branch_id,p_base:promo.base,
+        p_coupon:promo.coupon,p_points:promo.points,p_gifts:promo.gifts,
+        p_expected:hold.quote.grand_total,p_preview:false,
+      }) : await sb.rpc("pos_reserve_checkout", {
+        p_id: hold.id,p_actor: ctx.actorId,p_branch: body.branch_id,p_quote: hold.quote,
       });
       if (r.error)
         throw new PosError(
@@ -173,6 +199,8 @@ export async function POST(req: NextRequest) {
       });
       if (r.error)
         throw new PosError(`รายการรับชำระต้องตรวจสอบ: ${r.error.message}`, 409);
+      // บิลเข้าคิวแล้ว (trigger ใน transaction เดียวกับ commit) → ส่งไป OneWarehouse/JST ทันทีแบบไม่รอ
+      kickSaleOutbox();
       return NextResponse.json(r.data);
     }
     throw new PosError("ไม่รองรับคำสั่งนี้");

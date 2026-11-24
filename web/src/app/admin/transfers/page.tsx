@@ -1,4 +1,7 @@
 "use client";
+
+import { useCatalogProducts } from "@/lib/hooks/use-catalog-products";
+import { isLiveMode } from "@/lib/supabase/client";
 import { IntegrationNotice } from "@/components/pos/integration-notice";
 
 // หน้า admin — ติดตาม/อนุมัติใบโอนย้ายทุกสาขา (ใช้ engine + ดีไซน์เดียวกับ /pos/transfers)
@@ -18,7 +21,7 @@ import {
   owListAll, owCreate, owApprove, owReject, owReverse, owGet, owTimeline,
   owScanOut, owDispatch, owReceive, owCloseShort, owRecordDisc, owRequestResolveDisc, owResolveDisc, owCarriers, owSetAttachments, owShipStage, owSetPickupStage,
   owOpenReturn, owRequestReturnApproval, owApproveReturn, owCancelReturn, owDispatchReturn, owSetReturnShipStage, owReceiveReturnLines, owCloseReturn, owPackReturn, owMarkReplacement,
-  reconcileSerials, statusMeta, isActive, isIssue, owErrorMessage,
+  reconcileSerials, statusMeta, isActive, isIssue, owErrorMessage, owResume, owRefresh,
 } from "@/lib/onewarehouse";
 import { TransferStepper, ItemJourney, TransferTimeline } from "@/components/admin/transfer-ui";
 import { SerialScanDrawer } from "@/components/admin/serial-scan-drawer";
@@ -43,7 +46,7 @@ export default function AdminTransfersPage() {
   const { employee, branchId: sessionBranchId } = useSession();
 
   const [branches, setBranches] = useState<Branch[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
+  const [products, setProducts] = useCatalogProducts();
   const [list, setList] = useState<Transfer[]>([]);
   const [bucket, setBucket] = useState<"mine" | "overdue" | "active" | "issue" | "done" | "all">("active");
   const [detail, setDetail] = useState<Transfer | null>(null);
@@ -291,6 +294,8 @@ export default function AdminTransfersPage() {
   const meEmp = useMemo(() => employees.find((e) => e.id === employee?.id) || employees.find((e) => /\btiw\b/i.test(`${e.nickname ?? ""} ${e.first_name ?? ""}`)) || null, [employees, employee]);
   const actorEmp = (id?: string | null, kind: "requester" | "approver" | "source" | "dest" = "source", tr?: Transfer): Employee | null => {
     if (id) { const real = employees.find((e) => e.id === id); if (real) return real; } // id จริง → คนนั้น
+    // โหมดจริง: ไม่รู้ว่าใครทำ = ไม่แสดงชื่อ (ห้ามสุ่มคนในสาขามาแสดงเป็นผู้ทำ — ข้อมูลเท็จบนเอกสารจริง)
+    if (isLiveMode()) return null;
     if (!employees.length) return null;
     // เดโม่ (id ชั่วคราว): คนขอ/คนอนุมัติ = ฉัน (ทดลองเป็นคนทำ) · สแกนออก/ส่ง/รับ = คนในสาขาที่มีรูปโปรไฟล์จริง
     if ((kind === "requester" || kind === "approver") && meEmp) return meEmp;
@@ -645,7 +650,32 @@ export default function AdminTransfersPage() {
                 <div className="rounded-2xl border border-line divide-y divide-line/60 px-4">
                   <DetailRow label={t.transfer.from}>{detail.from_kind === "warehouse" ? "" : ""}{bName(detail.from_branch_id)}</DetailRow>
                   <DetailRow label={t.transfer.to}>{bName(detail.to_branch_id)}</DetailRow>
+                  {detail.ow_owned ? (
+                    <DetailRow label="OneWarehouse">
+                      <span className="inline-flex flex-wrap items-center gap-1.5">
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-md ${detail.sync_state === "synced" ? "bg-ok/12 text-ok" : detail.sync_state === "failed" ? "bg-danger/12 text-danger" : "bg-warn/12 text-warn"}`}>
+                          {detail.sync_state === "synced" ? "ซิงก์ JST แล้ว" : detail.sync_state === "failed" ? "ซิงก์ JST ล้มเหลว" : "รอซิงก์ JST"}
+                        </span>
+                        <span className="font-mono text-[11px]">{Object.values(detail.ow_state ?? {}).map((s) => `${s.orderNo} (${s.status})`).join(" · ") || "—"}</span>
+                      </span>
+                    </DetailRow>
+                  ) : null}
                   {detail.jst_allocation_no ? <DetailRow label="JST">{detail.jst_allocation_no}</DetailRow> : null}
+                  {detail.ow_owned && (detail.ow_link_state && detail.ow_link_state !== "ok" || detail.ow_error) ? (
+                    <div className="rounded-xl border border-warn/30 bg-warn/8 p-3 text-xs space-y-2">
+                      <p className="text-warn font-medium">
+                        {detail.ow_link_state === "checking" ? "กำลังตรวจสอบผลจาก OneWarehouse (อาจทำสำเร็จแล้ว) — โหลดสถานะล่าสุดก่อนกดซ้ำ"
+                          : detail.ow_link_state === "partially_created" ? "สร้างใบใน OneWarehouse ได้บางส่วน"
+                          : detail.ow_link_state === "recovery_required" ? "ต้องดำเนินการต่อให้ OneWarehouse ครบ"
+                          : "คำสั่งล่าสุดกับ OneWarehouse ไม่สำเร็จ"}
+                      </p>
+                      {detail.ow_error ? <p className="text-muted break-words">{detail.ow_error}</p> : null}
+                      <div className="flex gap-2">
+                        <button className="h-8 px-3 rounded-lg bg-brand text-brandInk text-xs font-medium" onClick={() => void act(() => owResume(detail), "ดำเนินการต่อแล้ว")}>ดำเนินการต่อเฉพาะส่วนที่ค้าง</button>
+                        <button className="h-8 px-3 rounded-lg border border-line text-xs" onClick={() => void act(() => owRefresh(detail), "โหลดสถานะล่าสุดแล้ว")}>โหลดสถานะล่าสุด</button>
+                      </div>
+                    </div>
+                  ) : null}
                   {detail.note ? <DetailRow label={t.common.note}>{detail.note}</DetailRow> : null}
                 </div>
                 {/* ขั้นตอน & ผู้รับผิดชอบ — แต่ละขั้นใครทำไปแล้ว (ชื่อ+เวลา) และขั้นถัดไปใครต้องกด */}
@@ -655,7 +685,9 @@ export default function AdminTransfersPage() {
                   const inset = (...xs: TransferStatus[]) => xs.includes(S);
                   const src = L(`ต้นทาง — ${bName(detail.from_branch_id)}`, `Source — ${bName(detail.from_branch_id)}`, `源店 — ${bName(detail.from_branch_id)}`);
                   const dst = L(`ปลายทาง — ${bName(detail.to_branch_id)}`, `Destination — ${bName(detail.to_branch_id)}`, `目的地 — ${bName(detail.to_branch_id)}`);
-                  const a = { out: actorAt(["packed", "shipped"]), disp: actorAt(["in_transit"]), recv: actorAt(["received", "completed", "partial_received"]) };
+                  // ผู้ทำแต่ละขั้น: ใช้ค่าที่บันทึกในใบก่อน (ใบ OneWarehouse เซิร์ฟเวอร์บันทึกเอง) แล้วค่อยดูประวัติในเครื่อง
+                  const pick = (by: string | null | undefined, at: string | null | undefined, statuses: string[]) => (by ? { by, at: at ?? null } : actorAt(statuses));
+                  const a = { out: pick(detail.packed_by, detail.packed_at, ["packed", "shipped"]), disp: pick(detail.shipped_by, detail.shipped_at, ["in_transit"]), recv: pick(detail.received_by, detail.received_at, ["received", "completed", "partial_received"]) };
                   type Step = { label: string; by: string | null; at: string | null; done: boolean; current: boolean; resp: string; kind: "requester" | "approver" | "source" | "dest" };
                   const steps: Step[] = [
                     { label: L("สร้างคำขอ", "Created", "创建"), by: detail.requested_by ?? null, at: detail.created_at, done: true, current: false, resp: "", kind: "requester" },

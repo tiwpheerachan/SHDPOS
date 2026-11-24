@@ -9,7 +9,7 @@ import { listBranches, listEmployees, getTerminalForBranch, writeAudit, currentS
 import type { Branch, Employee } from "@/lib/types";
 import { Button, Card, Numpad, Modal } from "@/components/ui";
 import { ROLE_LABEL, visibleBranchIds } from "@/lib/permissions";
-import { isLiveMode, supabase } from "@/lib/supabase/client";
+import { isLiveMode } from "@/lib/supabase/client";
 import { useToast } from "@/components/toast-host";
 import { useCentral } from "@/lib/sso/use-central";
 import { buildSsoEmployee } from "@/lib/sso/map-employee";
@@ -141,9 +141,14 @@ export default function PosLoginPage() {
     try {
       let matches: Employee[] = [];
       if (isLiveMode()) {
-        const sb = supabase();
-        const { data } = await sb!.rpc("pos_login_by_pin", { p_branch_id: null, p_pin: pin });
-        matches = ((data as any[]) ?? []).map((p) => profileToEmployee(p));
+        const response = await fetch("/api/auth/pin", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pin }),
+        });
+        if (response.status >= 500) throw new Error("login_unavailable");
+        if (!response.ok) { wrongPin(); return; }
+        const data = await response.json();
+        matches = (data.matches ?? []).map((p: unknown) => profileToEmployee(p));
       } else {
         // โหมดสาธิต: PIN 1234 ใช้ได้กับพนักงาน active ทุกคน (เลือกสาขาทีหลัง)
         matches = pin === "1234" ? employees.filter((e) => e.status === "active") : [];
@@ -151,12 +156,29 @@ export default function PosLoginPage() {
       if (matches.length === 0) { wrongPin(); return; }
       if (matches.length === 1) { await finishLogin(matches[0]); return; }
       setPinMatches(matches); // PIN ซ้ำหลายคน → เลือกชื่อ
+    } catch {
+      toast.push({ tone: "danger", title: L("เชื่อมต่อระบบเข้าสู่ระบบไม่ได้ กรุณาลองอีกครั้ง", "Unable to sign in. Please retry.", "无法登录，请重试") });
     } finally {
       setPinBusy(false);
     }
   }
 
   async function finishLogin(emp: Employee) {
+    if (isLiveMode()) {
+      try {
+        const response = await fetch("/api/auth/pin", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pin, employee_id: emp.id }),
+        });
+        if (response.status >= 500) throw new Error("login_unavailable");
+        if (!response.ok) { wrongPin(); setPinMatches(null); return; }
+        const data = await response.json();
+        emp = { ...profileToEmployee(data.employee), permission_overrides: data.authz.permission_overrides };
+      } catch {
+        toast.push({ tone: "danger", title: L("สร้าง session ไม่สำเร็จ กรุณาลองอีกครั้ง", "Unable to create session. Please retry.", "无法创建会话，请重试") });
+        return;
+      }
+    }
     // ไม่บังคับเลือกสาขาตอน login — เลือกให้เฉพาะคนสาขาเดียว, ที่เหลือไปเลือกในหน้า POS
     const bid = pickLoginBranch(emp);
     const terminal = bid ? await getTerminalForBranch(bid) : null;
@@ -267,9 +289,8 @@ export default function PosLoginPage() {
               </Button>
               <button
                 onClick={() => {
-                  const wasSso = session.employee?.id?.startsWith("sso:");
                   session.logout();
-                  if (wasSso) window.location.href = "/sso/logout";
+                  window.location.href = "/sso/logout";
                 }}
                 className="mt-3 inline-flex items-center gap-1.5 text-xs text-muted hover:text-danger"
               >

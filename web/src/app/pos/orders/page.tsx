@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { OwSaleBadge, useOwSaleStatus } from "@/components/pos/ow-sale-badge";
 import { ReceiptText, Printer, Ban, Search, Wallet, Download } from "lucide-react";
 import { exportCsv, stampFilename } from "@/lib/export";
 import { useI18n } from "@/lib/i18n/provider";
@@ -39,6 +40,8 @@ export default function PosOrdersPage() {
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<Order | null>(null);
+  // สถานะบิลในคลังกลาง/JST (ดึงเป็นชุดตามบิลที่แสดง)
+  const owStatus = useOwSaleStatus(orders.map((o) => o.client_uuid));
   const [voidTarget, setVoidTarget] = useState<Order | null>(null);
   const [voidReason, setVoidReason] = useState("");
   const [approvalReq, setApprovalReq] = useState<ApprovalRequestInput | null>(null);
@@ -195,6 +198,7 @@ export default function PosOrdersPage() {
                 <Th align="center">{t.common.qty}</Th>
                 <Th align="right">{t.common.total}</Th>
                 <Th align="center">{t.common.status}</Th>
+                <Th align="center">{L("คลังกลาง / JST", "OneWarehouse / JST", "中央仓 / JST")}</Th>
                 <Th align="right">{t.common.action}</Th>
               </tr>
             </thead>
@@ -223,6 +227,7 @@ export default function PosOrdersPage() {
                       <Badge tone="ok">{t.orders.completed}</Badge>
                     )}
                   </Td>
+                  <Td align="center"><OwSaleBadge status={o.client_uuid ? owStatus[o.client_uuid] : null} /></Td>
                   <Td align="right">
                     <div className="flex gap-1 justify-end">
                       <button

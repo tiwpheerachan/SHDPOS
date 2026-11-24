@@ -61,6 +61,8 @@ export interface CentralEffective {
 
 /** โปรไฟล์ที่เก็บใน session cookie (เบา ๆ ไม่เก็บ PII เกินจำเป็น) */
 export interface SsoSessionProfile {
+  /** Server-verified PIN identity; stored only inside the signed session. */
+  pin_employee_id?: string;
   email: string;
   union_id: string;
   name: string;

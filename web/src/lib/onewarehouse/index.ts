@@ -1,20 +1,11 @@
 // =====================================================================
-// OneWarehouse adapter — จุดเดียวที่ UI เรียก (ตอนนี้หลังบ้าน = local engine/Dexie)
+// OneWarehouse adapter — จุดเดียวที่ UI เรียก (ใบที่ผูกคลัง OW = REST จริงผ่าน live.ts · ที่เหลือ = local engine/Dexie)
 //   สลับเป็น REST จริงได้ภายหลังโดยไม่กระทบ UI (เช็ค isOneWarehouseLive())
 // =====================================================================
 export {
-  listTransfersForBranch as owList,
-  listAllTransfers as owListAll,
   getTransfer as owGet,
   listTransferTimeline as owTimeline,
-  createTransfer as owCreate,
-  approveTransfer as owApprove,
-  rejectTransfer as owReject,
   createReverseTransfer as owReverse,
-  scanOutTransfer as owScanOut,
-  dispatchTransfer as owDispatch,
-  receiveTransfer as owReceive,
-  closeTransferShort as owCloseShort,
   recordDiscrepancy as owRecordDisc,
   requestResolveDiscrepancy as owRequestResolveDisc,
   resolveDiscrepancy as owResolveDisc,
@@ -33,6 +24,9 @@ export {
   reserveStock as owReserve,
   setTransferAttachments as owSetAttachments,
 } from "@/lib/data/repo";
+
+// โหมดตัวจริง: ใบที่ต้นทาง/ปลายทางผูกคลัง OW → ยิง OW ก่อน · ไม่ผูก → เครื่องยนต์ในเครื่องเหมือนเดิม
+export { owList, owListAll, owCreate, owApprove, owReject, owScanOut, owDispatch, owReceive, owCloseShort, owPull, owLinks, owIsLivePair, owResume, owRefresh } from "./live";
 
 export * from "./reconcile";
 export * from "./status";

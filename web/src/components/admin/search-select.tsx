@@ -33,8 +33,11 @@ export function SearchSelect({
   useEffect(() => {
     if (!open) return;
     const onDoc = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    // Esc ขณะเปิดรายการ = ปิดแค่รายการ (ไม่ให้ Drawer/Modal ที่ครอบอยู่ปิดทั้งฟอร์มจนข้อมูลที่กรอกหาย)
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { e.preventDefault(); e.stopImmediatePropagation(); setOpen(false); } };
     document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey, true);
+    return () => { document.removeEventListener("mousedown", onDoc); document.removeEventListener("keydown", onKey, true); };
   }, [open]);
 
   const sel = new Set(selected);

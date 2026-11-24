@@ -9,6 +9,7 @@ import {
   LayoutDashboard, TrendingUp, Users, Package, Boxes, ArrowLeftRight, ScanLine,
   ShieldCheck, ScrollText, Settings2, Store, Sun, Moon, Languages, Menu, X, Bell,
   Search, PanelLeftClose, PanelLeftOpen, ChevronDown, Command, Home, Activity, FileText, LogOut, Contact, CalendarClock, Ticket, Network, Landmark, Wand2, CreditCard, MonitorPlay, Cloud,
+  BadgePercent,
 } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { useTheme } from "@/lib/theme";
@@ -21,16 +22,19 @@ import { Avatar, LiveDot } from "@/components/ui";
 import { Clock } from "@/components/clock";
 import { ScopeTopbar } from "@/components/admin/scope-topbar";
 import { WorkspaceTabs } from "@/components/admin/workspace-tabs";
+import { WorkNotifications } from "@/components/work/notifications";
 import { BrandReveal } from "@/components/brand-reveal";
 
-type NavItem = { href: string; icon: typeof LayoutDashboard; key: string; perm?: PermissionKey };
+// ทุกเมนูต้องมี perm (กฎ: ทุกฟีเจอร์ต้องติ๊กสิทธิ์ได้ในหน้า ผู้ใช้ & สิทธิ์) — ดู scripts/check-permissions.cjs
+type NavItem = { href: string; icon: typeof LayoutDashboard; key: string; perm: PermissionKey };
 type NavGroup = { section: string; items: NavItem[] };
 
 const NAV: NavGroup[] = [
   {
     section: "overview",
     items: [
-      { href: "/admin", icon: LayoutDashboard, key: "dashboard" },
+      { href: "/admin", icon: LayoutDashboard, key: "dashboard", perm: "dashboard.view" },
+      { href: "/admin/work", icon: CalendarClock, key: "work", perm: "work.view" },
       { href: "/admin/insights", icon: Wand2, key: "insights", perm: "report.employee_perf" },
       { href: "/admin/finance", icon: Landmark, key: "finance", perm: "finance.view" },
       { href: "/admin/payments", icon: CreditCard, key: "payments", perm: "finance.view" },
@@ -39,11 +43,11 @@ const NAV: NavGroup[] = [
   {
     section: "sales",
     items: [
-      { href: "/admin/sales", icon: TrendingUp, key: "sales" },
-      { href: "/admin/customers", icon: Contact, key: "customers" },
-      { href: "/admin/tasks", icon: CalendarClock, key: "tasks" },
-      { href: "/admin/campaigns", icon: Ticket, key: "campaigns" },
-      { href: "/admin/display", icon: MonitorPlay, key: "display" },
+      { href: "/admin/sales", icon: TrendingUp, key: "sales", perm: "sales.view" },
+      { href: "/admin/discounts", icon: BadgePercent, key: "discounts", perm: "report.discount" },
+      { href: "/admin/customers", icon: Contact, key: "customers", perm: "customer.manage" },
+      { href: "/admin/campaigns", icon: Ticket, key: "campaigns", perm: "campaign.manage" },
+      { href: "/admin/display", icon: MonitorPlay, key: "display", perm: "display.manage" },
       { href: "/admin/employees", icon: Users, key: "employees", perm: "report.employee_perf" },
       { href: "/admin/org", icon: Network, key: "org", perm: "admin.employee_manage" },
     ],
@@ -52,26 +56,27 @@ const NAV: NavGroup[] = [
     section: "operations",
     items: [
       { href: "/admin/inventory", icon: Boxes, key: "inventory", perm: "inventory.view" },
-      { href: "/admin/movement", icon: Activity, key: "movement" },
+      { href: "/admin/movement", icon: Activity, key: "movement", perm: "inventory.view" },
       { href: "/admin/transfers", icon: ArrowLeftRight, key: "transfers", perm: "transfer.request" },
       { href: "/admin/serials", icon: ScanLine, key: "serials", perm: "inventory.view" },
-      { href: "/admin/products", icon: Package, key: "products" },
-      { href: "/admin/onewarehouse", icon: Cloud, key: "onewarehouse" },
-      { href: "/admin/catalog-sync", icon: Cloud, key: "catalogsync", perm: "admin.product_manage" },
+      { href: "/admin/products", icon: Package, key: "products", perm: "product.view" },
+      { href: "/admin/deferred-sales", icon: FileText, key: "deferredsales", perm: "deferred_sale.manage" },
     ],
   },
   {
     section: "documents",
     items: [
-      { href: "/admin/documents", icon: FileText, key: "documents" },
+      { href: "/admin/documents", icon: FileText, key: "documents", perm: "document.view" },
     ],
   },
   {
     section: "control",
     items: [
-      { href: "/admin/approvals", icon: ShieldCheck, key: "approvals" },
-      { href: "/admin/permissions", icon: Users, key: "permissions", perm: "admin.employee_manage" },
-      { href: "/admin/activity", icon: ScrollText, key: "activity" },
+      { href: "/admin/onewarehouse", icon: Cloud, key: "onewarehouse", perm: "integration.manage" },
+      { href: "/admin/catalog-sync", icon: Cloud, key: "catalogsync", perm: "integration.manage" },
+      { href: "/admin/approvals", icon: ShieldCheck, key: "approvals", perm: "approval.view" },
+      { href: "/admin/permissions", icon: Users, key: "permissions", perm: "admin.permission_manage" },
+      { href: "/admin/activity", icon: ScrollText, key: "activity", perm: "audit.view" },
       { href: "/admin/audit", icon: ScrollText, key: "audit", perm: "audit.view" },
     ],
   },
@@ -168,8 +173,11 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
     permissions: L("ผู้ใช้", "Users", "用户"),
     customers: L("ลูกค้า", "Customers", "客户"),
     stores: L("ร้าน", "Stores", "店铺"),
+    work: L("งานของฉัน", "My work", "我的任务"),
+    deferredsales: L("บิลรอปิด", "Pending bills", "待结账"),
     tasks: L("ติดตามลูกค้า", "Follow-ups", "跟进任务"),
     campaigns: L("แคมเปญ", "Campaigns", "活动"),
+    discounts: L("ประวัติส่วนลด", "Discount history", "折扣明细"),
     display: L("จอลูกค้า", "Customer display", "客显"),
     coupons: L("คูปอง", "Coupons", "优惠券"),
     branches: L("สาขา", "Branches", "门店"),
@@ -238,7 +246,11 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
           </button>
         </div>
 
-        <nav className="flex-1 overflow-y-auto px-3 pb-3 space-y-4">
+        <nav
+          className={clsx("flex-1 overflow-y-auto px-3 pb-3 space-y-4", collapsed && "lg:cursor-e-resize")}
+          onClick={(e) => { if (collapsed && !(e.target as HTMLElement).closest("a,button")) { setCollapsed(false); try { localStorage.setItem(COLLAPSE_KEY, "0"); } catch { /* ignore */ } } }}
+          title={collapsed ? L("คลิกที่ว่างเพื่อกางเมนู", "Click to expand menu", "点击展开") : undefined}
+        >
           {groups.map((g) => (
             <div key={g.section}>
               {!collapsed && <p className="eyebrow px-2.5 mb-1.5">{sectionLabel[g.section]}</p>}
@@ -365,10 +377,11 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
                 <Home size={17} />
               </Link>
 
+              <WorkNotifications admin/>
               <div className="relative">
-                <button onClick={() => setNotifOpen((v) => !v)} className="relative p-2 rounded-xl hover:bg-surface2 text-muted" aria-label="notifications" title={L("การแจ้งเตือน", "Notifications", "通知")}>
+                <button onClick={() => setNotifOpen((v) => !v)} className="relative p-2 rounded-xl hover:bg-surface2 text-muted" aria-label="แจ้งเตือนการโอนย้าย" title={L("แจ้งเตือนการโอนย้าย", "Transfer notifications", "调拨通知")}>
                   <motion.span animate={queueCount > 0 && !notifOpen ? { rotate: [0, -12, 12, -8, 8, 0] } : {}} transition={{ duration: 0.6, repeat: queueCount > 0 && !notifOpen ? Infinity : 0, repeatDelay: 2.5 }} style={{ display: "inline-block", transformOrigin: "50% 10%" }}>
-                    <Bell size={17} />
+                    <ArrowLeftRight size={17} />
                   </motion.span>
                   {queueCount > 0 ? (
                     <span className="absolute -top-0.5 -right-0.5 inline-flex items-center justify-center">
@@ -430,10 +443,8 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
                   </div>
                   <button
                     onClick={() => {
-                      const wasSso = employee?.id?.startsWith("sso:");
                       logout();
-                      if (wasSso) window.location.href = "/sso/logout";
-                      else router.push("/pos");
+                      window.location.href = "/sso/logout";
                     }}
                     className="p-2 rounded-xl hover:bg-surface2 text-muted hover:text-danger transition-colors"
                     title={t.common.logout}

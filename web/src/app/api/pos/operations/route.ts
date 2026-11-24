@@ -8,6 +8,9 @@ import {
 } from "@/lib/server/pos-context";
 import { object, UUID } from "@/lib/server/sale-validation";
 import { OPERATION_POLICY } from "@/lib/server/operations-policy";
+import { legacyUuid } from "@/lib/server/legacy-ids";
+import { SSO_COOKIE, readSession } from "@/lib/sso/session-cookie";
+import { resolveAuthz } from "@/lib/sso/grants";
 export const runtime = "nodejs";
 export async function POST(req: NextRequest) {
   try {
@@ -15,6 +18,9 @@ export async function POST(req: NextRequest) {
     const b = object(await req.json()),
       p = object(b.payload),
       sb = supabaseAdmin();
+    // รหัสกะจากเครื่องรุ่นเก่าเป็น nanoid → แปลงเป็น UUID คงที่ (คอลัมน์ shifts.id เป็น uuid)
+    if (b.op === "open_shift") p.id = legacyUuid("shift", p.id);
+    if (b.op === "close_shift") p.shift_id = legacyUuid("shift", p.shift_id);
     if (b.op === "create_order") {
       const ctx = await posContext(req, "pos.sell", p.branch_id);
       const { data: hold } = await sb
@@ -59,6 +65,18 @@ export async function POST(req: NextRequest) {
       if (!s) throw new PosError("ยังไม่พบกะกลาง", 409);
       branch = s.branch_id;
       shiftOwner = s.opened_by;
+    }
+    // ประวัติเข้า/ออกระบบเกิดก่อนเลือกสาขา → รับแบบไม่มีสาขา (เดิมถูกปฏิเสธถาวรแต่เครื่องลองซ้ำไม่หยุด)
+    //   ยังตรวจเซสชันจริง + บังคับผู้ทำ = ผู้ใช้ปัจจุบัน (ไม่เชื่อค่าจากเครื่อง)
+    if (b.op === "audit" && !branch && ["login", "logout"].includes(String(p.action))) {
+      const profile = readSession(req.cookies.get(SSO_COOKIE)?.value);
+      if (!profile) throw new PosError("กรุณาเข้าสู่ระบบ", 401);
+      const authz = await resolveAuthz(profile);
+      if (!authz.allowed || !authz.employee_id) throw new PosError("ไม่มีสิทธิ์", 403);
+      if (typeof b.client_uuid !== "string" || !b.client_uuid || b.client_uuid.length > 150) throw new PosError("ไม่พบรหัสคำสั่งบันทึกประวัติ");
+      const r = await sb.rpc("pos_sync_audit_once", { p_id: b.client_uuid, p_payload: { ...p, actor_id: authz.employee_id, branch_id: null, terminal_id: null } });
+      if (r.error) throw new PosError("ส่งข้อมูลไม่สำเร็จ กรุณาตรวจสอบหรือส่งใหม่", 409);
+      return NextResponse.json({ data: null });
     }
     if (!UUID.test(branch))
       throw new PosError("ไม่พบสาขาของรายการ กรุณาตรวจสอบก่อนส่งใหม่", 409);

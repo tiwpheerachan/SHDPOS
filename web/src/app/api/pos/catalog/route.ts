@@ -47,7 +47,7 @@ export async function GET(req: NextRequest) {
         const { product_barcodes, ...product } = p;
         return {
           ...product,
-          ...(!cost ? { cost: 0 } : {}),
+          ...(!cost ? { cost: 0, review_note: null } : {}),
           barcodes: product_barcodes.map((b: { barcode: string }) => b.barcode),
         };
       }),

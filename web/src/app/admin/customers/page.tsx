@@ -17,6 +17,8 @@ import { useScopeFilter } from "@/lib/store/scope-filter";
 import type { Branch } from "@/lib/types";
 import { Drawer, EmptyState, Modal, Table, Th, Td, Avatar } from "@/components/ui";
 import { ExportShareBar } from "@/components/admin/export-share";
+import { CustomerDashboard } from "@/components/admin/customer-dashboard";
+import { CustomerFollowups } from "@/components/admin/customer-followups";
 import { formatTHB } from "@/lib/money";
 import { useI18n } from "@/lib/i18n/provider";
 
@@ -344,109 +346,164 @@ export default function AdminCustomersPage() {
     return () => { alive = false; };
   }, [openId, loadDetail]);
 
-  const filtered = useMemo(
-    () => (seg === "all" ? rows : rows.filter((r) => r.segment === seg)),
-    [rows, seg]
-  );
+  const [tab, setTab] = useState<"dashboard" | "list" | "followup">("dashboard");
+  // อ่าน ?tab= หลัง mount (กัน hydration mismatch) — /admin/tasks เดิม redirect มาที่ ?tab=followup
+  useEffect(() => {
+    const t = new URLSearchParams(window.location.search).get("tab");
+    if (t === "list" || t === "followup") setTab(t);
+  }, []);
+  const [sortBy, setSortBy] = useState<"spend" | "recent" | "orders" | "points" | "name">("spend");
+  const [recency, setRecency] = useState<"all" | "30" | "90" | "stale" | "never">("all");
+  const [fuCounts, setFuCounts] = useState({ open: 0, overdue: 0 });
+  const filtered = useMemo(() => {
+    const list = rows.filter((r) => {
+      if (seg !== "all" && r.segment !== seg) return false;
+      const d = r.recencyDays;
+      if (recency === "30" && !(d !== null && d <= 30)) return false;
+      if (recency === "90" && !(d !== null && d <= 90)) return false;
+      if (recency === "stale" && !(d !== null && d > 180)) return false;
+      if (recency === "never" && d !== null) return false;
+      return true;
+    });
+    return [...list].sort((a, b) =>
+      sortBy === "name" ? a.name.localeCompare(b.name, "th")
+        : sortBy === "recent" ? (a.recencyDays ?? 1e9) - (b.recencyDays ?? 1e9)
+          : sortBy === "orders" ? b.orders - a.orders
+            : sortBy === "points" ? b.points - a.points
+              : b.spend - a.spend);
+  }, [rows, seg, recency, sortBy]);
 
-  const kpi = useMemo(() => {
-    const total = rows.length;
-    const vip = rows.filter((r) => r.segment === "vip").length;
-    const lost = rows.filter((r) => r.segment === "lost").length;
-    const spend = rows.reduce((s, r) => s + r.spend, 0);
-    return { total, vip, lost, spend };
-  }, [rows]);
+
+  const segCount = (k: "all" | Segment) => (k === "all" ? rows.length : rows.filter((r) => r.segment === k).length);
+  const goTab = (t: "dashboard" | "list" | "followup") => {
+    setTab(t);
+    const u = new URL(window.location.href); u.searchParams.set("tab", t); window.history.replaceState(null, "", u.toString());
+  };
 
   return (
-    <div className="p-4 sm:p-6 space-y-5 w-full">
-      {/* หัว + KPI */}
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-bold flex items-center gap-2"><Contact size={22} /> {L("ลูกค้า", "Customers", "客户")}</h1>
-          <p className="text-sm text-muted mt-0.5">{L("ฐานข้อมูลลูกค้า + ประวัติการซื้อรวมทุกสาขา", "Customer database + purchase history across all branches", "客户数据库 + 全门店购买记录")}</p>
+    <div className="p-4 sm:p-6 space-y-4 w-full">
+      {/* ── หัวเรื่อง + แท็บย่อย + ปุ่ม (แถวเดียว) ── */}
+      <header className="flex flex-wrap items-center gap-x-4 gap-y-2.5">
+        <div className="min-w-0">
+          <h1 className="text-xl font-semibold flex items-center gap-2"><Contact size={19} className="text-muted" /> {L("ลูกค้า", "Customers", "客户")}</h1>
+          <p className="text-xs text-muted mt-0.5">{L("ฐานข้อมูลลูกค้า + ประวัติการซื้อรวมทุกสาขา + งานติดตาม", "Customer database, cross-branch history and follow-ups", "客户数据库与跟进")}</p>
         </div>
-        <div className="flex gap-2 items-stretch">
-          <ExportShareBar<Row>
-            filename="customers"
-            title={L("ฐานข้อมูลลูกค้า", "Customers", "客户")}
-            rows={filtered}
-            columns={[
-              { key: "name", label: L("ชื่อ", "Name", "姓名") },
-              { key: "phone", label: L("เบอร์โทร", "Phone", "电话") },
-              { key: "email", label: L("อีเมล", "Email", "邮箱") },
-              { key: "member_code", label: L("รหัสสมาชิก", "Member", "会员码") },
-              { key: "tier", label: L("ระดับ", "Tier", "等级") },
-              { key: "segment", label: L("กลุ่ม", "Segment", "分组") },
-              { key: "orders", label: L("จำนวนออเดอร์", "Orders", "订单数") },
-              { key: "spend", label: L("ยอดซื้อสะสม", "Total spend", "累计消费"), map: (r) => r.spend.toLocaleString("th-TH", { maximumFractionDigits: 0 }) },
-              { key: "last", label: L("ซื้อล่าสุด", "Last order", "最近购买"), map: (r) => r.last ?? "-" },
-            ]}
-          />
-          <button onClick={() => setCreateOpen(true)} className="h-full px-4 rounded-2xl bg-brand text-brandInk text-sm font-bold inline-flex items-center gap-2 self-stretch">
-            <UserPlus size={16} /> {L("ลูกค้าใหม่", "New customer", "新客户")}
-          </button>
-          <Kpi label={L("ลูกค้าทั้งหมด", "All customers", "全部客户")} value={String(kpi.total)} icon={<Contact size={15} />} />
-          <Kpi label="VIP" value={String(kpi.vip)} icon={<Star size={15} />} />
-          <Kpi label={L("หายไป", "Lost", "流失")} value={String(kpi.lost)} icon={<Clock size={15} />} />
+        <div className="flex rounded-2xl bg-surface/65 border border-line/70 p-1 gap-0.5 overflow-x-auto max-w-full">
+          {([
+            ["dashboard", TrendingUp, L("ภาพรวม", "Overview", "概览")],
+            ["list", Contact, L("รายชื่อลูกค้า", "Customers", "客户列表")],
+            ["followup", CalendarClock, L("ติดตามลูกค้า", "Follow-ups", "客户跟进")],
+          ] as const).map(([v, Icon, label]) => (
+            <button key={v} onClick={() => goTab(v)}
+              className={`h-8 px-3 rounded-xl text-xs inline-flex items-center gap-1.5 whitespace-nowrap transition ${tab === v ? "bg-brand text-brandInk shadow-sm" : "text-muted hover:bg-surface"}`}>
+              <Icon size={13} />{label}
+              {v === "list" ? <span className={`min-w-[18px] h-[18px] px-1 rounded-full text-[10px] grid place-items-center ${tab === v ? "bg-white/20" : "bg-surface2"}`}>{rows.length}</span> : null}
+              {v === "followup" && fuCounts.overdue ? <span className="min-w-[18px] h-[18px] px-1 rounded-full text-[10px] grid place-items-center bg-danger text-white">{fuCounts.overdue}</span> : null}
+            </button>
+          ))}
         </div>
-      </div>
+        <div className="flex items-center gap-2 ml-auto">
+          {tab === "list" ? (
+            <ExportShareBar<Row>
+              filename="customers"
+              title={L("ฐานข้อมูลลูกค้า", "Customers", "客户")}
+              rows={filtered}
+              columns={[
+                { key: "name", label: L("ชื่อ", "Name", "姓名") },
+                { key: "phone", label: L("เบอร์โทร", "Phone", "电话") },
+                { key: "email", label: L("อีเมล", "Email", "邮箱") },
+                { key: "member_code", label: L("รหัสสมาชิก", "Member", "会员码") },
+                { key: "tier", label: L("ระดับ", "Tier", "等级") },
+                { key: "segment", label: L("กลุ่ม", "Segment", "分组") },
+                { key: "orders", label: L("จำนวนออเดอร์", "Orders", "订单数") },
+                { key: "spend", label: L("ยอดซื้อสะสม", "Total spend", "累计消费"), map: (r) => r.spend.toLocaleString("th-TH", { maximumFractionDigits: 0 }) },
+                { key: "last", label: L("ซื้อล่าสุด", "Last order", "最近购买"), map: (r) => r.last ?? "-" },
+              ]}
+            />
+          ) : null}
+          {tab !== "followup" ? (
+            <button onClick={() => setCreateOpen(true)} className="h-9 px-4 rounded-xl bg-brand text-brandInk text-sm font-semibold inline-flex items-center gap-2">
+              <UserPlus size={15} /> {L("ลูกค้าใหม่", "New customer", "新客户")}
+            </button>
+          ) : null}
+        </div>
+      </header>
 
-      {/* ค้นหา + ตรวจซ้ำ */}
-      <div className="flex gap-2">
-        <div className="relative flex-1">
-          <Search size={17} className="absolute left-3.5 top-3 text-muted pointer-events-none" />
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder={L("ค้นหาชื่อ เบอร์โทร อีเมล หรือรหัสสมาชิก…", "Search name, phone, email or member code…", "搜索姓名、电话、邮箱或会员码…")}
-            className="w-full h-11 pl-11 pr-4 rounded-2xl bg-surface2/70 border border-line focus:border-brand/40 focus:bg-surface outline-none text-sm transition-colors"
-          />
-        </div>
-        <button
-          onClick={() => void openDupes()}
-          className="h-11 px-4 rounded-2xl border border-line bg-surface hover:bg-surface2 text-sm font-semibold inline-flex items-center gap-2 shrink-0"
-        >
-          <Combine size={16} /> <span className="hidden sm:inline">{L("ตรวจลูกค้าซ้ำ", "Check duplicates", "检查重复客户")}</span>
-        </button>
-        <button
-          onClick={() => void runExpire()} disabled={expiring}
-          title={L("หักแต้มที่หมดอายุทั้งระบบ", "Deduct expired points system-wide", "全系统扣除过期积分")}
-          className="h-11 px-4 rounded-2xl border border-line bg-surface hover:bg-surface2 text-sm font-semibold inline-flex items-center gap-2 shrink-0 disabled:opacity-50"
-        >
-          {expiring ? <Loader2 size={16} className="animate-spin" /> : <Clock size={16} />} <span className="hidden sm:inline">{L("ตัดแต้มหมดอายุ", "Expire points", "清理过期积分")}</span>
-        </button>
-      </div>
-
-      {/* ตัวกรองกลุ่ม */}
-      <div className="flex flex-wrap gap-2">
-        {FILTERS.map((f) => (
-          <button
-            key={f.v}
-            onClick={() => setSeg(f.v)}
-            className={`px-3.5 h-8 rounded-full text-xs font-semibold transition-colors ${
-              seg === f.v ? "bg-brand text-brandInk" : "bg-surface2 text-muted hover:text-ink"
-            }`}
-          >
-            {L(f.th, f.en, f.zh)}
+      {tab === "dashboard" ? (
+        <CustomerDashboard
+          rows={rows} loading={loading} L={L}
+          onSegment={(k) => { setSeg(k); goTab("list"); }}
+          onOpen={(id) => setOpenId(id)}
+          onFollowups={() => goTab("followup")}
+        />
+      ) : tab === "followup" ? (
+        <CustomerFollowups onCounts={setFuCounts} />
+      ) : (
+      <>
+      {/* ── ตัวกรองรายชื่อ ── */}
+      <section className="rounded-2xl border border-line/70 bg-surface p-3 space-y-2.5">
+        <div className="flex flex-wrap gap-2">
+          <div className="relative flex-1 min-w-[220px]">
+            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder={L("ค้นหาชื่อ เบอร์โทร อีเมล หรือรหัสสมาชิก…", "Search name, phone, email or member code…", "搜索姓名、电话、邮箱或会员码…")}
+              className="w-full h-9 pl-9 pr-3 rounded-xl bg-surface2/70 border border-line focus:border-brand/40 outline-none text-sm"
+            />
+          </div>
+          <select aria-label={L("เรียง", "Sort", "排序")} value={sortBy} onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
+            className="h-9 px-2.5 rounded-xl border border-line bg-surface2/70 text-xs text-muted outline-none">
+            <option value="spend">{L("เรียง: ยอดซื้อมากสุด", "Sort: top spend", "按消费")}</option>
+            <option value="recent">{L("เรียง: ซื้อล่าสุด", "Sort: most recent", "按最近")}</option>
+            <option value="orders">{L("เรียง: บิลมากสุด", "Sort: most bills", "按单数")}</option>
+            <option value="points">{L("เรียง: แต้มมากสุด", "Sort: most points", "按积分")}</option>
+            <option value="name">{L("เรียง: ชื่อ ก-ฮ", "Sort: name", "按姓名")}</option>
+          </select>
+          <select aria-label={L("ช่วงซื้อล่าสุด", "Recency", "最近购买")} value={recency} onChange={(e) => setRecency(e.target.value as typeof recency)}
+            className={`h-9 px-2.5 rounded-xl border text-xs outline-none ${recency !== "all" ? "border-brand/40 bg-brand/5 text-ink" : "border-line bg-surface2/70 text-muted"}`}>
+            <option value="all">{L("ซื้อล่าสุด: ทุกช่วง", "Any recency", "全部")}</option>
+            <option value="30">{L("ภายใน 30 วัน", "Within 30 days", "30天内")}</option>
+            <option value="90">{L("ภายใน 90 วัน", "Within 90 days", "90天内")}</option>
+            <option value="stale">{L("เกิน 180 วัน", "Over 180 days", "超过180天")}</option>
+            <option value="never">{L("ยังไม่เคยซื้อ", "Never purchased", "未购买")}</option>
+          </select>
+          <button onClick={() => void openDupes()} className="h-9 px-3 rounded-xl border border-line bg-surface hover:bg-surface2 text-xs font-medium inline-flex items-center gap-1.5">
+            <Combine size={14} /> {L("ตรวจลูกค้าซ้ำ", "Check duplicates", "检查重复")}
           </button>
-        ))}
-      </div>
+          <button onClick={() => void runExpire()} disabled={expiring} title={L("หักแต้มที่หมดอายุทั้งระบบ", "Deduct expired points system-wide", "清理过期积分")}
+            className="h-9 px-3 rounded-xl border border-line bg-surface hover:bg-surface2 text-xs font-medium inline-flex items-center gap-1.5 disabled:opacity-50">
+            {expiring ? <Loader2 size={14} className="animate-spin" /> : <Clock size={14} />} {L("ตัดแต้มหมดอายุ", "Expire points", "清理过期积分")}
+          </button>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {FILTERS.map((f) => (
+            <button key={f.v} onClick={() => setSeg(f.v)}
+              className={`h-7 px-3 rounded-full text-[11px] font-medium inline-flex items-center gap-1.5 transition-colors ${seg === f.v ? "bg-brand text-brandInk" : "bg-surface2/80 text-muted hover:text-ink"}`}>
+              {L(f.th, f.en, f.zh)}<span className="tnum opacity-70">{segCount(f.v)}</span>
+            </button>
+          ))}
+          <span className="ml-auto text-[11px] text-muted">
+            {L(`แสดง ${filtered.length} จาก ${rows.length} ราย`, `${filtered.length} of ${rows.length}`, `${filtered.length}/${rows.length}`)}
+            {q || seg !== "all" || recency !== "all" ? <button onClick={() => { setQ(""); setSeg("all"); setRecency("all"); }} className="ml-2 text-brand hover:underline">{L("ล้างตัวกรอง", "Clear", "清除")}</button> : null}
+          </span>
+        </div>
+      </section>
 
       {/* รายชื่อ (ตาราง) */}
       {loading ? (
-        <div className="py-20 text-center text-muted"><Loader2 className="inline animate-spin" size={20} /> {L("กำลังโหลด…", "Loading…", "加载中…")}</div>
+        <div className="rounded-2xl border border-line/70 bg-surface p-4 space-y-2">{Array.from({ length: 6 }, (_, i) => <div key={i} className="h-12 rounded-xl bg-surface2/60 animate-pulse" />)}</div>
       ) : filtered.length === 0 ? (
-        q.trim() || seg !== "all" ? (
+        q.trim() || seg !== "all" || recency !== "all" ? (
           <div className="flex flex-col items-center">
-            <EmptyState icon={<Search size={26} />} title={L("ไม่พบผลลัพธ์", "No results", "无结果")} body={L("ลองเปลี่ยนคำค้นหรือกลุ่มลูกค้า", "Try a different search or customer segment", "请尝试更换搜索词或客户分组")} />
-            <button onClick={() => { setQ(""); setSeg("all"); }} className="-mt-6 text-sm text-brand font-semibold hover:underline">{L("ล้างตัวกรอง", "Clear filters", "清除筛选")}</button>
+            <EmptyState icon={<Search size={26} />} title={L("ไม่พบผลลัพธ์", "No results", "无结果")} body={L("ลองเปลี่ยนคำค้นหรือตัวกรอง", "Try a different search or filter", "请更换搜索或筛选")} />
+            <button onClick={() => { setQ(""); setSeg("all"); setRecency("all"); }} className="-mt-6 text-sm text-brand font-semibold hover:underline">{L("ล้างตัวกรอง", "Clear filters", "清除筛选")}</button>
           </div>
         ) : (
           <EmptyState icon={<Contact size={26} />} title={L("ยังไม่มีลูกค้าในระบบ", "No customers yet", "系统中暂无客户")} body={L("ลูกค้าจะปรากฏที่นี่เมื่อผูกกับบิลในหน้าขาย", "Customers appear here once linked to a bill at the POS", "客户在销售页关联单据后将显示在此处")} />
         )
       ) : (
-        <div className="rounded-2xl border border-line overflow-hidden bg-surface">
-          <div className="px-3.5 py-2 text-xs text-muted border-b border-line">{L(`พบ ${filtered.length} ราย`, `Found ${filtered.length}`, `找到 ${filtered.length} 条`)}</div>
+        <div className="rounded-2xl border border-line/70 overflow-hidden bg-surface">
           <Table>
             <thead>
               <tr>
@@ -467,23 +524,25 @@ export default function AdminCustomersPage() {
                     <div className="flex items-center gap-2.5 min-w-0">
                       <Avatar name={c.name} size={32} />
                       <div className="min-w-0">
-                        <div className="font-semibold text-sm truncate max-w-[200px]">{c.name}</div>
+                        <div className="font-semibold text-sm truncate max-w-[220px]">{c.name}</div>
                         {c.member_code && <div className="text-[11px] text-muted font-mono">{c.member_code}</div>}
                       </div>
                     </div>
                   </Td>
                   <Td className="text-xs text-muted whitespace-nowrap">{c.phone || "—"}</Td>
                   <Td><span className={`text-[10px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap ${SEG[c.segment].cls}`}>{L(SEG[c.segment].th, SEG[c.segment].en, SEG[c.segment].zh)}</span></Td>
-                  <Td align="right" className="text-sm">{c.orders}</Td>
-                  <Td align="right" className="text-sm font-semibold">{formatTHB(c.spend, false)}</Td>
+                  <Td align="right" className="text-sm tnum">{c.orders}</Td>
+                  <Td align="right" className="text-sm font-semibold tnum">{formatTHB(c.spend, false)}</Td>
                   <Td className="text-xs text-muted whitespace-nowrap">{recencyLabel(c.recencyDays, L)}</Td>
-                  <Td align="right" className="text-sm">{c.points.toLocaleString()}</Td>
-                  <Td align="right" className="text-sm">{c.store_credit ? formatTHB(c.store_credit, false) : "—"}</Td>
+                  <Td align="right" className="text-sm tnum">{c.points.toLocaleString()}</Td>
+                  <Td align="right" className="text-sm tnum">{c.store_credit ? formatTHB(c.store_credit, false) : "—"}</Td>
                 </tr>
               ))}
             </tbody>
           </Table>
         </div>
+      )}
+      </>
       )}
 
       {/* โปรไฟล์ลูกค้า */}
@@ -864,14 +923,6 @@ export default function AdminCustomersPage() {
   );
 }
 
-function Kpi({ label, value, icon }: { label: string; value: string; icon: React.ReactNode }) {
-  return (
-    <div className="px-3.5 py-2 rounded-2xl border border-line bg-surface min-w-[96px]">
-      <div className="text-[11px] text-muted flex items-center gap-1">{icon}{label}</div>
-      <div className="text-lg font-bold leading-tight text-ink">{value}</div>
-    </div>
-  );
-}
 function Pill({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) {
   return <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-surface2 text-ink/80">{icon}{children}</span>;
 }

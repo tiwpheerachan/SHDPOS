@@ -49,6 +49,7 @@ export function computeCampaignGifts(
 
     for (const g of c.gift_skus) {
       const p = productBySku(g.sku);
+      if (p && !p.is_active) { warnings.push(`ของแถม ${g.sku} ยังไม่เปิดใช้งาน (${c.name})`); continue; }
       if (!p) { warnings.push(`ของแถม ${g.sku} ไม่พบในระบบ (${c.name})`); continue; }
       const qty = sets * (g.gift_qty || 1);
       if (p.is_stocked && stockQty(p.id) < qty) {

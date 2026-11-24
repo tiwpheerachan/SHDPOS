@@ -21,6 +21,10 @@ import {
 } from "@/components/charts";
 import { type MapProvince } from "@/components/admin/thai-map";
 import { ThailandMap, type ProvinceStat, type MapMetric } from "@/components/admin/thailand-map";
+import { BranchGeoMap, type GeoBranch } from "@/components/admin/branch-geo-map";
+import { GoogleBranchMap } from "@/components/admin/google-branch-map";
+import { BranchExplorerPanel, type BranchRow } from "@/components/admin/branch-explorer-panel";
+import { coordOf } from "@/lib/geo";
 import { TH_TO_EN, provinceTH } from "@/lib/geo/th-provinces";
 import { FilterBar, useAdminScope, useDefaultFilter } from "@/components/admin/filters";
 import {
@@ -29,6 +33,7 @@ import {
 import { formatTHB, formatCompact, formatInt } from "@/lib/money";
 import { can, visibleBranchIds } from "@/lib/permissions";
 import { isLiveMode, supabase } from "@/lib/supabase/client";
+import { isCountedSale, saleAt, bkkDay, bkkHour, bkkWeekday } from "@/lib/sales-basis";
 
 type Metric = "revenue" | "orders" | "profit" | "units";
 type Gran = "hourly" | "daily" | "weekly";
@@ -64,6 +69,7 @@ export default function CommandCenter() {
   const [feedPaused, setFeedPaused] = useState(false);
   const [focusProv, setFocusProv] = useState<string | null>(null);
   const [mapMetric, setMapMetric] = useState<MapMetric>("sales");
+  const [mapView, setMapView] = useState<"region" | "geo">("region");
 
   useEffect(() => {
     void (async () => {
@@ -112,33 +118,33 @@ export default function CommandCenter() {
       : o.items.reduce((s, it) => s + it.qty, 0);
 
   const heroData: HeroPoint[] = useMemo(() => {
-    const active = current.filter((o) => o.status !== "voided");
+    const active = current.filter(isCountedSale);
     let cur: { label: string; value: number }[] = [];
     let prevVals: number[] = [];
     if (gran === "hourly") {
       const b = new Array(24).fill(0), pb = new Array(24).fill(0);
-      for (const o of active) b[new Date(o.created_at).getHours()] += metricOf(o);
-      for (const o of previous.filter((o) => o.status !== "voided")) pb[new Date(o.created_at).getHours()] += metricOf(o);
+      for (const o of active) b[bkkHour(saleAt(o))] += metricOf(o);
+      for (const o of previous.filter(isCountedSale)) pb[bkkHour(saleAt(o))] += metricOf(o);
       const hrs = Array.from({ length: 16 }, (_, i) => i + 8);
       cur = hrs.map((h) => ({ label: `${String(h).padStart(2, "0")}`, value: b[h] }));
       prevVals = hrs.map((h) => pb[h]);
     } else if (gran === "weekly") {
       const map = new Map<string, number>();
       for (const o of active) {
-        const d = new Date(o.created_at); const wk = Math.floor((d.getDate() - 1) / 7) + 1;
-        const key = `W${wk}·${d.getMonth() + 1}`; map.set(key, (map.get(key) ?? 0) + metricOf(o));
+        const day = bkkDay(saleAt(o)); const wk = Math.floor((+day.slice(8) - 1) / 7) + 1;
+        const key = `W${wk}·${+day.slice(5, 7)}`; map.set(key, (map.get(key) ?? 0) + metricOf(o));
       }
       cur = Array.from(map.entries()).map(([label, value]) => ({ label, value }));
     } else {
       const daily = dailySeries(active, filter.from, filter.to);
-      const pDaily = dailySeries(previous.filter((o) => o.status !== "voided"),
+      const pDaily = dailySeries(previous.filter(isCountedSale),
         new Date(filter.from.getTime() - (filter.to.getTime() - filter.from.getTime())), filter.from);
       if (metric === "revenue") {
         cur = daily.map((d) => ({ label: d.label, value: d.value }));
         prevVals = pDaily.map((d) => d.value);
       } else {
         const bucket = new Map<string, number>();
-        for (const o of active) { const k = new Date(o.created_at).toISOString().slice(0, 10); bucket.set(k, (bucket.get(k) ?? 0) + metricOf(o)); }
+        for (const o of active) { const k = bkkDay(saleAt(o)); bucket.set(k, (bucket.get(k) ?? 0) + metricOf(o)); }
         cur = daily.map((d) => ({ label: d.label, value: bucket.get(d.date) ?? 0 }));
       }
     }
@@ -175,7 +181,7 @@ export default function CommandCenter() {
     const skuCat = new Map(products.map((p) => [p.sku, p.category_id]));
     const map = new Map<string, number>();
     for (const o of current) {
-      if (o.status === "voided") continue;
+      if (!isCountedSale(o)) continue;
       for (const it of o.items) {
         const cid = it.product_id ? pcat.get(it.product_id) : skuCat.get(it.sku);
         if (!cid) continue;
@@ -193,10 +199,9 @@ export default function CommandCenter() {
     const hours = Array.from({ length: 12 }, (_, i) => i + 10); // 10:00–21:00
     const grid = hours.map(() => new Array(7).fill(0));
     for (const o of current) {
-      if (o.status === "voided") continue;
-      const d = new Date(o.created_at);
-      const hi = hours.indexOf(d.getHours());
-      const wd = (d.getDay() + 6) % 7; // Mon=0
+      if (!isCountedSale(o)) continue;
+      const hi = hours.indexOf(bkkHour(saleAt(o)));
+      const wd = (bkkWeekday(saleAt(o)) + 6) % 7; // Mon=0 (เวลาไทย)
       if (hi >= 0) grid[hi][wd] += o.grand_total;
     }
     return { rows: hours.map((h) => `${String(h).padStart(2, "0")}`), grid };
@@ -265,6 +270,45 @@ export default function CommandCenter() {
     return out;
   }, [branches, branchSalesMap, branchName]);
   const focusBranches = focusProv ? branchesByProvince[focusProv] ?? [] : [];
+
+  // สาขาพร้อมพิกัดจริง (มุมมองแผนที่จริง) — DB lat/lng ก่อน แล้ว fallback seed ตาม code
+  const geoBranches = useMemo<GeoBranch[]>(() => {
+    const out: GeoBranch[] = [];
+    for (const b of branches) {
+      if (b.branch_type === "warehouse") continue;
+      const c = coordOf(b);
+      if (!c) continue;
+      const s = branchSalesMap.get(b.id) ?? { sales: 0, orders: 0 };
+      out.push({ id: b.id, label: branchName.get(b.id) ?? b.id, lat: c.lat, lng: c.lng, value: s.sales, orders: s.orders, province: b.province ?? null });
+    }
+    return out;
+  }, [branches, branchSalesMap, branchName]);
+  const onGeoFocus = (id: string | null) => {
+    if (!id) { setFocusProv(null); return; }
+    const b = branches.find((x) => x.id === id);
+    const en = b ? TH_TO_EN[b.province ?? ""] : null;
+    setFocusProv(en ?? null);
+  };
+  const gmapKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY || "";
+
+  // แผงสำรวจสาขา: แถวสาขา + โซน (= แบรนด์ที่มีสาขา)
+  const explorerRows = useMemo<BranchRow[]>(() => {
+    const bn = new Map(brandList.map((b) => [b.id, locale === "th" ? b.name_th ?? b.name : b.name]));
+    const out: BranchRow[] = [];
+    for (const b of branches) {
+      if (b.branch_type === "warehouse") continue;
+      const s = branchSalesMap.get(b.id) ?? { sales: 0, orders: 0 };
+      out.push({ id: b.id, label: branchName.get(b.id) ?? b.id, brandId: b.brand_id, brandName: b.brand_id ? bn.get(b.brand_id) ?? null : null, province: b.province ?? null, sales: s.sales, orders: s.orders });
+    }
+    return out;
+  }, [branches, brandList, branchSalesMap, branchName, locale]);
+  const zones = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const r of explorerRows) if (r.brandId && r.brandName && !seen.has(r.brandId)) seen.set(r.brandId, r.brandName);
+    return Array.from(seen, ([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
+  }, [explorerRows]);
+  const toggleBranch = (id: string) =>
+    setFilter({ ...filter, branchIds: filter.branchIds.includes(id) ? filter.branchIds.filter((x) => x !== id) : [...filter.branchIds, id] });
 
   const mapData: MapProvince[] = useMemo(() => {
     const provAgg = new Map<string, { sales: number; branches: Set<string> }>();
@@ -464,6 +508,10 @@ export default function CommandCenter() {
               ) : null}
             </div>
             <div className="flex items-center gap-2 shrink-0">
+              <Segmented size="sm" value={mapView} onChange={setMapView} options={[
+                { value: "region" as const, label: L("จังหวัด", "Region", "省") },
+                { value: "geo" as const, label: L("พิกัดจริง", "Geo", "坐标") },
+              ]} />
               <Segmented size="sm" value={mapMetric} onChange={setMapMetric} options={[
                 { value: "sales" as MapMetric, label: t.admin.gmv },
                 { value: "orders" as MapMetric, label: t.admin.orderCount },
@@ -473,7 +521,13 @@ export default function CommandCenter() {
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-[1fr_248px]">
             <div className="h-[300px] sm:h-[440px] px-2 pb-2">
-              <ThailandMap data={provinceData} metric={mapMetric} focus={focusProv} onFocus={setFocusProv} />
+              {mapView === "region" ? (
+                <ThailandMap data={provinceData} metric={mapMetric} focus={focusProv} onFocus={setFocusProv} />
+              ) : gmapKey ? (
+                <GoogleBranchMap branches={geoBranches} metric={mapMetric} focusId={null} onFocus={onGeoFocus} apiKey={gmapKey} />
+              ) : (
+                <BranchGeoMap branches={geoBranches} metric={mapMetric} focusId={null} onFocus={onGeoFocus} tileUrl={null} />
+              )}
             </div>
             <div className="border-t sm:border-t-0 sm:border-l border-line p-4 flex flex-col sm:h-[440px]">
               {focusProv ? (
@@ -504,21 +558,7 @@ export default function CommandCenter() {
                   <p className="text-[10px] text-muted mt-2 shrink-0">{L("แตะสาขาเพื่อกรองแดชบอร์ด", "Tap a branch to filter the dashboard", "点击门店以筛选仪表盘")}</p>
                 </>
               ) : (
-                <>
-                  <p className="eyebrow mb-2 shrink-0">{t.cmd.topLocations}</p>
-                  <ol className="space-y-1.5 flex-1 overflow-y-auto pr-1 -mr-1">
-                    {topLocations.slice(0, 6).map((b, i) => (
-                      <li key={b.id} className="flex items-center gap-2.5">
-                        <span className="tnum text-[11px] text-muted w-4">{String(i + 1).padStart(2, "0")}</span>
-                        <div className="min-w-0 flex-1">
-                          <p className="text-xs font-medium truncate">{b.label}</p>
-                          <ProgressBar value={(b.value / (topLocations[0]?.value || 1)) * 100} tone={i === 0 ? "coral" : "ink"} height={4} />
-                        </div>
-                        <span className="text-xs font-semibold tnum">฿{formatCompact(b.value)}</span>
-                      </li>
-                    ))}
-                  </ol>
-                </>
+                <BranchExplorerPanel rows={explorerRows} zones={zones} metric={mapMetric} selectedIds={filter.branchIds} onToggle={toggleBranch} />
               )}
             </div>
           </div>

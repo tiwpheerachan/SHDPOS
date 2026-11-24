@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { OwSaleBadge, useOwSaleStatus } from "@/components/pos/ow-sale-badge";
 import { Download, Search } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { useSession } from "@/lib/store/session";
@@ -14,6 +15,7 @@ import { can, visibleBranchIds } from "@/lib/permissions";
 import { BranchRadar, SalesAreaTrend, InsightBars, MixDonut } from "@/components/charts-rich";
 import CellColumnTrend from "@/components/ui/cell-column-trend";
 import type { ChartConfig } from "@/components/ui/chart";
+import { isCountedSale, saleAt, bkkHour } from "@/lib/sales-basis";
 
 export default function AdminSalesPage() {
   const { t, locale } = useI18n();
@@ -43,6 +45,8 @@ export default function AdminSalesPage() {
   const totals = summarize(rows);
   const showCost = can(employee, "report.cost");
   const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
+  // สถานะคลังกลาง/JST ของบิลที่แสดง (สูงสุด 300 แถว)
+  const owStatus = useOwSaleStatus(rows.slice(0, 300).map((o) => o.client_uuid));
 
   // ── ข้อมูลกราฟใหม่ ──
   const trend = useMemo(() => salesSeries(rows, "day"), [rows]);
@@ -52,7 +56,7 @@ export default function AdminSalesPage() {
   const radarData = useMemo(() => {
     const map = new Map<string, { label: string; sales: number; orders: number }>();
     for (const o of rows) {
-      if (o.status === "voided") continue;
+      if (!isCountedSale(o)) continue;
       const b = branches.find((x) => x.id === o.branch_id);
       const cur = map.get(o.branch_id) ?? { label: b ? (locale === "th" ? b.name_th ?? b.name : b.name) : o.branch_id, sales: 0, orders: 0 };
       cur.sales += o.grand_total; cur.orders += 1;
@@ -86,10 +90,10 @@ export default function AdminSalesPage() {
   ];
 
   // ── Insights เชิงพฤติกรรม ──
-  const active = useMemo(() => rows.filter((o) => o.status !== "voided"), [rows]);
+  const active = useMemo(() => rows.filter(isCountedSale), [rows]);
   const hourAgg = useMemo(() => {
     const a = Array.from({ length: 24 }, (_, h) => ({ h, sales: 0, orders: 0 }));
-    for (const o of active) { const h = new Date(o.created_at).getHours(); a[h].sales += o.grand_total; a[h].orders += 1; }
+    for (const o of active) { const h = bkkHour(saleAt(o)); a[h].sales += o.grand_total; a[h].orders += 1; }
     return a;
   }, [active]);
   const peak = useMemo(() => hourAgg.reduce((b, c) => (c.sales > b.sales ? c : b), hourAgg[0]), [hourAgg]);
@@ -279,6 +283,7 @@ export default function AdminSalesPage() {
                 <Th>{t.common.branch}</Th>
                 <Th>{t.common.customer}</Th>
                 <Th align="center">{t.common.status}</Th>
+                <Th align="center">{L("คลังกลาง / JST", "OneWarehouse / JST", "中央仓 / JST")}</Th>
                 <Th align="right">{t.common.total}</Th>
                 {showCost ? <Th align="right">{t.admin.grossProfit}</Th> : null}
               </tr>
@@ -297,6 +302,7 @@ export default function AdminSalesPage() {
                     <Td align="center">
                       {o.status === "voided" ? <Badge tone="danger">{t.orders.voided}</Badge> : <Badge tone="ok">{t.orders.completed}</Badge>}
                     </Td>
+                    <Td align="center"><OwSaleBadge status={o.client_uuid ? owStatus[o.client_uuid] : null} /></Td>
                     <Td align="right" className="font-medium">{formatTHB(o.grand_total, false)}</Td>
                     {showCost ? <Td align="right" className="text-xs text-ok">{formatTHB(o.gross_profit, false)}</Td> : null}
                   </tr>

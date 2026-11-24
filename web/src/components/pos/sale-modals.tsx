@@ -134,6 +134,7 @@ export function SerialModal({
   qty,
   initial,
   onSave,
+  maxSerials,
 }: {
   open: boolean;
   onClose: () => void;
@@ -143,25 +144,32 @@ export function SerialModal({
   qty: number;
   initial: string[];
   onSave: (serials: string[]) => void;
+  maxSerials?: number;
 }) {
   const { t, locale } = useI18n();
   const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
   const [list, setList] = useState<string[]>([]);
   const [draft, setDraft] = useState("");
+  const [scanError, setScanError] = useState("");
 
   useEffect(() => {
     if (open) {
       setList(initial);
       setDraft("");
+      setScanError("");
     }
   }, [open, initial]);
 
   function add() {
     const v = draft.trim().toUpperCase();
-    if (!v || list.includes(v)) {
-      setDraft("");
-      return;
+    if (!v) return;
+    if (list.some(sn => sn.trim().toUpperCase() === v)) {
+      setScanError(L("SN นี้สแกนแล้ว", "This SN is already scanned", "此序列号已扫描")); setDraft(""); return;
     }
+    if (maxSerials != null && list.length >= maxSerials) {
+      setScanError(L("สแกนครบจำนวนแล้ว หากเพิ่มชิ้นให้เพิ่มจำนวนในตะกร้าก่อน", "Quantity reached. Increase cart quantity before scanning more.", "已达到数量，请先增加购物车数量")); setDraft(""); return;
+    }
+    setScanError("");
     setList((l) => [...l, v]);
     setDraft("");
   }
@@ -214,6 +222,7 @@ export function SerialModal({
             <Plus size={16} />
           </Button>
         </div>
+        {scanError ? <p role="alert" className="text-xs text-danger">{scanError}</p> : null}
         <ul className="space-y-1.5 max-h-56 overflow-y-auto">
           {list.map((s, i) => (
             <li key={s} className="flex items-center gap-2 bg-surface2 border border-line rounded-lg px-3 py-2">

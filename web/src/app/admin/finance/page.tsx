@@ -20,6 +20,7 @@ import { can, visibleBranchIds } from "@/lib/permissions";
 import { SalesAreaTrend, InsightBars, RankedBars } from "@/components/charts-rich";
 import { Donut, BarList, Sparkline } from "@/components/charts";
 import type { ChartConfig } from "@/components/ui/chart";
+import { isCountedSale, saleAt, bkkDay } from "@/lib/sales-basis";
 
 type Detail = "paid" | "branch" | "refund" | "edc";
 const dayKey = (iso: string) => new Date(iso).toLocaleDateString("en-CA");
@@ -94,8 +95,8 @@ export default function AdminFinancePage() {
     const zoneOf = (p: string) => (p === "กรุงเทพมหานคร" ? L("กรุงเทพฯ", "Bangkok", "曼谷") : PERI.has(p) ? L("ปริมณฑล", "Greater BKK", "周边") : L("ต่างจังหวัด", "Upcountry", "外府"));
     const prov = new Map<string, number>(), zone = new Map<string, number>(), month = new Map<string, number>();
     for (const o of rows) {
-      if (o.status === "voided") continue;
-      const p = provMap.get(o.branch_id) ?? "—"; const z = zoneOf(p); const m = o.created_at.slice(0, 7);
+      if (!isCountedSale(o)) continue;
+      const p = provMap.get(o.branch_id) ?? "—"; const z = zoneOf(p); const m = bkkDay(saleAt(o)).slice(0, 7);
       prov.set(p, (prov.get(p) ?? 0) + o.grand_total);
       zone.set(z, (zone.get(z) ?? 0) + o.grand_total);
       month.set(m, (month.get(m) ?? 0) + o.grand_total);

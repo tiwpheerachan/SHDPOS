@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { IntegrationNotice, useOwBranchLink } from "@/components/pos/integration-notice";
 import { ClipboardList, Search, Plus, ArrowLeft, Send, CheckCircle2, XCircle, EyeOff, Eye } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { useSession } from "@/lib/store/session";
@@ -16,6 +17,7 @@ import { can } from "@/lib/permissions";
 const ZONES = ["Display Area", "Stock Room", "Counter", "Vending", "All"];
 
 export default function StockCountPage() {
+  const owLink = useOwBranchLink(); // ผูกคลังกลาง = นับเพื่อตรวจได้ แต่ไม่ปรับยอดใน POS
   const { t, locale, pick } = useI18n();
   const toast = useToast();
   const { employee, branchId } = useSession();
@@ -128,7 +130,7 @@ export default function StockCountPage() {
               <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t.common.search} className="pl-9 h-9" />
             </div>
             {s.status === "counting" ? <Button variant="primary" loading={busy} onClick={() => void submit()}><Send size={15} /> {t.inventory.submitCount}</Button> : null}
-            {s.status === "submitted" && canApprove ? <Button variant="ok" loading={busy} onClick={() => void approve()}><CheckCircle2 size={15} /> {L("อนุมัติ & ปรับสต๊อก", "Approve & Adjust", "批准并调整")}</Button> : null}
+            {s.status === "submitted" && canApprove ? <Button variant="ok" loading={busy} disabled={owLink !== "unlinked"} title={owLink === "linked" ? "สาขานี้ใช้สต๊อกจากคลังกลาง — ปรับยอดที่ OneWarehouse" : undefined} onClick={() => void approve()}><CheckCircle2 size={15} /> {L("อนุมัติ & ปรับสต๊อก", "Approve & Adjust", "批准并调整")}</Button> : null}
             {s.status !== "completed" && s.status !== "cancelled" ? <Button variant="ghost" onClick={() => void cancel()}><XCircle size={15} /></Button> : null}
           </>
         }
@@ -182,6 +184,7 @@ export default function StockCountPage() {
       icon={<ClipboardList size={18} />}
       actions={<Button variant="primary" onClick={() => setCreateOpen(true)}><Plus size={16} /> {L("สร้างรอบนับ", "New count", "新建盘点")}</Button>}
     >
+      <IntegrationNotice kind="stock" />
       <div className="p-4 sm:p-6">
         <TablePanel>
           {loading ? (

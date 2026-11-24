@@ -1,5 +1,7 @@
 "use client";
 
+import { useCatalogProducts } from "@/lib/hooks/use-catalog-products";
+
 import { useEffect, useMemo, useState } from "react";
 import { Boxes, Search, AlertTriangle } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
@@ -20,7 +22,7 @@ export default function PosStockPage() {
   const employee = session.employee;
   const branchId = session.branchId;
 
-  const [products, setProducts] = useState<Product[]>([]);
+  const [products, setProducts] = useCatalogProducts();
   const [stock, setStock] = useState<Map<string, StockLevel>>(new Map());
   const [categories, setCategories] = useState<Category[]>([]);
   const [q, setQ] = useState("");
@@ -134,6 +136,8 @@ export default function PosStockPage() {
                 <Th>SKU</Th>
                 <Th>{t.admin.products}</Th>
                 <Th align="right">{t.inventory.onHand}</Th>
+                <Th align="right">{/* ของที่ถูกกัน: ใบโอนขาออกที่ยังไม่ส่งในคลังกลาง/JST + พักตรวจ */}{L("จอง/พักตรวจ", "Held", "占用")}</Th>
+                <Th align="right">{L("ขายได้", "Sellable", "可售")}</Th>
                 <Th align="right">{t.inventory.reorder}</Th>
                 <Th align="right">{t.common.price}</Th>
                 {showCost ? <Th align="right">{L("ต้นทุน", "Cost", "成本")}</Th> : null}
@@ -151,6 +155,10 @@ export default function PosStockPage() {
                     <Td className="text-xs font-medium">{pick({ th: p.name_th, en: p.name_en, zh: p.name_zh })}</Td>
                     <Td align="right" className={`font-semibold ${out ? "text-danger" : low ? "text-warn" : ""}`}>
                       {s.qty_on_hand}
+                    </Td>
+                    <Td align="right" className="text-xs text-muted tnum">{(s.qty_reserved ?? 0) + (s.qty_quarantine ?? 0) || "—"}</Td>
+                    <Td align="right" className={`text-xs font-medium tnum ${s.qty_on_hand - (s.qty_reserved ?? 0) - (s.qty_quarantine ?? 0) <= 0 ? "text-danger" : ""}`}>
+                      {Math.max(0, s.qty_on_hand - (s.qty_reserved ?? 0) - (s.qty_quarantine ?? 0))}
                     </Td>
                     <Td align="right" className="text-xs text-muted">{rp || "—"}</Td>
                     <Td align="right" className="text-xs">{formatTHB(p.price, false)}</Td>

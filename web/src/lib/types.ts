@@ -130,6 +130,9 @@ export interface Product {
   is_discountable: boolean;
   max_discount_percent?: number | null;
   track_serial: boolean;
+  serial_policy_confirmed?: boolean;
+  kind_policy_confirmed?: boolean;
+  review_version?: number;
   warranty_months: number;
   is_stocked: boolean;
   reorder_point: number;
@@ -274,6 +277,8 @@ export interface PaymentEntry {
 
 export interface OrderDraft {
   client_uuid: string;
+  /** เลขบิลจาก Checkout กลาง (โหมดจริง) — ใช้บนใบเสร็จให้ตรงเลขในระบบกลาง/OneWarehouse/JST */
+  central_order_no?: string | null;
   branch_id: string;
   terminal_id: string | null;
   shift_id: string | null;
@@ -443,10 +448,26 @@ export interface Transfer {
   version?: number;
   /** สถานะซิงค์กับ OneWarehouse/JST */
   sync_state?: "pending" | "synced" | "failed";
+  /** OneWarehouse เป็นตัวจริง (ต้นทาง+ปลายทางผูกคลัง OW) — 1 สินค้า = 1 ใบ OW */
+  ow_owned?: boolean;
+  /** SKU → OW transfer id (JST 1 SKU/ใบ) */
+  ow_ids?: Record<string, string>;
+  /** สถานะฝั่ง OW ล่าสุดต่อใบ OW (status/version/syncState/jstAllocationNo/orderNo) */
+  ow_state?: Record<string, { ow_id: string; status: string; version: number; syncState: string | null; jstAllocationNo: string | null; orderNo: string }>;
+  /** ข้อผิดพลาดล่าสุดจาก OW (ถ้ามี) */
+  ow_error?: string | null;
+  /** สถานะการเชื่อม OW (แยกจากสถานะธุรกิจ): ok | creating | partially_created | recovery_required | checking */
+  ow_link_state?: string;
   jst_allocation_no?: string | null;
   carrier?: string | null;
   tracking?: string | null;
   shipping_cost?: number | null;
+  /** ผู้สแกนของออก (แพ็กครบ) + เวลา */
+  packed_by?: string | null;
+  packed_at?: string | null;
+  /** ผู้รับเข้าครบ (ปลายทาง) + เวลา */
+  received_by?: string | null;
+  received_at?: string | null;
   /** ผู้ส่งมอบสินค้าให้ขนส่ง/ออกจากคลังจริง + เวลา (จุด On Hand → OTWO) */
   shipped_by?: string | null;
   shipped_at?: string | null;

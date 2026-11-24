@@ -6,6 +6,24 @@ import type { CartLine, Product } from "../types";
 import { computeTotals, round2, type CartTotals } from "../money";
 import { pointsToBaht } from "../loyalty";
 
+/** Combine equivalent sale rows while retaining every scanned physical unit. */
+export function coalesceCartLines(lines: CartLine[]): CartLine[] {
+  const result: CartLine[] = [];
+  for (const line of lines) {
+    const existing = line.product_id && !line.is_gift && !line.gift_source && line.discount_amount === 0
+      ? result.find(l => l.product_id === line.product_id && !l.is_gift && !l.gift_source &&
+          l.kind === line.kind && l.unit_price === line.unit_price && l.list_price === line.list_price &&
+          l.unit_cost === line.unit_cost && l.discount_amount === 0 && l.discount_percent === line.discount_percent &&
+          l.track_serial === line.track_serial && l.salesperson_id === line.salesperson_id &&
+          (l.note ?? "") === (line.note ?? "") &&
+          !l.serials.some(sn => line.serials.some(other => other.trim().toUpperCase() === sn.trim().toUpperCase())))
+      : undefined;
+    if (existing) { existing.qty += line.qty; existing.serials.push(...line.serials); }
+    else result.push({ ...line, serials: [...line.serials] });
+  }
+  return result;
+}
+
 interface CartState {
   lines: CartLine[];
   billDiscountAmount: number;
@@ -76,11 +94,16 @@ export const useCart = create<CartState>((set, get) => ({
 
   addProduct: (p, qty = 1) =>
     set((s) => {
-      // สินค้าที่ไม่ต้องคุม serial → รวมบรรทัดเดิม
-      const existing = !p.track_serial && s.lines.find((l) => l.product_id === p.id && l.discount_percent === 0 && l.discount_amount === 0);
+      if (!Number.isFinite(qty) || qty <= 0 || (p.track_serial && !Number.isInteger(qty))) return s;
+      const lines = coalesceCartLines(s.lines);
+      // SN belongs to each unit within the same sale row, not a separate row per click.
+      const existing = lines.find(l => l.product_id === p.id && !l.is_gift && !l.gift_source &&
+        l.unit_price === p.price && l.list_price === p.price && l.unit_cost === p.cost &&
+        l.track_serial === p.track_serial && l.salesperson_id === s.defaultSalespersonId &&
+        !l.note && l.discount_percent === 0 && l.discount_amount === 0);
       if (existing) {
         return {
-          lines: s.lines.map((l) => (l.lineId === existing.lineId ? { ...l, qty: l.qty + qty } : l)),
+          lines: lines.map((l) => (l.lineId === existing.lineId ? { ...l, qty: l.qty + qty } : l)),
         };
       }
       const line: CartLine = {
@@ -100,7 +123,7 @@ export const useCart = create<CartState>((set, get) => ({
         serials: [],
         salesperson_id: s.defaultSalespersonId,
       };
-      return { lines: [...s.lines, line] };
+      return { lines: [...lines, line] };
     }),
 
   addCustomLine: (input) =>
@@ -128,9 +151,9 @@ export const useCart = create<CartState>((set, get) => ({
 
   setQty: (lineId, qty) =>
     set((s) => ({
-      lines: qty <= 0
+      lines: !Number.isFinite(qty) ? s.lines : qty <= 0
         ? s.lines.filter((l) => l.lineId !== lineId)
-        : s.lines.map((l) => (l.lineId === lineId ? { ...l, qty } : l)),
+        : s.lines.map(l => l.lineId === lineId && (!l.track_serial || (Number.isInteger(qty) && qty >= l.serials.length)) ? { ...l, qty } : l),
     })),
 
   removeLine: (lineId) => set((s) => ({ lines: s.lines.filter((l) => l.lineId !== lineId) })),
@@ -148,9 +171,16 @@ export const useCart = create<CartState>((set, get) => ({
     })),
 
   setLineSerials: (lineId, serials) =>
-    set((s) => ({
-      lines: s.lines.map((l) => (l.lineId === lineId ? { ...l, serials, qty: Math.max(l.qty, serials.length || 1) } : l)),
-    })),
+    set((s) => {
+      const line = s.lines.find(l => l.lineId === lineId);
+      if (!line) return s;
+      const normalized = serials.map(sn => sn.trim().toUpperCase());
+      const used = new Set(s.lines.filter(l => l.lineId !== lineId).flatMap(l => l.serials.map(sn => sn.trim().toUpperCase())));
+      if ((!line.track_serial && normalized.length) || normalized.length > line.qty ||
+          normalized.some(sn => !sn || used.has(sn)) || new Set(normalized).size !== normalized.length)
+        throw new Error("SN ซ้ำ ไม่ถูกต้อง หรือเกินจำนวนสินค้า");
+      return { lines: s.lines.map(l => l.lineId === lineId ? { ...l, serials: normalized } : l) };
+    }),
 
   setLineSalesperson: (lineId, employeeId) =>
     set((s) => ({
@@ -201,7 +231,7 @@ export const useCart = create<CartState>((set, get) => ({
     })),
   setDiscountApprover: (discountApprovedBy) => set({ discountApprovedBy }),
   setNote: (note) => set({ note }),
-  loadLines: (lines) => set({ lines }),
+  loadLines: (lines) => set({ lines: coalesceCartLines(lines) }),
 
   clear: () =>
     set({

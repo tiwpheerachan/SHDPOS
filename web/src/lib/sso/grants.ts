@@ -63,12 +63,13 @@ export async function deleteGrant(email: string): Promise<void> {
 export async function resolveAuthz(profile: SsoSessionProfile): Promise<AppAuthz> {
   const sb = supabaseAdmin();
   let emp: any = null;
-  if (profile.email) {
-    const { data } = await sb
+  if (profile.email || profile.pin_employee_id) {
+    let query = sb
       .from("employees")
-      .select("id,role,data_scope,home_branch_id,max_discount_percent,permission_overrides,can_open_drawer,status,app_access")
-      .ilike("email", profile.email)
-      .maybeSingle();
+      .select("id,role,data_scope,home_branch_id,max_discount_percent,permission_overrides,can_open_drawer,status,app_access");
+    query = profile.pin_employee_id ? query.eq("id", profile.pin_employee_id) : query.ilike("email", profile.email);
+    const { data, error } = await query.maybeSingle();
+    if (error) throw new Error("Unable to verify employee access");
     emp = data;
   }
 

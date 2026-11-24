@@ -19,10 +19,12 @@ import { Clock as LiveClock } from "@/components/clock";
 import { BrandReveal } from "@/components/brand-reveal";
 import { BranchSwitcher } from "@/components/pos/branch-switcher";
 import { openDisplayWindow } from "@/lib/customer-display";
+import { WorkNotifications } from "@/components/work/notifications";
 import { formatTHB } from "@/lib/money";
 
 const NAV = [
   { href: "/pos/dashboard", icon: LayoutDashboard, key: "dashboard" },
+  { href: "/pos/work", icon: ClipboardList, key: "work" },
   { href: "/pos/sell", icon: ShoppingCart, key: "sell" },
   { href: "/pos/recovery", icon: ShieldCheck, key: "recovery" },
   { href: "/pos/orders", icon: ReceiptText, key: "orders" },
@@ -67,6 +69,7 @@ export function PosTopBar() {
 
   const label: Record<string, string> = {
     dashboard: t.admin.dashboard,
+    work: locale === "th" ? "งานของฉัน" : "My work",
     sell: t.pos.sell,
     orders: t.orders.title,
     recovery: locale === "th" ? "ตรวจรายการรับชำระ" : "Checkout recovery",
@@ -119,6 +122,7 @@ export function PosTopBar() {
               <Link
                 key={n.href}
                 href={n.href}
+                aria-label={label[n.key]} title={label[n.key]}
                 ref={(el) => { linkRefs.current[i] = el; }}
                 className={clsx(
                   "relative z-10 flex items-center gap-1.5 px-2.5 h-9 rounded-xl text-xs whitespace-nowrap transition-colors duration-200",
@@ -133,7 +137,8 @@ export function PosTopBar() {
         </div>
 
         <div className="flex items-center gap-1.5 shrink-0">
-          <LiveClock compact />
+          <span className="hidden xl:block"><LiveClock compact /></span>
+          <WorkNotifications/>
 
           {shift ? (
             <Link href="/pos/shift" className="hidden sm:flex">
@@ -142,7 +147,7 @@ export function PosTopBar() {
               </Badge>
             </Link>
           ) : (
-            <Link href="/pos/shift">
+            <Link href="/pos/shift" className="hidden sm:flex">
               <Badge tone="warn">{t.shift.noShift}</Badge>
             </Link>
           )}
@@ -164,7 +169,7 @@ export function PosTopBar() {
 
           <button
             onClick={() => window.dispatchEvent(new Event("shd:command"))}
-            className="flex items-center gap-1.5 px-2.5 h-9 rounded-lg hover:bg-surface2 text-muted"
+            className="hidden sm:flex items-center gap-1.5 px-2.5 h-9 rounded-lg hover:bg-surface2 text-muted"
             title={`${t.common.search} (⌘K)`}
           >
             <Search size={16} />
@@ -173,18 +178,18 @@ export function PosTopBar() {
 
           <Link
             href="/"
-            className="flex items-center gap-1.5 px-2.5 h-9 rounded-lg hover:bg-surface2 text-muted text-xs font-medium"
+            className="hidden sm:flex items-center gap-1.5 px-2.5 h-9 rounded-lg hover:bg-surface2 text-muted text-xs font-medium"
             title={t.app.home}
           >
             <Home size={16} />
             <span className="hidden xl:inline">{t.app.home}</span>
           </Link>
 
-          <button onClick={openDisplayWindow} className="p-2 rounded-lg hover:bg-surface2 text-muted" title={t.settings.openDisplay}>
+          <button onClick={openDisplayWindow} className="hidden lg:block p-2 rounded-lg hover:bg-surface2 text-muted" title={t.settings.openDisplay}>
             <Monitor size={16} />
           </button>
 
-          <div className="relative">
+          <div className="relative hidden lg:block">
             <button onClick={() => setLangOpen((v) => !v)} className="p-2 rounded-lg hover:bg-surface2 text-muted" title={t.settings.language}>
               <Languages size={16} />
             </button>
@@ -211,7 +216,7 @@ export function PosTopBar() {
 
           <button
             onClick={() => setMode(mode === "light" ? "dark" : "light")}
-            className="p-2 rounded-lg hover:bg-surface2 text-muted"
+            className="hidden lg:block p-2 rounded-lg hover:bg-surface2 text-muted"
             title={t.settings.theme}
           >
             {mode === "dark" ? <Moon size={16} /> : <Sun size={16} />}
@@ -221,9 +226,9 @@ export function PosTopBar() {
             <Settings size={16} />
           </Link>
 
-          <div className="hidden sm:flex items-center gap-2 pl-2 ml-1 border-l border-line">
-            <div className="text-right leading-tight">
-              <p className="text-xs font-medium">{employee?.nickname ?? employee?.first_name}</p>
+          <div className="hidden xl:flex items-center gap-2 pl-2 ml-1 border-l border-line">
+            <div className="text-right leading-tight max-w-40">
+              <p className="text-xs font-medium truncate">{employee?.nickname ?? employee?.first_name}</p>
               <p className="text-[10px] text-muted">{employee?.employee_code}</p>
             </div>
             {employee?.photo_url ? (
@@ -232,10 +237,8 @@ export function PosTopBar() {
             ) : null}
             <button
               onClick={() => {
-                const wasSso = employee?.id?.startsWith("sso:");
                 logout();
-                if (wasSso) window.location.href = "/sso/logout";
-                else router.push("/pos");
+                window.location.href = "/sso/logout";
               }}
               className="p-2 rounded-lg hover:bg-surface2 text-muted"
               title={t.common.logout}

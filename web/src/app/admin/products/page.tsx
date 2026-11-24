@@ -1,5 +1,8 @@
 "use client";
 
+import { ProductReviewDrawer } from "@/components/admin/product-review-drawer";
+import { useCatalogProducts } from "@/lib/hooks/use-catalog-products";
+
 import { useEffect, useMemo, useState } from "react";
 import { Package, Search, Download } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
@@ -15,14 +18,10 @@ export default function AdminProductsPage() {
   const { t, pick, locale } = useI18n();
   const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
   const { employee } = useSession();
-  const [products, setProducts] = useState<Product[]>([]);
+  const [products, setProducts] = useCatalogProducts();
   const [brands, setBrands] = useState<Brand[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
-  useEffect(()=>{
-    const refresh=()=>void listProducts().then(setProducts);
-    window.addEventListener("pos-catalog-refreshed",refresh);
-    return ()=>window.removeEventListener("pos-catalog-refreshed",refresh);
-  },[]);
+  const [reviewId,setReviewId]=useState<string|null>(null);
   const [q, setQ] = useState("");
   const [brandId, setBrandId] = useState("all");
 
@@ -51,8 +50,8 @@ export default function AdminProductsPage() {
         <CardHeader
           title={t.admin.products}
           subtitle={L(
-            `${rows.length} SKU — ข้อมูลสินค้าจริงจะ import จากฐานข้อมูลของคุณ (ดู docs/08-api-reference.md)`,
-            `${rows.length} SKUs — real product data will be imported from your database (see docs/08-api-reference.md)`,
+            `${rows.length} SKU ในแคตตาล็อก POS รวมสินค้านำเข้าจาก OW · ยังไม่เปิดใช้งาน ${products.filter(p=>!p.is_active).length} รายการ`,
+            `${rows.length} SKUs in the POS catalog, including OW imports`,
             `${rows.length} 个 SKU — 真实商品数据将从您的数据库导入（见 docs/08-api-reference.md）`
           )}
         />
@@ -82,7 +81,7 @@ export default function AdminProductsPage() {
                 { key: "cost", label: L("ต้นทุน", "Cost", "成本"), map: (p: typeof rows[number]) => formatTHB(p.cost, false) },
                 { key: "gp", label: "GP%", map: (p: typeof rows[number]) => { const base = p.price / 1.07; return p.cost > 0 && base > 0 ? `${(((base - p.cost) / base) * 100).toFixed(1)}%` : "—"; } },
               ] : []),
-              { key: "serial", label: "Serial", map: (p) => (p.track_serial ? L("ใช่", "Yes", "是") : L("ไม่", "No", "否")) },
+              { key: "serial", label: "Serial", map: (p) => (p.serial_policy_confirmed === false ? L("ยังไม่ยืนยัน", "Unconfirmed", "未确认") : p.track_serial ? L("ใช่", "Yes", "是") : L("ไม่", "No", "否")) },
             ]}
           />
         </div>
@@ -99,7 +98,7 @@ export default function AdminProductsPage() {
                 <Th align="right">{t.common.price}</Th>
                 {showCost ? <Th align="right">{L("ต้นทุน", "Cost", "成本")}</Th> : null}
                 {showCost ? <Th align="right">GP%</Th> : null}
-                <Th align="center">Serial</Th>
+                <Th align="center">Serial</Th><Th>สถานะ</Th><Th>ตรวจสินค้า</Th>
               </tr>
             </thead>
             <tbody>
@@ -131,8 +130,10 @@ export default function AdminProductsPage() {
                       </Td>
                     ) : null}
                     <Td align="center">
-                      {p.track_serial ? <Badge tone="info">SN</Badge> : p.kind !== "goods" ? <Badge tone="neutral">{p.kind}</Badge> : null}
+                      {p.serial_policy_confirmed === false ? <Badge tone="warn">ยังไม่ยืนยัน SN</Badge> : p.track_serial ? <Badge tone="info">SN ทุกชิ้น</Badge> : <Badge tone="neutral">ไม่ใช้ SN</Badge>}
                     </Td>
+                    <Td><Badge tone={p.is_active?"ok":"warn"}>{p.is_active?"เปิดใช้งาน":"รอตรวจ / ปิดขาย"}</Badge></Td>
+                    <Td>{can(employee,"admin.product_manage")&&showCost?<Button variant="soft" onClick={()=>setReviewId(p.id)}>ตรวจและตั้งค่า</Button>:null}</Td>
                   </tr>
                 );
               })}
@@ -142,6 +143,7 @@ export default function AdminProductsPage() {
           <EmptyState icon={<Package size={26} />} title={t.common.empty} />
         )}
       </Card>
+      <ProductReviewDrawer id={reviewId} onClose={()=>setReviewId(null)}/>
     </div>
   );
 }

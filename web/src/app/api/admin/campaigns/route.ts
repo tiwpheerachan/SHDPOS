@@ -1,12 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/sso/guard";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { campaignReferences, type CampaignProduct } from "@/lib/catalog/campaign-products";
 import { visibleBranchIds, visibleBrandIds } from "@/lib/sso/scope";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const isUuid = (v: unknown): v is string => typeof v === "string" && /^[0-9a-f-]{36}$/i.test(v);
+
+async function resolveProducts(sb: ReturnType<typeof supabaseAdmin>, eligible: unknown, gifts: unknown, active: boolean, selected: boolean) {
+  const inputs=[...(Array.isArray(eligible)?eligible:[]),...(Array.isArray(gifts)?gifts:[])];
+  if(inputs.length>400) throw Error("รายการสินค้าแคมเปญมากเกินไป");
+  const ids=[...new Set(inputs.map(p=>p?.product_id).filter(isUuid))];
+  const skus=[...new Set(inputs.map(p=>p?.sku).filter((v):v is string=>typeof v==="string"))];
+  const read=(field:string,values:string[])=>values.length ? sb.from("products").select("id,sku,name_th,is_active").in(field,values) : Promise.resolve({data:[],error:null});
+  const results=await Promise.all([read("id",ids),read("sku",skus)]);
+  if(results.some(r=>r.error)) throw Error("อ่านสินค้าอ้างอิงไม่สำเร็จ กรุณาลองใหม่");
+  const products=[...new Map(results.flatMap(r=>r.data ?? []).map(p=>[p.id,p])).values()] as CampaignProduct[];
+  return campaignReferences(eligible,gifts,products,active,selected);
+}
 
 // ---------------------------------------------------------------------
 // GET — รายการแคมเปญ + สถิติการใช้ (ครั้ง / ส่วนลดรวม / ยอดขายที่เกิดขึ้น)
@@ -62,16 +75,23 @@ export async function GET(req: NextRequest) {
   }
 
   const [{ data: camps, error }, { data: reds }, { data: cprods }] = await Promise.all([
-    sb.from("campaigns").select("*").order("created_at", { ascending: false }),
+    sb.from("campaigns").select("*").is("archived_at",null).order("created_at", { ascending: false }),
     sb.from("coupon_redemptions").select("campaign_id,customer_id,discount_amount,order_total"),
     sb.from("campaign_products").select("campaign_id,product_id,sku,name,role,gift_qty"),
   ]);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
+  const productIds=[...new Set((cprods ?? []).map(p=>p.product_id).filter(Boolean))];
+  const states=new Map<string,boolean>();
+  for(let offset=0;offset<productIds.length;offset+=200){
+    const result=await sb.from("products").select("id,is_active").in("id",productIds.slice(offset,offset+200));
+    if(result.error)return NextResponse.json({error:"อ่านสถานะสินค้าแคมเปญไม่สำเร็จ"},{status:503});
+    for(const product of result.data ?? [])states.set(product.id,product.is_active);
+  }
   const prodByCamp: Record<string, { eligible: unknown[]; gift: unknown[] }> = {};
   for (const p of cprods ?? []) {
     const g = (prodByCamp[p.campaign_id as string] ??= { eligible: [], gift: [] });
-    (p.role === "gift" ? g.gift : g.eligible).push({ product_id: p.product_id, sku: p.sku, name: p.name, gift_qty: p.gift_qty });
+    (p.role === "gift" ? g.gift : g.eligible).push({ product_id: p.product_id, sku: p.sku, name: p.name, gift_qty: p.gift_qty, is_active: states.get(p.product_id) ?? false });
   }
 
   const stats: Record<string, { uses: number; discount: number; revenue: number; customers: Set<string> }> = {};
@@ -156,70 +176,41 @@ export async function POST(req: NextRequest) {
     updated_at: new Date().toISOString(),
   };
 
-  let campaignId: string;
-  if (isUuid(b.id)) {
-    const patch = Object.fromEntries(Object.entries(row).filter(([, v]) => v !== undefined));
-    const { error } = await sb.from("campaigns").update(patch).eq("id", b.id);
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    campaignId = b.id as string;
-  } else {
-    if (!row.name) return NextResponse.json({ error: "name required" }, { status: 400 });
-    row.created_by = isUuid(actor) ? actor : null;
-    const { data, error } = await sb.from("campaigns").insert(row).select("id").single();
-    if (error) {
-      const msg = error.code === "23505" ? "รหัสคูปองนี้ถูกใช้แล้ว" : error.message;
-      return NextResponse.json({ error: msg }, { status: 500 });
+  // Resolve all references before any campaign row or relation is changed.
+  let refs;
+  try {
+    let previous: {role:string;product_id:string|null;sku:string;gift_qty:number}[]=[];
+    if (isUuid(b.id) && (b.eligible_products === undefined || b.gift_products === undefined)) {
+      const result=await sb.from("campaign_products").select("role,product_id,sku,gift_qty").eq("campaign_id",b.id);
+      if(result.error) throw Error("อ่านสินค้าแคมเปญเดิมไม่สำเร็จ");
+      previous=result.data ?? [];
     }
-    campaignId = data.id;
-  }
+    refs=await resolveProducts(sb,row.eligible_scope==="selected" ? (b.eligible_products ?? previous.filter(p=>p.role==="eligible")) : [],promo==="gift" ? (b.gift_products ?? previous.filter(p=>p.role==="gift")) : [],row.active===true,row.eligible_scope==="selected");
+    if(promo==="gift" && !refs.some(p=>p.role==="gift")) throw Error("กรุณาเลือกสินค้าของแถม");
+  } catch(error) { return NextResponse.json({error:error instanceof Error ? error.message : "รายการสินค้าไม่ถูกต้อง"},{status:422}); }
 
-  // แทนที่รายการสินค้าแคมเปญ (eligible + gift) ถ้าส่งมา
-  type ProdIn = { product_id?: string; sku?: string; name?: string; gift_qty?: number };
-  const toRows = (list: unknown, role: string) =>
-    (Array.isArray(list) ? list : [])
-      .map((p) => p as ProdIn)
-      .filter((p) => p.sku)
-      .map((p) => ({
-        campaign_id: campaignId,
-        product_id: isUuid(p.product_id) ? p.product_id : null,
-        sku: String(p.sku),
-        name: p.name ?? null,
-        role,
-        gift_qty: role === "gift" ? Math.max(1, Math.trunc(Number(p.gift_qty ?? 1))) : 1,
-      }));
-  if (b.eligible_products !== undefined || b.gift_products !== undefined) {
-    await sb.from("campaign_products").delete().eq("campaign_id", campaignId);
-    const rows = [...toRows(b.eligible_products, "eligible"), ...toRows(b.gift_products, "gift")];
-    if (rows.length) {
-      const { error } = await sb.from("campaign_products").insert(rows);
-      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    }
-  }
-
-  return NextResponse.json({ ok: true, id: campaignId });
+  if(isUuid(b.id)&&(!Number.isSafeInteger(b.version)||Number(b.version)<1))return NextResponse.json({error:"ต้องระบุเวอร์ชันแคมเปญ กรุณาโหลดใหม่"},{status:409});
+  const result=await sb.rpc("pos_save_campaign",{p_id:isUuid(b.id)?b.id:null,p_actor:actor,p_expected_version:isUuid(b.id)?b.version:0,p_row:{...row,cover_url:row.cover_url??null},p_refs:refs});
+  if(result.error)return NextResponse.json({error:result.error.message==="campaign_version_conflict"?"แคมเปญถูกแก้ไขแล้ว กรุณาโหลดใหม่":"บันทึกแคมเปญไม่สำเร็จ: "+result.error.message},{status:409});
+  return NextResponse.json({ok:true,...result.data});
 }
 
 // PATCH — อัปเดตเฉพาะฟิลด์ที่ส่งมา (เช่น เปิด/ปิด active) โดยไม่แตะฟิลด์อื่น
-export async function PATCH(req: NextRequest) {
-  const ctx = await requireAdmin(req);
-  if (!ctx) return NextResponse.json({ error: "forbidden" }, { status: 403 });
-  const b = (await req.json().catch(() => null)) as Record<string, unknown> | null;
-  if (!b || !isUuid(b.id)) return NextResponse.json({ error: "id required" }, { status: 400 });
-  const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
-  if (typeof b.active === "boolean") patch.active = b.active;
-  if (b.usage_limit !== undefined) patch.usage_limit = b.usage_limit === null || b.usage_limit === "" ? null : Math.trunc(Number(b.usage_limit));
-  if (Object.keys(patch).length === 1) return NextResponse.json({ error: "nothing to update" }, { status: 400 });
-  const { error } = await supabaseAdmin().from("campaigns").update(patch).eq("id", b.id);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ ok: true });
+export async function PATCH(req:NextRequest){
+ const ctx=await requireAdmin(req);if(!ctx)return NextResponse.json({error:"forbidden"},{status:403});
+ const b=await req.json().catch(()=>null);if(!b||!isUuid(b.id)||!Number.isSafeInteger(b.version))return NextResponse.json({error:"รหัสหรือเวอร์ชันไม่ถูกต้อง"},{status:400});
+ const sb=supabaseAdmin();const [campaign,products]=await Promise.all([sb.from("campaigns").select("*").eq("id",b.id).single(),sb.from("campaign_products").select("product_id,sku,role,gift_qty").eq("campaign_id",b.id)]);
+ if(campaign.error||products.error)return NextResponse.json({error:"อ่านแคมเปญไม่สำเร็จ"},{status:503});
+ const row={...campaign.data,active:typeof b.active==="boolean"?b.active:campaign.data.active};
+ if(b.usage_limit!==undefined){if(b.usage_limit!==null&&(!Number.isSafeInteger(b.usage_limit)||b.usage_limit<1))return NextResponse.json({error:"จำนวนครั้งไม่ถูกต้อง"},{status:400});row.usage_limit=b.usage_limit;}
+ try{
+ const original=products.data??[];const refs=await resolveProducts(sb,row.eligible_scope==="selected"?original.filter(p=>p.role==="eligible"):[],row.promo_type==="gift"?original.filter(p=>p.role==="gift"):[],row.active,row.eligible_scope==="selected");
+ const r=await sb.rpc("pos_save_campaign",{p_id:b.id,p_actor:ctx.authz.employee_id,p_expected_version:b.version,p_row:row,p_refs:refs});
+ if(r.error)throw Error(r.error.message);return NextResponse.json({ok:true,...r.data});
+ }catch(e){return NextResponse.json({error:e instanceof Error?e.message:"บันทึกไม่สำเร็จ"},{status:409});}
 }
-
-export async function DELETE(req: NextRequest) {
-  const ctx = await requireAdmin(req);
-  if (!ctx) return NextResponse.json({ error: "forbidden" }, { status: 403 });
-  const id = req.nextUrl.searchParams.get("id");
-  if (!isUuid(id)) return NextResponse.json({ error: "id required" }, { status: 400 });
-  const { error } = await supabaseAdmin().from("campaigns").delete().eq("id", id);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ ok: true });
+export async function DELETE(req:NextRequest){
+ const ctx=await requireAdmin(req);if(!ctx)return NextResponse.json({error:"forbidden"},{status:403});
+ const id=req.nextUrl.searchParams.get("id"),version=Number(req.nextUrl.searchParams.get("version"));if(!isUuid(id)||!Number.isSafeInteger(version)||version<1)return NextResponse.json({error:"รหัสหรือเวอร์ชันไม่ถูกต้อง"},{status:400});
+ const r=await supabaseAdmin().rpc("pos_archive_campaign",{p_id:id,p_actor:ctx.authz.employee_id,p_version:version});if(r.error)return NextResponse.json({error:r.error.message},{status:409});return NextResponse.json({ok:true,archived:true});
 }

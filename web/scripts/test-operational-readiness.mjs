@@ -1,0 +1,47 @@
+export async function testOperational(db,ids){
+ const assert=(ok,msg)=>{if(!ok)throw Error(msg)};
+ async function rejects(sql,args,pattern){try{await db.query(sql,args)}catch(e){if(e.message.includes(pattern))return;throw e}throw Error('Expected rejection: '+pattern)}
+ await db.query("update employees set role='owner',data_scope='company'where id=$1",[ids.actor]);
+ const product='00000000-0000-4000-8000-000000001001',brand='00000000-0000-4000-8000-000000001002',category='00000000-0000-4000-8000-000000001003';
+ await db.query("insert into brands(id,code,name)values($1,'OPS','Ops')",[brand]);
+ await db.query("insert into categories(id,code,name_th,name_en)values($1,'OPS','Ops','Ops')",[category]);
+ await db.query("insert into products(id,sku,name_th,price,cost,is_active)values($1,'OPS','Ops',0,0,false)",[product]);
+ const patch={name_th:'Reviewed',price:107,cost:40,brand_id:brand,category_id:category,track_serial:false,serial_policy_confirmed:false,is_active:true};
+ await rejects('select pos_review_product($1,$2,1,$3,$4)',[product,ids.actor,patch,'Test'],'product_not_ready');
+ assert(Number((await db.query('select price from products where id=$1',[product])).rows[0].price)===0,'Review failure changed price');
+ patch.serial_policy_confirmed=true;
+ const approved=(await db.query('select pos_review_product($1,$2,1,$3,$4) result',[product,ids.actor,patch,'Verified in isolated UAT'])).rows[0].result;
+ assert(approved.review_version===2&&approved.is_active,'Product not approved');
+ await rejects('select pos_review_product($1,$2,1,$3,$4)',[product,ids.actor,patch,'Stale'],'product_version_conflict');
+ assert(Number((await db.query('select count(*) from pos_product_reviews where product_id=$1',[product])).rows[0].count)===1,'Review audit not atomic');
+ await db.query('insert into stock_levels(branch_id,product_id,qty_on_hand)values($1,$2,1)',[ids.branch,product]);
+ await rejects('select pos_review_product($1,$2,2,$3,$4)',[product,ids.actor,{track_serial:true},'Unsafe flip'],'serial_policy_has_existing_inventory');
+ const row={name:'Ops campaign',description:null,code:null,discount_type:'amount',discount_value:10,max_discount:null,min_spend:0,target_segment:'all',starts_at:null,ends_at:null,usage_limit:null,per_customer_limit:1,active:true,brand_ids:[],branch_ids:[],channels:[],is_automatic:false,promo_type:'discount',eligible_scope:'selected',eligible_min_qty:1,eligible_across_sku:true,gift_mode:null,gift_per_qty:1,gift_cap:null,cover_url:null};
+ const refs=[{product_id:product,sku:'OPS',name:'Cannot override master name',role:'eligible',gift_qty:1}];
+ const c=(await db.query('select pos_save_campaign(null,$1,0,$2,$3) result',[ids.actor,row,refs])).rows[0].result;
+ assert(c.version===1,'New campaign version');
+ assert((await db.query('select name from campaign_products where campaign_id=$1',[c.id])).rows[0].name==='Reviewed','Campaign did not use canonical name');
+ await rejects('select pos_save_campaign($1,$2,0,$3,$4)',[c.id,ids.actor,row,refs],'campaign_version_conflict');
+ await db.exec("create function reject_ops_campaign_insert()returns trigger language plpgsql as $$begin raise exception 'simulated_relation_failure';end$$;create trigger reject_ops_campaign before insert on campaign_products for each row execute function reject_ops_campaign_insert();");
+ await rejects('select pos_save_campaign($1,$2,1,$3,$4)',[c.id,ids.actor,{...row,name:'Must roll back'},refs],'simulated_relation_failure');
+ assert((await db.query('select name from campaigns where id=$1',[c.id])).rows[0].name==='Ops campaign','Campaign header did not roll back');
+ assert(Number((await db.query('select count(*) from campaign_products where campaign_id=$1',[c.id])).rows[0].count)===1,'Campaign refs lost after rollback');
+ await db.exec('drop trigger reject_ops_campaign on campaign_products;drop function reject_ops_campaign_insert();');
+ await db.query('select pos_archive_campaign($1,$2,1)',[c.id,ids.actor]);
+ assert(!!(await db.query('select archived_at from campaigns where id=$1',[c.id])).rows[0].archived_at,'Archive was not preserved');
+ await rejects('select pos_save_campaign($1,$2,2,$3,$4)',[c.id,ids.actor,row,refs],'campaign_archived');
+ const source='onewarehouse:uat',token='00000000-0000-4000-8000-000000001010';
+ await db.query('insert into pos_sync_settings(source,actor_id,enabled)values($1,$2,true)',[source,ids.actor]);
+ const job=(await db.query('select pos_claim_sync($1,$2,false) result',[source,token])).rows[0].result;
+ assert(job.mode==='full','First job must pull full catalog');
+ assert((await db.query('select pos_claim_sync($1,gen_random_uuid(),true) result',[source])).rows[0].result===null,'Duplicate worker got lease');
+ await db.query('select pos_finish_sync($1,$2,$3,$4,null)',[source,token,job.id,{errors:0}]);
+ await db.query("update pos_sync_settings set last_started_at=now()-interval '2 minutes'where source=$1",[source]);
+ const fast=(await db.query('select pos_claim_sync($1,$2,false) result',[source,token])).rows[0].result;
+ assert(fast.mode==='operational','Subsequent job should refresh operational data');
+ await db.query('select pos_finish_sync($1,$2,$3,$4,null)',[source,token,fast.id,{errors:1}]);
+ assert((await db.query('select state from pos_sync_runs where id=$1',[fast.id])).rows[0].state==='partial','Failed resource reported complete');
+ assert(Number((await db.query("select count(*) from pos_integration_events where event_key=$1",['sale:'+ids.sale])).rows[0].count)===1,'Committed sale needs one durable blocked event');
+ assert(!(await db.query("select has_function_privilege('anon','pos_reserve_checkout(uuid,uuid,uuid,jsonb)','EXECUTE') allowed")).rows[0].allowed,'Anonymous reserve is exposed');
+ console.log('PASS: product review rollback/version/SN policy; atomic campaign failure/archive; sync lease/modes/partial; transactional sale outbox');
+}

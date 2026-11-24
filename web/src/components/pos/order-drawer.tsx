@@ -10,6 +10,7 @@ import { useI18n } from "@/lib/i18n/provider";
 import { listEmployees, listTerminals, listReturns, listAudit } from "@/lib/data/repo";
 import type { AuditEntry, Branch, Employee, Order, ReturnDoc, Terminal } from "@/lib/types";
 import { Drawer, DrawerTabs, DetailRow, Badge, Button, Avatar, EmptyState } from "@/components/ui";
+import { OwSaleBadge, useOwSaleStatus } from "@/components/pos/ow-sale-badge";
 import { formatTHB } from "@/lib/money";
 import { BankMark } from "@/components/pos/bank-mark";
 
@@ -28,6 +29,9 @@ export function OrderDrawer({
 }) {
   const { t, locale } = useI18n();
   const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
+  // สถานะบิลนี้ในคลังกลาง/JST (ต้องเรียกก่อน early return ของ hooks)
+  const owMap = useOwSaleStatus([order?.client_uuid]);
+  const ow = order?.client_uuid ? owMap[order.client_uuid] : undefined;
   const [tab, setTab] = useState<Tab>("overview");
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [terminals, setTerminals] = useState<Terminal[]>([]);
@@ -137,6 +141,9 @@ export function OrderDrawer({
               <DetailRow label={L("พนักงานขาย", "Salesperson", "销售员")}>{order.salesperson_id ? empName.get(order.salesperson_id) ?? "—" : "—"}</DetailRow>
               <DetailRow label={t.common.customer}>{order.customer_name || order.customer_phone || L("ลูกค้าทั่วไป", "Walk-in", "散客")}</DetailRow>
               <DetailRow label={L("ช่องทางขาย", "Channel", "渠道")}>{chanLabel(order.channel)}</DetailRow>
+              <DetailRow label={L("คลังกลาง / JST", "OneWarehouse / JST", "中央仓 / JST")}>
+                <span className="inline-flex items-center gap-2 flex-wrap"><OwSaleBadge status={ow} />{ow?.sale_no ? <span className="font-mono text-[11px] text-muted">{ow.sale_no}</span> : null}{ow?.sent_at ? <span className="text-[11px] text-muted">{L("ส่ง JST", "sent", "已发")} {fmtTime(ow.sent_at)}</span> : null}</span>
+              </DetailRow>
             </div>
 
             <div className="rounded-2xl bg-surface2 px-4 py-3 space-y-1.5">

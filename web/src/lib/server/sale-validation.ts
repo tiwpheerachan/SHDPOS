@@ -31,6 +31,7 @@ export function validateQuote(
   input: unknown,
   catalog: CatalogPrice[],
   limit: number,
+  options: {preview?:boolean} = {},
 ): Record<string, any> {
   const p = object(input);
   if (!UUID.test(p.client_uuid) || !UUID.test(p.branch_id))
@@ -115,7 +116,7 @@ export function validateQuote(
       : [];
     if (
       product.track_serial &&
-      (!Number.isInteger(qty) || serials.length !== qty)
+      (!Number.isInteger(qty) || (!options.preview && serials.length !== qty))
     )
       throw new Error(`กรุณาสแกน SN ให้ครบ: ${product.sku}`);
     if (!product.track_serial && serials.length)

@@ -1,5 +1,7 @@
 "use client";
 
+import { useCatalogProducts } from "@/lib/hooks/use-catalog-products";
+
 import { useEffect, useMemo, useState } from "react";
 import { nanoid } from "nanoid";
 import { useRouter } from "next/navigation";
@@ -30,7 +32,7 @@ export default function QuotationsPage() {
   const branchId = session.branchId;
   const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
 
-  const [products, setProducts] = useState<Product[]>([]);
+  const [products, setProducts] = useCatalogProducts();
   const [list, setList] = useState<Quotation[]>([]);
   const [open, setOpen] = useState(false);
   const [detail, setDetail] = useState<Quotation | null>(null);

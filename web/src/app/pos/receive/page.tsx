@@ -1,5 +1,7 @@
 "use client";
-import { IntegrationNotice } from "@/components/pos/integration-notice";
+
+import { useCatalogProducts } from "@/lib/hooks/use-catalog-products";
+import { IntegrationNotice, useOwBranchLink } from "@/components/pos/integration-notice";
 
 import { useEffect, useMemo, useState } from "react";
 import { nanoid } from "nanoid";
@@ -17,12 +19,13 @@ import { can } from "@/lib/permissions";
 interface Line { id: string; product_id: string; sku: string; name: string; qty: number }
 
 export default function GoodsReceivePage() {
+  const owLink = useOwBranchLink();
   const { t, locale, pick } = useI18n();
   const toast = useToast();
   const { employee, branchId } = useSession();
   const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
 
-  const [products, setProducts] = useState<Product[]>([]);
+  const [products, setProducts] = useCatalogProducts();
   const [stock, setStock] = useState<Map<string, StockLevel>>(new Map());
   const [recent, setRecent] = useState<AuditEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -88,11 +91,11 @@ export default function GoodsReceivePage() {
       actions={
         <>
           {lines.length ? <Badge tone="ok">+{totalUnits} {L("ชิ้น", "units", "件")}</Badge> : null}
-          <Button variant="primary" loading={busy} disabled={!lines.length} onClick={() => void submit()}><Save size={15} /> {L("รับเข้าสต๊อก", "Receive", "入库")}</Button>
+          <Button variant="primary" loading={busy} disabled={!lines.length || owLink === "linked"} onClick={() => void submit()}><Save size={15} /> {L("รับเข้าสต๊อก", "Receive", "入库")}</Button>
         </>
       }
     >
-      <IntegrationNotice kind="receipt" />
+      <IntegrationNotice kind={owLink === "linked" ? "stock" : "receipt"} />
       <div className="p-4 sm:p-6 grid lg:grid-cols-[1fr_360px] gap-4 items-start">
         {/* left: build receipt */}
         <div className="space-y-3">

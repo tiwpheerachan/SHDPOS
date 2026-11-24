@@ -12,11 +12,15 @@ export const PERMISSION_KEYS = [
   "inventory.view", "inventory.adjust", "inventory.count",
   "transfer.request", "transfer.approve", "transfer.receive",
   "shift.open", "shift.close", "shift.force_close", "cash.adjust",
-  "report.employee_perf", "report.cost", "report.gross_profit",
+  "report.employee_perf", "report.cost", "report.gross_profit", "report.discount",
   "admin.employee_manage", "admin.permission_manage", "admin.product_manage",
   "admin.branch_manage", "admin.settings", "audit.view",
   "customer.manage", "tax.issue_full",
   "finance.view",
+  // ── สิทธิ์เข้าฟีเจอร์ (เมนูหลังบ้าน) — กฎ: ทุกฟีเจอร์ใหม่ต้องมีคีย์ที่นี่ + PERM_GROUPS ใน permissions-ui.ts ──
+  "dashboard.view", "work.view", "sales.view", "product.view", "document.view",
+  "deferred_sale.manage", "approval.view",
+  "campaign.manage", "display.manage", "integration.manage", "integration.reconcile",
 ] as const;
 
 export type PermissionKey = (typeof PERMISSION_KEYS)[number];
@@ -29,6 +33,10 @@ type Rule = { effect: PermissionEffect; limit?: number };
  */
 export const ROLE_MATRIX: Record<EmployeeRole, Partial<Record<PermissionKey, Rule>>> = {
   staff: {
+    "work.view": { effect: "allow" },
+    "sales.view": { effect: "allow" },
+    "product.view": { effect: "allow" },
+    "deferred_sale.manage": { effect: "allow" },
     "pos.sell": { effect: "allow" },
     "pos.discount": { effect: "allow", limit: 5 },
     "pos.void": { effect: "approval" },
@@ -44,6 +52,13 @@ export const ROLE_MATRIX: Record<EmployeeRole, Partial<Record<PermissionKey, Rul
     "tax.issue_full": { effect: "allow" },
   },
   supervisor: {
+    "dashboard.view": { effect: "allow" },
+    "work.view": { effect: "allow" },
+    "sales.view": { effect: "allow" },
+    "product.view": { effect: "allow" },
+    "document.view": { effect: "allow" },
+    "deferred_sale.manage": { effect: "allow" },
+    "approval.view": { effect: "allow" },
     "pos.sell": { effect: "allow" },
     "pos.discount": { effect: "allow", limit: 10 },
     "pos.price_override": { effect: "approval" },
@@ -66,6 +81,15 @@ export const ROLE_MATRIX: Record<EmployeeRole, Partial<Record<PermissionKey, Rul
     "tax.issue_full": { effect: "allow" },
   },
   manager: {
+    "dashboard.view": { effect: "allow" },
+    "work.view": { effect: "allow" },
+    "sales.view": { effect: "allow" },
+    "product.view": { effect: "allow" },
+    "document.view": { effect: "allow" },
+    "deferred_sale.manage": { effect: "allow" },
+    "approval.view": { effect: "allow" },
+    "campaign.manage": { effect: "allow" },
+    "display.manage": { effect: "allow" },
     "pos.sell": { effect: "allow" },
     "pos.discount": { effect: "allow", limit: 20 },
     "pos.price_override": { effect: "allow" },
@@ -86,6 +110,7 @@ export const ROLE_MATRIX: Record<EmployeeRole, Partial<Record<PermissionKey, Rul
     "shift.force_close": { effect: "allow" },
     "cash.adjust": { effect: "allow" },
     "report.employee_perf": { effect: "allow" },
+    "report.discount": { effect: "allow" },
     "report.cost": { effect: "allow" },
     "report.gross_profit": { effect: "allow" },
     "admin.employee_manage": { effect: "allow" },
@@ -95,6 +120,18 @@ export const ROLE_MATRIX: Record<EmployeeRole, Partial<Record<PermissionKey, Rul
     "finance.view": { effect: "allow" },
   },
   brand_admin: {
+    "dashboard.view": { effect: "allow" },
+    "work.view": { effect: "allow" },
+    "sales.view": { effect: "allow" },
+    "product.view": { effect: "allow" },
+    "document.view": { effect: "allow" },
+    "deferred_sale.manage": { effect: "allow" },
+    "approval.view": { effect: "allow" },
+    "campaign.manage": { effect: "allow" },
+    "display.manage": { effect: "allow" },
+    "integration.manage": { effect: "allow" },
+    "integration.reconcile": { effect: "allow" },
+    "report.discount": { effect: "allow" },
     "return.approve": { effect: "allow" },
     "inventory.view": { effect: "allow" },
     "inventory.adjust": { effect: "allow" },
@@ -117,12 +154,19 @@ export const ROLE_MATRIX: Record<EmployeeRole, Partial<Record<PermissionKey, Rul
     PERMISSION_KEYS.map((k) => [k, { effect: "allow", limit: k === "pos.discount" ? 100 : undefined }])
   ) as Partial<Record<PermissionKey, Rule>>,
   auditor: {
+    "dashboard.view": { effect: "allow" },
+    "sales.view": { effect: "allow" },
+    "product.view": { effect: "allow" },
+    "document.view": { effect: "allow" },
+    "approval.view": { effect: "allow" },
     "inventory.view": { effect: "allow" },
     "report.employee_perf": { effect: "allow" },
     "report.cost": { effect: "allow" },
     "report.gross_profit": { effect: "allow" },
     "audit.view": { effect: "allow" },
     "finance.view": { effect: "allow" },
+    "integration.reconcile": { effect: "allow" },
+    "report.discount": { effect: "allow" },
   },
 };
 

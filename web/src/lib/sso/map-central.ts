@@ -50,8 +50,8 @@ export function jobTitleToPositionCode(title: string | undefined): string | null
   if (!title) return null;
   const t = title.toLowerCase();
   const has = (...k: string[]) => k.some((x) => t.includes(x));
-  if (has("regional", "大区")) return "regional_manager";
-  if (has("area", "区域")) return "area_manager";
+  if (has("regional", "大区", "general manager", "总经理", "director", "ผู้อำนวยการ", "总监")) return "regional_manager";
+  if (has("area", "区域", "expansion", "ขยายสาขา")) return "area_manager";
   if (has("brand manager", "品牌经理")) return "brand_manager";
   if (has("store manager", "ผู้จัดการร้าน", "店长")) return "store_manager";
   if (has("assistant", "ผู้ช่วย", "店副")) return "asst_manager";

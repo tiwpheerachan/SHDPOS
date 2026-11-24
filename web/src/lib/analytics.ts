@@ -6,6 +6,7 @@
 
 import type { Branch, Employee, Order, Product, StockLevel } from "./types";
 import { round2 } from "./money";
+import { isCountedSale, saleAt, bkkDay, bkkHour } from "./sales-basis";
 
 export interface Totals {
   gross: number;
@@ -22,7 +23,7 @@ export function summarize(orders: Order[]): Totals {
   let gross = 0, discount = 0, cost = 0, units = 0;
   let count = 0;
   for (const o of orders) {
-    if (o.status === "voided") continue;
+    if (!isCountedSale(o)) continue;
     count++;
     gross += o.grand_total;
     discount += o.discount_total;
@@ -147,33 +148,28 @@ export function applyOrderFilters(
 export function dailySeries(orders: Order[], from: Date, to: Date): { label: string; value: number; date: string }[] {
   const map = new Map<string, number>();
   for (const o of orders) {
-    if (o.status === "voided") continue;
-    const d = new Date(o.created_at).toISOString().slice(0, 10);
+    if (!isCountedSale(o)) continue;
+    const d = bkkDay(saleAt(o)); // วันตามเวลาไทย (เดิมใช้ UTC → บิล 00:00–06:59 ตกไปวันก่อน)
     map.set(d, (map.get(d) ?? 0) + o.grand_total);
   }
   const out: { label: string; value: number; date: string }[] = [];
-  const cursor = new Date(from);
-  cursor.setHours(0, 0, 0, 0);
-  const end = new Date(to);
-  while (cursor <= end) {
-    const key = cursor.toISOString().slice(0, 10);
-    out.push({
-      date: key,
-      label: `${cursor.getDate()}/${cursor.getMonth() + 1}`,
-      value: round2(map.get(key) ?? 0),
-    });
-    cursor.setDate(cursor.getDate() + 1);
+  const end = bkkDay(to.toISOString());
+  for (let key = bkkDay(from.toISOString()); key <= end; key = nextDay(key)) {
+    out.push({ date: key, label: `${+key.slice(8)}/${+key.slice(5, 7)}`, value: round2(map.get(key) ?? 0) });
   }
   return out;
+}
+function nextDay(key: string): string {
+  const d = new Date(key + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
 }
 
 export type TimeGran = "day" | "month" | "year";
 
-function bucketKey(d: Date, gran: TimeGran): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return gran === "year" ? `${y}` : gran === "month" ? `${y}-${m}` : `${y}-${m}-${day}`;
+function bucketKey(iso: string, gran: TimeGran): string {
+  const day = bkkDay(iso); // YYYY-MM-DD เวลาไทย
+  return gran === "year" ? day.slice(0, 4) : gran === "month" ? day.slice(0, 7) : day;
 }
 function bucketLabel(key: string, gran: TimeGran): string {
   if (gran === "year") return key;              // YYYY
@@ -193,8 +189,8 @@ export function salesSeries(
 ): { label: string; value: number; orders: number }[] {
   const map = new Map<string, { gross: number; ids: Set<string> }>();
   for (const o of orders) {
-    if (o.status === "voided") continue;
-    const key = bucketKey(new Date(o.created_at), gran);
+    if (!isCountedSale(o)) continue;
+    const key = bucketKey(saleAt(o), gran);
     const cur = map.get(key) ?? { gross: 0, ids: new Set<string>() };
     if (employeeId) {
       let add = 0, hit = false;
@@ -216,8 +212,8 @@ export function salesSeries(
 export function hourlySeries(orders: Order[]): { label: string; value: number }[] {
   const buckets = new Array(24).fill(0) as number[];
   for (const o of orders) {
-    if (o.status === "voided") continue;
-    buckets[new Date(o.created_at).getHours()] += o.grand_total;
+    if (!isCountedSale(o)) continue;
+    buckets[bkkHour(saleAt(o))] += o.grand_total;
   }
   return buckets
     .map((v, h) => ({ label: String(h).padStart(2, "0"), value: round2(v) }))
@@ -227,7 +223,7 @@ export function hourlySeries(orders: Order[]): { label: string; value: number }[
 export function byBranch(orders: Order[], branches: Branch[], locale: "th" | "en" | "zh" = "th") {
   const map = new Map<string, { gross: number; orders: number; gp: number }>();
   for (const o of orders) {
-    if (o.status === "voided") continue;
+    if (!isCountedSale(o)) continue;
     const cur = map.get(o.branch_id) ?? { gross: 0, orders: 0, gp: 0 };
     cur.gross += o.grand_total;
     cur.orders += 1;
@@ -252,7 +248,7 @@ export function byBrand(orders: Order[], branches: Branch[], brandNames: Map<str
   const branchBrand = new Map(branches.map((b) => [b.id, b.brand_id]));
   const map = new Map<string, number>();
   for (const o of orders) {
-    if (o.status === "voided") continue;
+    if (!isCountedSale(o)) continue;
     const bid = branchBrand.get(o.branch_id);
     if (!bid) continue;
     map.set(bid, (map.get(bid) ?? 0) + o.grand_total);
@@ -265,7 +261,7 @@ export function byBrand(orders: Order[], branches: Branch[], brandNames: Map<str
 export function byEmployee(orders: Order[], employees: Employee[]) {
   const map = new Map<string, { gross: number; orders: Set<string>; units: number; gp: number }>();
   for (const o of orders) {
-    if (o.status === "voided") continue;
+    if (!isCountedSale(o)) continue;
     for (const it of o.items) {
       const eid = it.salesperson_id ?? o.salesperson_id ?? o.cashier_id;
       if (!eid) continue;
@@ -298,7 +294,7 @@ export function byEmployee(orders: Order[], employees: Employee[]) {
 export function topProducts(orders: Order[], limit = 10) {
   const map = new Map<string, { name: string; qty: number; gross: number; gp: number }>();
   for (const o of orders) {
-    if (o.status === "voided") continue;
+    if (!isCountedSale(o)) continue;
     for (const it of o.items) {
       const cur = map.get(it.sku) ?? { name: it.name, qty: 0, gross: 0, gp: 0 };
       cur.qty += it.qty;
@@ -316,7 +312,7 @@ export function topProducts(orders: Order[], limit = 10) {
 export function paymentMix(orders: Order[]) {
   const map = new Map<string, number>();
   for (const o of orders) {
-    if (o.status === "voided") continue;
+    if (!isCountedSale(o)) continue;
     for (const p of o.payments) map.set(p.method, (map.get(p.method) ?? 0) + p.amount);
   }
   return Array.from(map.entries())

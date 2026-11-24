@@ -46,6 +46,8 @@ export const useSession = create<SessionState>()(
           if (!response.ok) return;
           central = await response.json();
         } catch { return; }
+        // A previous request must never clear or overwrite a newer login/logout.
+        if (get().employee !== emp) return;
         if (!central.authenticated || !central.authz?.allowed || central.authz.employee_id !== emp.id) {
           set({employee:null,branchId:null,terminalId:null,shift:null}); return;
         }
@@ -57,7 +59,7 @@ export const useSession = create<SessionState>()(
           .select("role,data_scope,home_branch_id,branch_ids,brand_ids,max_discount_percent,can_open_drawer,status,photo_url,nickname,first_name,last_name")
           .eq("id", emp.id)
           .maybeSingle();
-        if (error) return;
+        if (error || get().employee !== emp) return;
         if (!data) { set({ employee: null, branchId: null, terminalId: null, shift: null }); return; }
         // ถ้าถูกระงับ/ลบ → ออกจากระบบ
         if (data.status && data.status !== "active") { set({ employee: null, branchId: null, terminalId: null, shift: null }); return; }

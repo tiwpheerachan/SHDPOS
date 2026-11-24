@@ -24,6 +24,7 @@ import { availableQty } from "@/lib/stock";
 import { formatTHB, lineTotal, round2 } from "@/lib/money";
 import { can, discountLimit, discountApprovalLevel, needsApproval } from "@/lib/permissions";
 import { Button, Card, EmptyState, Input, Select, Badge, Modal, Segmented, Avatar } from "@/components/ui";
+import { DeferredSaleModal } from "@/components/pos/deferred-sale-modal";
 import { PaymentModal } from "@/components/pos/payment-modal";
 import { DiscountModal, SerialModal, type PrintStatus } from "@/components/pos/sale-modals";
 import { resolveSerial } from "@/lib/data/serials";
@@ -65,6 +66,8 @@ export default function SellPage() {
   const [categoryId, setCategoryId] = useState<string>("all");
   const searchRef = useRef<HTMLInputElement>(null);
 
+  const [deferredMode,setDeferredMode]=useState(false);
+  const [deferredOpen,setDeferredOpen]=useState(false);
   const [payOpen, setPayOpen] = useState(false);
   const checkoutId = useRef<string | null>(null);
   const [checkoutPreparing, setCheckoutPreparing] = useState(false);
@@ -94,6 +97,8 @@ export default function SellPage() {
   const [couponInput, setCouponInput] = useState("");
   const [couponMsg, setCouponMsg] = useState<string | null>(null);
   const [couponChecking, setCouponChecking] = useState(false);
+  const [giftLoadError,setGiftLoadError]=useState("");
+  const [giftReload,setGiftReload]=useState(0);
   const [giftCampaigns, setGiftCampaigns] = useState<GiftCampaign[]>([]);
   const [giftWarns, setGiftWarns] = useState<string[]>([]);
 
@@ -201,12 +206,14 @@ export default function SellPage() {
   useEffect(() => {
     if (!branchId) { setGiftCampaigns([]); return; }
     let alive = true;
-    void fetchActiveGiftCampaigns(branchId, session.channel).then((c) => { if (alive) setGiftCampaigns(c); });
-    return () => { alive = false; };
-  }, [branchId, session.channel]);
+    const load=()=>void fetchActiveGiftCampaigns(branchId,session.channel,cart.customerId).then(c=>{if(alive){setGiftCampaigns(c);setGiftLoadError("");}}).catch(error=>{if(alive)setGiftLoadError(error instanceof Error?error.message:"อ่านสิทธิ์ของแถมไม่สำเร็จ")});
+    load();const timer=window.setInterval(()=>{if(!checkoutId.current)load()},30000);
+    return () => { alive = false;clearInterval(timer); };
+  }, [branchId, session.channel,cart.customerId,giftReload]);
 
   // ประเมินตะกร้า → เติม/ปรับของแถมอัตโนมัติ (บรรทัดของแถม = gift_source 'campaign')
   useEffect(() => {
+    if(deferredMode)return;
     if (!giftCampaigns.length) {
       if (cart.lines.some((l) => l.gift_source === "campaign")) cart.setCampaignGifts([]);
       if (giftWarns.length) setGiftWarns([]);
@@ -222,7 +229,7 @@ export default function SellPage() {
     if (giftSig(gifts) !== giftSig(cart.lines)) cart.setCampaignGifts(gifts);
     setGiftWarns((prev) => (prev.join("|") === warnings.join("|") ? prev : warnings));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cart.lines, giftCampaigns, productBySku, stock]);
+  }, [cart.lines, giftCampaigns, productBySku, stock,deferredMode]);
 
   useEffect(()=>{
     const refresh=()=>void listProducts().then(setProducts);
@@ -236,11 +243,12 @@ export default function SellPage() {
   const branchProducts = useMemo(() => {
     if (!branch) return [];
     return products.filter((p) => {
+      if(deferredMode)return true;
       if (!p.is_active) return false;
       if (p.kind === "service" || p.kind === "fee") return true;
       return stock.has(p.id) || p.brand_id === branch.brand_id;
     });
-  }, [products, branch, stock]);
+  }, [products, branch, stock,deferredMode]);
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -313,6 +321,13 @@ export default function SellPage() {
   },[payOpen,branchId]);
 
   async function beginCheckout() {
+    if(deferredMode){
+      if(!isLiveMode()){toast.push({tone:"warn",title:"โหมดขายก่อนต้องบันทึกบนเซิร์ฟเวอร์จริง"});return;}
+      if(checkoutId.current||localStorage.getItem(`shdpos.checkout:${employee?.id}:${branchId}`)){toast.push({tone:"warn",title:"มี Checkout เดิมค้างอยู่",body:"กรุณาตรวจหรือยกเลิกการจองเดิมในศูนย์ตรวจสอบก่อน เพื่อไม่ให้รับเงินซ้ำ"});return;}
+      setDeferredOpen(true);return;
+    }
+
+    if(isLiveMode()&&giftLoadError){toast.push({tone:"danger",title:"กรุณาตรวจสิทธิ์ของแถมอีกครั้งก่อนรับชำระ"});return;}
     if (!employee || !branchId || checkoutPreparing || busy) return;
     const missing = cart.lines.find(l => l.track_serial && l.serials.length !== l.qty);
     if (missing) { setSerialLineId(missing.lineId); toast.push({tone:"warn",title:t.pos.serialRequired,body:missing.name}); return; }
@@ -323,8 +338,27 @@ export default function SellPage() {
         salesperson_id:cart.defaultSalespersonId ?? employee.id, customer_id:cart.customerId,
         customer_name:cart.customerName,customer_phone:cart.customerPhone,channel:session.channel,
         items:cart.lines,subtotal:totals.subtotal,discount_total:round2(totals.discountTotal+totals.redeemAmount+totals.couponAmount),
-        grand_total:totals.grandTotal,reserve:reserveMode,redeem_points:cart.redeemPoints,coupon_code:cart.couponCode,
+        grand_total:totals.grandTotal,manual_discount_total:totals.discountTotal,reserve:reserveMode,redeem_points:cart.redeemPoints,coupon_code:cart.couponCode,
       };
+      if(isLiveMode()&&cart.couponCode){
+        const fresh=await checkoutRequest("preview",uuidv4(),branchId,{draft});
+        if(Number(fresh.coupon_discount)!==totals.couponAmount){
+          cart.setCoupon(cart.couponCode,Number(fresh.coupon_discount),fresh.campaign_id);
+          toast.push({tone:"info",title:"ปรับส่วนลดตามรายการล่าสุดแล้ว",body:"กรุณาตรวจยอดใหม่และกดชำระเงินอีกครั้ง"});return;
+        }
+      }
+      // สาขาผูกคลังกลาง: เช็กยอดขายได้จริงใน JST ก่อนรับเงิน (กัน JST ปฏิเสธบิล "สต๊อกไม่พอ" หลังลูกค้าจ่ายแล้ว)
+      if(isLiveMode()&&!reserveMode){
+        const sc=await fetch("/api/pos/ow-stock-check",{method:"POST",headers:{"Content-Type":"application/json"},cache:"no-store",
+          body:JSON.stringify({branch_id:branchId,items:cart.lines.filter(l=>l.product_id).map(l=>({product_id:l.product_id,qty:l.qty}))})})
+          .then(r=>r.ok?r.json():null).catch(()=>null) as {linked?:boolean;checked?:boolean;short?:{sku:string;need:number;sellable:number}[]}|null;
+        if(sc?.short?.length){
+          toast.push({tone:"danger",title:L("สต๊อกในคลังกลาง (JST) ไม่พอ","Not enough stock in JST","JST 库存不足"),
+            body:sc.short.map(s=>`${s.sku}: ${L("ต้องการ","need","需要")} ${s.need} · ${L("ขายได้","sellable","可售")} ${s.sellable}`).join("\n")});
+          return;
+        }
+        if(sc?.linked&&!sc.checked) toast.push({tone:"warn",title:L("ตรวจสต๊อกคลังกลางไม่ได้ตอนนี้","Could not check JST stock","暂无法核对 JST 库存"),body:L("ขายต่อได้ แต่บิลอาจถูก JST ปฏิเสธถ้าของไม่พอ","You may continue, but JST may reject the bill","可继续，但 JST 可能拒单")});
+      }
       const id=checkoutIdentity(branchId,employee.id,JSON.stringify(draft));
       if(isLiveMode()) {
         await checkoutRequest("reserve",id,branchId,{draft});
@@ -356,7 +390,7 @@ export default function SellPage() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cart.lines, totals, employee, branchId, checkoutPreparing, busy]);
+  }, [cart.lines, totals, employee, branchId, checkoutPreparing, busy, giftLoadError,deferredMode]);
 
   // ------------------------------------------------------------------
   // ส่วนลด
@@ -432,22 +466,27 @@ export default function SellPage() {
   // ------------------------------------------------------------------
   // คูปอง
   // ------------------------------------------------------------------
-  async function applyCoupon() {
-    const code = couponInput.trim();
+  async function applyCoupon(codeOverride?:string) {
+    const code = (codeOverride??couponInput).trim();
     if (!code) return;
     setCouponChecking(true);
     setCouponMsg(null);
     try {
-      const r = await validateCoupon(code, cart.customerId, totals.subtotal);
+      const r = isLiveMode() ? await checkoutRequest("preview",uuidv4(),branchId!,{draft:{
+        branch_id:branchId,channel:session.channel,items:cart.lines,customer_id:cart.customerId,
+        subtotal:totals.subtotal,manual_discount_total:totals.discountTotal,discount_total:totals.discountTotal,
+        grand_total:totals.grandTotal,coupon_code:code,redeem_points:cart.redeemPoints,
+      }}).then(result=>({valid:true,campaign_id:result.campaign_id,discount:Number(result.coupon_discount),name:code,reason:""})) : await validateCoupon(code, cart.customerId, totals.subtotal);
       if (r.valid && r.campaign_id) {
         cart.setCoupon(code.toUpperCase(), r.discount ?? 0, r.campaign_id);
         setCouponInput("");
         setCouponMsg(null);
+        if(codeOverride)setPromoOpen(false);
         toast.push({ tone: "ok", title: L("ใช้คูปองแล้ว", "Coupon applied", "已使用优惠券"), body: `${r.name ?? code} · ${L("ลด", "−", "减")} ${formatTHB(r.discount ?? 0, false)}` });
       } else {
         setCouponMsg(r.reason ?? L("ใช้คูปองไม่ได้", "Coupon not valid", "优惠券无效"));
       }
-    } finally {
+    } catch(error){const message=error instanceof Error?error.message:"ตรวจคูปองไม่สำเร็จ";setCouponMsg(message);if(codeOverride)toast.push({tone:"warn",title:"ใช้แคมเปญไม่ได้",body:message});} finally {
       setCouponChecking(false);
     }
   }
@@ -461,7 +500,8 @@ export default function SellPage() {
   const promoRelevant = (p: PromoCampaign) => !p.target_skus.length || cart.lines.some((l) => l.kind === "goods" && p.target_skus.includes(l.sku));
 
   // ใช้แคมเปญส่วนลด (กดการ์ดเลือก)
-  function applyPromo(p: PromoCampaign) {
+  async function applyPromo(p: PromoCampaign) {
+    if(isLiveMode()){await applyCoupon(p.code);return;}
     const amt = promoAmt(p);
     if (amt <= 0) { toast.push({ tone: "warn", title: p.target_skus.length ? L("ยังไม่มีสินค้าของแคมเปญนี้ในตะกร้า", "Add a qualifying item first", "篮内无符合商品") : L(`ยอดไม่ถึงขั้นต่ำ ${formatTHB(p.min_spend, false)}`, `Min ${formatTHB(p.min_spend, false)}`, `未达`) }); return; }
     cart.setCoupon(p.code, amt, p.id);
@@ -474,7 +514,7 @@ export default function SellPage() {
   // ------------------------------------------------------------------
   async function confirmSale(payments: PaymentEntry[], paid: number, change: number) {
     if (!employee || !branchId) return;
-    const missingSerial = cart.lines.find((l) => l.track_serial && l.serials.length < l.qty);
+    const missingSerial = cart.lines.find((l) => l.track_serial && l.serials.length !== l.qty);
     if (missingSerial) {
       toast.push({ tone: "warn", title: t.pos.serialRequired, body: missingSerial.name });
       setPayOpen(false);
@@ -485,12 +525,16 @@ export default function SellPage() {
     setBusy(true);
     try {
       const operationId = checkoutId.current ?? uuidv4();
+      let centralOrderNo: string | null = null;
       if (isLiveMode()) {
         if (!checkoutId.current) throw new Error("ไม่พบการจองกลาง กรุณาตรวจรายการก่อนรับเงินซ้ำ");
-        await checkoutRequest("commit", operationId, branchId, {payments});
+        const committed = await checkoutRequest("commit", operationId, branchId, {payments});
+        // เลขบิลกลาง (เช่น UAT-33856-261124-0003) — ใช้บนใบเสร็จให้ค้นในระบบกลาง/คลังกลาง/JST ได้ตรงกัน
+        centralOrderNo = typeof committed?.order_no === "string" ? committed.order_no : null;
       }
       const { order } = await commitSale({
         client_uuid: operationId,
+        central_order_no: centralOrderNo,
         central_committed: isLiveMode(),
         branch_id: branchId,
         terminal_id: session.terminalId,
@@ -700,6 +744,7 @@ export default function SellPage() {
                     </div>
 
                     {/* ชื่อ + ราคา + สต๊อกปกติ */}
+                    {!p.is_active?<span className="text-[10px] text-warn mt-1">รอตรวจข้อมูล · ขายก่อนเท่านั้น</span>:null}
                     <p className="text-[11.5px] font-medium leading-snug line-clamp-2 mt-1.5 flex-1">{name}</p>
                     <div className="flex items-center justify-between gap-1 mt-1">
                       <p className="text-sm font-bold tnum">{formatTHB(p.price, false)}</p>
@@ -834,6 +879,7 @@ export default function SellPage() {
           )}
         </div>
 
+        {giftLoadError?<div role="alert" className="rounded-xl border border-danger/20 bg-danger/5 p-3 text-sm text-danger">{giftLoadError}<Button variant="soft" className="ml-2" onClick={()=>setGiftReload(v=>v+1)}>ตรวจสิทธิ์ของแถมอีกครั้ง</Button></div>:null}
         {giftWarns.length > 0 && (
           <div className="mx-4 mt-2 px-3 py-2 rounded-lg bg-danger/8 border border-danger/30 text-[11px] text-danger space-y-0.5">
             {giftWarns.map((w, i) => (
@@ -847,7 +893,7 @@ export default function SellPage() {
             <ul className="divide-y divide-line">
               {cart.lines.map((l) => {
                 const total = lineTotal(l);
-                const serialMissing = l.track_serial && l.serials.length < l.qty;
+                const serialMissing = l.track_serial && l.serials.length !== l.qty;
                 const isCampaignGift = l.gift_source === "campaign";
                 return (
                   <li key={l.lineId} className="px-4 py-3">
@@ -874,7 +920,13 @@ export default function SellPage() {
                         <div className="h-8 px-3 flex items-center rounded-lg border border-line bg-surface2/50 text-sm font-medium tnum">×{l.qty}</div>
                       ) : (
                         <div className="flex items-center rounded-lg border border-line">
-                          <button onClick={() => cart.setQty(l.lineId, l.qty - 1)} className="w-8 h-8 grid place-items-center text-muted hover:text-ink">
+                          <button onClick={() => {
+                            if (l.track_serial && l.qty > 1 && l.serials.length > l.qty - 1) {
+                              toast.push({ tone: "warn", title: L("กรุณาลบ SN ของชิ้นที่นำออกก่อนลดจำนวน", "Remove the unit's SN before reducing quantity", "请先删除对应序列号再减少数量") });
+                              setSerialLineId(l.lineId); return;
+                            }
+                            cart.setQty(l.lineId, l.qty - 1);
+                          }} className="w-8 h-8 grid place-items-center text-muted hover:text-ink">
                             <Minus size={13} />
                           </button>
                           <span className="w-9 text-center text-sm font-medium tnum">{l.qty}</span>
@@ -941,6 +993,13 @@ export default function SellPage() {
             <span className="text-muted">{t.pos.subtotal}</span>
             <span className="tnum">{formatTHB(totals.subtotal)}</span>
           </div>
+          {/* แยกส่วนลดรายการ (ตั้งที่แต่ละบรรทัด) กับส่วนลดท้ายบิล (กดแก้ได้) — เดิมรวมกันใต้ป้าย "ส่วนลดท้ายบิล" ทำให้สับสน */}
+          {totals.lineDiscountTotal > 0 && (
+            <div className="flex justify-between text-xs">
+              <span className="text-muted flex items-center gap-1"><Percent size={11} /> {t.pos.lineDiscount}</span>
+              <span className="tnum text-danger">-{formatTHB(totals.lineDiscountTotal)}</span>
+            </div>
+          )}
           <button
             onClick={() => setBillDiscountOpen(true)}
             className="flex justify-between text-xs w-full hover:text-brand"
@@ -949,7 +1008,7 @@ export default function SellPage() {
             <span className="text-muted flex items-center gap-1">
               <Percent size={11} /> {t.pos.billDiscount}
             </span>
-            <span className="tnum text-danger">{totals.discountTotal > 0 ? `-${formatTHB(totals.discountTotal)}` : "—"}</span>
+            <span className="tnum text-danger">{totals.billDiscountTotal > 0 ? `-${formatTHB(totals.billDiscountTotal)}` : "—"}</span>
           </button>
           {totals.couponAmount > 0 && (
             <div className="flex justify-between text-xs">
@@ -987,6 +1046,7 @@ export default function SellPage() {
               <Inbox size={15} />
             </Button>
           </div>
+          {isLiveMode()?<label className={`flex gap-2 text-xs p-3 rounded-xl border ${deferredMode?'border-warn/40 bg-warn/10 text-ink':'border-line text-muted'}`}><input type="checkbox" checked={deferredMode} onChange={e=>{setDeferredMode(e.target.checked);if(e.target.checked)setReserveMode(false)}}/>ขายก่อน · รอเติม SN / ข้อมูล แล้วปิดบิลภายหลัง</label>:null}
           <div className="flex items-center justify-between gap-2 px-0.5">
             <label className="flex items-center gap-2 cursor-pointer text-xs select-none">
               <input type="checkbox" disabled={isLiveMode()} title={isLiveMode() ? "รอกระบวนการส่งมอบส่วนกลาง" : undefined} checked={reserveMode} onChange={(e) => setReserveMode(e.target.checked)} className="w-4 h-4 accent-[rgb(var(--c-brand))]" />
@@ -1001,13 +1061,18 @@ export default function SellPage() {
             loading={checkoutPreparing}
             onClick={() => void beginCheckout()}
           >
-            {reserveMode ? L("รับเงิน + จองของ", "Pay + reserve", "收款+预留") : t.pos.pay} · {formatTHB(totals.grandTotal)}
+            {deferredMode?"ขายก่อน / บันทึกรอปิดบิล":reserveMode ? L("รับเงิน + จองของ", "Pay + reserve", "收款+预留") : t.pos.pay} · {formatTHB(totals.grandTotal)}
           </Button>
           <p className="text-[10px] text-muted text-center">{reserveMode ? L("โหมดจอง: จองสต๊อกไว้ ส่งมอบทีหลัง (ไม่ตัด On Hand จนส่งมอบ)", "Reserve mode: stock held, deliver later", "预留模式") : L("F2 = ชำระเงิน · F4 = พักบิล · / = ค้นหา", "F2 = Pay · F4 = Hold · / = Search", "F2 = 收款 · F4 = 挂单 · / = 搜索")}</p>
         </div>
       </aside>
 
       {/* ================= Modals ================= */}
+      <DeferredSaleModal key={branchId} open={deferredOpen} onClose={()=>setDeferredOpen(false)} lines={cart.lines} discountTotal={totals.discountTotal} customer={{id:cart.customerId,name:cart.customerName,phone:cart.customerPhone}} channel={session.channel} couponCode={cart.couponCode} redeemPoints={cart.redeemPoints} salespersonId={cart.defaultSalespersonId??employee?.id??null} onRegistered={()=>{
+        if(useSession.getState().branchId===branchId&&JSON.stringify(useCart.getState().lines)===JSON.stringify(cart.lines)){cart.clear();setDeferredMode(false);}
+        void refreshBranchSnapshot().then(reloadStock).catch(()=>toast.push({tone:"warn",title:"บันทึกรายการแล้ว แต่ยังโหลดสต๊อกล่าสุดไม่ได้"}));
+      }}/>
+
       <PaymentModal
         checkoutId={checkoutId.current}
         restoredPayments={restoredPayments}
@@ -1038,7 +1103,7 @@ export default function SellPage() {
         open={billDiscountOpen}
         onClose={() => setBillDiscountOpen(false)}
         title={t.pos.billDiscount}
-        base={totals.subtotal}
+        base={totals.afterLineDiscount /* ฐาน = ยอดหลังหักส่วนลดรายการ (ตรงกับที่ระบบคำนวณจริง) */}
         limitPercent={discLimit}
         initialPercent={cart.billDiscountPercent}
         initialAmount={cart.billDiscountAmount}
@@ -1049,6 +1114,9 @@ export default function SellPage() {
         open={Boolean(serialLineId)}
         onClose={() => setSerialLineId(null)}
         productName={activeLine?.name ?? ""}
+        productImage={activeLine?.image_url}
+        productSku={activeLine?.sku}
+        maxSerials={activeLine?.qty ?? 1}
         qty={activeLine?.qty ?? 1}
         initial={activeLine?.serials ?? []}
         onSave={async (serials) => {
@@ -1061,8 +1129,12 @@ export default function SellPage() {
             if (info.status === "sold") { toast.push({ tone: "danger", title: L(`SN ${sn} ขายออกไปแล้ว`, `SN ${sn} already sold`, `${sn} 已售出`) }); continue; }
             ok.push(sn);
           }
-          cart.setLineSerials(serialLineId, ok);
-          setSerialLineId(null);
+          try {
+            cart.setLineSerials(serialLineId, ok);
+            setSerialLineId(null);
+          } catch (error) {
+            toast.push({ tone: "danger", title: error instanceof Error ? error.message : "SN ไม่ถูกต้อง" });
+          }
         }}
       />
 

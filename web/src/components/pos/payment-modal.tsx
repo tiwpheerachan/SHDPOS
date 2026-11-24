@@ -35,7 +35,11 @@ export function PaymentModal({
   checkoutId,
   restoredPayments,
   onRecordPayment,
+  title,
+  confirmLabel,
 }: {
+  title?: string;
+  confirmLabel?: string;
   open: boolean;
   onClose: () => void;
   grandTotal: number;
@@ -152,7 +156,7 @@ export function PaymentModal({
     <Modal
       open={open}
       onClose={onClose}
-      title={t.payment.title}
+      title={title??t.payment.title}
       size="xl"
       footer={
         <>
@@ -166,7 +170,7 @@ export function PaymentModal({
             loading={busy}
             onClick={() => onConfirm(payments, paid, change)}
           >
-            {t.common.confirm} · {formatTHB(grandTotal)}
+            {confirmLabel??t.common.confirm} · {formatTHB(grandTotal)}
           </Button>
         </>
       }

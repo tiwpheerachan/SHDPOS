@@ -1,5 +1,7 @@
 "use client";
 
+import { useCatalogProducts } from "@/lib/hooks/use-catalog-products";
+
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Filter, Check, X, Bookmark, Save, Trash2, Calendar, Search } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
@@ -112,7 +114,7 @@ export function FilterBar({
 
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
+  const [products, setProducts] = useCatalogProducts();
   const [terminals, setTerminals] = useState<Terminal[]>([]);
 
   useEffect(() => {

@@ -3,7 +3,7 @@
 //   แต่ละ usage = 1 ออเดอร์ที่ใช้คูปอง (ใครใช้ วันไหน กี่โมง สินค้าไหน ลดเท่าไร)
 // =====================================================================
 import { db, kvGet, kvSet } from "../offline/db";
-import { listPromoCampaigns, type PromoCampaign } from "./repo";
+import { listPromoCampaigns, isDemoMode, type PromoCampaign } from "./repo";
 
 export interface CouponUsage {
   id: string;
@@ -104,6 +104,6 @@ export async function listCouponUsages(): Promise<CouponUsage[]> {
       } as CouponUsage;
     })
     .filter((x): x is CouponUsage => x !== null);
-  const demo = await seedDemoUsages(promos);
+  const demo = isDemoMode() ? await seedDemoUsages(promos) : [];
   return [...real, ...demo].sort((a, b) => (a.at < b.at ? 1 : -1));
 }

@@ -1,0 +1,51 @@
+export async function testPromotedCheckout(db,ids){
+ const assert=(ok,msg)=>{if(!ok)throw Error(msg)};
+ async function rejects(sql,args,message){try{await db.query(sql,args)}catch(e){if(e.message.includes(message))return;throw e}throw Error('Expected '+message)}
+ const customer='00000000-0000-4000-8000-000000002001',sale='00000000-0000-4000-8000-000000002002',other='00000000-0000-4000-8000-000000002003',campaign='00000000-0000-4000-8000-000000002004';
+ await db.query("insert into customers(id,name,points)values($1,'UAT member',200)",[customer]);
+ await db.query("insert into campaigns(id,name,code,discount_type,discount_value,active,usage_limit,per_customer_limit,eligible_scope,eligible_min_qty)values($1,'Discount','SAVE10','amount',10,true,1,null,'selected',1)",[campaign]);
+ await db.query("insert into campaign_products(campaign_id,product_id,sku,role)values($1,$2,'SKU','eligible')",[campaign,ids.product]);
+ const base={branch_id:ids.branch,client_uuid:sale,channel:'offline',cashier_id:ids.actor,customer_id:customer,subtotal:107,discount_total:0,grand_total:107,vat_amount:7,items:[{product_id:ids.product,sku:'SKU',name:'Test',kind:'goods',qty:1,unit_price:107,line_total:107,unit_cost:50,cost_total:50,gross_profit:50,serials:[]}]};
+ const sql='select pos_prepare_promoted_checkout($1,$2,$3,$4,$5,$6,$7,$8,$9) result';
+ const preview=(await db.query(sql,[sale,ids.actor,ids.branch,base,'SAVE10',10,[],null,true])).rows[0].result;
+ assert(Number(preview.grand_total)===87,'Authoritative coupon+points total');
+ assert(Number((await db.query('select count(*)from pos_checkout_holds where id=$1',[sale])).rows[0].count)===0,'Preview reserved stock');
+ await rejects(sql,[sale,ids.actor,ids.branch,base,'SAVE10',10,[],null,false],'invalid_expected_payable');
+ await rejects(sql,[sale,ids.actor,ids.branch,base,'SAVE10',10,[],88,false],'promotion_total_changed');
+ await db.query(sql,[sale,ids.actor,ids.branch,base,'SAVE10',10,[],87,false]);
+ await rejects(sql,[other,ids.actor,ids.branch,{...base,client_uuid:other},'SAVE10',0,[],97,false],'campaign_usage_limit');
+ // Expired reservations no longer own campaign quota; renewal must reacquire it.
+ await db.query("update pos_checkout_holds set expires_at=now()-interval '1 minute'where id=$1",[sale]);
+ await db.query(sql,[other,ids.actor,ids.branch,{...base,client_uuid:other},'SAVE10',0,[],97,false]);
+ await rejects(sql,[sale,ids.actor,ids.branch,base,'SAVE10',10,[],87,false],'campaign_usage_limit');
+ await db.query('select pos_release_checkout($1,$2)',[other,ids.actor]);
+ await db.query(sql,[sale,ids.actor,ids.branch,base,'SAVE10',10,[],87,false]);
+ const payments=[{method:'credit_card',amount:87,reference_no:'PROMO-UAT'}];
+ await db.query('select pos_record_checkout_payment($1,$2,$3)',[sale,ids.actor,payments[0]]);
+ await db.query('select pos_commit_checkout($1,$2,$3)',[sale,ids.actor,payments]);
+ await db.query('select pos_commit_checkout($1,$2,$3)',[sale,ids.actor,payments]);
+ assert(Number((await db.query('select points from customers where id=$1',[customer])).rows[0].points)===194,'Points not atomic or redeemed twice');
+ assert(Number((await db.query('select count(*) from coupon_redemptions where client_uuid=$1',[sale])).rows[0].count)===1,'Coupon redeemed twice');
+ assert(Number((await db.query('select count(*) from pos_campaign_uses where checkout_id=$1',[sale])).rows[0].count)===1,'Campaign use not atomic');
+ const giftCampaign='00000000-0000-4000-8000-000000002010',giftSale='00000000-0000-4000-8000-000000002011',giftProduct='00000000-0000-4000-8000-000000001001';
+ await db.query("insert into campaigns(id,name,active,is_automatic,promo_type,eligible_scope,eligible_min_qty,gift_mode,gift_per_qty,per_customer_limit)values($1,'Gift',true,true,'gift','selected',1,'per_bill',1,null)",[giftCampaign]);
+ await db.query("insert into campaign_products(campaign_id,product_id,sku,role,gift_qty)values($1,$2,'SKU','eligible',1),($1,$3,'OPS','gift',1)",[giftCampaign,ids.product,giftProduct]);
+ const gift={product_id:giftProduct,sku:'OPS',qty:1,unit_price:0,is_gift:true,gift_source:'campaign',gift_campaign_id:giftCampaign,serials:[]};
+ const giftBase={...base,client_uuid:giftSale,customer_id:null};
+ await rejects(sql,[giftSale,ids.actor,ids.branch,giftBase,null,0,[{...gift,qty:2}],107,false],'campaign_gift_mismatch');
+ await rejects(sql,[giftSale,ids.actor,ids.branch,giftBase,null,0,[{...gift,gift_source:'manual'}],107,false],'campaign_gift_mismatch');
+ await db.query(sql,[giftSale,ids.actor,ids.branch,giftBase,null,0,[gift],107,false]);
+ const giftPayment={method:'credit_card',amount:107,reference_no:'GIFT-UAT'};
+ await db.query('select pos_record_checkout_payment($1,$2,$3)',[giftSale,ids.actor,giftPayment]);
+ await db.query('select pos_commit_checkout($1,$2,$3)',[giftSale,ids.actor,[giftPayment]]);
+ assert(Number((await db.query('select qty_on_hand from stock_levels where branch_id=$1 and product_id=$2',[ids.branch,giftProduct])).rows[0].qty_on_hand)===0,'Gift stock not deducted');
+ const order=(await db.query('select gross_profit from orders where client_uuid=$1',[giftSale])).rows[0];assert(Number(order.gross_profit)===10,'Gift costs missing from profit');
+ assert(!(await db.query("select has_function_privilege('anon','pos_commit_checkout(uuid,uuid,jsonb)','EXECUTE') allowed")).rows[0].allowed,'Public commit function exposed');
+ await db.query('update campaigns set usage_limit=1 where id=$1',[giftCampaign]);
+ const next='00000000-0000-4000-8000-000000002012';
+ const exhausted=(await db.query(sql,[next,ids.actor,ids.branch,{...giftBase,client_uuid:next},null,0,[],null,true])).rows[0].result;
+ assert(exhausted.quote.items.length===1,'Exhausted automatic gift blocked ordinary sale');
+ const available=(await db.query("select pos_available_gift_campaigns($1,null,'offline') result",[ids.branch])).rows[0].result;
+ assert(available.length===0,'Exhausted gift still offered in POS');
+ console.log('PASS: authoritative coupon/points preview, quota reservations/expiry renewal, missing/changed totals, atomic redemption/idempotency, automatic gift validation, stock and profit');
+}

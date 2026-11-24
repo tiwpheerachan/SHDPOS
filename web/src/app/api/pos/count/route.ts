@@ -6,11 +6,14 @@ import {
 } from "@/lib/server/pos-context";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { object, UUID } from "@/lib/server/sale-validation";
+import { assertNotOwStockBranch } from "@/lib/server/ow-branch";
 export async function POST(req: NextRequest) {
   try {
     requireSameOrigin(req);
     const b = object(await req.json());
     const ctx = await posContext(req, "inventory.adjust", b.branch_id);
+    // สาขาที่ผูกคลังกลาง: สต๊อกจริงอยู่ที่ OneWarehouse/JST → ไม่ให้แก้ยอดใน POS ตรง ๆ
+    await assertNotOwStockBranch(b.branch_id);
     if (
       typeof b.id !== "string" ||
       !b.id ||

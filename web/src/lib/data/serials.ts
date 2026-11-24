@@ -27,13 +27,20 @@ export interface SerialInfo {
 
 const eq = (a: string, b: string) => a.trim().toUpperCase() === b.trim().toUpperCase();
 
+type Ctx = { transfers: Awaited<ReturnType<typeof listAllTransfers>>; orders: Awaited<ReturnType<typeof listOrders>>; pMap: Map<string, Awaited<ReturnType<typeof listProducts>>[number]> };
+async function loadCtx(): Promise<Ctx> {
+  const [transfers, orders, products] = await Promise.all([listAllTransfers(), listOrders({}), listProducts()]);
+  return { transfers, orders, pMap: new Map(products.map((p) => [p.id, p])) };
+}
+
 export async function resolveSerial(snRaw: string): Promise<SerialInfo> {
+  return computeSerial(snRaw, await loadCtx());
+}
+
+function computeSerial(snRaw: string, { transfers, orders, pMap }: Ctx): SerialInfo {
   const sn = snRaw.trim().toUpperCase();
   const empty: SerialInfo = { serialNo: sn, product: null, status: "unknown", currentBranchId: null, events: [] };
   if (!sn) return empty;
-
-  const [transfers, orders, products] = await Promise.all([listAllTransfers(), listOrders({}), listProducts()]);
-  const pMap = new Map(products.map((p) => [p.id, p]));
   const events: SerialEvent[] = [];
   let productId: string | null = null, sku = "", name = "";
 
@@ -120,4 +127,24 @@ export async function recentSerials(limit = 16): Promise<{ serialNo: string; nam
   // เติมด้วย SN จากโอนย้าย
   for (const tr of transfers) for (const it of tr.items) for (const s of [...(it.shippedSerials ?? []), ...(it.receivedSerials ?? []), ...(it.quarantinedSerials ?? [])]) { add(s.serialNo, it.name); if (out.length >= limit) return out; }
   return out;
+}
+
+/** SN ทุกตัวของสินค้า 1 ตัว (จากเอกสารโอน/ส่งคืน/ขายในเครื่อง) พร้อมสถานะ/ที่อยู่/ไทม์ไลน์ — โหลดข้อมูลครั้งเดียว */
+export async function serialsForProduct(productId: string): Promise<SerialInfo[]> {
+  const ctx = await loadCtx();
+  const sns = new Set<string>();
+  const add = (x?: string | null) => { if (x && x.trim()) sns.add(x.trim().toUpperCase()); };
+  for (const tr of ctx.transfers) {
+    for (const it of tr.items) {
+      if (it.product_id !== productId) continue;
+      for (const x of [...(it.shippedSerials ?? []), ...(it.receivedSerials ?? []), ...(it.quarantinedSerials ?? [])]) add(x.serialNo);
+    }
+    for (const d of tr.discrepancies ?? []) if (d.product_id === productId) add(d.serialNo);
+    for (const r of tr.returns ?? []) for (const l of r.lines ?? []) if (l.product_id === productId) for (const x of [...(l.sns_found ?? []), ...(l.sns_expected ?? []), ...(l.sns_received_back ?? [])]) add(x);
+  }
+  for (const o of ctx.orders) {
+    if (o.status === "voided") continue;
+    for (const it of o.items) if (it.product_id === productId) for (const x of it.serials ?? []) add(x);
+  }
+  return [...sns].map((sn) => computeSerial(sn, ctx));
 }

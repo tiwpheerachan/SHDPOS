@@ -270,3 +270,15 @@ body {
     display: none !important;
   }
 }
+
+/* Operational workspace: quiet glass surfaces, compact controls, readable Thai. */
+.work-surface { background:radial-gradient(ellipse at 10% 0%,rgb(var(--c-brand)/.055),transparent 48%),rgb(var(--c-bg)); }
+.work-card { background:linear-gradient(145deg,rgb(var(--c-surface)/.92),rgb(var(--c-surface)/.7));border:1px solid rgb(var(--c-line)/.65);border-radius:22px;backdrop-filter:blur(18px);box-shadow:0 7px 24px -16px rgb(20 30 25/.22),inset 0 1px 0 rgb(255 255 255/.35); }
+.work-field { width:100%;min-width:0;height:36px;border-radius:11px;border:1px solid rgb(var(--c-line));background:rgb(var(--c-surface)/.8);padding:0 10px;font-size:12px;outline:none; }
+.work-field:focus {border-color:rgb(var(--c-brand)/.45);box-shadow:0 0 0 3px rgb(var(--c-brand)/.08)}
+.work-caption {font-size:11px;color:rgb(var(--c-muted));line-height:1.6}
+.work-scroll {scrollbar-width:thin;scrollbar-color:rgb(var(--c-line)) transparent}
+@media(prefers-reduced-motion:reduce){.drawer-in,.animate-slideUp{animation:none!important}}
+
+.dialog-panel{max-height:calc(var(--dialog-height,100dvh) - 24px)}
+@media(min-width:640px){.dialog-panel{max-height:calc(var(--dialog-height,100dvh) - 48px)}}

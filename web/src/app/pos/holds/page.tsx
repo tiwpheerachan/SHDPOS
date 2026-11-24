@@ -6,10 +6,12 @@ import { PauseCircle, Play, Trash2, ShoppingCart, Clock } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { useSession } from "@/lib/store/session";
 import { useCart } from "@/lib/store/cart";
+import { DeferredSalesPanel } from "@/components/pos/deferred-sales-panel";
+import { isLiveMode } from "@/lib/supabase/client";
 import { listHolds, removeHold } from "@/lib/data/repo";
 import type { HeldBill } from "@/lib/offline/db";
 import { PosPage } from "@/components/pos/page-shell";
-import { Card, Button, Badge, EmptyState, Avatar, Skeleton } from "@/components/ui";
+import { Card, Button, Badge, EmptyState, Avatar, Skeleton, Segmented } from "@/components/ui";
 import { computeTotals, formatTHB } from "@/lib/money";
 
 export default function HeldOrdersPage() {
@@ -19,6 +21,7 @@ export default function HeldOrdersPage() {
   const { employee, branchId } = useSession();
   const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
 
+  const [view,setView]=useState<"held"|"deferred">(isLiveMode()?"deferred":"held");
   const [holds, setHolds] = useState<HeldBill[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -48,10 +51,11 @@ export default function HeldOrdersPage() {
     <PosPage
       title={t.cmd.heldOrders}
       icon={<PauseCircle size={18} />}
-      actions={<Badge tone={holds.length ? "warn" : "neutral"}>{holds.length} {L("บิลที่พัก", "held", "挂单")}</Badge>}
+      actions={view==='deferred'?<Badge tone="info">รายการบนเซิร์ฟเวอร์</Badge>:<Badge tone={holds.length ? "warn" : "neutral"}>{holds.length} {L("บิลที่พัก", "held", "挂单")}</Badge>}
     >
       <div className="p-4 sm:p-6">
-        {loading ? (
+        {isLiveMode()?<div className="mb-5"><Segmented value={view} onChange={setView} options={[{value:"deferred",label:"ขายก่อน · รอปิดบิล"},{value:"held",label:`พักตะกร้าทั่วไป (${holds.length})`}]}/></div>:null}
+        {view==='deferred'&&branchId?<DeferredSalesPanel key={branchId} branchId={branchId}/>:loading ? (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-40 rounded-[22px]" />)}
           </div>

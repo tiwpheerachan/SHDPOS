@@ -12,7 +12,7 @@ import { useToast } from "@/components/toast-host";
 import { listBranches, listProducts } from "@/lib/data/repo";
 import {
   owScanOut, owDispatch, owReceive, owList, owGet, owTimeline, owCarriers,
-  statusMeta, isActive, isIssue, reconcileSerials, owErrorMessage,
+  statusMeta, isActive, isIssue, reconcileSerials, owErrorMessage, owResume, owRefresh,
 } from "@/lib/onewarehouse";
 import type { Branch, Transfer, TransferItem, AuditEntry } from "@/lib/types";
 import { Button, Input, Select, Table, Th, Td, Badge, EmptyState, Drawer, DrawerTabs, DetailRow, Skeleton } from "@/components/ui";
@@ -221,7 +221,32 @@ export default function PosTransfersPage() {
                 <div className="rounded-2xl border border-line divide-y divide-line/60 px-4">
                   <DetailRow label={t.transfer.from}>{detail.from_kind === "warehouse" ? "" : ""}{bName.get(detail.from_branch_id) ?? "—"}</DetailRow>
                   <DetailRow label={t.transfer.to}>{bName.get(detail.to_branch_id) ?? "—"}</DetailRow>
+                  {detail.ow_owned ? (
+                    <DetailRow label="OneWarehouse">
+                      <span className="inline-flex flex-wrap items-center gap-1.5">
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-md ${detail.sync_state === "synced" ? "bg-ok/12 text-ok" : detail.sync_state === "failed" ? "bg-danger/12 text-danger" : "bg-warn/12 text-warn"}`}>
+                          {detail.sync_state === "synced" ? "ซิงก์ JST แล้ว" : detail.sync_state === "failed" ? "ซิงก์ JST ล้มเหลว" : "รอซิงก์ JST"}
+                        </span>
+                        <span className="font-mono text-[11px]">{Object.values(detail.ow_state ?? {}).map((s) => `${s.orderNo} (${s.status})`).join(" · ") || "—"}</span>
+                      </span>
+                    </DetailRow>
+                  ) : null}
                   {detail.jst_allocation_no ? <DetailRow label="JST">{detail.jst_allocation_no}</DetailRow> : null}
+                  {detail.ow_owned && (detail.ow_link_state && detail.ow_link_state !== "ok" || detail.ow_error) ? (
+                    <div className="rounded-xl border border-warn/30 bg-warn/8 p-3 text-xs space-y-2">
+                      <p className="text-warn font-medium">
+                        {detail.ow_link_state === "checking" ? "กำลังตรวจสอบผลจาก OneWarehouse (อาจทำสำเร็จแล้ว) — โหลดสถานะล่าสุดก่อนกดซ้ำ"
+                          : detail.ow_link_state === "partially_created" ? "สร้างใบใน OneWarehouse ได้บางส่วน"
+                          : detail.ow_link_state === "recovery_required" ? "ต้องดำเนินการต่อให้ OneWarehouse ครบ"
+                          : "คำสั่งล่าสุดกับ OneWarehouse ไม่สำเร็จ"}
+                      </p>
+                      {detail.ow_error ? <p className="text-muted break-words">{detail.ow_error}</p> : null}
+                      <div className="flex gap-2">
+                        <button className="h-8 px-3 rounded-lg bg-brand text-brandInk text-xs font-medium" onClick={() => void run(() => owResume(detail), "ดำเนินการต่อแล้ว")}>ดำเนินการต่อเฉพาะส่วนที่ค้าง</button>
+                        <button className="h-8 px-3 rounded-lg border border-line text-xs" onClick={() => void run(() => owRefresh(detail), "โหลดสถานะล่าสุดแล้ว")}>โหลดสถานะล่าสุด</button>
+                      </div>
+                    </div>
+                  ) : null}
                   {detail.carrier ? <DetailRow label={L("ขนส่ง", "Carrier", "承运")}>{carriers.find((c) => c.id === detail.carrier)?.name ?? detail.carrier}{detail.tracking ? ` · ${detail.tracking}` : ""}</DetailRow> : null}
                   {detail.note ? <DetailRow label={t.common.note}>{detail.note}</DetailRow> : null}
                 </div>

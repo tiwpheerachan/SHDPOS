@@ -33,7 +33,8 @@ export async function refreshBranchSnapshot() {
           .notEqual("done")
           .toArray();
         const localTransfers = (await d.transfers.toArray()).some(
-          (t) => t.sync_state !== "synced",
+          // ใบโอน OneWarehouse (ow_owned) ไม่ใช่งานค้างในเครื่อง (sync_state = สถานะ JST) — เดิมทำให้สต๊อกไม่รีเฟรชเลย
+          (t) => t.sync_state !== "synced" && !t.ow_owned,
         );
         // Do not overwrite stock with a snapshot that predates an unsent local movement.
         if (!pending.some((p) => p.op !== "audit") && !localTransfers) {

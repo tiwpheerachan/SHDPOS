@@ -2,13 +2,18 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import clsx from "clsx";
+import { createPortal } from "react-dom";
 import { X, Check, AlertTriangle, Info, Loader2 } from "lucide-react";
 import { micahDataUri } from "@/lib/avatar";
 
 // ---------------------------------------------------------------------
 // Card
 // ---------------------------------------------------------------------
-export function Card({ className, children, ...rest }: React.HTMLAttributes<HTMLDivElement>) {
+export function Card({
+  className,
+  children,
+  ...rest
+}: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div className={clsx("card", className)} {...rest}>
       {children}
@@ -16,12 +21,22 @@ export function Card({ className, children, ...rest }: React.HTMLAttributes<HTML
   );
 }
 
-export function CardHeader({ title, subtitle, right }: { title: React.ReactNode; subtitle?: React.ReactNode; right?: React.ReactNode }) {
+export function CardHeader({
+  title,
+  subtitle,
+  right,
+}: {
+  title: React.ReactNode;
+  subtitle?: React.ReactNode;
+  right?: React.ReactNode;
+}) {
   return (
     <div className="flex items-start justify-between gap-3 px-5 pt-4 pb-3 border-b border-line">
       <div className="min-w-0">
         <h3 className="text-sm font-semibold text-ink truncate">{title}</h3>
-        {subtitle ? <p className="text-xs text-muted mt-0.5">{subtitle}</p> : null}
+        {subtitle ? (
+          <p className="text-xs text-muted mt-0.5">{subtitle}</p>
+        ) : null}
       </div>
       {right}
     </div>
@@ -36,10 +51,15 @@ type ButtonVariant = "primary" | "ghost" | "soft" | "danger" | "ok";
 export function Button({
   variant = "soft",
   loading,
+  size = "md",
   className,
   children,
   ...rest
-}: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: ButtonVariant; loading?: boolean }) {
+}: React.ButtonHTMLAttributes<HTMLButtonElement> & {
+  variant?: ButtonVariant;
+  loading?: boolean;
+  size?: "sm" | "md" | "icon";
+}) {
   const cls = {
     primary: "btn-primary",
     ghost: "btn-ghost",
@@ -48,7 +68,17 @@ export function Button({
     ok: "btn-ok",
   }[variant];
   return (
-    <button className={clsx(cls, className)} disabled={rest.disabled || loading} {...rest}>
+    <button
+      {...rest}
+      type={rest.type ?? "button"}
+      className={clsx(
+        cls,
+        size === "sm" && "!h-8 !px-3 !rounded-[10px] !text-xs !gap-1.5",
+        size === "icon" && "!h-8 !w-8 !p-0 !rounded-[10px]",
+        className,
+      )}
+      disabled={rest.disabled || loading}
+    >
       {loading ? <Loader2 size={16} className="animate-spin" /> : null}
       {children}
     </button>
@@ -58,13 +88,18 @@ export function Button({
 // ---------------------------------------------------------------------
 // Input / Select
 // ---------------------------------------------------------------------
-export const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>(
-  function Input({ className, ...rest }, ref) {
-    return <input ref={ref} className={clsx("input", className)} {...rest} />;
-  }
-);
+export const Input = React.forwardRef<
+  HTMLInputElement,
+  React.InputHTMLAttributes<HTMLInputElement>
+>(function Input({ className, ...rest }, ref) {
+  return <input ref={ref} className={clsx("input", className)} {...rest} />;
+});
 
-export function Select({ className, children, ...rest }: React.SelectHTMLAttributes<HTMLSelectElement>) {
+export function Select({
+  className,
+  children,
+  ...rest
+}: React.SelectHTMLAttributes<HTMLSelectElement>) {
   return (
     <select className={clsx("input pr-8", className)} {...rest}>
       {children}
@@ -72,7 +107,15 @@ export function Select({ className, children, ...rest }: React.SelectHTMLAttribu
   );
 }
 
-export function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+export function Field({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  children: React.ReactNode;
+}) {
   return (
     <div>
       <label className="label">{label}</label>
@@ -104,7 +147,13 @@ export function Badge({
     teal: "bg-teal-500/10 text-teal-600 border-teal-500/30 dark:text-teal-300",
   };
   return (
-    <span className={clsx("inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium", tones[tone], className)}>
+    <span
+      className={clsx(
+        "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium",
+        tones[tone],
+        className,
+      )}
+    >
       {children}
     </span>
   );
@@ -113,6 +162,81 @@ export function Badge({
 // ---------------------------------------------------------------------
 // Modal
 // ---------------------------------------------------------------------
+let overlayCount = 0;
+let previousBodyOverflow = "";
+function OverlayPortal({ children }: { children: React.ReactNode }) {
+  const [ready, setReady] = useState(false),
+    root = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null;
+    if (overlayCount++ === 0) {
+      previousBodyOverflow = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
+    }
+    setReady(true);
+    const trap = (e: KeyboardEvent) => {
+      if (e.key !== "Tab" || !root.current) return;
+      const elements = [
+        ...root.current.querySelectorAll<HTMLElement>(
+          'button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),a[href],[tabindex="0"]',
+        ),
+      ].filter((el) => el.getClientRects().length);
+      const first = elements[0],
+        last = elements.at(-1);
+      if (!first) {
+        e.preventDefault();
+        return;
+      }
+      if (
+        e.shiftKey &&
+        (document.activeElement === first ||
+          !root.current.contains(document.activeElement))
+      ) {
+        e.preventDefault();
+        last?.focus();
+      } else if (
+        !e.shiftKey &&
+        (document.activeElement === last ||
+          !root.current.contains(document.activeElement))
+      ) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    const viewport = () => {
+      const v = window.visualViewport;
+      root.current?.style.setProperty(
+        "--dialog-height",
+        `${v?.height ?? window.innerHeight}px`,
+      );
+      root.current?.style.setProperty("--dialog-top", `${v?.offsetTop ?? 0}px`);
+    };
+    window.visualViewport?.addEventListener("resize", viewport);
+    window.visualViewport?.addEventListener("scroll", viewport);
+    window.addEventListener("resize", viewport);
+    document.addEventListener("keydown", trap);
+    const raf = requestAnimationFrame(() => {
+      viewport();
+      return root.current
+        ?.querySelector<HTMLElement>("[autofocus],input,textarea,button")
+        ?.focus();
+    });
+    return () => {
+      cancelAnimationFrame(raf);
+      window.visualViewport?.removeEventListener("resize", viewport);
+      window.visualViewport?.removeEventListener("scroll", viewport);
+      window.removeEventListener("resize", viewport);
+      document.removeEventListener("keydown", trap);
+      if (--overlayCount === 0)
+        document.body.style.overflow = previousBodyOverflow;
+      if (previous?.isConnected) previous.focus();
+    };
+  }, []);
+  return ready
+    ? createPortal(<div ref={root}>{children}</div>, document.body)
+    : null;
+}
+
 export function Modal({
   open,
   onClose,
@@ -133,38 +257,69 @@ export function Modal({
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape" && !e.defaultPrevented) onClose(); // ข้าม Esc ที่ dropdown ข้างในจัดการแล้ว
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
   if (!open) return null;
-  const width = { sm: "max-w-sm", md: "max-w-lg", lg: "max-w-3xl", xl: "max-w-5xl" }[size];
+  const width = {
+    sm: "max-w-sm",
+    md: "max-w-lg",
+    lg: "max-w-3xl",
+    xl: "max-w-5xl",
+  }[size];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-6">
-      <div className="absolute inset-0 bg-black/45 backdrop-blur-[2px]" onClick={onClose} />
+    <OverlayPortal>
       <div
-        ref={ref}
-        className={clsx(
-          "relative w-full bg-surface border border-line rounded-t-2xl sm:rounded-2xl shadow-pop animate-slideUp",
-          "max-h-[92vh] flex flex-col",
-          width
-        )}
+        className="fixed inset-0 z-[80] flex items-center justify-center overflow-hidden p-3 sm:p-6"
+        style={{
+          height: "var(--dialog-height,100dvh)",
+          top: "var(--dialog-top,0px)",
+        }}
       >
-        {title ? (
-          <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-line">
-            <h3 className="text-base font-semibold">{title}</h3>
-            <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-surface2 text-muted" aria-label="close">
-              <X size={18} />
-            </button>
+        <div
+          className="absolute inset-0 bg-black/45 backdrop-blur-[2px]"
+          onClick={onClose}
+        />
+        <div
+          ref={ref}
+          role="dialog"
+          aria-modal="true"
+          aria-label={typeof title === "string" ? title : undefined}
+          className={clsx(
+            "relative w-full min-w-0 bg-surface/95 backdrop-blur-2xl border border-line rounded-3xl shadow-pop animate-slideUp",
+            "dialog-panel min-h-0 flex flex-col",
+            width,
+          )}
+        >
+          {title ? (
+            <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-line">
+              <h3 className="text-sm font-semibold min-w-0 break-words line-clamp-2">
+                {title}
+              </h3>
+              <button
+                onClick={onClose}
+                className="p-1.5 rounded-lg hover:bg-surface2 text-muted"
+                aria-label="close"
+              >
+                <X size={18} />
+              </button>
+            </div>
+          ) : null}
+          <div className="overflow-y-auto overflow-x-hidden min-h-0 px-4 sm:px-5 py-4 flex-1 overscroll-contain">
+            {children}
           </div>
-        ) : null}
-        <div className="overflow-y-auto px-5 py-4 flex-1">{children}</div>
-        {footer ? <div className="px-5 py-4 border-t border-line flex gap-2 justify-end">{footer}</div> : null}
+          {footer ? (
+            <div className="px-4 sm:px-5 py-3 border-t border-line flex flex-wrap gap-2 justify-end shrink-0">
+              {footer}
+            </div>
+          ) : null}
+        </div>
       </div>
-    </div>
+    </OverlayPortal>
   );
 }
 
@@ -192,7 +347,9 @@ export function Drawer({
 }) {
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !e.defaultPrevented) onClose(); // ข้าม Esc ที่ dropdown ข้างในจัดการแล้ว
+    };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [open, onClose]);
@@ -201,40 +358,84 @@ export function Drawer({
   const w = { md: "max-w-md", lg: "max-w-2xl", xl: "max-w-4xl" }[width];
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end">
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={onClose} />
-      <div className={clsx("relative w-full bg-surface border-l border-line shadow-pop h-full flex flex-col drawer-in", w)}>
-        <div className="flex items-start justify-between gap-3 px-5 py-4 border-b border-line shrink-0">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              {title ? <h3 className="text-base font-semibold truncate">{title}</h3> : null}
-              {badge}
+    <OverlayPortal>
+      <div
+        className="fixed inset-0 z-[80] flex justify-end overflow-hidden p-2 sm:p-3"
+        style={{
+          height: "var(--dialog-height,100dvh)",
+          top: "var(--dialog-top,0px)",
+        }}
+      >
+        <div
+          className="absolute inset-0 bg-black/40 backdrop-blur-[2px]"
+          onClick={onClose}
+        />
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={typeof title === "string" ? title : undefined}
+          className={clsx(
+            "relative w-full min-w-0 bg-surface/95 backdrop-blur-2xl border border-line rounded-3xl shadow-pop h-full max-h-full flex flex-col drawer-in",
+            w,
+          )}
+        >
+          <div className="flex items-start justify-between gap-3 px-5 py-4 border-b border-line shrink-0">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                {title ? (
+                  <h3 className="text-base font-semibold truncate">{title}</h3>
+                ) : null}
+                {badge}
+              </div>
+              {subtitle ? (
+                <p className="text-xs text-muted mt-0.5 truncate">{subtitle}</p>
+              ) : null}
             </div>
-            {subtitle ? <p className="text-xs text-muted mt-0.5 truncate">{subtitle}</p> : null}
+            <button
+              onClick={onClose}
+              className="p-1.5 rounded-lg hover:bg-surface2 text-muted shrink-0"
+              aria-label="close"
+            >
+              <X size={18} />
+            </button>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-surface2 text-muted shrink-0" aria-label="close">
-            <X size={18} />
-          </button>
+          <div className="overflow-y-auto overflow-x-hidden flex-1 min-h-0 overscroll-contain">
+            {children}
+          </div>
+          {footer ? (
+            <div className="px-5 py-3 border-t border-line flex gap-2 flex-wrap shrink-0">
+              {footer}
+            </div>
+          ) : null}
         </div>
-        <div className="overflow-y-auto flex-1 min-h-0">{children}</div>
-        {footer ? <div className="px-5 py-3 border-t border-line flex gap-2 flex-wrap shrink-0">{footer}</div> : null}
       </div>
-    </div>
+    </OverlayPortal>
   );
 }
 
 /** แถบแท็บมาตรฐานใน Drawer (Overview / Timeline / Audit …) */
 export function DrawerTabs<T extends string>({
-  value, options, onChange,
-}: { value: T; options: { value: T; label: React.ReactNode }[]; onChange: (v: T) => void }) {
+  value,
+  options,
+  onChange,
+}: {
+  value: T;
+  options: { value: T; label: React.ReactNode }[];
+  onChange: (v: T) => void;
+}) {
   return (
     <div className="flex gap-1 px-5 pt-3 border-b border-line overflow-x-auto sticky top-0 bg-surface z-10">
       {options.map((o) => (
-        <button key={o.value} onClick={() => onChange(o.value)}
+        <button
+          key={o.value}
+          onClick={() => onChange(o.value)}
           className={clsx(
             "px-3 h-9 text-xs font-medium whitespace-nowrap border-b-2 -mb-px transition-colors",
-            value === o.value ? "border-brand text-ink" : "border-transparent text-muted hover:text-ink"
-          )}>
+            value === o.value
+              ? "border-brand text-ink"
+              : "border-transparent text-muted hover:text-ink",
+          )}
+        >
           {o.label}
         </button>
       ))}
@@ -243,11 +444,19 @@ export function DrawerTabs<T extends string>({
 }
 
 /** แถวข้อมูล key/value ใน Detail */
-export function DetailRow({ label, children }: { label: React.ReactNode; children: React.ReactNode }) {
+export function DetailRow({
+  label,
+  children,
+}: {
+  label: React.ReactNode;
+  children: React.ReactNode;
+}) {
   return (
     <div className="flex items-start justify-between gap-3 py-1.5">
       <span className="text-xs text-muted shrink-0">{label}</span>
-      <span className="text-xs font-medium text-right min-w-0 break-words">{children}</span>
+      <span className="text-xs font-medium text-right min-w-0 break-words">
+        {children}
+      </span>
     </div>
   );
 }
@@ -279,7 +488,9 @@ export function Toast({
       <div className="mt-0.5">{icon}</div>
       <div className="min-w-0 flex-1">
         <p className="text-sm font-medium">{title}</p>
-        {body ? <p className="text-xs text-muted mt-0.5 break-words">{body}</p> : null}
+        {body ? (
+          <p className="text-xs text-muted mt-0.5 break-words">{body}</p>
+        ) : null}
       </div>
       {onClose ? (
         <button onClick={onClose} className="text-muted hover:text-ink">
@@ -293,7 +504,15 @@ export function Toast({
 // ---------------------------------------------------------------------
 // Empty / Loading
 // ---------------------------------------------------------------------
-export function EmptyState({ icon, title, body }: { icon?: React.ReactNode; title: string; body?: string }) {
+export function EmptyState({
+  icon,
+  title,
+  body,
+}: {
+  icon?: React.ReactNode;
+  title: string;
+  body?: string;
+}) {
   return (
     <div className="flex flex-col items-center justify-center text-center py-14 px-6">
       {icon ? <div className="text-muted mb-3">{icon}</div> : null}
@@ -304,7 +523,9 @@ export function EmptyState({ icon, title, body }: { icon?: React.ReactNode; titl
 }
 
 export function Spinner({ className }: { className?: string }) {
-  return <Loader2 size={18} className={clsx("animate-spin text-muted", className)} />;
+  return (
+    <Loader2 size={18} className={clsx("animate-spin text-muted", className)} />
+  );
 }
 
 // ---------------------------------------------------------------------
@@ -315,13 +536,29 @@ export function Skeleton({ className }: { className?: string }) {
 }
 
 /** แถวตารางจำลองระหว่างโหลด */
-export function SkeletonTable({ rows = 8, cols = 5 }: { rows?: number; cols?: number }) {
+export function SkeletonTable({
+  rows = 8,
+  cols = 5,
+}: {
+  rows?: number;
+  cols?: number;
+}) {
   return (
     <div className="p-3 space-y-2">
       {Array.from({ length: rows }).map((_, r) => (
         <div key={r} className="flex items-center gap-4 px-2 py-1.5">
           {Array.from({ length: cols }).map((_, c) => (
-            <Skeleton key={c} className={clsx("h-4", c === 0 ? "w-28" : c === cols - 1 ? "w-16 ml-auto" : "flex-1 max-w-[160px]")} />
+            <Skeleton
+              key={c}
+              className={clsx(
+                "h-4",
+                c === 0
+                  ? "w-28"
+                  : c === cols - 1
+                    ? "w-16 ml-auto"
+                    : "flex-1 max-w-[160px]",
+              )}
+            />
           ))}
         </div>
       ))}
@@ -359,12 +596,18 @@ export function Numpad({
           {k}
         </button>
       ))}
-      <button onClick={onClear} className="h-14 rounded-xl bg-surface2 border border-line text-sm font-medium">
+      <button
+        onClick={onClear}
+        className="h-14 rounded-xl bg-surface2 border border-line text-sm font-medium"
+      >
         C
       </button>
       {extra ?? <div />}
       {onEnter ? (
-        <button onClick={onEnter} className="h-14 rounded-xl bg-brand text-brandInk text-sm font-semibold">
+        <button
+          onClick={onEnter}
+          className="h-14 rounded-xl bg-brand text-brandInk text-sm font-semibold"
+        >
           {enterLabel}
         </button>
       ) : (
@@ -378,7 +621,13 @@ export function Numpad({
 // KPI tile — โทน accent เป็นชิปไอคอนเล็ก ตัวเลขหลักอยู่สีหมึกให้อ่านง่าย
 // variant="ink" = การ์ดโทนเข้มสำหรับ KPI พระเอก (เช่น ยอดขายสุทธิ)
 // ---------------------------------------------------------------------
-export type KpiAccent = "coral" | "lime" | "lavender" | "mint" | "peach" | "neutral";
+export type KpiAccent =
+  | "coral"
+  | "lime"
+  | "lavender"
+  | "mint"
+  | "peach"
+  | "neutral";
 
 const ACCENT_BG: Record<KpiAccent, string> = {
   coral: "bg-coral/18 text-[rgb(var(--c-ink))]",
@@ -420,24 +669,35 @@ export function KpiTile({
   variant?: "plain" | "ink";
   spark?: React.ReactNode;
 }) {
-  const resolvedAccent: KpiAccent = accent ?? (tone ? LEGACY_TONE[tone] : "neutral");
+  const resolvedAccent: KpiAccent =
+    accent ?? (tone ? LEGACY_TONE[tone] : "neutral");
   const ink = variant === "ink";
   return (
-    <div className={clsx(ink ? "card-ink" : "card", "px-4 py-4 flex flex-col justify-between min-h-[118px]")}>
+    <div
+      className={clsx(
+        ink ? "card-ink" : "card",
+        "px-4 py-4 flex flex-col justify-between min-h-[118px]",
+      )}
+    >
       <div className="flex items-start justify-between gap-2">
         <p className={clsx("eyebrow", ink && "text-brandInk/60")}>{label}</p>
         {icon ? (
           <span
             className={clsx(
               "w-7 h-7 rounded-full grid place-items-center shrink-0",
-              ink ? "bg-brandInk/12 text-brandInk" : ACCENT_BG[resolvedAccent]
+              ink ? "bg-brandInk/12 text-brandInk" : ACCENT_BG[resolvedAccent],
             )}
           >
             {icon}
           </span>
         ) : null}
       </div>
-      <p className={clsx("mt-2 text-[28px] leading-none font-semibold tnum", ink ? "text-brandInk" : "text-ink")}>
+      <p
+        className={clsx(
+          "mt-2 text-[28px] leading-none font-semibold tnum",
+          ink ? "text-brandInk" : "text-ink",
+        )}
+      >
         {value}
       </p>
       <div className="mt-2 flex items-center gap-2 min-h-[16px]">
@@ -446,15 +706,30 @@ export function KpiTile({
             className={clsx(
               "inline-flex items-center gap-0.5 text-[11px] font-semibold tnum rounded-full px-1.5 py-0.5",
               delta >= 0
-                ? ink ? "bg-mint/25 text-mint" : "bg-ok/12 text-ok"
-                : ink ? "bg-coral/25 text-coral" : "bg-danger/12 text-danger"
+                ? ink
+                  ? "bg-mint/25 text-mint"
+                  : "bg-ok/12 text-ok"
+                : ink
+                  ? "bg-coral/25 text-coral"
+                  : "bg-danger/12 text-danger",
             )}
           >
             {delta >= 0 ? "↑" : "↓"} {Math.abs(delta).toFixed(1)}%
           </span>
         ) : null}
-        {sub ? <span className={clsx("text-[11px]", ink ? "text-brandInk/55" : "text-muted")}>{sub}</span> : null}
-        {spark ? <span className="ml-auto w-16 opacity-90">{spark}</span> : null}
+        {sub ? (
+          <span
+            className={clsx(
+              "text-[11px]",
+              ink ? "text-brandInk/55" : "text-muted",
+            )}
+          >
+            {sub}
+          </span>
+        ) : null}
+        {spark ? (
+          <span className="ml-auto w-16 opacity-90">{spark}</span>
+        ) : null}
       </div>
     </div>
   );
@@ -471,7 +746,17 @@ const AVA_TONES = [
   "bg-lime/45 text-[rgb(var(--c-ink))]",
 ];
 
-export function Avatar({ name, src, size = 32, className }: { name: string; src?: string | null; size?: number; className?: string }) {
+export function Avatar({
+  name,
+  src,
+  size = 32,
+  className,
+}: {
+  name: string;
+  src?: string | null;
+  size?: number;
+  className?: string;
+}) {
   const initials = (name || "?").trim().slice(0, 2).toUpperCase();
   let h = 0;
   for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
@@ -483,16 +768,27 @@ export function Avatar({ name, src, size = 32, className }: { name: string; src?
   if (url) {
     return (
       <img
-        src={url} alt={name} width={size} height={size} loading="lazy"
+        src={url}
+        alt={name}
+        width={size}
+        height={size}
+        loading="lazy"
         onError={() => setStage((s) => (s + 1) as 0 | 1 | 2)}
-        className={clsx("rounded-full object-cover shrink-0 bg-surface2", className)}
+        className={clsx(
+          "rounded-full object-cover shrink-0 bg-surface2",
+          className,
+        )}
         style={{ width: size, height: size }}
       />
     );
   }
   return (
     <span
-      className={clsx("rounded-full grid place-items-center font-semibold shrink-0", tone, className)}
+      className={clsx(
+        "rounded-full grid place-items-center font-semibold shrink-0",
+        tone,
+        className,
+      )}
       style={{ width: size, height: size, fontSize: size * 0.36 }}
     >
       {initials}
@@ -510,7 +806,15 @@ export function ProgressBar({
   track,
 }: {
   value: number; // 0..100
-  tone?: "ink" | "coral" | "lime" | "lavender" | "mint" | "ok" | "warn" | "danger";
+  tone?:
+    | "ink"
+    | "coral"
+    | "lime"
+    | "lavender"
+    | "mint"
+    | "ok"
+    | "warn"
+    | "danger";
   height?: number;
   track?: boolean;
 }) {
@@ -525,9 +829,18 @@ export function ProgressBar({
     danger: "bg-danger",
   };
   return (
-    <div className={clsx("w-full rounded-full overflow-hidden", track === false ? "" : "bg-surface2")} style={{ height }}>
+    <div
+      className={clsx(
+        "w-full rounded-full overflow-hidden",
+        track === false ? "" : "bg-surface2",
+      )}
+      style={{ height }}
+    >
       <div
-        className={clsx("h-full rounded-full transition-all duration-500 ease-out", bg[tone])}
+        className={clsx(
+          "h-full rounded-full transition-all duration-500 ease-out",
+          bg[tone],
+        )}
         style={{ width: `${Math.max(0, Math.min(100, value))}%` }}
       />
     </div>
@@ -537,10 +850,18 @@ export function ProgressBar({
 // ---------------------------------------------------------------------
 // Section title — หัวข้อกลุ่มการ์ดแบบ editorial
 // ---------------------------------------------------------------------
-export function SectionTitle({ children, right }: { children: React.ReactNode; right?: React.ReactNode }) {
+export function SectionTitle({
+  children,
+  right,
+}: {
+  children: React.ReactNode;
+  right?: React.ReactNode;
+}) {
   return (
     <div className="flex items-center justify-between gap-3 px-0.5">
-      <h2 className="text-[13px] font-semibold text-muted tracking-wide">{children}</h2>
+      <h2 className="text-[13px] font-semibold text-muted tracking-wide">
+        {children}
+      </h2>
       {right}
     </div>
   );
@@ -549,12 +870,28 @@ export function SectionTitle({ children, right }: { children: React.ReactNode; r
 // ---------------------------------------------------------------------
 // Live dot — จุดกระพริบสถานะเรียลไทม์
 // ---------------------------------------------------------------------
-export function LiveDot({ tone = "ok" }: { tone?: "ok" | "coral" | "warn" | "danger" }) {
-  const c: Record<string, string> = { ok: "bg-ok", coral: "bg-coral", warn: "bg-warn", danger: "bg-danger" };
+export function LiveDot({
+  tone = "ok",
+}: {
+  tone?: "ok" | "coral" | "warn" | "danger";
+}) {
+  const c: Record<string, string> = {
+    ok: "bg-ok",
+    coral: "bg-coral",
+    warn: "bg-warn",
+    danger: "bg-danger",
+  };
   return (
     <span className="relative inline-flex w-2 h-2">
-      <span className={clsx("absolute inline-flex h-full w-full rounded-full opacity-60 animate-ping", c[tone])} />
-      <span className={clsx("relative inline-flex rounded-full w-2 h-2", c[tone])} />
+      <span
+        className={clsx(
+          "absolute inline-flex h-full w-full rounded-full opacity-60 animate-ping",
+          c[tone],
+        )}
+      />
+      <span
+        className={clsx("relative inline-flex rounded-full w-2 h-2", c[tone])}
+      />
     </span>
   );
 }
@@ -562,7 +899,13 @@ export function LiveDot({ tone = "ok" }: { tone?: "ok" | "coral" | "warn" | "dan
 // ---------------------------------------------------------------------
 // Table
 // ---------------------------------------------------------------------
-export function Table({ children, className }: { children: React.ReactNode; className?: string }) {
+export function Table({
+  children,
+  className,
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
   return (
     <div className={clsx("overflow-x-auto", className)}>
       <table className="w-full text-sm border-collapse">{children}</table>
@@ -570,7 +913,15 @@ export function Table({ children, className }: { children: React.ReactNode; clas
   );
 }
 
-export function Th({ children, align = "left", className }: { children?: React.ReactNode; align?: "left" | "right" | "center"; className?: string }) {
+export function Th({
+  children,
+  align = "left",
+  className,
+}: {
+  children?: React.ReactNode;
+  align?: "left" | "right" | "center";
+  className?: string;
+}) {
   return (
     <th
       className={clsx(
@@ -578,7 +929,7 @@ export function Th({ children, align = "left", className }: { children?: React.R
         align === "right" && "text-right",
         align === "center" && "text-center",
         align === "left" && "text-left",
-        className
+        className,
       )}
     >
       {children}
@@ -586,14 +937,22 @@ export function Th({ children, align = "left", className }: { children?: React.R
   );
 }
 
-export function Td({ children, align = "left", className }: { children?: React.ReactNode; align?: "left" | "right" | "center"; className?: string }) {
+export function Td({
+  children,
+  align = "left",
+  className,
+}: {
+  children?: React.ReactNode;
+  align?: "left" | "right" | "center";
+  className?: string;
+}) {
   return (
     <td
       className={clsx(
         "px-3 py-2.5 border-b border-line/70 align-middle",
         align === "right" && "text-right tnum",
         align === "center" && "text-center",
-        className
+        className,
       )}
     >
       {children}
@@ -616,14 +975,21 @@ export function Segmented<T extends string>({
   size?: "sm" | "md";
 }) {
   return (
-    <div className={clsx("inline-flex rounded-xl bg-surface2 border border-line p-0.5", size === "sm" ? "h-9" : "h-11")}>
+    <div
+      className={clsx(
+        "inline-flex rounded-xl bg-surface2 border border-line p-0.5",
+        size === "sm" ? "h-9" : "h-11",
+      )}
+    >
       {options.map((o) => (
         <button
           key={o.value}
           onClick={() => onChange(o.value)}
           className={clsx(
             "px-3 rounded-[10px] text-sm font-medium transition-colors whitespace-nowrap",
-            value === o.value ? "bg-surface text-ink shadow-sm" : "text-muted hover:text-ink"
+            value === o.value
+              ? "bg-surface text-ink shadow-sm"
+              : "text-muted hover:text-ink",
           )}
         >
           {o.label}

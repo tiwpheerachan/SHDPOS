@@ -16,6 +16,7 @@ import { byEmployee, filterOrders, summarize, salesSeries, type TimeGran } from 
 import { formatTHB, formatInt } from "@/lib/money";
 import { ROLE_LABEL, can, visibleBranchIds } from "@/lib/permissions";
 import { positionLabel, positionLevel, type Locale } from "@/lib/positions";
+import { isCountedSale } from "@/lib/sales-basis";
 
 type View = "dashboard" | "table" | "person" | "position";
 
@@ -80,7 +81,7 @@ export default function AdminEmployeesPage() {
     if (!activePerson) return [] as { name: string; qty: number; gross: number }[];
     const m = new Map<string, { name: string; qty: number; gross: number }>();
     for (const o of filtered) {
-      if (o.status === "voided") continue;
+      if (!isCountedSale(o)) continue;
       for (const it of o.items) {
         const eid = it.salesperson_id ?? o.salesperson_id ?? o.cashier_id;
         if (eid !== activePerson) continue;

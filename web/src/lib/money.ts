@@ -61,6 +61,12 @@ export interface CartTotals {
   subtotal: number;
   /** ส่วนลดรวม (บรรทัด + ท้ายบิล) — ส่วนลดจากพนักงาน ใช้เช็คสิทธิอนุมัติ */
   discountTotal: number;
+  /** ส่วนลดรายการ (รวมทุกบรรทัด) */
+  lineDiscountTotal: number;
+  /** ส่วนลดท้ายบิล (คิดจากยอดหลังหักส่วนลดรายการ) */
+  billDiscountTotal: number;
+  /** ยอดหลังหักส่วนลดรายการ = ฐานของส่วนลดท้ายบิล */
+  afterLineDiscount: number;
   /** ส่วนลดจากการใช้แต้มลูกค้า (แยกจากส่วนลดพนักงาน ไม่ต้องขออนุมัติ) */
   redeemAmount: number;
   /** ส่วนลดจากคูปอง/แคมเปญ */
@@ -108,6 +114,9 @@ export function computeTotals(lines: CartLine[], billDiscount = 0, billDiscountP
   return {
     subtotal,
     discountTotal: round2(lineDiscounts + billDisc),
+    lineDiscountTotal: lineDiscounts,
+    billDiscountTotal: billDisc,
+    afterLineDiscount: afterLines,
     redeemAmount: redeem,
     couponAmount: coupon,
     grandTotal,

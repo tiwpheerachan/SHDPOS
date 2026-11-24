@@ -39,7 +39,16 @@ export function bootstrap(): Promise<void> {
   return bootstrapped;
 }
 
+// เปลี่ยนค่านี้เพื่อบังคับทุกเครื่องล้าง local ทั้งหมดครั้งเดียว (เอาข้อมูลจำลองออกหมด เหลือแต่ของจริง Supabase)
+const OW_RESET_TOKEN = "2026-11-22.ow-clean";
+
 async function doBootstrap(): Promise<void> {
+  // Refresh catalog only. Unsynced sales, transfers, held bills and audit must survive an OW refresh.
+  if (isLiveMode() && (await kvGet<string>("ow_reset_token", "")) !== OW_RESET_TOKEN) {
+    await loadCatalogFromSupabase(true);
+    await kvSet("ow_reset_token", OW_RESET_TOKEN);
+    await kvSet("catalog_version", CATALOG_VERSION);
+  }
   const version = await kvGet<string>("catalog_version", "");
   const productCount = await db().products.count();
   const cached = version === CATALOG_VERSION && productCount > 0;
@@ -69,7 +78,7 @@ export function isDemoMode(): boolean {
 }
 
 /** bump เพื่อ re-run purge ทุกเครื่อง (เช่น เพิ่มล้าง demo products) */
-const DEMO_PURGE_VERSION = "2026-11-21.catalog";
+const DEMO_PURGE_VERSION = "2026-11-22.ow-only";
 
 /** โหมดจริง: ล้างข้อมูลจำลองที่เคย seed ไว้ (ครั้งเดียวต่อเครื่อง)
  *  - ออเดอร์/ลูกค้า/audit จำลอง
@@ -214,7 +223,8 @@ async function loadCatalogFromSupabase(replaceCatalog = false): Promise<void> {
     if (result.error || !result.data) throw new Error("โหลดแคตตาล็อกไม่ครบ เก็บข้อมูลเดิมไว้ก่อน");
   }
   const pendingWrites = await d.pending.where("status").notEqual("done").count();
-  const localTransfers = (await d.transfers.toArray()).some(t => t.sync_state !== "synced");
+  // ใบโอน OneWarehouse (ow_owned) เซิร์ฟเวอร์เป็นเจ้าของ — sync_state คือสถานะ JST ไม่ใช่งานค้างในเครื่อง → ไม่นับ
+  const localTransfers = (await d.transfers.toArray()).some(t => t.sync_state !== "synced" && !t.ow_owned);
   const preserveStock = pendingWrites > 0 || localTransfers;
   await d.transaction("rw", [d.brands, d.branches, d.terminals, d.employees, d.products, d.categories, d.stock], async () => {
     if (replaceCatalog) {
@@ -508,6 +518,22 @@ async function readStockView(branchId: string, productId: string) {
   return stockView(await db().stock.get(stockKey(branchId, productId)));
 }
 /** อ่านใบโอนสด + เช็ค version ภายใน transaction (กันยอดเปลี่ยนแต่สถานะชน) */
+/** สต๊อกฝั่งต้นทางอยู่ในเครื่องเราไหม (ไม่ใช่คลัง และไม่ใช่ใบที่ OW เป็นตัวจริง) */
+const srcLocal = (t: Transfer) => t.from_kind !== "warehouse" && !t.ow_owned;
+
+/** อัปเดตฟิลด์ฝั่ง OneWarehouse ของใบโอน (ใช้โดย adapter หลังเขียน OW สำเร็จ) — ไม่แตะสต๊อก */
+export async function annotateTransfer(id: string, patch: Partial<Transfer>): Promise<Transfer | undefined> {
+  await db().transfers.update(id, patch);
+  return db().transfers.get(id);
+}
+/** นำใบโอนจากเครื่องอื่น (สำเนาใน OW) เข้าเครื่องนี้ — เขียนทับเมื่อเวอร์ชันใหม่กว่าเท่านั้น */
+export async function importTransferSnapshot(tr: Transfer): Promise<boolean> {
+  const cur = await db().transfers.get(tr.id);
+  if (cur && (cur.version ?? 0) >= (tr.version ?? 0)) return false;
+  await db().transfers.put(tr);
+  return true;
+}
+
 async function freshOrThrow(tr: Transfer): Promise<Transfer> {
   if (isLiveMode()) throw new Error("การโอนจริงรอ API รับ/ส่งเหตุการณ์จาก OneWarehouse");
   const fresh = await db().transfers.get(tr.id);
@@ -541,10 +567,12 @@ export async function createTransfer(
   fromBranchId: string, toBranchId: string, employeeId: string,
   lines: { product_id: string; sku: string; name: string; qty: number; isSerialized?: boolean | null; serials?: string[] }[],
   note: string, autoApprove: boolean, fromKind: "branch" | "warehouse" = "branch",
-  replacementOf?: Transfer["replacement_of"]
+  replacementOf?: Transfer["replacement_of"],
+  owOwned = false, // OneWarehouse เป็นตัวจริง (สาขาต้นทาง/ปลายทางผูกคลัง OW) → สต๊อกต้นทางให้ OW/JST คุม ไม่จอง/หักในเครื่อง
 ): Promise<Transfer> {
   const now = new Date().toISOString();
   const tr: Transfer = {
+    ow_owned: owOwned || undefined,
     id: uuidv4(),
     transfer_no: `TF-${new Date().toISOString().slice(2, 10).replace(/-/g, "")}-${nanoid(4).toUpperCase()}`,
     from_branch_id: fromBranchId, to_branch_id: toBranchId, from_kind: fromKind,
@@ -560,7 +588,7 @@ export async function createTransfer(
   };
   await txTransfer(async () => {
     // ตรวจของพร้อมโอน (Available) ก่อนจอง — รวมจำนวนต่อสินค้า (กันบรรทัดซ้ำ) · เฉพาะต้นทางที่เป็นสาขา
-    if (fromKind === "branch") {
+    if (fromKind === "branch" && !owOwned) {
       const need: Record<string, number> = {};
       for (const l of lines) need[l.product_id] = (need[l.product_id] ?? 0) + l.qty;
       for (const [pid, qty] of Object.entries(need)) {
@@ -570,7 +598,7 @@ export async function createTransfer(
     }
     await db().transfers.put(tr);
     // จองสต๊อกต้นทาง (เฉพาะโอนจากสาขา — คลัง OneWarehouse จัดการเองฝั่งนั้น)
-    if (fromKind === "branch") for (const l of lines) await reserveStock(fromBranchId, l.product_id, l.qty);
+    if (fromKind === "branch" && !owOwned) for (const l of lines) await reserveStock(fromBranchId, l.product_id, l.qty);
   });
   await auditTransfer(tr, employeeId, fromBranchId, { status: tr.status, to: toBranchId });
   return tr;
@@ -586,7 +614,7 @@ export async function rejectTransfer(tr: Transfer, employeeId: string, cancel = 
     const fresh = await freshOrThrow(tr);
     // ยกเลิก/ปฏิเสธได้เฉพาะก่อนสแกนออก (ของยังไม่ออกจากคลัง) → ปล่อยจอง; หลังส่งใช้ "โอนกลับ" แทน
     if (!["draft", "pending_approval", "approved", "picking"].includes(fresh.status)) throw new Error("transfer_wrong_status");
-    if (fresh.from_kind !== "warehouse") for (const it of fresh.items) await reserveStock(fresh.from_branch_id, it.product_id, -it.qty_requested);
+    if (srcLocal(fresh)) for (const it of fresh.items) await reserveStock(fresh.from_branch_id, it.product_id, -it.qty_requested);
     return putTransferTx(fresh, { status, approved_by: employeeId, approval_note: reason || null });
   });
   await auditTransfer(next, employeeId, next.from_branch_id, { status, note: reason || null });
@@ -631,7 +659,7 @@ export async function dispatchTransfer(tr: Transfer, employeeId: string, opts: {
   const next = await txTransfer(async () => {
     const fresh = await freshOrThrow(tr);
     if (fresh.status !== "packed") throw new Error("transfer_wrong_status"); // ต้องสแกนออก/แพ็คก่อน · กันกดส่งซ้ำ
-    if (fresh.from_kind !== "warehouse") {
+    if (srcLocal(fresh)) {
       // เช็ค On Hand พอก่อน (ทุกบรรทัด) แล้วค่อยย้าย on_hand → OTWO (Stock คงที่, ยัง Reserved Out → Available คงที่)
       for (const it of fresh.items) if (it.qty_shipped > 0 && (await readStockView(fresh.from_branch_id, it.product_id)).onHand < it.qty_shipped) throw new Error("insufficient_on_hand");
       for (const it of fresh.items) if (it.qty_shipped > 0) { await adjustStock(fresh.from_branch_id, it.product_id, -it.qty_shipped); await adjustOtwo(fresh.from_branch_id, it.product_id, it.qty_shipped); }
@@ -640,7 +668,8 @@ export async function dispatchTransfer(tr: Transfer, employeeId: string, opts: {
       status: "in_transit", carrier: opts.carrier ?? null, tracking: opts.tracking ?? null, shipping_cost: opts.shippingCost ?? null,
       // ยืนยันส่งมอบ = ของออกจากคลังจริง/อยู่กับขนส่งแล้ว (ไม่ใช่แค่เรียกรถ) → เริ่มที่ "รถรับของแล้ว"
       ship_stage: "picked_up", shipped_by: employeeId, shipped_at: new Date().toISOString(),
-      jst_allocation_no: fresh.jst_allocation_no ?? `JST-${nanoid(6).toUpperCase()}`,
+      // ใบที่ OW เป็นตัวจริงใช้เลข allocation จริงจาก OW (adapter ใส่ให้หลังส่ง) — ไม่สร้างเลขสมมติ
+      jst_allocation_no: fresh.jst_allocation_no ?? (fresh.ow_owned ? null : `JST-${nanoid(6).toUpperCase()}`),
     });
   });
   await auditTransfer(next, employeeId, next.from_branch_id, { status: "in_transit", carrier: opts.carrier ?? null });
@@ -672,7 +701,7 @@ export async function setTransferAttachments(id: string, attachments: TransferAt
   return next;
 }
 
-export interface ReceiveLineInput { qty?: number; serials?: string[] }
+export interface ReceiveLineInput { qty?: number; serials?: string[]; /** SN ที่ตรงแต่ชำรุด (OW: stockType damaged → พักตรวจ) */ damaged?: string[]; damagedQty?: number }
 export interface ReceiveOpts { located?: Record<string, SerialLocated>; note?: string }
 /**
  * ปลายทางรับเข้า — "รับของจริงเข้าครอบครอง" แยกจาก "ปิดผลต่าง"
@@ -719,7 +748,7 @@ export async function receiveTransfer(tr: Transfer, employeeId: string, received
     // สต๊อกต่อรอบ: ปลายทาง += ที่รับตรง · ต้นทาง otwo/reserved -= ที่รับตรง (ของจากใบนี้ที่มาถึงแล้ว)
     for (const rl of receiptLines) {
       await adjustStock(fresh.to_branch_id, rl.product_id, rl.qty);
-      if (fresh.from_kind !== "warehouse") { await adjustOtwo(fresh.from_branch_id, rl.product_id, -rl.qty); await reserveStock(fresh.from_branch_id, rl.product_id, -rl.qty); }
+      if (srcLocal(fresh)) { await adjustOtwo(fresh.from_branch_id, rl.product_id, -rl.qty); await reserveStock(fresh.from_branch_id, rl.product_id, -rl.qty); }
     }
     // SN นอกใบโอน: เข้าปลายทางจริง (on_hand) แต่ถือพักตรวจ (quarantine) → available สุทธิ 0 · เปิดผลต่าง unexpected_sn ราย SN
     const newDiscs: TransferDiscrepancy[] = [];
@@ -825,7 +854,7 @@ export async function resolveDiscrepancy(tr: Transfer, discId: string, employeeI
       if (disc.kind === "short" || disc.kind === "lost") {
         // ขาด/สูญหาย — SN ที่ส่งมาแต่ไม่ถึง: ปิด in-transit ที่ต้นทาง (ตัด OTWO + คืน Reserved)
         //  found_source=พบที่ต้นทาง (ของไม่เคยออกจริง) → คืนเข้า on_hand ต้นทาง · confirmed_lost=สูญหายจริง → ไม่คืน
-        if (fresh.from_kind !== "warehouse") {
+        if (srcLocal(fresh)) {
           await adjustOtwo(fresh.from_branch_id, disc.product_id, -disc.qty);
           await reserveStock(fresh.from_branch_id, disc.product_id, -disc.qty);
           if (outcome === "found_source") await adjustStock(fresh.from_branch_id, disc.product_id, disc.qty);
@@ -1292,7 +1321,7 @@ async function commitSaleTx(draft: OrderDraft): Promise<SaleResult> {
 
   const order: Order = {
     id: nanoid(),
-    order_no: `${prefix}-${now.slice(2, 10).replace(/-/g, "")}-${String(seq).padStart(4, "0")}`,
+    order_no: draft.central_order_no || `${prefix}-${now.slice(2, 10).replace(/-/g, "")}-${String(seq).padStart(4, "0")}`,
     client_uuid: draft.client_uuid,
     branch_id: draft.branch_id,
     terminal_id: draft.terminal_id,
@@ -1358,7 +1387,7 @@ async function commitSaleTx(draft: OrderDraft): Promise<SaleResult> {
     is_offline: order.is_offline_origin,
   });
 
-  await enqueue("create_order", draft.client_uuid, {
+  if (!draft.central_committed) await enqueue("create_order", draft.client_uuid, {
     client_uuid: draft.client_uuid,
     branch_id: draft.branch_id,
     terminal_id: draft.terminal_id,
@@ -1392,7 +1421,7 @@ async function commitSaleTx(draft: OrderDraft): Promise<SaleResult> {
   });
 
   // 5) ใช้แต้มเป็นส่วนลด → หักแต้มลูกค้า (หลัง create_order เพื่อให้หาเลขบิลจาก client_uuid ได้)
-  if (draft.customer_id && (draft.redeem_points ?? 0) > 0) {
+  if (!draft.central_committed && draft.customer_id && (draft.redeem_points ?? 0) > 0) {
     // อัปเดตแคชแต้มในเครื่องทันที
     const c = await db().customers.get(draft.customer_id);
     if (c) await db().customers.put({ ...c, points: Math.max(0, (c.points ?? 0) - draft.redeem_points!) });
@@ -1404,7 +1433,7 @@ async function commitSaleTx(draft: OrderDraft): Promise<SaleResult> {
   }
 
   // 6) ใช้คูปอง → บันทึกการใช้ (วัดผลแคมเปญ)
-  if (draft.coupon_code && (draft.coupon_discount ?? 0) > 0) {
+  if (!draft.central_committed && draft.coupon_code && (draft.coupon_discount ?? 0) > 0) {
     await enqueue("redeem_coupon", `${draft.client_uuid}:coupon`, {
       code: draft.coupon_code,
       customer_id: draft.customer_id ?? null,
@@ -1622,7 +1651,7 @@ export async function openShift(input: {
 }): Promise<Shift> {
   const now = new Date();
   const shift: Shift = {
-    id: nanoid(),
+    id: crypto.randomUUID(), // shifts.id บนเซิร์ฟเวอร์เป็น uuid — nanoid ทำให้ sync เปิดกะล้มตลอด
     shift_no: `SH-${now.toISOString().slice(2, 10).replace(/-/g, "")}-${nanoid(4).toUpperCase()}`,
     branch_id: input.branchId,
     terminal_id: input.terminalId,
@@ -1856,13 +1885,13 @@ export interface GiftCampaign {
 }
 
 /** แคมเปญของแถมอัตโนมัติที่ใช้ได้กับสาขา/ช่องทางนี้ (live เท่านั้น) */
-export async function fetchActiveGiftCampaigns(branchId: string, channel: string): Promise<GiftCampaign[]> {
+export async function fetchActiveGiftCampaigns(branchId: string, channel: string, customerId?: string|null): Promise<GiftCampaign[]> {
   if (!isLiveMode() || (typeof navigator !== "undefined" && !navigator.onLine)) return [];
-  const sb = supabase();
-  if (!sb) return [];
-  const { data, error } = await sb.rpc("pos_active_gift_campaigns", { p_branch_id: branchId, p_channel: channel });
-  if (error || !Array.isArray(data)) return [];
-  return data.map((r) => {
+  const params=new URLSearchParams({branch_id:branchId,channel});if(customerId)params.set("customer_id",customerId);
+  const response=await fetch("/api/pos/gift-campaigns?"+params,{cache:"no-store"});
+  const data=await response.json();
+  if(!response.ok||!Array.isArray(data))throw Error(data.error||"อ่านสิทธิ์ของแถมไม่สำเร็จ");
+  return data.map((r: unknown) => {
     const c = r as Record<string, unknown>;
     return {
       id: String(c.id), name: String(c.name ?? ""),
@@ -1917,6 +1946,9 @@ const DEMO_PROMOS: PromoCampaign[] = [
 ];
 /** แคมเปญส่วนลดที่เลือกได้ (local-first + seed demo) */
 export async function listPromoCampaigns(): Promise<PromoCampaign[]> {
+  // Live checkout must not offer hard-coded demo discounts as real campaigns.
+  // Central coupon settlement is still required by /api/pos/checkout.
+  if (!isDemoMode()) return [];
   const stored = await kvGet<PromoCampaign[]>("promo_campaigns_v3", []);
   if (stored.length) return stored.filter((p) => p.active);
   await kvSet("promo_campaigns_v3", DEMO_PROMOS);
