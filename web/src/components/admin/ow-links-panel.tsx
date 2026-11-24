@@ -29,7 +29,7 @@ export function OwLinksPanel({ warehouses }: { warehouses: { warehouse_id: strin
     } catch (e) { setError(e instanceof Error ? e.message : "บันทึกไม่สำเร็จ"); } finally { setBusy(null); }
   }
   // ปรับยอดสต๊อก/SN ให้ตรง OW
-  type Report = { stock: { sku: string; ow_qty: number; pending_sales: number; target: number; delta: number | null; settling?: boolean }[]; not_in_ow: number; serials: { checked: number; updated: number; unknown: string[]; other_warehouse: string[]; skipped: string[] } };
+  type Report = { stock: { sku: string; ow_qty: number; pending_sales: number; target: number; delta: number | null; settling?: boolean }[]; not_in_ow: number; serials: { checked: number; updated: number; unknown: string[]; other_warehouse: string[]; skipped: string[]; held_sold?: string[] } };
   const [rc, setRc] = useState<B | null>(null), [rcSn, setRcSn] = useState(""), [rcBusy, setRcBusy] = useState(false), [rcErr, setRcErr] = useState(""), [rcRep, setRcRep] = useState<Report | null>(null);
   async function reconcile() {
     if (!rc) return;
@@ -113,6 +113,7 @@ export function OwLinksPanel({ warehouses }: { warehouses: { warehouse_id: strin
               <p className="text-muted">SKU ที่ OW ไม่มี: {rcRep.not_in_ow} · SN ตรวจ {rcRep.serials.checked} · อัปเดต {rcRep.serials.updated}</p>
               {rcRep.serials.unknown.length ? <p className="text-warn">OW ไม่รู้จัก SN: {rcRep.serials.unknown.join(", ")}</p> : null}
               {rcRep.serials.other_warehouse.length ? <p className="text-warn">อยู่คลังที่ไม่ผูกสาขา: {rcRep.serials.other_warehouse.join(", ")}</p> : null}
+              {rcRep.serials.held_sold?.length ? <p className="text-warn">คงสถานะ &quot;ขายแล้ว&quot; (บิลยังไม่เข้า JST — ไม่รีเซ็ตกันขายซ้ำ): {rcRep.serials.held_sold.join(", ")}</p> : null}
               {rcRep.serials.skipped.length ? <p className="text-danger">ข้าม (อ่าน/บันทึกไม่ได้): {rcRep.serials.skipped.join(", ")}</p> : null}
             </div>
           ) : null}

@@ -135,7 +135,7 @@ export default function SellPage() {
       setHolds(await listHolds(branchId));
       await expireReservations(branchId); // ปล่อยจองที่หมดอายุ
       setResvOrders(await listReservedOrders([branchId]));
-      setPromos(await listPromoCampaigns());
+      setPromos(await listPromoCampaigns(branchId, session.channel));
       if (!cart.defaultSalespersonId && employee) cart.setDefaultSalesperson(employee.id);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -492,10 +492,19 @@ export default function SellPage() {
   }
 
   // ── แคมเปญ "ฉลาด": เจาะจงสินค้า → คิดลดจากสินค้านั้น · ทั้งบิล → คิดจากยอดรวม ──
-  const promoBase = (p: PromoCampaign) => p.target_skus.length
-    ? cart.lines.filter((l) => l.kind === "goods" && p.target_skus.includes(l.sku)).reduce((s, l) => s + l.unit_price * l.qty, 0)
-    : totals.subtotal;
-  const promoAmt = (p: PromoCampaign) => { const base = promoBase(p); if (base <= 0 || base < p.min_spend) return 0; return promoDiscount(p, base); };
+  // ฐานคิดเหมือนเซิร์ฟเวอร์ (pos_promoted_quote): ยอดสินค้าที่ร่วม "หลังส่วนลดรายการ" × สัดส่วนหลังส่วนลดท้ายบิล · ขั้นต่ำเทียบยอดก่อนลด
+  const promoLines = (p: PromoCampaign) => cart.lines.filter((l) => l.kind === "goods" && !l.is_gift && (!p.target_skus.length || p.target_skus.includes(l.sku)));
+  const promoBase = (p: PromoCampaign) => {
+    const net = promoLines(p).reduce((s, l) => s + lineTotal(l), 0);
+    const factor = totals.afterLineDiscount > 0 ? (totals.afterLineDiscount - totals.billDiscountTotal) / totals.afterLineDiscount : 0;
+    return round2(net * factor);
+  };
+  const promoAmt = (p: PromoCampaign) => {
+    const gross = promoLines(p).reduce((s, l) => s + l.unit_price * l.qty, 0);
+    const base = promoBase(p);
+    if (base <= 0 || gross < p.min_spend) return 0;
+    return promoDiscount({ ...p, min_spend: 0 }, base);
+  };
   // เกี่ยวข้องกับตะกร้า: ทั้งบิล (ไม่เจาะจง) หรือมีสินค้าเป้าหมายอยู่ในตะกร้า
   const promoRelevant = (p: PromoCampaign) => !p.target_skus.length || cart.lines.some((l) => l.kind === "goods" && p.target_skus.includes(l.sku));
 
@@ -1262,6 +1271,12 @@ export default function SellPage() {
                     <div className="min-w-0">
                       <p className="font-bold text-[15px] leading-tight truncate">{p.name}</p>
                       {p.desc ? <p className="text-[11px] text-muted leading-snug truncate">{p.desc}</p> : null}
+                      <p className="text-[10px] text-muted leading-snug truncate">
+                        {p.target_skus.length ? `${L("เฉพาะ", "Only", "仅限")} ${p.target_skus.join(", ")}` : L("ทั้งบิล", "Whole bill", "整单")}
+                        {p.max_discount != null ? ` · ${L("สูงสุด", "max", "最高")} ${formatTHB(p.max_discount, false)}` : ""}
+                        {p.uses_left != null ? ` · ${L("เหลือ", "left", "剩")} ${p.uses_left} ${L("สิทธิ์", "", "次")}` : ""}
+                        {p.segment ? ` · ${L("เฉพาะกลุ่ม", "segment", "客群")} ${p.segment}` : ""}
+                      </p>
                     </div>
                     <span className="shrink-0 text-lg font-extrabold tnum">{p.type === "percent" ? `−${p.value}%` : `−${formatTHB(p.value, false)}`}</span>
                   </div>

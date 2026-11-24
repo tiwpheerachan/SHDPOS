@@ -1932,6 +1932,9 @@ export interface PromoCampaign {
   target_skus: string[];
   active: boolean;
   until?: string | null;      // หมดเขต (ISO) — null = ไม่จำกัด
+  max_discount?: number | null; // เพดานส่วนลด (บาท)
+  uses_left?: number | null;    // โควตาที่เหลือ (null = ไม่จำกัด)
+  segment?: string | null;      // เฉพาะกลุ่มลูกค้า
 }
 const DEMO_PROMOS: PromoCampaign[] = [
   // ทั้งบิล (โชว์เสมอ)
@@ -1945,10 +1948,16 @@ const DEMO_PROMOS: PromoCampaign[] = [
   { id: "promo-anker", code: "ANKER-20", name: "Anker Charger ลด 20%", desc: "เฉพาะ Anker Prime Charger", type: "percent", value: 20, min_spend: 0, color: "#2AA7B8", product_sku: "A2688E41", target_skus: ["A2688E41"], active: true, until: null },
 ];
 /** แคมเปญส่วนลดที่เลือกได้ (local-first + seed demo) */
-export async function listPromoCampaigns(): Promise<PromoCampaign[]> {
-  // Live checkout must not offer hard-coded demo discounts as real campaigns.
-  // Central coupon settlement is still required by /api/pos/checkout.
-  if (!isDemoMode()) return [];
+export async function listPromoCampaigns(branchId?: string | null, channel?: string | null): Promise<PromoCampaign[]> {
+  // live: แคมเปญจริงจากหลังบ้าน (กรองสาขา/ช่องทาง/วันที่/โควตาที่เซิร์ฟเวอร์) — ยอดลดจริงยังคิดที่ /api/pos/checkout
+  if (!isDemoMode()) {
+    if (!branchId || typeof window === "undefined") return [];
+    try {
+      const r = await fetch(`/api/pos/campaigns?branch_id=${encodeURIComponent(branchId)}${channel ? `&channel=${encodeURIComponent(channel)}` : ""}`, { cache: "no-store" });
+      if (!r.ok) return [];
+      return ((await r.json()) as { campaigns?: PromoCampaign[] }).campaigns ?? [];
+    } catch { return []; }
+  }
   const stored = await kvGet<PromoCampaign[]>("promo_campaigns_v3", []);
   if (stored.length) return stored.filter((p) => p.active);
   await kvSet("promo_campaigns_v3", DEMO_PROMOS);
@@ -1957,7 +1966,8 @@ export async function listPromoCampaigns(): Promise<PromoCampaign[]> {
 /** คำนวณส่วนลดจากแคมเปญตามยอดบิล */
 export function promoDiscount(p: PromoCampaign, subtotal: number): number {
   if (subtotal < p.min_spend) return 0;
-  return p.type === "percent" ? round2((subtotal * p.value) / 100) : Math.min(p.value, subtotal);
+  const d = p.type === "percent" ? round2((subtotal * p.value) / 100) : Math.min(p.value, subtotal);
+  return p.max_discount != null ? Math.min(d, p.max_discount) : d;
 }
 
 /** ตรวจคูปองก่อนใช้ — live: RPC, demo/offline: ใช้ไม่ได้ */

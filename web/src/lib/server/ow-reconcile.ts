@@ -20,7 +20,7 @@ export interface ReconcileReport {
   run: string; branch_id: string; warehouse_id: string;
   stock: { sku: string; ow_qty: number; pending_sales: number; target: number; delta: number | null; settling?: boolean }[];
   not_in_ow: number;
-  serials: { checked: number; updated: number; unknown: string[]; other_warehouse: string[]; skipped: string[] };
+  serials: { checked: number; updated: number; unknown: string[]; other_warehouse: string[]; skipped: string[]; held_sold: string[] };
   reserved?: { sku: string; qty: number }[];
 }
 
@@ -102,7 +102,7 @@ export async function owReconcileBranch(branchId: string, actor: string, extraSe
   const known = await sb.from("serials").select("serial_no").eq("branch_id", branchId).limit(5000);
   if (known.error) throw new OwTransferError("อ่าน SN ไม่สำเร็จ", 503, "serials_read");
   const cands = [...new Set([...(known.data ?? []).map((r) => r.serial_no as string), ...extraSerials.map((s) => s.trim()).filter(Boolean)])].slice(0, 2000);
-  const rep: ReconcileReport["serials"] = { checked: cands.length, updated: 0, unknown: [], other_warehouse: [], skipped: [] };
+  const rep: ReconcileReport["serials"] = { checked: cands.length, updated: 0, unknown: [], other_warehouse: [], skipped: [], held_sold: [] };
   await pool(cands, async (sn) => {
     const r = await owCall<OwSerial>("GET", `serials/${encodeURIComponent(sn)}`);
     if (r.status === 404) { rep.unknown.push(sn); return; }
@@ -112,8 +112,10 @@ export async function owReconcileBranch(branchId: string, actor: string, extraSe
     const target = r.data.warehouseId ? whToBranch.get(String(r.data.warehouseId)) : undefined;
     if (!p || !status) { rep.skipped.push(sn); return; }
     if (!target) { rep.other_warehouse.push(sn); return; } // อยู่คลังที่ไม่ผูกกับสาขา POS ใด — ไม่ย้ายเดา
-    const { error } = await sb.rpc("pos_ow_apply_movement", { p_source: source, p_key: `reconcile-sn:${run}:${sn}`, p_branch: target, p_product: p.id, p_onhand: 0, p_quarantine: 0, p_serials: [sn], p_serial_status: status, p_ref: ref });
+    const { data: applied, error } = await sb.rpc("pos_ow_apply_movement", { p_source: source, p_key: `reconcile-sn:${run}:${sn}`, p_branch: target, p_product: p.id, p_onhand: 0, p_quarantine: 0, p_serials: [sn], p_serial_status: status, p_ref: ref });
     if (error) { rep.skipped.push(sn); return; }
+    // false = SN ขายแล้วในบิล POS ที่ JST ยังไม่ยืนยัน (0059) → คงเป็น "ขายแล้ว" กันขายซ้ำ
+    if (applied === false) { rep.held_sold.push(sn); return; }
     rep.updated++;
   }, 5);
 
