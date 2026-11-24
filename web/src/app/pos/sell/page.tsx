@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { nanoid } from "nanoid";
 import {
   Search, Plus, Minus, Trash2, Percent, Barcode, Inbox, PauseCircle, PlayCircle,
-  UserRound, AlertTriangle, PackageX, Tag, UserPlus, Phone, ChevronRight, X, Star, Wallet, Ticket, Gift, Package, Maximize2, Minimize2, Store,
+  UserRound, AlertTriangle, PackageX, Tag, UserPlus, Phone, ChevronRight, X, Star, Wallet, Ticket, Gift, Package, Maximize2, Minimize2, Store, Sparkles, CheckCircle2,
 } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { useSession } from "@/lib/store/session";
@@ -510,13 +510,40 @@ export default function SellPage() {
 
   // ใช้แคมเปญส่วนลด (กดการ์ดเลือก)
   async function applyPromo(p: PromoCampaign) {
-    if(isLiveMode()){await applyCoupon(p.code);return;}
+    if(isLiveMode()){await applyCoupon(p.code);setPromoOpen(false);return;}
     const amt = promoAmt(p);
     if (amt <= 0) { toast.push({ tone: "warn", title: p.target_skus.length ? L("ยังไม่มีสินค้าของแคมเปญนี้ในตะกร้า", "Add a qualifying item first", "篮内无符合商品") : L(`ยอดไม่ถึงขั้นต่ำ ${formatTHB(p.min_spend, false)}`, `Min ${formatTHB(p.min_spend, false)}`, `未达`) }); return; }
     cart.setCoupon(p.code, amt, p.id);
     setPromoOpen(false);
     toast.push({ tone: "ok", title: L(`ใช้แคมเปญ: ${p.name}`, `Applied: ${p.name}`, p.name), body: `${L("ลด", "−", "减")} ${formatTHB(amt, false)}` });
   }
+
+  // ── แนะนำโปรให้พนักงาน (ไม่ต้องจำรหัส) ──────────────────────────
+  //   1 บิลใช้ได้ 1 แคมเปญ (กติกาเซิร์ฟเวอร์) → แนะนำตัวที่ลดได้มากสุด · ส่วนลดรายการที่พนักงานกดเองใช้ร่วมได้
+  const promoScored = promos.map((p) => ({ p, amt: promoAmt(p) })).filter((x) => x.amt > 0)
+    .sort((a, b) => b.amt - a.amt || b.p.target_skus.length - a.p.target_skus.length);
+  const bestPromo = promoScored[0] ?? null;
+  const activePromo = cart.couponCode ? promos.find((p) => p.code === cart.couponCode) ?? null : null;
+  // ใกล้ถึงขั้นต่ำ (ขาดไม่เกิน 30%) → บอกยอดที่ต้องซื้อเพิ่ม
+  const nearPromo = !bestPromo && cart.lines.length ? promos
+    .map((p) => ({ p, gross: promoLines(p).reduce((s, l) => s + l.unit_price * l.qty, 0) }))
+    .filter((x) => x.p.min_spend > 0 && x.gross > 0 && x.gross < x.p.min_spend && x.p.min_spend - x.gross <= x.p.min_spend * 0.3)
+    .sort((a, b) => (a.p.min_spend - a.gross) - (b.p.min_spend - b.gross))[0] ?? null : null;
+  const linePromos = (sku: string) => promoScored.filter((x) => x.p.target_skus.includes(sku));
+  // เพิ่มสินค้าที่มีโปรเฉพาะสินค้า → เด้งบอกครั้งเดียวต่อโปร (ตะกร้าว่าง = เริ่มนับใหม่)
+  const promoSeen = useRef<Set<string>>(new Set());
+  const promoKey = promoScored.filter((x) => x.p.target_skus.length).map((x) => x.p.id).join(",");
+  useEffect(() => {
+    if (!cart.lines.length) { promoSeen.current.clear(); return; }
+    if (cart.couponCode) return;
+    for (const x of promoScored) {
+      if (!x.p.target_skus.length || promoSeen.current.has(x.p.id)) continue;
+      promoSeen.current.add(x.p.id);
+      toast.push({ tone: "info", title: L(`สินค้านี้มีโปร: ${x.p.name}`, `Promotion available: ${x.p.name}`, `有优惠: ${x.p.name}`),
+        body: L(`ลดได้ ${formatTHB(x.amt, false)} — กด "ใช้โปร" ที่บรรทัดสินค้า`, `Save ${formatTHB(x.amt, false)} — tap "Use" on the item`, `可减 ${formatTHB(x.amt, false)}`) });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [promoKey, cart.lines.length, cart.couponCode]);
 
   // ------------------------------------------------------------------
   // จบการขาย — ลำดับสำคัญ: บันทึกบิล → ตัดสต๊อก → ค่อยพิมพ์
@@ -854,11 +881,27 @@ export default function SellPage() {
             <div className="flex items-center gap-2 rounded-xl bg-ink text-white px-2.5 py-1.5">
               <Ticket size={13} className="shrink-0" />
               <span className="font-mono text-xs font-bold">{cart.couponCode}</span>
-              <span className="text-[11px] text-white/70">{L("ลด", "−", "减")} {formatTHB(cart.couponDiscount, false)}</span>
+              {activePromo ? <span className="text-[11px] text-white/80 truncate min-w-0">{activePromo.name}</span> : null}
+              <span className="text-[11px] text-white/70 shrink-0">{L("ลด", "−", "减")} {formatTHB(cart.couponDiscount, false)}</span>
               <button onClick={() => cart.clearCoupon()} className="ml-auto text-white/60 hover:text-white"><X size={13} /></button>
             </div>
           ) : (
             <div className="space-y-1.5">
+              {/* แนะนำโปรที่คุ้มสุดของบิลนี้ — กดครั้งเดียวใช้ได้เลย */}
+              {bestPromo ? (
+                <div className="flex items-center gap-2 rounded-xl border border-ok/30 bg-ok/8 px-2.5 py-2">
+                  <Sparkles size={14} className="text-ok shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[11px] font-semibold text-ink truncate">{L("แนะนำ", "Suggested", "推荐")}: {bestPromo.p.name}</p>
+                    <p className="text-[10px] text-muted truncate">{bestPromo.p.target_skus.length ? `${L("เฉพาะ", "Only", "仅限")} ${bestPromo.p.target_skus.join(", ")}` : L("ทั้งบิล", "Whole bill", "整单")} · {L("ลด", "−", "减")} {formatTHB(bestPromo.amt, false)}</p>
+                  </div>
+                  <button onClick={() => void applyPromo(bestPromo.p)} disabled={couponChecking} className="h-7 px-2.5 rounded-lg bg-ok text-white text-[11px] font-semibold shrink-0 disabled:opacity-50">{L("ใช้เลย", "Apply", "使用")}</button>
+                </div>
+              ) : nearPromo ? (
+                <p className="rounded-xl bg-warn/8 border border-warn/25 px-2.5 py-1.5 text-[11px] text-ink">
+                  <Sparkles size={12} className="inline -mt-0.5 text-warn" /> {L(`ซื้อเพิ่มอีก ${formatTHB(nearPromo.p.min_spend - nearPromo.gross, false)} ได้โปร "${nearPromo.p.name}"`, `Add ${formatTHB(nearPromo.p.min_spend - nearPromo.gross, false)} more for "${nearPromo.p.name}"`, `再买 ${formatTHB(nearPromo.p.min_spend - nearPromo.gross, false)} 可享 ${nearPromo.p.name}`)}
+                </p>
+              ) : null}
               {/* เลือกแคมเปญส่วนลดเป็นการ์ด (พนักงานกดเลือกได้เลย) */}
               {promos.length ? (
                 <button onClick={() => setPromoOpen(true)} className="w-full h-9 rounded-xl border border-brand/30 bg-brand/5 text-brand text-xs font-semibold inline-flex items-center justify-center gap-1.5 hover:bg-brand/10 transition-colors">
@@ -988,6 +1031,21 @@ export default function SellPage() {
                     {l.serials.length ? (
                       <p className="text-[10px] font-mono text-muted mt-1.5 truncate">SN: {l.serials.join(", ")}</p>
                     ) : null}
+                    {/* โปรเฉพาะสินค้านี้ — บอกพนักงานตรงบรรทัด ไม่ต้องจำรหัส */}
+                    {!l.is_gift ? (() => {
+                      const used = activePromo && activePromo.target_skus.includes(l.sku) ? activePromo : null;
+                      if (used) return <p className="mt-1.5 inline-flex items-center gap-1 text-[10.5px] font-medium text-ok"><CheckCircle2 size={12} />{L("ใช้โปรแล้ว", "Promotion applied", "已用优惠")}: {used.name}</p>;
+                      const hit = linePromos(l.sku)[0];
+                      if (!hit) return null;
+                      return (
+                        <button onClick={() => void applyPromo(hit.p)} disabled={couponChecking}
+                          className="mt-1.5 w-full flex items-center gap-1.5 rounded-lg border border-dashed border-brand/40 bg-brand/5 px-2 py-1 text-left text-[10.5px] text-brand hover:bg-brand/10 disabled:opacity-50">
+                          <Tag size={11} className="shrink-0" />
+                          <span className="truncate flex-1">{L("มีโปร", "Promo", "优惠")}: {hit.p.name} · {L("ลด", "−", "减")} {formatTHB(hit.amt, false)}</span>
+                          <span className="font-semibold shrink-0">{cart.couponCode ? L("เปลี่ยนมาใช้", "Switch", "切换") : L("ใช้โปร", "Use", "使用")}</span>
+                        </button>
+                      );
+                    })() : null}
                   </li>
                 );
               })}
