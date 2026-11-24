@@ -26,7 +26,7 @@ export {
 } from "@/lib/data/repo";
 
 // โหมดตัวจริง: ใบที่ต้นทาง/ปลายทางผูกคลัง OW → ยิง OW ก่อน · ไม่ผูก → เครื่องยนต์ในเครื่องเหมือนเดิม
-export { owList, owListAll, owCreate, owApprove, owReject, owScanOut, owDispatch, owReceive, owCloseShort, owPull, owLinks, owIsLivePair, owResume, owRefresh } from "./live";
+export { owList, owListAll, owCreate, owApprove, owReject, owScanOut, owDispatch, owReceive, owCloseShort, owPull, owLinks, owIsLivePair, owResume, owRefresh, owTimelineFor } from "./live";
 
 export * from "./reconcile";
 export * from "./status";

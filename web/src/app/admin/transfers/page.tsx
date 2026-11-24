@@ -18,7 +18,7 @@ import { coordOf, haversineKm, fmtKm } from "@/lib/geo";
 import { resolveSerial, locateSerial } from "@/lib/data/serials";
 import { listApprovalRules, resolveApprovers, type ApprovalRule } from "@/lib/data/approval-rules";
 import {
-  owListAll, owCreate, owApprove, owReject, owReverse, owGet, owTimeline,
+  owListAll, owCreate, owApprove, owReject, owReverse, owGet, owTimelineFor,
   owScanOut, owDispatch, owReceive, owCloseShort, owRecordDisc, owRequestResolveDisc, owResolveDisc, owCarriers, owSetAttachments, owShipStage, owSetPickupStage,
   owOpenReturn, owRequestReturnApproval, owApproveReturn, owCancelReturn, owDispatchReturn, owSetReturnShipStage, owReceiveReturnLines, owCloseReturn, owPackReturn, owMarkReplacement,
   reconcileSerials, statusMeta, isActive, isIssue, owErrorMessage, owResume, owRefresh,
@@ -107,7 +107,7 @@ export default function AdminTransfersPage() {
   useEffect(() => {
     setTab("overview"); setCarrier(""); setApproveNote("");
     if (!detail) { setScanned({}); setRecvQty({}); return; }
-    void owTimeline(detail.transfer_no).then(setTimeline);
+    void owTimelineFor(detail).then(setTimeline);
     const receiving = ["in_transit", "partial_received"].includes(detail.status); // รับหลายรอบ
     const sc: Record<string, string[]> = {}; const rq: Record<string, string> = {};
     for (const it of detail.items) {

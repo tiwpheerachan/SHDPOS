@@ -96,12 +96,16 @@ export function TransferTimeline({ rows, locale, L }: { rows: AuditEntry[]; loca
   return (
     <ol className="relative border-l border-line ml-6 my-5 mr-5 space-y-5">
       {rows.map((r, i) => {
-        const st = (r.after_data as { status?: Transfer["status"] })?.status;
-        const meta = st ? statusMeta(st, locale) : null;
+        const ad = (r.after_data ?? {}) as { status?: Transfer["status"]; tone?: string; source?: "ow" | "jst" };
+        const meta = ad.status ? statusMeta(ad.status, locale) : null;
+        const tone = meta?.tone ?? ad.tone ?? "neutral";
         return (
           <li key={i} className="ml-5">
-            <span className={`absolute -left-[7px] w-3.5 h-3.5 rounded-full border-2 border-surface ${toneColor[meta?.tone ?? "neutral"] ?? "bg-muted"}`} />
-            <p className="text-sm font-medium">{meta?.label ?? r.action}</p>
+            <span className={`absolute -left-[7px] w-3.5 h-3.5 rounded-full border-2 border-surface ${toneColor[tone] ?? "bg-muted"}`} />
+            <p className="text-sm font-medium">
+              {meta?.label ?? r.action}
+              {ad.source ? <span className={`ml-1.5 align-middle text-[9px] px-1.5 py-0.5 rounded ${ad.source === "jst" ? "bg-ok/12 text-ok" : "bg-brand/10 text-brand"}`}>{ad.source === "jst" ? "JST" : L("คลังกลาง", "OW", "中央仓")}</span> : null}
+            </p>
             <p className="text-[11px] text-muted">{clock(r.occurred_at)}{r.actor_name ? ` · ${r.actor_name}` : ""}</p>
           </li>
         );

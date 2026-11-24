@@ -11,7 +11,7 @@ import { useSession } from "@/lib/store/session";
 import { useToast } from "@/components/toast-host";
 import { listBranches, listProducts } from "@/lib/data/repo";
 import {
-  owScanOut, owDispatch, owReceive, owList, owGet, owTimeline, owCarriers,
+  owScanOut, owDispatch, owReceive, owList, owGet, owTimelineFor, owCarriers,
   statusMeta, isActive, isIssue, reconcileSerials, owErrorMessage, owResume, owRefresh,
 } from "@/lib/onewarehouse";
 import type { Branch, Transfer, TransferItem, AuditEntry } from "@/lib/types";
@@ -77,7 +77,7 @@ export default function PosTransfersPage() {
   }, [detail, branchId]);
 
   useEffect(() => {
-    if (detail && tab === "timeline") void owTimeline(detail.transfer_no).then(setTimeline);
+    if (detail && tab === "timeline") void owTimelineFor(detail).then(setTimeline);
   }, [detail, tab]);
 
   const bName = useMemo(() => new Map(branches.map((b) => [b.id, locale === "th" ? b.name_th ?? b.name : b.name])), [branches, locale]);

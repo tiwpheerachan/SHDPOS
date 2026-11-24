@@ -5,10 +5,10 @@
 //   • การผูกสาขาแยก 3 กรณี: ผูกแล้ว → OW · ยืนยันว่ายังไม่ผูก → แบบเดิมของสาขานั้น · อ่านไม่ได้ → หยุดและให้ลองใหม่
 //   • ใบที่คลังกลางเปิดเอง ถูกดึงเข้ามาตอนแสดงรายการของสาขาปลายทาง ("รอรับจากคลังกลาง")
 // =====================================================================
-import type { Transfer } from "@/lib/types";
+import type { Transfer, AuditEntry } from "@/lib/types";
 import {
   createTransfer, approveTransfer, rejectTransfer, scanOutTransfer, dispatchTransfer, receiveTransfer, closeTransferShort,
-  listTransfersForBranch, listAllTransfers, importTransferSnapshot,
+  listTransfersForBranch, listAllTransfers, importTransferSnapshot, listTransferTimeline,
   type ReceiveLineInput, type ReceiveOpts,
 } from "@/lib/data/repo";
 
@@ -131,4 +131,16 @@ export async function owList(branchId: string): Promise<Transfer[]> {
 export async function owListAll(): Promise<Transfer[]> {
   await owPull();
   return listAllTransfers();
+}
+
+// ── Timeline: ใบที่ผูกคลังกลาง = ดึงจาก OW (ทุกขั้น + JST) · ใบในระบบเราเอง = audit ในเครื่อง ──
+export async function owTimelineFor(tr: Transfer): Promise<AuditEntry[]> {
+  if (!tr.ow_owned) return listTransferTimeline(tr.transfer_no);
+  try {
+    const r = await fetch(`/api/pos/ow-transfers?timeline=${encodeURIComponent(tr.id)}`, { cache: "no-store" });
+    if (!r.ok) throw new Error(String(r.status));
+    const j = (await r.json()) as { rows: AuditEntry[] };
+    if (j.rows?.length) return j.rows;
+  } catch { /* คลังกลางไม่ตอบ → ใช้ประวัติในเครื่อง */ }
+  return listTransferTimeline(tr.transfer_no);
 }

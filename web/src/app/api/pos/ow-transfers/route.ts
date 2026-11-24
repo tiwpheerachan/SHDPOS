@@ -17,6 +17,7 @@ import { visibleBranchIds } from "@/lib/sso/scope";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { owConfig } from "@/lib/server/ow-gateway";
 import { owSyncReservations } from "@/lib/server/ow-reconcile";
+import { owCall } from "@/lib/server/ow-write";
 import type { PermissionKey } from "@/lib/permissions";
 import {
   owCreateTransfer, owApproveTransfer, owCancelTransfer, owScanOut, owDispatch, owScanIn, owCloseShort, owResume,
@@ -64,6 +65,13 @@ export async function GET(req: NextRequest) {
       const c = await owGetCopy(one);
       if (allowed && !allowed.includes(c.transfer.to_branch_id) && !allowed.includes(c.transfer.from_branch_id)) throw new PosError("ไม่มีสิทธิ์ดูใบนี้", 403);
       return reply(c);
+    }
+    const tl = sp.get("timeline");
+    if (tl) {
+      if (!UUID.test(tl)) throw new PosError("เลขใบไม่ถูกต้อง");
+      const c = await owGetCopy(tl);
+      if (allowed && !allowed.includes(c.transfer.to_branch_id) && !allowed.includes(c.transfer.from_branch_id)) throw new PosError("ไม่มีสิทธิ์ดูใบนี้", 403);
+      return reply(await owTimelineOf(source, tl));
     }
     const branch = sp.get("branch_id");
     if (branch && !UUID.test(branch)) throw new PosError("สาขาไม่ถูกต้อง");
@@ -141,4 +149,35 @@ export async function POST(req: NextRequest) {
       default: throw new PosError("คำสั่งไม่ถูกต้อง");
     }
   } catch (e) { return fail(e); }
+}
+
+// ── Timeline จากคลังกลาง (ทุกขั้น + ผลซิงก์ JST) → รูปแบบ AuditEntry ที่ UI ใช้ ──
+type OwEvent = { at: string; type: string; actor?: string; summary: string; detail?: { step?: string; phase?: string; outcome?: string } };
+async function owTimelineOf(source: string, posId: string) {
+  const sb = supabaseAdmin();
+  const ln = await sb.from("pos_ow_transfer_lines").select("ow_id").eq("source", source).eq("pos_transfer_id", posId);
+  if (ln.error) throw new PosError("อ่านใบ OW ย่อยไม่สำเร็จ", 503);
+  const ids = [...new Set((ln.data ?? []).map((r) => r.ow_id as string))];
+  // ชื่อสาขาจากรหัสคลัง (actor = "branch:<warehouseId>")
+  const wl = await sb.from("pos_warehouse_links").select("warehouse_id,branches(name)").eq("source", source);
+  const whName = new Map((wl.data ?? []).map((r) => [String(r.warehouse_id), ((r.branches as { name?: string } | null)?.name ?? null)]));
+  const rows: Record<string, unknown>[] = [];
+  let failed = 0;
+  for (const id of ids) {
+    const r = await owCall<{ events: OwEvent[] }>("GET", `/transfers/${encodeURIComponent(id)}/timeline`, undefined, 10_000);
+    if (!r.ok || !r.data) { failed++; continue; }
+    for (const [i, e] of (r.data.events ?? []).entries()) {
+      const jst = e.type === "sync" || /JST/.test(e.summary);
+      const bad = e.detail?.outcome && e.detail.outcome !== "succeeded";
+      const tone = bad ? "danger" : e.type === "sync" ? "ok" : e.detail?.step === "close" ? "ok" : e.type === "created" ? "brand" : e.type === "dispatch" ? "info" : "neutral";
+      const wh = e.actor?.startsWith("branch:") ? e.actor.slice(7) : null;
+      rows.push({
+        id: `${id}:${i}`, action: e.summary, occurred_at: e.at, is_offline: false, ref_table: "transfers",
+        actor_name: e.actor === "system" ? (jst ? "JST" : "ระบบคลังกลาง") : wh ? (whName.get(wh) ?? `คลัง ${wh}`) : (e.actor ?? null),
+        after_data: { source: jst ? "jst" : "ow", tone, ...(ids.length > 1 ? { ow_id: id } : {}) },
+      });
+    }
+  }
+  rows.sort((a, b) => String(a.occurred_at).localeCompare(String(b.occurred_at)));
+  return { rows, partial: failed > 0, ow_ids: ids.length };
 }
