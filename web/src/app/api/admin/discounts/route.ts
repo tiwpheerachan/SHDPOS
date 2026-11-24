@@ -71,7 +71,7 @@ export async function GET(req: NextRequest) {
   return reply({
     from, to, rows,
     summary: {
-      bills: rows.length, total: sum((r) => r.breakdown.total), line: sum((r) => r.breakdown.lineTotal), bill_manual: sum((r) => r.breakdown.billManual),
+      bills: rows.length, total: sum((r) => r.breakdown.total), line: sum((r) => r.breakdown.lineTotal), line_campaign: sum((r) => r.breakdown.lineCampaignTotal), bill_manual: sum((r) => r.breakdown.billManual),
       coupon: sum((r) => r.breakdown.coupon?.amount ?? 0), points: sum((r) => r.breakdown.points?.value ?? 0), gifts: rows.reduce((a, r) => a + r.breakdown.gifts.length, 0),
     },
   });

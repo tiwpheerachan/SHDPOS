@@ -19,9 +19,9 @@ import {
   listPromoCampaigns, promoDiscount, type PromoCampaign,
 } from "@/lib/data/repo";
 import { computeCampaignGifts, giftSig } from "@/lib/promo/gifts";
-import type { Branch, CartLine, Category, Employee, Order, Product, StockLevel, PaymentEntry } from "@/lib/types";
+import type { Branch, CartLine, Category, Employee, LineCampaign, Order, Product, StockLevel, PaymentEntry } from "@/lib/types";
 import { availableQty } from "@/lib/stock";
-import { formatTHB, lineTotal, round2 } from "@/lib/money";
+import { formatTHB, lineTotal, lineCampaignDiscount, lineManualDiscount, round2 } from "@/lib/money";
 import { can, discountLimit, discountApprovalLevel, needsApproval } from "@/lib/permissions";
 import { Button, Card, EmptyState, Input, Select, Badge, Modal, Segmented, Avatar } from "@/components/ui";
 import { DeferredSaleModal } from "@/components/pos/deferred-sale-modal";
@@ -320,15 +320,31 @@ export default function SellPage() {
     return ()=>clearInterval(timer);
   },[payOpen,branchId]);
 
-  async function beginCheckout() {
+  async function beginCheckout(skipPromoCheck = false) {
     if(deferredMode){
       if(!isLiveMode()){toast.push({tone:"warn",title:"โหมดขายก่อนต้องบันทึกบนเซิร์ฟเวอร์จริง"});return;}
       if(checkoutId.current||localStorage.getItem(`shdpos.checkout:${employee?.id}:${branchId}`)){toast.push({tone:"warn",title:"มี Checkout เดิมค้างอยู่",body:"กรุณาตรวจหรือยกเลิกการจองเดิมในศูนย์ตรวจสอบก่อน เพื่อไม่ให้รับเงินซ้ำ"});return;}
+      if(cart.lines.some(l=>l.campaign)){toast.push({tone:"warn",title:L("โปรรายสินค้ายังใช้กับ \"ขายก่อน\" ไม่ได้","Item promotions can't be used with deferred sale","先卖模式暂不支持商品优惠"),body:L("ถอดโปรออกก่อน หรือขายแบบปกติ","Remove the promotion or sell normally","请先移除优惠")});return;}
       setDeferredOpen(true);return;
     }
 
     if(isLiveMode()&&giftLoadError){toast.push({tone:"danger",title:"กรุณาตรวจสิทธิ์ของแถมอีกครั้งก่อนรับชำระ"});return;}
     if (!employee || !branchId || checkoutPreparing || busy) return;
+    // มีส่วนลดที่ตั้งไว้แต่ยังไม่ใช้ → ถามยืนยันก่อนรับเงิน (กันลืมให้ส่วนลดลูกค้า)
+    if (!skipPromoCheck) {
+      const unused = cart.lines.filter((l) => !l.campaign && !l.is_gift && linePromos(l).length);
+      if (unused.length) {
+        setConfirmBox({
+          title: L("มีส่วนลดที่ยังไม่ได้ใช้", "Unused preset discounts", "有未使用的折扣"),
+          body: unused.map((l) => { const h = linePromos(l)[0]; return `• ${l.name}: ${h.p.name} · ${L("ลด", "−", "减")} ${formatTHB(h.amt, false)}`; }).join("\n")
+            + "\n\n" + L("แน่ใจไหมว่าจะไม่ใช้ส่วนลดนี้?", "Continue without these discounts?", "确定不使用？"),
+          yes: L("ไม่ใช้ ชำระเงินต่อ", "Skip & pay", "不用，继续"),
+          no: L("กลับไปใช้ส่วนลด", "Go back", "返回使用"),
+          onYes: () => void beginCheckout(true),
+        });
+        return;
+      }
+    }
     const missing = cart.lines.find(l => l.track_serial && l.serials.length !== l.qty);
     if (missing) { setSerialLineId(missing.lineId); toast.push({tone:"warn",title:t.pos.serialRequired,body:missing.name}); return; }
     setCheckoutPreparing(true);
@@ -337,14 +353,20 @@ export default function SellPage() {
         branch_id:branchId, terminal_id:session.terminalId, shift_id:session.shift?.id ?? null,
         salesperson_id:cart.defaultSalespersonId ?? employee.id, customer_id:cart.customerId,
         customer_name:cart.customerName,customer_phone:cart.customerPhone,channel:session.channel,
-        items:cart.lines,subtotal:totals.subtotal,discount_total:round2(totals.discountTotal+totals.redeemAmount+totals.couponAmount),
+        // โปรรายสินค้า: ส่งแค่รหัส — เซิร์ฟเวอร์คิดยอดเอง (discount_amount ที่ส่ง = ส่วนลดที่พนักงานกดเองเท่านั้น)
+        items:cart.lines.map(l=>({...l,discount_amount:l.discount_amount>0?l.discount_amount:0,line_campaign_code:l.campaign?.code??null})),
+        subtotal:totals.subtotal,discount_total:round2(totals.discountTotal+totals.campaignLineTotal+totals.redeemAmount+totals.couponAmount),
         grand_total:totals.grandTotal,manual_discount_total:totals.discountTotal,reserve:reserveMode,redeem_points:cart.redeemPoints,coupon_code:cart.couponCode,
       };
-      if(isLiveMode()&&cart.couponCode){
+      if(isLiveMode()&&(cart.couponCode||cart.lines.some(l=>l.campaign))){
         const fresh=await checkoutRequest("preview",uuidv4(),branchId,{draft});
-        if(Number(fresh.coupon_discount)!==totals.couponAmount){
+        if(cart.couponCode&&Number(fresh.coupon_discount)!==totals.couponAmount){
           cart.setCoupon(cart.couponCode,Number(fresh.coupon_discount),fresh.campaign_id);
           toast.push({tone:"info",title:"ปรับส่วนลดตามรายการล่าสุดแล้ว",body:"กรุณาตรวจยอดใหม่และกดชำระเงินอีกครั้ง"});return;
+        }
+        // โปรรายสินค้า: ยอดที่เครื่องประเมินต้องตรงกับเซิร์ฟเวอร์ (กันรับเงินผิดยอด)
+        if(Number(fresh.grand_total)!==totals.grandTotal){
+          toast.push({tone:"danger",title:L("ยอดโปรไม่ตรงกับเซิร์ฟเวอร์","Promotion total mismatch","优惠金额不一致"),body:L(`เซิร์ฟเวอร์คิดได้ ${formatTHB(Number(fresh.grand_total),false)} — กรุณาถอดโปรแล้วใส่ใหม่ หรือรีเฟรชหน้า`,`Server total ${formatTHB(Number(fresh.grand_total),false)} — re-apply the promotion or refresh`,`服务器金额 ${formatTHB(Number(fresh.grand_total),false)}`)});return;
         }
       }
       // สาขาผูกคลังกลาง: เช็กยอดขายได้จริงใน JST ก่อนรับเงิน (กัน JST ปฏิเสธบิล "สต๊อกไม่พอ" หลังลูกค้าจ่ายแล้ว)
@@ -469,11 +491,16 @@ export default function SellPage() {
   async function applyCoupon(codeOverride?:string) {
     const code = (codeOverride??couponInput).trim();
     if (!code) return;
+    // พิมพ์รหัสของโปรรายสินค้า → ใส่ที่บรรทัดสินค้า (ไม่ใช่คูปองทั้งบิล)
+    const lp = !codeOverride ? promos.find((p) => isLinePromo(p) && p.code === code.toUpperCase()) : undefined;
+    if (lp) { setCouponInput(""); setCouponMsg(null); await applyPromo(lp); return; }
     setCouponChecking(true);
     setCouponMsg(null);
     try {
       const r = isLiveMode() ? await checkoutRequest("preview",uuidv4(),branchId!,{draft:{
-        branch_id:branchId,channel:session.channel,items:cart.lines,customer_id:cart.customerId,
+        branch_id:branchId,channel:session.channel,customer_id:cart.customerId,
+        // ส่งโปรรายสินค้าไปด้วย — คูปองทั้งบิลต้องคิดจากยอดหลังโปรรายสินค้า (เหมือนตอนชำระจริง)
+        items:cart.lines.map(l=>({...l,discount_amount:l.discount_amount>0?l.discount_amount:0,line_campaign_code:l.campaign?.code??null})),
         subtotal:totals.subtotal,manual_discount_total:totals.discountTotal,discount_total:totals.discountTotal,
         grand_total:totals.grandTotal,coupon_code:code,redeem_points:cart.redeemPoints,
       }}).then(result=>({valid:true,campaign_id:result.campaign_id,discount:Number(result.coupon_discount),name:code,reason:""})) : await validateCoupon(code, cart.customerId, totals.subtotal);
@@ -491,59 +518,105 @@ export default function SellPage() {
     }
   }
 
-  // ── แคมเปญ "ฉลาด": เจาะจงสินค้า → คิดลดจากสินค้านั้น · ทั้งบิล → คิดจากยอดรวม ──
-  // ฐานคิดเหมือนเซิร์ฟเวอร์ (pos_promoted_quote): ยอดสินค้าที่ร่วม "หลังส่วนลดรายการ" × สัดส่วนหลังส่วนลดท้ายบิล · ขั้นต่ำเทียบยอดก่อนลด
-  const promoLines = (p: PromoCampaign) => cart.lines.filter((l) => l.kind === "goods" && !l.is_gift && (!p.target_skus.length || p.target_skus.includes(l.sku)));
-  const promoBase = (p: PromoCampaign) => {
-    const net = promoLines(p).reduce((s, l) => s + lineTotal(l), 0);
-    const factor = totals.afterLineDiscount > 0 ? (totals.afterLineDiscount - totals.billDiscountTotal) / totals.afterLineDiscount : 0;
-    return round2(net * factor);
+  // ── โปร 2 แบบ ─────────────────────────────────────────────────────
+  //   • โปรรายสินค้า (ผูก SKU): ลด "ที่บรรทัดสินค้านั้น" · หลายโปรต่อบิลได้ · เซิร์ฟเวอร์คิดยอดจริง (pos_apply_line_campaigns)
+  //   • โปรทั้งบิล (ไม่ผูก SKU): คูปองทั้งบิล 1 ตัวต่อบิล (เดิม)
+  //   ส่วนลดท้ายบิลที่พนักงานกดเอง ใช้ร่วมได้ปกติ · ลดซ้ำชั้นในบรรทัดเดียวกัน = ถามยืนยันก่อน
+  const isLinePromo = (p: PromoCampaign) => p.target_skus.length > 0;
+  const toLineCampaign = (p: PromoCampaign): LineCampaign => ({ id: p.id, code: p.code, name: p.name, type: p.type, value: p.value, max_discount: p.max_discount ?? null });
+  const linePromoAmt = (l: CartLine, p: PromoCampaign) => {
+    if (l.is_gift || l.kind !== "goods" || !p.target_skus.includes(l.sku)) return 0;
+    if (l.unit_price * l.qty < p.min_spend) return 0;
+    return lineCampaignDiscount({ ...l, campaign: toLineCampaign(p) });
   };
-  const promoAmt = (p: PromoCampaign) => {
-    const gross = promoLines(p).reduce((s, l) => s + l.unit_price * l.qty, 0);
-    const base = promoBase(p);
+  // ฐานโปรทั้งบิล = ยอดหลังส่วนลดรายการ/โปรรายสินค้า × สัดส่วนหลังส่วนลดท้ายบิล (เหมือน pos_promoted_quote)
+  const billPromoAmt = (p: PromoCampaign) => {
+    const lines = cart.lines.filter((l) => l.kind === "goods" && !l.is_gift);
+    const gross = lines.reduce((s, l) => s + l.unit_price * l.qty, 0);
+    const net = lines.reduce((s, l) => s + lineTotal(l), 0);
+    const factor = totals.afterLineDiscount > 0 ? (totals.afterLineDiscount - totals.billDiscountTotal) / totals.afterLineDiscount : 0;
+    const base = round2(net * factor);
     if (base <= 0 || gross < p.min_spend) return 0;
     return promoDiscount({ ...p, min_spend: 0 }, base);
   };
-  // เกี่ยวข้องกับตะกร้า: ทั้งบิล (ไม่เจาะจง) หรือมีสินค้าเป้าหมายอยู่ในตะกร้า
-  const promoRelevant = (p: PromoCampaign) => !p.target_skus.length || cart.lines.some((l) => l.kind === "goods" && p.target_skus.includes(l.sku));
+  // ยอดที่โปรนี้จะลดได้กับตะกร้าตอนนี้ (โปรรายสินค้า = รวมบรรทัดที่ยังไม่มีโปร)
+  const promoAmt = (p: PromoCampaign) => isLinePromo(p)
+    ? round2(cart.lines.filter((l) => !l.campaign).reduce((s, l) => s + linePromoAmt(l, p), 0))
+    : billPromoAmt(p);
+  const promoRelevant = (p: PromoCampaign) => promoAmt(p) > 0 || cart.lines.some((l) => l.campaign?.id === p.id) || cart.couponCode === p.code;
 
-  // ใช้แคมเปญส่วนลด (กดการ์ดเลือก)
+  // ใส่โปรรายสินค้าให้บรรทัด — ถามยืนยันถ้าลดซ้ำชั้น (มีส่วนลดกดเอง) หรือโปรเดียวกันใช้กับอีกบรรทัดแล้ว
+  function applyLinePromo(lineId: string, p: PromoCampaign, confirmed = false) {
+    const l = cart.lines.find((x) => x.lineId === lineId);
+    if (!l) return;
+    if (cart.couponCode && cart.couponCode === p.code) { toast.push({ tone: "warn", title: L("โปรนี้ใช้เป็นคูปองทั้งบิลอยู่แล้ว", "Already used as bill coupon", "已作为整单券使用") }); return; }
+    const amt = linePromoAmt(l, p);
+    if (amt <= 0) { toast.push({ tone: "warn", title: L("สินค้า/จำนวนยังไม่เข้าเงื่อนไขโปรนี้", "Item does not meet this promotion", "不符合条件") }); return; }
+    const manual = lineManualDiscount(l);
+    const sameElsewhere = cart.lines.some((x) => x.lineId !== lineId && x.campaign?.id === p.id);
+    if (!confirmed && (manual > 0 || sameElsewhere)) {
+      setConfirmBox({
+        title: L("ยืนยันลดซ้ำ?", "Confirm double discount?", "确认重复折扣？"),
+        body: [
+          manual > 0 ? L(`สินค้านี้มีส่วนลดที่กรอกเองแล้ว ${formatTHB(manual, false)} — จะลดเพิ่มจากโปรอีก ${formatTHB(amt, false)}`, `This item already has a manual discount of ${formatTHB(manual, false)}; the promotion adds ${formatTHB(amt, false)} more`, `已有手动折扣 ${formatTHB(manual, false)}`) : null,
+          sameElsewhere ? L(`โปร "${p.name}" ใช้กับอีกบรรทัดในบิลนี้แล้ว`, `"${p.name}" is already used on another line`, `该优惠已用于其他行`) : null,
+        ].filter(Boolean).join("\n"),
+        yes: L("ยืนยัน ลดซ้ำ", "Yes, apply", "确认"),
+        onYes: () => applyLinePromo(lineId, p, true),
+      });
+      return;
+    }
+    cart.setLineCampaign(lineId, toLineCampaign(p));
+    toast.push({ tone: "ok", title: L(`ใช้โปร: ${p.name}`, `Applied: ${p.name}`, p.name), body: `${l.name} · ${L("ลด", "−", "减")} ${formatTHB(amt, false)}` });
+  }
+
+  // ใช้แคมเปญจากการ์ด/รหัส
   async function applyPromo(p: PromoCampaign) {
+    if (isLinePromo(p)) {
+      // ใส่ให้ทุกบรรทัดที่เข้าเงื่อนไขและยังไม่มีโปร (บรรทัดที่มีส่วนลดกดเองต้องยืนยันทีละบรรทัด)
+      const targets = cart.lines.filter((l) => !l.campaign && linePromoAmt(l, p) > 0);
+      if (!targets.length) { toast.push({ tone: "warn", title: L("ยังไม่มีสินค้าของโปรนี้ในตะกร้า (หรือใช้โปรอื่นอยู่)", "No qualifying item in cart", "篮内无符合商品") }); return; }
+      setPromoOpen(false);
+      for (const l of targets) applyLinePromo(l.lineId, p);
+      return;
+    }
     if(isLiveMode()){await applyCoupon(p.code);setPromoOpen(false);return;}
     const amt = promoAmt(p);
-    if (amt <= 0) { toast.push({ tone: "warn", title: p.target_skus.length ? L("ยังไม่มีสินค้าของแคมเปญนี้ในตะกร้า", "Add a qualifying item first", "篮内无符合商品") : L(`ยอดไม่ถึงขั้นต่ำ ${formatTHB(p.min_spend, false)}`, `Min ${formatTHB(p.min_spend, false)}`, `未达`) }); return; }
+    if (amt <= 0) { toast.push({ tone: "warn", title: L(`ยอดไม่ถึงขั้นต่ำ ${formatTHB(p.min_spend, false)}`, `Min ${formatTHB(p.min_spend, false)}`, `未达`) }); return; }
     cart.setCoupon(p.code, amt, p.id);
     setPromoOpen(false);
     toast.push({ tone: "ok", title: L(`ใช้แคมเปญ: ${p.name}`, `Applied: ${p.name}`, p.name), body: `${L("ลด", "−", "减")} ${formatTHB(amt, false)}` });
   }
 
-  // ── แนะนำโปรให้พนักงาน (ไม่ต้องจำรหัส) ──────────────────────────
-  //   1 บิลใช้ได้ 1 แคมเปญ (กติกาเซิร์ฟเวอร์) → แนะนำตัวที่ลดได้มากสุด · ส่วนลดรายการที่พนักงานกดเองใช้ร่วมได้
-  const promoScored = promos.map((p) => ({ p, amt: promoAmt(p) })).filter((x) => x.amt > 0)
-    .sort((a, b) => b.amt - a.amt || b.p.target_skus.length - a.p.target_skus.length);
-  const bestPromo = promoScored[0] ?? null;
+  // ── แนะนำโปรทั้งบิลที่คุ้มสุด / ใกล้ถึงขั้นต่ำ ──
+  const billScored = promos.filter((p) => !isLinePromo(p)).map((p) => ({ p, amt: billPromoAmt(p) })).filter((x) => x.amt > 0).sort((a, b) => b.amt - a.amt);
+  const bestPromo = billScored[0] ?? null;
   const activePromo = cart.couponCode ? promos.find((p) => p.code === cart.couponCode) ?? null : null;
-  // ใกล้ถึงขั้นต่ำ (ขาดไม่เกิน 30%) → บอกยอดที่ต้องซื้อเพิ่ม
-  const nearPromo = !bestPromo && cart.lines.length ? promos
-    .map((p) => ({ p, gross: promoLines(p).reduce((s, l) => s + l.unit_price * l.qty, 0) }))
+  const nearPromo = !bestPromo && cart.lines.length ? promos.filter((p) => !isLinePromo(p))
+    .map((p) => ({ p, gross: cart.lines.filter((l) => !l.is_gift).reduce((s, l) => s + l.unit_price * l.qty, 0) }))
     .filter((x) => x.p.min_spend > 0 && x.gross > 0 && x.gross < x.p.min_spend && x.p.min_spend - x.gross <= x.p.min_spend * 0.3)
     .sort((a, b) => (a.p.min_spend - a.gross) - (b.p.min_spend - b.gross))[0] ?? null : null;
-  const linePromos = (sku: string) => promoScored.filter((x) => x.p.target_skus.includes(sku));
-  // เพิ่มสินค้าที่มีโปรเฉพาะสินค้า → เด้งบอกครั้งเดียวต่อโปร (ตะกร้าว่าง = เริ่มนับใหม่)
-  const promoSeen = useRef<Set<string>>(new Set());
-  const promoKey = promoScored.filter((x) => x.p.target_skus.length).map((x) => x.p.id).join(",");
+  // โปรรายสินค้าที่ใช้กับบรรทัดนี้ได้ (คุ้มสุดก่อน)
+  const linePromos = (l: CartLine) => promos.filter(isLinePromo).map((p) => ({ p, amt: linePromoAmt(l, p) })).filter((x) => x.amt > 0).sort((a, b) => b.amt - a.amt);
+
+  // ใส่สินค้าที่มีโปรผูกไว้ → สินค้าเข้าตะกร้าก่อน แล้วแจ้งเตือนเบา ๆ (ไม่บล็อก) ว่ามีส่วนลดที่ตั้งไว้ — เลือกใช้ได้ในปุ่ม % ของบรรทัด
+  const [confirmBox, setConfirmBox] = useState<{ title: string; body: string; yes: string; no?: string; onYes: () => void } | null>(null);
+  const promoAsked = useRef<Set<string>>(new Set());
+  const askKey = cart.lines.map((l) => `${l.lineId}:${l.sku}:${l.qty}:${l.campaign?.id ?? ""}`).join("|") + `#${promos.length}`;
   useEffect(() => {
-    if (!cart.lines.length) { promoSeen.current.clear(); return; }
-    if (cart.couponCode) return;
-    for (const x of promoScored) {
-      if (!x.p.target_skus.length || promoSeen.current.has(x.p.id)) continue;
-      promoSeen.current.add(x.p.id);
-      toast.push({ tone: "info", title: L(`สินค้านี้มีโปร: ${x.p.name}`, `Promotion available: ${x.p.name}`, `有优惠: ${x.p.name}`),
-        body: L(`ลดได้ ${formatTHB(x.amt, false)} — กด "ใช้โปร" ที่บรรทัดสินค้า`, `Save ${formatTHB(x.amt, false)} — tap "Use" on the item`, `可减 ${formatTHB(x.amt, false)}`) });
+    if (!cart.lines.length) { promoAsked.current.clear(); return; }
+    for (const l of cart.lines) {
+      if (l.campaign || l.is_gift) continue;
+      const hits = linePromos(l);
+      if (!hits.length) continue;
+      const k = `${l.lineId}:${hits.map((h) => h.p.id).join(",")}`;
+      if (promoAsked.current.has(k)) continue;
+      promoAsked.current.add(k);
+      toast.push({ tone: "info", title: L(`${l.name} มีส่วนลดที่ตั้งไว้`, `${l.name} has a preset discount`, `${l.name} 有预设折扣`),
+        body: L(`${hits[0].p.name} · ลดได้ ${formatTHB(hits[0].amt, false)} — กดปุ่ม % ที่สินค้าเพื่อเลือกใช้`, `${hits[0].p.name} · save ${formatTHB(hits[0].amt, false)} — tap % on the item`, `点商品的 % 使用`) });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [promoKey, cart.lines.length, cart.couponCode]);
+  }, [askKey]);
 
   // ------------------------------------------------------------------
   // จบการขาย — ลำดับสำคัญ: บันทึกบิล → ตัดสต๊อก → ค่อยพิมพ์
@@ -584,8 +657,8 @@ export default function SellPage() {
         items: cart.lines,
         payments,
         subtotal: totals.subtotal,
-        // ส่วนลดที่บันทึก = ส่วนลดพนักงาน + คูปอง + มูลค่าแต้มที่ใช้ (เพื่อให้ยอดตรงกัน)
-        discount_total: round2(totals.discountTotal + totals.redeemAmount + totals.couponAmount),
+        // ส่วนลดที่บันทึก = ส่วนลดพนักงาน + โปรรายสินค้า + คูปอง + มูลค่าแต้มที่ใช้ (เพื่อให้ยอดตรงกัน)
+        discount_total: round2(totals.discountTotal + totals.campaignLineTotal + totals.redeemAmount + totals.couponAmount),
         discount_percent: 0,
         vat_amount: totals.vatAmount,
         grand_total: totals.grandTotal,
@@ -605,6 +678,7 @@ export default function SellPage() {
         promo_snapshot: {
           applied_at: new Date().toISOString(),
           coupon: cart.couponCode ? { code: cart.couponCode, discount: totals.couponAmount, campaign_id: cart.couponCampaignId } : null,
+          line_campaigns: cart.lines.flatMap((l, i) => l.campaign && !l.is_gift ? [{ campaign_id: l.campaign.id, code: l.campaign.code, name: l.campaign.name, sku: l.sku, line: i, discount: lineCampaignDiscount(l) }] : []),
           redeem_points: cart.redeemPoints || 0,
           redeem_value: totals.redeemAmount || 0,
           gifts: cart.lines
@@ -1004,11 +1078,13 @@ export default function SellPage() {
                       {!l.is_gift && (
                         <button
                           onClick={() => setLineDiscountId(l.lineId)}
-                          className={`h-8 px-2 rounded-lg border text-[11px] font-medium ${
-                            l.discount_percent || l.discount_amount ? "border-danger/40 text-danger bg-danger/8" : "border-line text-muted"
+                          className={`relative h-8 px-2 rounded-lg border text-[11px] font-medium ${
+                            l.discount_percent || l.discount_amount || l.campaign ? "border-danger/40 text-danger bg-danger/8" : linePromos(l).length ? "border-brand/50 text-brand bg-brand/5" : "border-line text-muted"
                           }`}
-                          disabled={discLimit <= 0 && !needsApproval(employee, "pos.discount")}
+                          disabled={discLimit <= 0 && !needsApproval(employee, "pos.discount") && !linePromos(l).length && !l.campaign}
+                          title={linePromos(l).length && !l.campaign ? L("มีส่วนลดที่ตั้งไว้", "Preset discount available", "有预设折扣") : undefined}
                         >
+                          {linePromos(l).length && !l.campaign ? <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-brand ring-2 ring-surface" /> : null}
                           <Percent size={12} className="inline -mt-0.5" />{" "}
                           {l.discount_percent ? `${l.discount_percent}%` : l.discount_amount ? formatTHB(l.discount_amount, false) : ""}
                         </button>
@@ -1031,18 +1107,21 @@ export default function SellPage() {
                     {l.serials.length ? (
                       <p className="text-[10px] font-mono text-muted mt-1.5 truncate">SN: {l.serials.join(", ")}</p>
                     ) : null}
-                    {/* โปรเฉพาะสินค้านี้ — บอกพนักงานตรงบรรทัด ไม่ต้องจำรหัส */}
+                    {/* โปรรายสินค้า — ใช้แล้ว (ถอดได้) / มีโปรให้ใช้ (กดใช้ได้เลย) */}
                     {!l.is_gift ? (() => {
-                      const used = activePromo && activePromo.target_skus.includes(l.sku) ? activePromo : null;
-                      if (used) return <p className="mt-1.5 inline-flex items-center gap-1 text-[10.5px] font-medium text-ok"><CheckCircle2 size={12} />{L("ใช้โปรแล้ว", "Promotion applied", "已用优惠")}: {used.name}</p>;
-                      const hit = linePromos(l.sku)[0];
-                      if (!hit) return null;
+                      if (l.campaign) return (
+                        <div className="mt-1.5 flex items-center gap-1.5 rounded-lg bg-ok/8 border border-ok/25 px-2 py-1 text-[10.5px] text-ok">
+                          <CheckCircle2 size={12} className="shrink-0" />
+                          <span className="truncate flex-1 font-medium">{L("โปร", "Promo", "优惠")}: {l.campaign.name} · −{formatTHB(lineCampaignDiscount(l), false)}</span>
+                          {lineManualDiscount(l) > 0 ? <span className="shrink-0 text-warn font-semibold">{L("ลด 2 ชั้น", "2 discounts", "双重折扣")}</span> : null}
+                          <button onClick={() => cart.setLineCampaign(l.lineId, null)} className="shrink-0 underline underline-offset-2 text-muted hover:text-danger">{L("เอาออก", "Remove", "移除")}</button>
+                        </div>
+                      );
+                      const n = linePromos(l).length;
+                      if (!n) return null;
                       return (
-                        <button onClick={() => void applyPromo(hit.p)} disabled={couponChecking}
-                          className="mt-1.5 w-full flex items-center gap-1.5 rounded-lg border border-dashed border-brand/40 bg-brand/5 px-2 py-1 text-left text-[10.5px] text-brand hover:bg-brand/10 disabled:opacity-50">
-                          <Tag size={11} className="shrink-0" />
-                          <span className="truncate flex-1">{L("มีโปร", "Promo", "优惠")}: {hit.p.name} · {L("ลด", "−", "减")} {formatTHB(hit.amt, false)}</span>
-                          <span className="font-semibold shrink-0">{cart.couponCode ? L("เปลี่ยนมาใช้", "Switch", "切换") : L("ใช้โปร", "Use", "使用")}</span>
+                        <button onClick={() => setLineDiscountId(l.lineId)} className="mt-1.5 inline-flex items-center gap-1 text-[10.5px] text-brand hover:underline">
+                          <Tag size={11} />{L(`มีส่วนลดที่ตั้งไว้ ${n} รายการ — กด % เพื่อใช้`, `${n} preset discount(s) — tap %`, `${n} 个预设折扣`)}
                         </button>
                       );
                     })() : null}
@@ -1065,6 +1144,12 @@ export default function SellPage() {
             <div className="flex justify-between text-xs">
               <span className="text-muted flex items-center gap-1"><Percent size={11} /> {t.pos.lineDiscount}</span>
               <span className="tnum text-danger">-{formatTHB(totals.lineDiscountTotal)}</span>
+            </div>
+          )}
+          {totals.campaignLineTotal > 0 && (
+            <div className="flex justify-between text-xs">
+              <span className="text-muted flex items-center gap-1"><Tag size={11} /> {L("โปรรายสินค้า", "Item promotions", "商品优惠")}</span>
+              <span className="tnum text-danger">-{formatTHB(totals.campaignLineTotal)}</span>
             </div>
           )}
           <button
@@ -1163,7 +1248,54 @@ export default function SellPage() {
         limitPercent={discLimit}
         initialPercent={activeLine?.discount_percent ?? 0}
         initialAmount={activeLine?.discount_amount ?? 0}
-        onApply={(pct, amt, needs) => applyDiscount(lineDiscountId, pct, amt, needs)}
+        presets={activeLine && lineDiscountId && (activeLine.campaign || linePromos(activeLine).length) ? {
+          count: Math.max(linePromos(activeLine).length, activeLine.campaign ? 1 : 0),
+          content: (
+            <>
+              <p className="text-[11px] text-muted">{L("ส่วนลดที่ตั้งไว้ในหลังบ้านสำหรับสินค้านี้ — ระบบคิดยอดให้เอง", "Discounts set up in back office for this item", "后台为此商品设置的折扣")}</p>
+              {activeLine.campaign ? (
+                <div className="flex items-center gap-2 rounded-xl border border-ok/30 bg-ok/8 px-3 py-2.5">
+                  <CheckCircle2 size={16} className="text-ok shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold truncate">{activeLine.campaign.name}</p>
+                    <p className="text-[11px] text-muted">{L("ใช้อยู่", "In use", "使用中")} · −{formatTHB(lineCampaignDiscount(activeLine), false)}</p>
+                  </div>
+                  <Button size="sm" variant="soft" onClick={() => { cart.setLineCampaign(activeLine.lineId, null); }}>{L("เอาออก", "Remove", "移除")}</Button>
+                </div>
+              ) : null}
+              {linePromos(activeLine).filter((x) => x.p.id !== activeLine.campaign?.id).map((x) => (
+                <div key={x.p.id} className="flex items-center gap-2 rounded-xl border border-line px-3 py-2.5">
+                  <Tag size={16} className="text-brand shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold truncate">{x.p.name}</p>
+                    <p className="text-[11px] text-muted">
+                      {x.p.type === "percent" ? `${L("ลด", "−", "减")} ${x.p.value}%` : `${L("ลด", "−", "减")} ${formatTHB(x.p.value, false)}/${L("ชิ้น", "pc", "件")}`}
+                      {x.p.max_discount != null ? ` · ${L("สูงสุด", "max", "最高")} ${formatTHB(x.p.max_discount, false)}` : ""}
+                      {x.p.uses_left != null ? ` · ${L("เหลือ", "left", "剩")} ${x.p.uses_left} ${L("สิทธิ์", "", "次")}` : ""}
+                    </p>
+                  </div>
+                  <Button size="sm" variant="primary" onClick={() => { const id = activeLine.lineId; setLineDiscountId(null); applyLinePromo(id, x.p); }}>
+                    {activeLine.campaign ? L("เปลี่ยนมาใช้", "Switch", "切换") : L("ใช้", "Apply", "使用")} −{formatTHB(x.amt, false)}
+                  </Button>
+                </div>
+              ))}
+            </>
+          ),
+        } : null}
+        onApply={(pct, amt, needs) => {
+          const id = lineDiscountId, l = cart.lines.find((x) => x.lineId === id);
+          if (l?.campaign && (pct > 0 || amt > 0)) {
+            setLineDiscountId(null);
+            setConfirmBox({
+              title: L("ยืนยันลดซ้ำ?", "Confirm double discount?", "确认重复折扣？"),
+              body: L(`สินค้านี้ใช้โปร "${l.campaign.name}" อยู่แล้ว — จะลดเพิ่มจากที่กรอกเองอีกชั้น`, `This item already has promotion "${l.campaign.name}"; your discount stacks on top`, `该商品已有优惠`),
+              yes: L("ยืนยัน ลดซ้ำ", "Yes, apply", "确认"),
+              onYes: () => applyDiscount(id, pct, amt, needs),
+            });
+            return;
+          }
+          applyDiscount(id, pct, amt, needs);
+        }}
       />
 
       <DiscountModal
@@ -1290,20 +1422,29 @@ export default function SellPage() {
         ) : <EmptyState title={L("ไม่มีออเดอร์จอง", "No reserved orders", "无预留单")} />}
       </Modal>
 
+      {/* ยืนยันลดซ้ำ (โปร + ส่วนลดกดเอง ในบรรทัดเดียวกัน / โปรเดียวกันหลายบรรทัด) */}
+      <Modal open={Boolean(confirmBox)} onClose={() => setConfirmBox(null)} title={confirmBox?.title ?? ""} size="sm"
+        footer={confirmBox ? <>
+          <Button variant="soft" onClick={() => setConfirmBox(null)}>{confirmBox.no ?? L("ยกเลิก", "Cancel", "取消")}</Button>
+          <Button variant="primary" onClick={() => { const f = confirmBox.onYes; setConfirmBox(null); f(); }}>{confirmBox.yes}</Button>
+        </> : null}>
+        <p className="text-sm whitespace-pre-line flex gap-2"><AlertTriangle size={16} className="text-warn shrink-0 mt-0.5" />{confirmBox?.body}</p>
+      </Modal>
+
       {/* เลือกแคมเปญส่วนลด (การ์ด) */}
       <Modal open={promoOpen} onClose={() => setPromoOpen(false)} title={L("เลือกแคมเปญส่วนลด", "Choose promotion", "选择优惠")} size="md">
         {/* สลับ: เฉพาะที่เข้ากับตะกร้า ↔ ภาพรวมทั้งหมด */}
-        <div className="flex items-center justify-between gap-2 mb-2.5">
-          <p className="text-[11px] text-muted">{promoShowAll ? L("ทุกแคมเปญ", "All promotions", "全部") : L("ตรงกับสินค้าในตะกร้า", "Matches your cart", "匹配购物车")}</p>
-          <button onClick={() => setPromoShowAll((v) => !v)} className="text-[11px] font-semibold text-brand hover:underline">
-            {promoShowAll ? L("← เฉพาะในตะกร้า", "← Cart only", "← 仅购物车") : L("ดูภาพรวมทั้งหมด →", "See all →", "全部 →")}
-          </button>
+        <div className="flex rounded-xl bg-surface2/70 p-0.5 mb-2.5">
+          {([[false, L(`ใช้ได้กับบิลนี้ (${promos.filter(promoRelevant).length})`, `Usable now (${promos.filter(promoRelevant).length})`, `可用 (${promos.filter(promoRelevant).length})`)], [true, L(`โค้ดทั้งหมด (${promos.length}) · ดูอย่างเดียว`, `All codes (${promos.length}) · view only`, `全部 (${promos.length}) · 仅查看`)]] as const).map(([v, label]) => (
+            <button key={String(v)} onClick={() => setPromoShowAll(v)} className={`flex-1 h-8 rounded-lg text-[11px] ${promoShowAll === v ? "bg-surface text-ink shadow-sm font-semibold" : "text-muted"}`}>{label}</button>
+          ))}
         </div>
         <div className="space-y-2.5">
           {(promoShowAll ? promos : promos.filter(promoRelevant)).map((p) => {
             const amt = promoAmt(p);
             const inCart = promoRelevant(p);
-            const ok = amt > 0;
+            // แท็บ "โค้ดทั้งหมด" = ดูเงื่อนไขอย่างเดียว · ใช้ได้เฉพาะแท็บแรก
+            const ok = amt > 0 && !promoShowAll;
             const isPct = p.type === "percent";
             return (
               <button key={p.id} onClick={() => applyPromo(p)} disabled={!ok}
@@ -1330,17 +1471,17 @@ export default function SellPage() {
                       <p className="font-bold text-[15px] leading-tight truncate">{p.name}</p>
                       {p.desc ? <p className="text-[11px] text-muted leading-snug truncate">{p.desc}</p> : null}
                       <p className="text-[10px] text-muted leading-snug truncate">
-                        {p.target_skus.length ? `${L("เฉพาะ", "Only", "仅限")} ${p.target_skus.join(", ")}` : L("ทั้งบิล", "Whole bill", "整单")}
+                        {p.target_skus.length ? `${L("ลดที่สินค้า", "Item discount", "商品折扣")}: ${p.target_skus.join(", ")}` : L("ลดทั้งบิล", "Whole-bill discount", "整单折扣")}
                         {p.max_discount != null ? ` · ${L("สูงสุด", "max", "最高")} ${formatTHB(p.max_discount, false)}` : ""}
                         {p.uses_left != null ? ` · ${L("เหลือ", "left", "剩")} ${p.uses_left} ${L("สิทธิ์", "", "次")}` : ""}
                         {p.segment ? ` · ${L("เฉพาะกลุ่ม", "segment", "客群")} ${p.segment}` : ""}
                       </p>
                     </div>
-                    <span className="shrink-0 text-lg font-extrabold tnum">{p.type === "percent" ? `−${p.value}%` : `−${formatTHB(p.value, false)}`}</span>
+                    <span className="shrink-0 text-lg font-extrabold tnum">{p.type === "percent" ? `−${p.value}%` : `−${formatTHB(p.value, false)}`}{isLinePromo(p) && p.type === "amount" ? <span className="text-[10px] font-semibold text-muted">/{L("ชิ้น", "pc", "件")}</span> : null}</span>
                   </div>
                   <div className="flex items-center justify-between gap-2 mt-2">
                     <span className="text-[10.5px] text-muted">{p.min_spend > 0 ? L(`ขั้นต่ำ ${formatTHB(p.min_spend, false)}`, `Min ${formatTHB(p.min_spend, false)}`, `满${formatTHB(p.min_spend, false)}`) : L("ไม่มีขั้นต่ำ", "No minimum", "无门槛")}</span>
-                    <span className={`shrink-0 text-[11px] font-bold px-2.5 py-0.5 rounded-full ${ok ? "bg-ink text-white" : "bg-surface2 text-muted border border-line"}`}>{ok ? `${L("ลด", "−", "减")} ${formatTHB(amt, false)}` : (!inCart && p.target_skus.length ? L("ไม่มีในตะกร้า", "Not in cart", "篮内无") : L("ยอดไม่ถึง", "Below min", "未达"))}</span>
+                    <span className={`shrink-0 text-[11px] font-bold px-2.5 py-0.5 rounded-full ${ok ? "bg-ink text-white" : "bg-surface2 text-muted border border-line"}`}>{ok ? `${L("ลด", "−", "减")} ${formatTHB(amt, false)}` : cart.lines.some((l) => l.campaign?.id === p.id) || cart.couponCode === p.code ? L("ใช้อยู่แล้ว", "In use", "已使用") : promoShowAll ? L("ดูอย่างเดียว", "View only", "仅查看") : (!inCart && p.target_skus.length ? L("ไม่มีในตะกร้า", "Not in cart", "篮内无") : L("ยอดไม่ถึง", "Below min", "未达"))}</span>
                   </div>
                 </div>
               </button>

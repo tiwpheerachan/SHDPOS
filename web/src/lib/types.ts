@@ -191,6 +191,18 @@ export interface CartLine {
   gift_source?: "campaign" | "bundle" | "manual";
   gift_campaign_id?: string | null;
   gift_of_sku?: string | null;
+  /** โปรรายสินค้า (แคมเปญผูกสินค้า) — ยอดจริงเซิร์ฟเวอร์คิด (pos_apply_line_campaigns) ค่านี้ใช้แสดง/ประเมิน */
+  campaign?: LineCampaign | null;
+}
+
+export interface LineCampaign {
+  id: string;
+  code: string;
+  name: string;
+  type: "percent" | "amount";
+  /** % หรือ บาทต่อชิ้น */
+  value: number;
+  max_discount?: number | null;
 }
 
 // ── ทะเบียนรับชำระ EDC (Phase 1: registry + manual) ───────────────

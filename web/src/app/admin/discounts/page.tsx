@@ -12,8 +12,8 @@ type Row = {
   order_no: string; branch_id: string; status: string; sale_at: string; grand_total: number; breakdown: DiscountBreakdown; cashier: string | null; approved_by: string | null;
   jst: { state: string; ow_status: string | null; sale_no: string | null; jst_order_no: string | null; sent_line_discount: number | null; sent_bill_discount: number | null; remark: string | null; consistent: boolean | null } | null;
 };
-type Data = { from: string; to: string; rows: Row[]; summary: { bills: number; total: number; line: number; bill_manual: number; coupon: number; points: number; gifts: number } };
-const SOURCES = [["all", "ทุกที่มา"], ["line", "ส่วนลดรายการ"], ["bill", "ส่วนลดท้ายบิล"], ["coupon", "คูปอง/แคมเปญ"], ["points", "ใช้แต้ม"], ["gift", "ของแถม"]] as const;
+type Data = { from: string; to: string; rows: Row[]; summary: { bills: number; total: number; line: number; line_campaign?: number; bill_manual: number; coupon: number; points: number; gifts: number } };
+const SOURCES = [["all", "ทุกที่มา"], ["line", "ส่วนลดรายการ"], ["bill", "ส่วนลดท้ายบิล"], ["promo", "โปรรายสินค้า"], ["coupon", "คูปอง/แคมเปญ"], ["points", "ใช้แต้ม"], ["gift", "ของแถม"]] as const;
 const fmt = (iso: string) => new Date(iso).toLocaleString("th-TH", { timeZone: "Asia/Bangkok", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
 
 export default function DiscountHistoryPage() {
@@ -32,10 +32,11 @@ export default function DiscountHistoryPage() {
   }, [days]);
   const rows = useMemo(() => (data?.rows ?? []).filter((r) => {
     const b = r.breakdown;
-    if (q && !r.order_no.toLowerCase().includes(q.toLowerCase()) && !(b.coupon?.code ?? "").toLowerCase().includes(q.toLowerCase())) return false;
+    if (q && !r.order_no.toLowerCase().includes(q.toLowerCase()) && !(b.coupon?.code ?? "").toLowerCase().includes(q.toLowerCase()) && !(b.lineCampaigns ?? []).some((x) => x.code.toLowerCase().includes(q.toLowerCase()))) return false;
     if (src === "line") return b.lineTotal > 0;
     if (src === "bill") return b.billManual > 0;
-    if (src === "coupon") return !!b.coupon;
+    if (src === "promo") return (b.lineCampaignTotal ?? 0) > 0;
+    if (src === "coupon") return !!b.coupon || (b.lineCampaignTotal ?? 0) > 0;
     if (src === "points") return !!b.points;
     if (src === "gift") return b.gifts.length > 0;
     return true;
@@ -57,7 +58,7 @@ export default function DiscountHistoryPage() {
       {error ? <p role="alert" className="rounded-xl px-4 py-2 text-xs text-danger bg-danger/5">{error}</p> : null}
 
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-        {([["บิลที่มีส่วนลด", s ? String(s.bills) : "—"], ["ส่วนลดรวม", s ? formatTHB(s.total) : "—"], ["ส่วนลดรายการ", s ? formatTHB(s.line) : "—"], ["ส่วนลดท้ายบิล", s ? formatTHB(s.bill_manual) : "—"], ["คูปอง + แต้ม", s ? formatTHB(s.coupon + s.points) : "—"], ["ของแถม (รายการ)", s ? String(s.gifts) : "—"]] as const).map(([l, v]) => (
+        {([["บิลที่มีส่วนลด", s ? String(s.bills) : "—"], ["ส่วนลดรวม", s ? formatTHB(s.total) : "—"], ["ส่วนลดรายการ", s ? formatTHB(s.line) : "—"], ["ส่วนลดท้ายบิล", s ? formatTHB(s.bill_manual) : "—"], ["โปร/คูปอง + แต้ม", s ? formatTHB(s.coupon + (s.line_campaign ?? 0) + s.points) : "—"], ["ของแถม (รายการ)", s ? String(s.gifts) : "—"]] as const).map(([l, v]) => (
           <div key={l} className="rounded-2xl border border-line/70 bg-surface p-4"><p className="text-[11px] text-muted">{l}</p><p className="text-lg font-semibold tnum mt-1">{v}</p></div>
         ))}
       </div>
@@ -76,7 +77,7 @@ export default function DiscountHistoryPage() {
         <div className="max-h-[calc(100vh-360px)] min-h-[260px] overflow-auto">
           <table className="w-full text-xs">
             <thead className="bg-surface2 text-muted sticky top-0 z-10"><tr>
-              {["", "บิล", "เวลา", "ส่วนลดรายการ", "ส่วนลดท้ายบิล", "คูปอง/แต้ม", "ของแถม", "รวมส่วนลด", "ยอดสุทธิ", "ผู้ให้ส่วนลด", "JST"].map((h, i) => <th key={i} className="text-left font-medium px-3 py-2 whitespace-nowrap">{h}</th>)}
+              {["", "บิล", "เวลา", "ส่วนลดรายการ", "ส่วนลดท้ายบิล", "โปร/คูปอง/แต้ม", "ของแถม", "รวมส่วนลด", "ยอดสุทธิ", "ผู้ให้ส่วนลด", "JST"].map((h, i) => <th key={i} className="text-left font-medium px-3 py-2 whitespace-nowrap">{h}</th>)}
             </tr></thead>
             <tbody className="divide-y divide-line/60">
               {rows.map((r) => {
@@ -89,7 +90,7 @@ export default function DiscountHistoryPage() {
                       <td className="px-3 py-2 whitespace-nowrap text-muted">{fmt(r.sale_at)}</td>
                       <td className="px-3 py-2 tnum">{b.lineTotal ? formatTHB(b.lineTotal) : "—"}</td>
                       <td className="px-3 py-2 tnum">{b.billManual ? formatTHB(b.billManual) : "—"}</td>
-                      <td className="px-3 py-2">{b.coupon ? <span className="whitespace-nowrap">{b.coupon.code} · {formatTHB(b.coupon.amount)}</span> : null}{b.points ? <span className="block whitespace-nowrap">{b.points.points} แต้ม · {formatTHB(b.points.value)}</span> : null}{!b.coupon && !b.points ? "—" : null}</td>
+                      <td className="px-3 py-2">{(b.lineCampaigns ?? []).map((x, i) => <span key={i} className="block whitespace-nowrap">{x.code} ({x.sku}) · {formatTHB(x.amount)}</span>)}{b.coupon ? <span className="whitespace-nowrap">{b.coupon.code} · {formatTHB(b.coupon.amount)}</span> : null}{b.points ? <span className="block whitespace-nowrap">{b.points.points} แต้ม · {formatTHB(b.points.value)}</span> : null}{!b.coupon && !b.points && !(b.lineCampaigns ?? []).length ? "—" : null}</td>
                       <td className="px-3 py-2">{b.gifts.length ? b.gifts.map((g) => `${g.sku}×${g.qty}`).join(", ") : "—"}</td>
                       <td className="px-3 py-2 tnum font-medium text-danger">{formatTHB(b.total)}</td>
                       <td className="px-3 py-2 tnum">{formatTHB(r.grand_total)}</td>
@@ -103,6 +104,7 @@ export default function DiscountHistoryPage() {
                             <p className="font-medium text-xs mb-1">ที่มาของส่วนลด (ระบบเรา)</p>
                             <p>ยอดก่อนลด: <span className="tnum">{formatTHB(b.gross)}</span></p>
                             {b.lines.map((l, i) => <p key={i}>ส่วนลดรายการ {l.sku}: <span className="tnum text-danger">-{formatTHB(l.amount)}</span> <span className="text-muted">(พนักงาน)</span></p>)}
+                            {(b.lineCampaigns ?? []).map((x, i) => <p key={`lc${i}`}>โปรรายสินค้า {x.code}{x.campaign ? ` · ${x.campaign}` : ""} ({x.sku}): <span className="tnum text-danger">-{formatTHB(x.amount)}</span> <span className="text-muted">(แคมเปญ)</span></p>)}
                             {b.billManual ? <p>ส่วนลดท้ายบิล: <span className="tnum text-danger">-{formatTHB(b.billManual)}</span> <span className="text-muted">(พนักงาน)</span></p> : null}
                             {b.coupon ? <p>คูปอง {b.coupon.code}{b.coupon.campaign ? ` · แคมเปญ ${b.coupon.campaign}` : ""}: <span className="tnum text-danger">-{formatTHB(b.coupon.amount)}</span></p> : null}
                             {b.points ? <p>ใช้แต้ม {b.points.points}: <span className="tnum text-danger">-{formatTHB(b.points.value)}</span></p> : null}

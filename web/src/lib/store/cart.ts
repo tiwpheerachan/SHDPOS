@@ -2,7 +2,7 @@
 
 import { create } from "zustand";
 import { nanoid } from "nanoid";
-import type { CartLine, Product } from "../types";
+import type { CartLine, LineCampaign, Product } from "../types";
 import { computeTotals, round2, type CartTotals } from "../money";
 import { pointsToBaht } from "../loyalty";
 
@@ -48,6 +48,8 @@ interface CartState {
   setQty: (lineId: string, qty: number) => void;
   removeLine: (lineId: string) => void;
   setLineDiscount: (lineId: string, percent: number, amount: number) => void;
+  /** ใส่/ถอดโปรรายสินค้าของบรรทัด (null = ถอด) */
+  setLineCampaign: (lineId: string, campaign: LineCampaign | null) => void;
   setLinePrice: (lineId: string, price: number) => void;
   setLineSerials: (lineId: string, serials: string[]) => void;
   setLineSalesperson: (lineId: string, employeeId: string | null) => void;
@@ -164,6 +166,9 @@ export const useCart = create<CartState>((set, get) => ({
         l.lineId === lineId ? { ...l, discount_percent: percent, discount_amount: amount } : l
       ),
     })),
+
+  setLineCampaign: (lineId, campaign) =>
+    set((s) => ({ lines: s.lines.map((l) => (l.lineId === lineId ? { ...l, campaign } : l)) })),
 
   setLinePrice: (lineId, price) =>
     set((s) => ({

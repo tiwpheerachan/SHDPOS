@@ -16,6 +16,9 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 const quoteErrors:Record<string,string>={
+ line_campaign_not_found:"ไม่พบโปรรายสินค้านี้ — อาจถูกปิดหรือเปลี่ยนรหัส",line_campaign_not_applicable:"โปรรายสินค้าไม่อยู่ในช่วงเวลา สาขา หรือช่องทางนี้",
+ line_campaign_product_mismatch:"โปรนี้ใช้กับสินค้าในบรรทัดนี้ไม่ได้",line_campaign_minimum_not_met:"จำนวน/ยอดของสินค้ายังไม่ถึงเงื่อนไขโปร",
+ campaign_used_twice:"โปรเดียวกันใช้เป็นทั้งโปรรายสินค้าและคูปองทั้งบิลไม่ได้",
  campaign_usage_limit:"คูปองหรือแคมเปญถูกใช้ครบแล้ว กรุณาตรวจสิทธิ์อีกครั้ง",
  campaign_customer_limit:"ลูกค้าใช้สิทธิ์แคมเปญนี้ครบแล้ว",campaign_customer_required:"กรุณาเลือกลูกค้าสมาชิกก่อนใช้สิทธิ์",
  coupon_not_found:"ไม่พบคูปองที่ใช้กับรายการนี้",coupon_not_applicable:"คูปองไม่อยู่ในช่วงเวลา สาขา หรือช่องทางนี้",
@@ -65,6 +68,13 @@ export async function POST(req: NextRequest) {
         !ctx.authz.isSuperadmin && ["deny", "approval"].includes(ctx.authz.permission_overrides["pos.discount"]) ? 0 : ctx.authz.max_discount_percent,
         {preview:body.action==="preview"},
       );
+      // โปรรายสินค้า: เครื่องส่งแค่รหัสต่อบรรทัด — ยอดลดคิดที่ DB (pos_apply_line_campaigns) ไม่นับเพดานส่วนลดพนักงาน
+      draft.items.filter((i:any)=>!i.is_gift).forEach((i:any,k:number)=>{
+        const code=i.line_campaign_code;
+        if(code==null||code==="")return;
+        if(typeof code!=="string"||code.length>100)throw new PosError("รหัสโปรรายสินค้าไม่ถูกต้อง");
+        quote.items[k].line_campaign_code=code.trim();
+      });
       if (quote.salesperson_id && quote.salesperson_id !== ctx.actorId) {
         const [{ data: person }, { data: assignment }] = await Promise.all([
           sb

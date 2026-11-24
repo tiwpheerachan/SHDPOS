@@ -19,6 +19,7 @@ export function DiscountModal({
   initialPercent = 0,
   initialAmount = 0,
   onApply,
+  presets,
 }: {
   open: boolean;
   onClose: () => void;
@@ -31,14 +32,18 @@ export function DiscountModal({
   initialAmount?: number;
   /** needsApproval = true เมื่อเกินเพดาน */
   onApply: (percent: number, amount: number, needsApproval: boolean) => void;
+  /** แท็บ "ส่วนลดที่ตั้งไว้" (โปรรายสินค้าจากหลังบ้าน) — มีแล้วจะเปิดแท็บนี้ก่อน */
+  presets?: { count: number; content: React.ReactNode } | null;
 }) {
   const { t, locale } = useI18n();
+  const [tab, setTab] = useState<"preset" | "manual">("manual");
   const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
   const [mode, setMode] = useState<"percent" | "amount">("percent");
   const [value, setValue] = useState("");
 
   useEffect(() => {
     if (!open) return;
+    setTab(presets && presets.count > 0 && !(initialAmount > 0 || initialPercent > 0) ? "preset" : "manual");
     if (initialAmount > 0) {
       setMode("amount");
       setValue(String(initialAmount));
@@ -59,7 +64,9 @@ export function DiscountModal({
       onClose={onClose}
       title={title}
       size="sm"
-      footer={
+      footer={tab === "preset" && presets ? (
+        <Button variant="ghost" onClick={onClose}>{L("ปิด", "Close", "关闭")}</Button>
+      ) : (
         <>
           <Button variant="ghost" onClick={() => onApply(0, 0, false)}>
             {t.common.reset}
@@ -68,8 +75,16 @@ export function DiscountModal({
             {exceeds ? t.approval.title : t.common.apply}
           </Button>
         </>
-      }
+      )}
     >
+      {presets ? (
+        <div className="flex rounded-xl bg-surface2/70 p-0.5 mb-4">
+          {([["preset", `${L("ส่วนลดที่ตั้งไว้", "Preset discounts", "预设折扣")} (${presets.count})`], ["manual", L("กำหนดเอง", "Custom", "自定义")]] as const).map(([k, label]) => (
+            <button key={k} type="button" onClick={() => setTab(k)} className={`flex-1 h-9 rounded-lg text-xs ${tab === k ? "bg-surface text-ink shadow-sm font-semibold" : "text-muted"}`}>{label}</button>
+          ))}
+        </div>
+      ) : null}
+      {tab === "preset" && presets ? <div className="space-y-2">{presets.content}</div> : (
       <div className="space-y-4">
         <Segmented
           value={mode}
@@ -118,6 +133,7 @@ export function DiscountModal({
           </div>
         ) : null}
       </div>
+      )}
     </Modal>
   );
 }

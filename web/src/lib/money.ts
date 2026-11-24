@@ -36,20 +36,34 @@ export function formatCompact(n: number): string {
   return formatInt(n);
 }
 
-/** มูลค่าบรรทัดหลังหักส่วนลด (รวม VAT) */
-export function lineTotal(line: CartLine): number {
+/** ส่วนลดที่พนักงานกดเองในบรรทัด (นับเพดานสิทธิ์ส่วนลด) */
+export function lineManualDiscount(line: CartLine): number {
   const gross = line.unit_price * line.qty;
-  const discount = line.discount_amount > 0
-    ? line.discount_amount
-    : round2(gross * (line.discount_percent / 100));
-  return round2(Math.max(gross - discount, 0));
-}
-
-export function lineDiscount(line: CartLine): number {
-  const gross = line.unit_price * line.qty;
-  return line.discount_amount > 0
+  const d = line.discount_amount > 0
     ? round2(line.discount_amount)
     : round2(gross * (line.discount_percent / 100));
+  return Math.min(d, round2(gross));
+}
+
+/** ส่วนลดจากโปรรายสินค้า — สูตรเดียวกับเซิร์ฟเวอร์ (pos_apply_line_campaigns):
+ *  ฐาน = ยอดบรรทัดหลังส่วนลดพนักงาน · amount = บาทต่อชิ้น × จำนวน · percent = % ของฐาน · ไม่เกิน max_discount/ฐาน */
+export function lineCampaignDiscount(line: CartLine): number {
+  const c = line.campaign;
+  if (!c || line.is_gift) return 0;
+  const base = round2(Math.max(line.unit_price * line.qty - lineManualDiscount(line), 0));
+  let d = c.type === "percent" ? round2((base * c.value) / 100) : Math.min(c.value * line.qty, base);
+  if (c.max_discount != null) d = Math.min(d, c.max_discount);
+  return round2(Math.max(0, Math.min(d, base)));
+}
+
+/** ส่วนลดรวมของบรรทัด (พนักงาน + โปรรายสินค้า) */
+export function lineDiscount(line: CartLine): number {
+  return round2(lineManualDiscount(line) + lineCampaignDiscount(line));
+}
+
+/** มูลค่าบรรทัดหลังหักส่วนลดทั้งหมด (รวม VAT) */
+export function lineTotal(line: CartLine): number {
+  return round2(Math.max(line.unit_price * line.qty - lineDiscount(line), 0));
 }
 
 export function lineCost(line: CartLine): number {
@@ -61,8 +75,10 @@ export interface CartTotals {
   subtotal: number;
   /** ส่วนลดรวม (บรรทัด + ท้ายบิล) — ส่วนลดจากพนักงาน ใช้เช็คสิทธิอนุมัติ */
   discountTotal: number;
-  /** ส่วนลดรายการ (รวมทุกบรรทัด) */
+  /** ส่วนลดรายการที่พนักงานกดเอง (รวมทุกบรรทัด) */
   lineDiscountTotal: number;
+  /** ส่วนลดจากโปรรายสินค้า (ไม่นับเพดานสิทธิ์พนักงาน) */
+  campaignLineTotal: number;
   /** ส่วนลดท้ายบิล (คิดจากยอดหลังหักส่วนลดรายการ) */
   billDiscountTotal: number;
   /** ยอดหลังหักส่วนลดรายการ = ฐานของส่วนลดท้ายบิล */
@@ -86,19 +102,22 @@ export interface CartTotals {
 export function computeTotals(lines: CartLine[], billDiscount = 0, billDiscountPercent = 0, redeemAmount = 0, couponAmount = 0): CartTotals {
   let subtotal = 0;
   let lineDiscounts = 0;
+  let campaignLines = 0;
   let costTotal = 0;
   let unitCount = 0;
 
   for (const l of lines) {
     subtotal += l.unit_price * l.qty;
-    lineDiscounts += lineDiscount(l);
+    lineDiscounts += lineManualDiscount(l);
+    campaignLines += lineCampaignDiscount(l);
     costTotal += lineCost(l);
     unitCount += l.qty;
   }
   subtotal = round2(subtotal);
   lineDiscounts = round2(lineDiscounts);
+  campaignLines = round2(campaignLines);
 
-  const afterLines = round2(subtotal - lineDiscounts);
+  const afterLines = round2(subtotal - lineDiscounts - campaignLines);
   const billDisc = billDiscount > 0
     ? round2(billDiscount)
     : round2(afterLines * (billDiscountPercent / 100));
@@ -115,6 +134,7 @@ export function computeTotals(lines: CartLine[], billDiscount = 0, billDiscountP
     subtotal,
     discountTotal: round2(lineDiscounts + billDisc),
     lineDiscountTotal: lineDiscounts,
+    campaignLineTotal: campaignLines,
     billDiscountTotal: billDisc,
     afterLineDiscount: afterLines,
     redeemAmount: redeem,
