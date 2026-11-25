@@ -192,7 +192,7 @@ function AdminSalesPage() {
 
       {tab === "branch" ? <BranchView orders={rows} branches={branches} brands={brands} showCost={showCost} L={L} locale={locale} onDrill={(id) => drill({ branchIds: [id] })} /> : null}
       {tab === "brand" ? <BrandView orders={rows} branches={branches} brands={brands} products={products} showCost={showCost} range={{ from: filter.from, to: filter.to }} L={L} locale={locale} onDrill={(id) => drill({ brandIds: [id], branchIds: [] }, "branch")} /> : null}
-      {tab === "staff" && can(employee, "report.employee_perf") ? <StaffPerformance filtered={rows} employees={employees} branches={branches} brands={brands} initialPerson={sp.get("person")} /> : null}
+      {tab === "staff" && can(employee, "report.employee_perf") ? <StaffPerformance filtered={rows} employees={employees} branches={branches} brands={brands} initialPerson={sp.get("person")} positions={data.positions} /> : null}
       </div>
 
     </div>

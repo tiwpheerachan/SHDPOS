@@ -63,7 +63,12 @@ export async function GET(req: NextRequest) {
   // แบรนด์ = ของสาขา + ของสินค้าที่ขายจริง (สาขาคลัง/ร้านรวมหลายแบรนด์ไม่มี brand_id ที่สาขา)
   const brandIds = [...new Set([...branches.map((b) => b.brand_id), ...orders.flatMap((o) => o.items.map((i: { brand_id: string | null }) => i.brand_id))].filter(Boolean))] as string[];
   const brands = brandIds.length ? ((await sb.from("brands").select("id,code,name,name_th,name_zh,logo_url").in("id", brandIds)).data ?? []) : [];
-  const people = [...new Set(orders.flatMap((o) => [o.cashier_id, o.salesperson_id, ...o.items.map((i: Row) => i.salesperson_id)]).filter(Boolean))] as string[];
+  // ตำแหน่งในผังองค์กร (ข้อมูลจริง ตามสาขาที่เห็นได้) — ใช้เทียบผลงานตามตำแหน่ง รวมคนที่ยังไม่มียอดขาย
+  let posQ = sb.from("org_positions").select("branch_id,employee_id,title").limit(5000);
+  if (allowed !== null) posQ = posQ.in("branch_id", allowed.length ? allowed : ["00000000-0000-0000-0000-000000000000"]);
+  if (own) posQ = posQ.eq("employee_id", own);
+  const positions = ((await posQ).data ?? []).filter((r) => r.title);
+  const people = [...new Set([...orders.flatMap((o) => [o.cashier_id, o.salesperson_id, ...o.items.map((i: Row) => i.salesperson_id)]), ...positions.map((r) => r.employee_id)].filter(Boolean))] as string[];
   const employees = people.length ? ((await sb.from("employees").select("id,employee_code,first_name,last_name,nickname,role,home_branch_id,photo_url,status").in("id", people.slice(0, 1000))).data ?? []) : [];
   // ยอดหักออก (ลงตามวันที่เกิด): คืนเงินจากรับคืน · ยกเลิกบิล · ใบลดหนี้ส่วนลด → ยอดสุทธิ
   const scopeIn = <T extends { in: (c: string, v: string[]) => T }>(q: T) => (allowed !== null ? q.in("branch_id", allowed.length ? allowed : ["00000000-0000-0000-0000-000000000000"]) : q);
@@ -81,5 +86,5 @@ export async function GET(req: NextRequest) {
   if (allowed !== null) pq = pq.in("branch_id", allowed.length ? allowed : ["00000000-0000-0000-0000-000000000000"]);
   if (own) pq = pq.or(`cashier_id.eq.${own},salesperson_id.eq.${own}`);
   const prev = ((await pq).data ?? []).map((o) => ({ branch_id: o.branch_id, grand_total: +o.grand_total, status: o.status, channel: o.channel, created_at: o.sale_occurred_at ?? o.created_at }));
-  return reply({ orders, branches, brands, employees, truncated, show_cost: showCost, adjustments, prev, prev_range: { from: pFrom, to: pTo } });
+  return reply({ orders, branches, brands, employees, positions, truncated, show_cost: showCost, adjustments, prev, prev_range: { from: pFrom, to: pTo } });
 }

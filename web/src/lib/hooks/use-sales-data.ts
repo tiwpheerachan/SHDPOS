@@ -9,12 +9,14 @@ import type { Branch, Brand, Employee, Order } from "@/lib/types";
 
 export type Adjustment = { branch_id: string; kind: "return" | "void" | "credit_note"; amount: number; at: string };
 export type PrevOrder = { branch_id: string; grand_total: number; status: string; channel: string; created_at: string };
-export type SalesData = { orders: Order[]; branches: Branch[]; brands: Brand[]; employees: Employee[]; adjustments: Adjustment[]; prev: PrevOrder[]; loading: boolean; error: string; truncated: boolean; live: boolean };
+/** ตำแหน่งจากผังองค์กร (โหมดจริง: จากเซิร์ฟเวอร์ · โหมดสาธิต: null = ให้หน้าโหลดเอง) */
+export type OrgPosition = { branch_id: string; employee_id: string; title: string };
+export type SalesData = { orders: Order[]; branches: Branch[]; brands: Brand[]; employees: Employee[]; positions: OrgPosition[] | null; adjustments: Adjustment[]; prev: PrevOrder[]; loading: boolean; error: string; truncated: boolean; live: boolean };
 
 export function useSalesData(range: { from: Date; to: Date }): SalesData {
   const live = typeof window !== "undefined" && isLiveMode();
   const scope = useAdminScope();
-  const [state, setState] = useState<Omit<SalesData, "live">>({ orders: [], branches: [], brands: [], employees: [], adjustments: [], prev: [], loading: true, error: "", truncated: false });
+  const [state, setState] = useState<Omit<SalesData, "live">>({ orders: [], branches: [], brands: [], employees: [], positions: null, adjustments: [], prev: [], loading: true, error: "", truncated: false });
   const key = `${range.from.toISOString().slice(0, 16)}|${range.to.toISOString().slice(0, 16)}`;
   useEffect(() => {
     let alive = true;
@@ -25,10 +27,10 @@ export function useSalesData(range: { from: Date; to: Date }): SalesData {
           const r = await fetch(`/api/admin/sales-data?from=${encodeURIComponent(range.from.toISOString())}&to=${encodeURIComponent(range.to.toISOString())}`, { cache: "no-store" });
           const j = await r.json();
           if (!r.ok) throw Error(j.error);
-          if (alive) setState({ orders: j.orders, branches: j.branches, brands: j.brands, employees: j.employees, adjustments: j.adjustments ?? [], prev: j.prev ?? [], loading: false, error: "", truncated: j.truncated });
+          if (alive) setState({ orders: j.orders, branches: j.branches, brands: j.brands, employees: j.employees, positions: j.positions ?? [], adjustments: j.adjustments ?? [], prev: j.prev ?? [], loading: false, error: "", truncated: j.truncated });
         } else {
           const [o, e] = await Promise.all([listOrders(), listEmployees()]);
-          if (alive) setState({ orders: o, branches: [], brands: [], employees: e, adjustments: [], prev: [], loading: false, error: "", truncated: false });
+          if (alive) setState({ orders: o, branches: [], brands: [], employees: e, positions: null, adjustments: [], prev: [], loading: false, error: "", truncated: false });
         }
       } catch (e) { if (alive) setState((s) => ({ ...s, loading: false, error: e instanceof Error ? e.message : "โหลดไม่สำเร็จ" })); }
     })();

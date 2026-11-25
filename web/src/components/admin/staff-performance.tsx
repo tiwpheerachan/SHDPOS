@@ -33,7 +33,7 @@ function splitName(label: string): [string, string] {
 type View = "dashboard" | "table" | "person" | "position";
 
 /** ผลงานพนักงาน (แดชบอร์ด/ตาราง/รายบุคคล/ตามตำแหน่ง) — ฝังในหน้ายอดขาย ใช้ข้อมูล+ตัวกรองชุดเดียวกับหน้ายอดขาย */
-export function StaffPerformance({ filtered, employees, branches, brands, initialPerson }: { filtered: Order[]; employees: Employee[]; branches: Branch[]; brands: Brand[]; initialPerson?: string | null }) {
+export function StaffPerformance({ filtered, employees, branches, brands, initialPerson, positions }: { filtered: Order[]; employees: Employee[]; branches: Branch[]; brands: Brand[]; initialPerson?: string | null; positions?: { branch_id: string; employee_id: string; title: string }[] | null }) {
   const { t, locale } = useI18n();
   const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
   const { employee } = useSession();
@@ -58,7 +58,8 @@ export function StaffPerformance({ filtered, employees, branches, brands, initia
   const [allPos, setAllPos] = useState<{ branch_id: string; employee_id: string; title: string }[]>([]);
   const [posCode, setPosCode] = useState<string | null>(null);
 
-  useEffect(() => { void loadAllPositions().then(setAllPos); }, []);
+  // โหมดจริง: ตำแหน่งมาจากเซิร์ฟเวอร์พร้อมข้อมูลยอดขาย (ไม่ปนข้อมูลสาธิตในเครื่อง) · โหมดสาธิต: โหลดจากเครื่อง
+  useEffect(() => { if (positions) setAllPos(positions); else void loadAllPositions().then(setAllPos); }, [positions]);
   void initialPerson; // อ่านจาก URL โดยตรงแล้ว
 
   const rows = useMemo(() => {
@@ -83,7 +84,11 @@ export function StaffPerformance({ filtered, employees, branches, brands, initia
   // ค่าเริ่มต้น = ตัวเอง (ถ้ามีข้อมูลขายของตัวเอง) ไม่งั้นคนยอดสูงสุด
   const selfId = employee && rows.some((r) => r.id === employee.id) ? employee.id : null;
   const activePerson = personId ?? selfId ?? best?.id ?? null; // ในมุมมองรายบุคคล personId มีค่าเสมอ
-  const personRow = rows.find((r) => r.id === activePerson) ?? null;
+  const personRow = rows.find((r) => r.id === activePerson) ?? (() => {
+    // คนที่ยังไม่มียอดในช่วงนี้ (เปิดจากมุมมองตามตำแหน่ง) → โปรไฟล์ยอด 0 แทนหน้าว่าง
+    const e = activePerson ? employees.find((x) => x.id === activePerson) : null;
+    return e ? { id: e.id, label: e.nickname ?? e.first_name, code: e.employee_code ?? "", branchId: e.home_branch_id ?? null, value: 0, orders: 0, units: 0, grossProfit: 0, avgBasket: 0 } : null;
+  })();
   const personSeries = useMemo(
     () => (activePerson ? salesSeries(filtered, gran, activePerson) : []),
     [filtered, gran, activePerson]
@@ -138,21 +143,23 @@ export function StaffPerformance({ filtered, employees, branches, brands, initia
       const s = salesById.get(empId);
       const e = employees.find((x) => x.id === empId);
       const brandId = branches.find((b) => b.id === pos.branchId)?.brand_id ?? "";
-      list.push({ id: empId, label: e ? (e.nickname ?? e.first_name) : empId, code: pos.code, branchId: pos.branchId, brandId, value: s?.value ?? 0, orders: s?.orders ?? 0, grossProfit: s?.grossProfit ?? 0 });
+      if (!e) continue; // ไม่พบพนักงาน (ลาออก/ข้อมูลเก่า) — ไม่แสดงเป็นรหัสดิบ
+      list.push({ id: empId, label: e.nickname ?? e.first_name, code: pos.code, branchId: pos.branchId, brandId, value: s?.value ?? 0, orders: s?.orders ?? 0, grossProfit: s?.grossProfit ?? 0 });
     }
     return list;
   }, [empBestPos, rows, employees, branches]);
   const positionAgg = useMemo(() => {
     const m = new Map<string, { code: string; people: number; total: number; orders: number }>();
     for (const p of posPeople) {
-      const cur = m.get(p.code) ?? { code: p.code, people: 0, total: 0, orders: 0 };
+      const key = posLabel(p.code); // รวมรหัสที่ชื่อตำแหน่งเดียวกัน (เดิมแสดงซ้ำ 2 ชิป)
+      const cur = m.get(key) ?? { code: key, people: 0, total: 0, orders: 0 };
       cur.people += 1; cur.total += p.value; cur.orders += p.orders;
-      m.set(p.code, cur);
+      m.set(key, cur);
     }
     return [...m.values()].map((x) => ({ ...x, avg: x.people ? x.total / x.people : 0 })).sort((a, b) => b.total - a.total);
   }, [posPeople]);
   const activePos = posCode ?? positionAgg[0]?.code ?? null;
-  const activePeople = posPeople.filter((p) => p.code === activePos).sort((a, b) => b.value - a.value);
+  const activePeople = posPeople.filter((p) => posLabel(p.code) === activePos).sort((a, b) => b.value - a.value);
   const activeAgg = positionAgg.find((x) => x.code === activePos) ?? null;
   const personPosCode = activePerson ? empBestPos.get(activePerson)?.code ?? null : null;
 
@@ -332,7 +339,7 @@ export function StaffPerformance({ filtered, employees, branches, brands, initia
                   <span className="text-ink font-medium truncate">{nm}</span>
                 </nav>
                 <div className="ml-auto flex items-center gap-1">
-                  <span className="text-[11px] text-muted tnum mr-1">{idx + 1} / {rows.length}</span>
+                  {idx >= 0 ? <span className="text-[11px] text-muted tnum mr-1">{idx + 1} / {rows.length}</span> : <span className="text-[11px] text-muted mr-1">{L("ยังไม่มียอดในช่วงนี้", "No sales in range", "本期无销售")}</span>}
                   <button disabled={!prevP} onClick={() => prevP && openPerson(prevP.id)} title={prevP ? splitName(prevP.label)[0] : ""} className="h-8 w-8 rounded-lg border border-line bg-surface hover:bg-surface2 grid place-items-center disabled:opacity-35"><ChevronLeft size={14} /></button>
                   <button disabled={!nextP} onClick={() => nextP && openPerson(nextP.id)} title={nextP ? splitName(nextP.label)[0] : ""} className="h-8 w-8 rounded-lg border border-line bg-surface hover:bg-surface2 grid place-items-center disabled:opacity-35"><ChevronRight size={14} /></button>
                 </div>
@@ -352,7 +359,7 @@ export function StaffPerformance({ filtered, employees, branches, brands, initia
                     </div>
                     <p className="text-[11px] text-white/60 truncate">{[empRole(activePerson ?? ""), personPosCode ? posLabel(personPosCode) : "", personRow.branchId ? branchName(personRow.branchId) : ""].filter((x) => x && x !== "—").join(" · ")}</p>
                     <div className="flex flex-wrap gap-1.5 mt-auto">
-                      <span className="inline-flex items-center gap-1 h-6 px-2 rounded-full bg-white/12 border border-white/15 text-[11px]"><Award size={12} className="text-amber-300" />#{personRank} / {rows.length}</span>
+                      {personRank > 0 ? <span className="inline-flex items-center gap-1 h-6 px-2 rounded-full bg-white/12 border border-white/15 text-[11px]"><Award size={12} className="text-amber-300" />#{personRank} / {rows.length}</span> : null}
                       {peakH >= 0 && personHours[peakH] ? <span className="inline-flex items-center gap-1 h-6 px-2 rounded-full bg-white/12 border border-white/15 text-[11px]"><Clock size={12} />{L("ขายดี", "Peak", "高峰")} {String(peakH).padStart(2, "0")}:00</span> : null}
                       {personRow.code && !personRow.code.includes("@") ? <span className="inline-flex items-center gap-1 h-6 px-2 rounded-full bg-white/12 border border-white/15 text-[11px] font-mono"><BadgeCheck size={12} />{personRow.code}</span> : null}
                     </div>
@@ -464,7 +471,7 @@ export function StaffPerformance({ filtered, employees, branches, brands, initia
                     onClick={() => setPosCode(p.code)}
                     className={`shrink-0 inline-flex items-center gap-1.5 h-9 px-3 rounded-xl text-sm font-medium border transition-colors ${activePos === p.code ? "bg-brand text-brandInk border-brand" : "bg-surface border-line text-muted hover:text-ink hover:bg-surface2"}`}
                   >
-                    {posLabel(p.code)} <span className="opacity-70 text-xs">· {p.people}</span>
+                    {p.code} <span className="opacity-70 text-xs">· {p.people}</span>
                   </button>
                 ))}
               </div>
@@ -480,7 +487,7 @@ export function StaffPerformance({ filtered, employees, branches, brands, initia
               <div className="grid lg:grid-cols-[1fr_360px] gap-4">
                 {/* อันดับคนในตำแหน่งนี้ ข้ามสาขา */}
                 <Card>
-                  <CardHeader title={`${posLabel(activePos ?? "")} · ${L("จัดอันดับข้ามสาขา", "Ranked across branches", "跨门店排名")}`} subtitle={L("ยอดขายต่อคน พร้อมสาขา/แบรนด์", "Sales per person with branch/brand", "各员工销售额 + 门店/品牌")} />
+                  <CardHeader title={`${activePos ?? ""} · ${L("จัดอันดับข้ามสาขา", "Ranked across branches", "跨门店排名")}`} subtitle={L("ยอดขายต่อคน พร้อมสาขา/แบรนด์", "Sales per person with branch/brand", "各员工销售额 + 门店/品牌")} />
                   {activePeople.length ? (
                     <Table>
                       <thead>
@@ -491,22 +498,24 @@ export function StaffPerformance({ filtered, employees, branches, brands, initia
                           <Th>{t.common.brand}</Th>
                           <Th align="right">{t.admin.gmv}</Th>
                           <Th align="right">{t.admin.orderCount}</Th>
+                          <Th />
                         </tr>
                       </thead>
                       <tbody>
                         {activePeople.map((p, i) => (
-                          <tr key={p.id} className="hover:bg-surface2/60">
+                          <tr key={p.id} onClick={() => openPerson(p.id, "position")} title={L("กดเพื่อเปิดแดชบอร์ดรายบุคคล", "Open individual dashboard", "打开个人仪表盘")} className="group hover:bg-brand/[0.045] cursor-pointer">
                             <Td><span className="w-5 h-5 rounded-md grid place-items-center text-[10px] font-bold text-white" style={{ background: SERIES_COLORS[i % SERIES_COLORS.length] }}>{i + 1}</span></Td>
                             <Td>
                               <div className="flex items-center gap-2.5">
                                 <Avatar name={p.label} src={empPhoto(p.id)} size={28} />
-                                <span className="text-xs font-medium truncate">{p.label}</span>
+                                <span className="min-w-0"><span className="block text-xs font-medium truncate group-hover:text-brand">{splitName(p.label)[0]}</span>{splitName(p.label)[1] ? <span className="block text-[10px] text-muted truncate">{splitName(p.label)[1]}</span> : null}</span>
                               </div>
                             </Td>
                             <Td className="text-xs text-muted truncate max-w-[150px]">{branchName(p.branchId)}</Td>
                             <Td className="text-xs text-muted">{p.brandId ? brandName(p.brandId) : "—"}</Td>
                             <Td align="right" className="font-medium">{formatTHB(p.value, false)}</Td>
                             <Td align="right" className="text-xs">{p.orders}</Td>
+                            <Td className="w-6"><ChevronRight size={14} className="text-muted opacity-30 group-hover:opacity-100 group-hover:text-brand" /></Td>
                           </tr>
                         ))}
                       </tbody>
@@ -518,7 +527,7 @@ export function StaffPerformance({ filtered, employees, branches, brands, initia
                 <Card>
                   <CardHeader title={L("เทียบทุกตำแหน่ง", "All positions", "各职位对比")} subtitle={L("ยอดเฉลี่ย/คน", "Avg per person", "人均")} />
                   <div className="p-5 pt-3">
-                    <BarList data={positionAgg.map((p) => ({ label: posLabel(p.code), value: p.avg, sub: `${p.people} ${L("คน", "ppl", "人")}` }))} />
+                    <BarList data={positionAgg.map((p) => ({ label: p.code, value: p.avg, sub: `${p.people} ${L("คน", "ppl", "人")}` }))} />
                   </div>
                 </Card>
               </div>
