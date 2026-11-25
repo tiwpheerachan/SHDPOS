@@ -53,3 +53,12 @@ services:
         sync: false
       - key: ANTHROPIC_API_KEY            # ผู้ช่วย AI (ไม่ใส่ = ใช้ตัวแยกคำถามในเครื่อง)
         sync: false
+      # ===== เอกสาร / ลิงก์แชร์ =====
+      - key: DOC_SHARE_SECRET              # ลับ ≥32 ตัว — ลงลายเซ็นลิงก์แชร์เอกสาร (ถ้าไม่ตั้งใช้ SSO_SESSION_SECRET)
+        sync: false
+      - key: COMPANY_ADDRESS               # ที่อยู่สำนักงานใหญ่บนหัวเอกสาร (ใช้เมื่อสาขาไม่มีที่อยู่)
+        sync: false
+      - key: COMPANY_PHONE
+        sync: false
+      - key: COMPANY_NAME_EN
+        sync: false

@@ -2,8 +2,9 @@
 // แผนภาพ "ที่มาของบิล" — กดจากใบเสร็จ/รายการบิล/ประวัติ เพื่อดูว่าบิลไหลมาอย่างไรทีละขั้น (ข้อมูลจาก /api/pos/order-trace)
 //   ที่มา → ราคาและโปร → ชำระเงิน → สต๊อก/SN → คลังกลาง/JST → แต้มสะสม → หลังการขาย  + ไทม์ไลน์ทุกเหตุการณ์
 import { useEffect, useState } from "react";
-import { GitBranch, Store, Tags, CreditCard, Boxes, Warehouse, Star, RotateCcw, ChevronRight, Loader2, ListTree, Clock3 } from "lucide-react";
+import { GitBranch, Store, Tags, CreditCard, Boxes, Warehouse, Star, RotateCcw, ChevronRight, Loader2, ListTree, Clock3, FileStack } from "lucide-react";
 import { Drawer } from "@/components/ui";
+import { OrderDocsPanel } from "@/components/order-docs";
 import { useSession } from "@/lib/store/session";
 import { can } from "@/lib/permissions";
 
@@ -43,7 +44,7 @@ export function OrderTraceButton({ clientUuid, orderNo, className, label = "ท�
 
 export function OrderTraceDrawer({ clientUuid, orderNo, onClose }: { clientUuid?: string | null; orderNo?: string | null; onClose: () => void }) {
   const [data, setData] = useState<Trace | null>(null), [err, setErr] = useState("");
-  const [sel, setSel] = useState("origin"), [view, setView] = useState<"flow" | "timeline">("flow");
+  const [sel, setSel] = useState("origin"), [view, setView] = useState<"flow" | "timeline" | "docs">("flow");
   useEffect(() => {
     let alive = true;
     const q = clientUuid ? `client_uuid=${clientUuid}` : `order_no=${encodeURIComponent(orderNo ?? "")}`;
@@ -64,7 +65,7 @@ export function OrderTraceDrawer({ clientUuid, orderNo, onClose }: { clientUuid?
         {data ? <>
           <div className="flex flex-wrap items-center gap-2">
             <div className="inline-flex rounded-xl bg-surface2 border border-line p-0.5 h-9">
-              {([["flow", "แผนภาพ", GitBranch], ["timeline", "ไทม์ไลน์", Clock3]] as const).map(([k, l, I]) => (
+              {([["flow", "แผนภาพ", GitBranch], ["timeline", "ไทม์ไลน์", Clock3], ["docs", "เอกสาร", FileStack]] as const).map(([k, l, I]) => (
                 <button key={k} onClick={() => setView(k)} className={`px-3 rounded-[10px] text-xs font-medium inline-flex items-center gap-1.5 ${view === k ? "bg-surface text-ink shadow-sm" : "text-muted hover:text-ink"}`}><I size={13} />{l}</button>
               ))}
             </div>
@@ -125,7 +126,9 @@ export function OrderTraceDrawer({ clientUuid, orderNo, onClose }: { clientUuid?
                 {!stage.details.length && !stage.items?.length ? <p className="px-4 py-6 text-xs text-muted text-center">{stage.summary}</p> : null}
               </section>
             ) : null}
-          </> : (
+          </> : view === "docs" ? (
+            <OrderDocsPanel clientUuid={clientUuid} orderNo={orderNo} />
+          ) : (
             <ol className="relative ml-2 border-l border-line space-y-3 py-1">
               {data.timeline.map((t, i) => {
                 const T = TONE[t.tone ?? "info"], I = ICON[t.stage] ?? Clock3, st = data.stages.find((s) => s.key === t.stage);

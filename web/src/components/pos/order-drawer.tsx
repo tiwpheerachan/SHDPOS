@@ -14,6 +14,8 @@ import { OwSaleBadge, OwSaleLive, useOwSaleStatus } from "@/components/pos/ow-sa
 import { formatTHB } from "@/lib/money";
 import { BankMark } from "@/components/pos/bank-mark";
 import { OrderTraceButton } from "@/components/order-trace";
+import { OrderDocsPanel } from "@/components/order-docs";
+import { isLiveMode } from "@/lib/supabase/client";
 
 type Tab = "overview" | "items" | "timeline" | "docs" | "audit";
 
@@ -221,7 +223,9 @@ export function OrderDrawer({
           </ol>
         ) : null}
 
-        {tab === "docs" ? (
+        {tab === "docs" && order.client_uuid && isLiveMode() ? (
+          <OrderDocsPanel clientUuid={order.client_uuid} orderNo={order.order_no} />
+        ) : tab === "docs" ? (
           <div className="space-y-2">
             <DocRow icon={<ReceiptText size={15} />} title={L("ใบเสร็จต้นฉบับ", "Original Receipt", "原始小票")} sub={order.order_no} onClick={() => onReprint(order)} action={t.pos.reprint} />
             <DocRow icon={<FileText size={15} />} title={L("ใบกำกับภาษีเต็มรูป", "Full Tax Invoice", "完整税票")} sub={L("ออกได้ตามคำขอ", "On request", "按需开具")} />

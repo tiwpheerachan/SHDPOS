@@ -34,4 +34,5 @@ await (await import('./test-promoted-checkout.mjs')).testPromotedCheckout(db,ids
 await (await import('./test-deferred-sales.mjs')).testDeferredSales(db,ids);
 await (await import('./test-work-center.mjs')).testWorkCenter(db,ids);
 await (await import('./test-line-campaigns-loyalty.mjs')).testLineCampaignsLoyalty(db);
+await (await import('./test-documents.mjs')).testDocuments(db,ids);
 await db.close();
