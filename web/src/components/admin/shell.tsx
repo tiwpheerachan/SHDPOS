@@ -61,10 +61,8 @@ const NAV: NavGroup[] = [
         { href: "/admin/customers", icon: Contact, key: "customers", perm: "customer.manage" },
         { href: "/admin/loyalty", icon: Star, key: "loyalty", perm: "loyalty.manage" },
       ] },
-      { hub: "team", icon: Users, children: [
-        { href: "/admin/employees", icon: Users, key: "employees", perm: "report.employee_perf" },
-        { href: "/admin/org", icon: Network, key: "org", perm: "admin.employee_manage" },
-      ] },
+      // ผลงานพนักงานย้ายไปเป็นแท็บในหน้ายอดขาย (/admin/sales?tab=staff) — /admin/employees พาไปที่นั่น
+      { href: "/admin/org", icon: Network, key: "org", perm: "admin.employee_manage" },
     ],
   },
   {
