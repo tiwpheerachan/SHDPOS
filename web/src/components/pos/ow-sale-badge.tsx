@@ -38,6 +38,7 @@ export function owSaleLabel(s?: OwSaleStatus | null): { text: string; tone: stri
   if (s.ow_status === "sn_pending") return { text: "รอแก้ SN", tone: "bg-warn/12 text-warn", title: s.reason ?? "คลังกลางรับแล้ว แต่ SN ไม่ตรง — แก้ในหน้า คลังกลาง › ส่งบิลขาย" };
   if (s.ow_status === "submitted") return { text: "รอ JST", tone: "bg-sky-500/10 text-sky-600", title: `คลังกลาง ${s.sale_no ?? ""} รับแล้ว รอ JST ยืนยัน` };
   if (s.ow_status === "failed") return { text: "JST ไม่รับ · ยังไม่สมบูรณ์", tone: "bg-danger/12 text-danger", title: s.reason ?? "JST ปฏิเสธบิล — ไม่มีการตัดสต๊อกใน JST ต้องแก้แล้วส่งใหม่" };
+  if (s.state === "blocked" && (s.reason ?? "").startsWith("พักไว้ไม่ส่ง:")) return { text: "พักไว้ไม่ส่ง JST", tone: "bg-warn/12 text-warn", title: s.reason ?? "" };
   if (["blocked", "dead"].includes(s.state)) return { text: "ส่งไม่ผ่าน", tone: "bg-danger/12 text-danger", title: s.reason ?? "ส่งคลังกลางไม่สำเร็จ" };
   if (["queued", "processing", "retry"].includes(s.state)) return { text: "กำลังส่ง", tone: "bg-sky-500/10 text-sky-600", title: s.reason ?? "อยู่ในคิวส่งคลังกลาง" };
   return { text: s.ow_status ?? s.state, tone: "bg-surface2 text-muted", title: s.reason ?? "" };
@@ -64,6 +65,9 @@ export function OwSaleLive({ clientUuid, onStatus }: { clientUuid: string; onSta
     : null;
   if (isOwSaleDone(s.ow_status)) return <p className="text-xs text-ok flex items-center gap-1.5 font-medium">✓ JST รับบิลแล้ว{s.jst_order_no ? ` · ${s.jst_order_no}` : ""}</p>;
   if (s.ow_status === "sn_pending") return <p className="text-xs text-warn">รอแก้ SN ก่อนเข้า JST — {s.reason ?? ""}</p>;
+  if (s.state === "blocked" && (s.reason ?? "").startsWith("พักไว้ไม่ส่ง:")) return (
+    <div className="rounded-lg border border-warn/40 bg-warn/8 px-3 py-2"><p className="text-xs font-semibold text-warn">บิลนี้พักไว้ ไม่ส่งเข้า JST</p><p className="text-[11px] text-ink/80">{(s.reason ?? "").replace("พักไว้ไม่ส่ง:", "").trim()}</p></div>
+  );
   if (s.ow_status === "failed" || ["blocked", "dead"].includes(s.state)) return (
     <div className="rounded-lg border border-danger/40 bg-danger/8 px-3 py-2 space-y-1.5">
       <p className="text-xs font-semibold text-danger">✗ JST ไม่รับบิลนี้ — ยังไม่ถือว่าขายสำเร็จ</p>

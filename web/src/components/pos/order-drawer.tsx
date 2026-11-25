@@ -146,7 +146,7 @@ export function OrderDrawer({
               </DetailRow>
             </div>
             {/* JST ไม่รับบิล → แสดงสาเหตุ + ปุ่มส่งใหม่ (หลังแก้สาเหตุ) */}
-            {order.client_uuid && ow && (ow.ow_status === "failed" || ["blocked", "dead"].includes(ow.state)) ? <OwSaleLive key={order.client_uuid} clientUuid={order.client_uuid} /> : null}
+            {order.client_uuid && ow && (ow.ow_status === "failed" || ["blocked", "dead"].includes(ow.state) || (ow.reason ?? "").startsWith("พักไว้ไม่ส่ง:")) ? <OwSaleLive key={order.client_uuid} clientUuid={order.client_uuid} /> : null}
 
             <div className="rounded-2xl bg-surface2 px-4 py-3 space-y-1.5">
               <div className="flex justify-between text-sm"><span className="text-muted">{t.pos.subtotal}</span><span className="tnum">{formatTHB(base)}</span></div>

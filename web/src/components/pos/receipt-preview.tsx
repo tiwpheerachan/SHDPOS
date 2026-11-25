@@ -38,7 +38,7 @@ export function ReceiptPreview({
   const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
   const [min, setMin] = useState(false);
   const [ow, setOw] = useState<OwSaleStatus | null>(null);
-  const jstRejected = !!ow && (isOwSaleFailed(ow.ow_status) || ["blocked", "dead"].includes(ow.state));
+  const jstRejected = !!ow && !(ow.reason ?? "").startsWith("พักไว้ไม่ส่ง:") && (isOwSaleFailed(ow.ow_status) || ["blocked", "dead"].includes(ow.state));
   useEffect(() => { if (order) setMin(false); }, [order?.id]);
   if (!order) return null;
 

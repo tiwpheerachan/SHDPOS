@@ -4,6 +4,7 @@
 //   ใบโอน: ผลตรวจ "ไม่ตรง" หรือค้าง recovery_required → สร้างงาน · กลับมาตรงกัน → ปิดงานเอง
 //   ปัญหาเดิม (ลายเซ็นเดิม) ไม่แจ้งซ้ำ · ปัญหาเปลี่ยน = อัปเดตงาน + แจ้งใหม่
 // =====================================================================
+import { HOLD_PREFIX } from "./ow-sales";
 import { isOwSaleDone } from "@/lib/ow/sale-status";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
@@ -43,15 +44,17 @@ export async function syncSaleIssues(source: string): Promise<{ created: number;
       if (!o?.branch_id) continue;
       const st = e.response?.sale?.status ?? null;
       const sn = st === "sn_pending";
-      const title = e.state === "retry" ? `บิล ${o.order_no}: ส่งเข้าคลังกลางไม่ผ่าน (กำลังลองซ้ำ)`
+      const held = (e.reason ?? "").startsWith(HOLD_PREFIX);
+      const title = held ? `บิล ${o.order_no}: พักไว้ไม่ส่ง JST (${(e.reason ?? "").includes("ขายส่ง") ? "ขายส่ง" : "ช่องทางนี้"})`
+        : e.state === "retry" ? `บิล ${o.order_no}: ส่งเข้าคลังกลางไม่ผ่าน (กำลังลองซ้ำ)`
         : e.state === "dead" ? `บิล ${o.order_no}: ส่งเข้าคลังกลางไม่ได้ (ลองซ้ำครบแล้ว)`
         : sn ? `บิล ${o.order_no}: รอแก้ SN ก่อนเข้า JST` : `บิล ${o.order_no}: JST ไม่รับบิล`;
-      const how = sn ? "แก้ SN ได้ที่ หลังบ้าน › เชื่อมคลังกลาง › ส่งบิลขาย (ภายใน 7 วัน)"
+      const how = held ? "ยังไม่ต้องทำอะไรที่หน้าร้าน — เมื่อ OneWarehouse เปิดรองรับช่องทางนี้แล้ว กด \"ส่งใหม่\" ที่บิล (ไม่ต้องเปิดบิลใหม่)" : sn ? "แก้ SN ได้ที่ หลังบ้าน › เชื่อมคลังกลาง › ส่งบิลขาย (ภายใน 7 วัน)"
         : "ตรวจสาเหตุ แก้ที่ต้นเหตุ (เช่น เติมสต๊อก/ปิดใบโอนที่ค้างใน OneWarehouse) แล้วกด \"ลองใหม่\" ที่ หลังบ้าน › เชื่อมคลังกลาง › ส่งบิลขาย";
       const r = await upsert({
         kind: "ow_sale", source: e.aggregate_id, branch: o.branch_id as string, title,
         desc: `${e.reason ?? "ไม่ทราบสาเหตุ"}\n\nวิธีแก้: ${how}${e.response?.sale?.saleNo ? `\nเลขคลังกลาง: ${e.response.sale.saleNo}` : ""}`,
-        priority: e.state === "retry" ? "high" : "urgent",
+        priority: held ? "normal" : e.state === "retry" ? "high" : "urgent",
         // retry: ข้อความเปลี่ยนทุกรอบ → ใช้แค่สถานะ (ไม่แจ้งซ้ำทุก 30 วิ)
         sig: e.state === "retry" ? "retry" : `${e.state}:${st ?? ""}:${(e.reason ?? "").slice(0, 160)}`,
         hint: (o.cashier_id as string | null) ?? null,

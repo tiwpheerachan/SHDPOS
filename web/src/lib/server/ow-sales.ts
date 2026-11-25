@@ -105,10 +105,23 @@ type StoredRequest = { body: OwSaleBody; hash: string; order_id: string; item_id
 const hashOf = (b: unknown) => createHash("sha256").update(JSON.stringify(b)).digest("hex");
 
 /** อ่านบิลจริงจาก DB (client_uuid = hold id) แล้วสร้าง input (+ รหัสบรรทัดบิลตามลำดับ ใช้ตอนแก้ SN) */
-async function loadSaleInput(holdId: string, owBranchId: string): Promise<{ input: PosSaleInput; orderId: string; itemIds: string[] }> {
+// ช่องทางที่ส่งเข้า JST ในนามสาขา (ลูกค้า JST = สาขา) — OW 25 พ.ย.:
+//   • ขายส่ง (b2b) ต้องเลือกลูกค้า JST จริง (jstCustomerId, ERIS-256) → ยังไม่ส่งจนกว่า API ขึ้น
+//   • ออนไลน์ (Shopee/Lazada/TikTok/เว็บ) ออเดอร์เข้า JST ทางแพลตฟอร์มเองอยู่แล้ว → ส่งซ้ำ = ตัดสต๊อก 2 รอบ
+export const OW_SALE_CHANNELS = new Set(["offline", "event"]);
+export const HOLD_PREFIX = "พักไว้ไม่ส่ง:";
+export function holdReasonForChannel(channel: string | null | undefined): string | null {
+  const c = channel ?? "offline";
+  if (OW_SALE_CHANNELS.has(c)) return null;
+  if (c === "b2b") return `${HOLD_PREFIX} บิลขายส่ง — ต้องเลือกลูกค้า JST จริง รอ OneWarehouse เปิด API ลูกค้า (jstCustomerId, ERIS-256)`;
+  if (c.startsWith("online_")) return `${HOLD_PREFIX} บิลช่องทางออนไลน์ (${c.replace("online_", "")}) — ออเดอร์เข้า JST ทางแพลตฟอร์มอยู่แล้ว ส่งซ้ำจะตัดสต๊อก 2 รอบ`;
+  return `${HOLD_PREFIX} ช่องทาง ${c} ยังไม่ได้ตกลงวิธีส่งเข้า JST`;
+}
+
+async function loadSaleInput(holdId: string, owBranchId: string): Promise<{ input: PosSaleInput; orderId: string; itemIds: string[]; channel: string | null }> {
   const sb = supabaseAdmin();
   const { data: o, error } = await sb.from("orders")
-    .select("id,order_no,grand_total,discount_total,promo_snapshot,customer_name,customer_phone,created_at,sale_occurred_at,order_items(id,sku,qty,unit_price,discount_amount,is_gift,gift_source,gift_campaign_id,sort_order,order_item_serials(serial_no)),order_payments(method,amount)")
+    .select("id,order_no,channel,grand_total,discount_total,promo_snapshot,customer_name,customer_phone,created_at,sale_occurred_at,order_items(id,sku,qty,unit_price,discount_amount,is_gift,gift_source,gift_campaign_id,sort_order,order_item_serials(serial_no)),order_payments(method,amount)")
     .eq("client_uuid", holdId).maybeSingle();
   if (error) throw new Error("อ่านบิลไม่สำเร็จ");
   if (!o) throw new Error("ยังไม่พบบิลของรายการนี้");
@@ -121,7 +134,7 @@ async function loadSaleInput(holdId: string, owBranchId: string): Promise<{ inpu
   const cname = (id: string | null | undefined) => { const c = camps.find((x) => x.id === id); return c ? String(c.name || c.code) : null; };
   const note = discountRemark(discountBreakdown({ grand_total: Number(o.grand_total), discount_total: Number(o.discount_total ?? 0), promo_snapshot: snap, items }, cname));
   return {
-    orderId: o.id, itemIds: items.map((i) => i.id),
+    orderId: o.id, itemIds: items.map((i) => i.id), channel: (o.channel as string | null) ?? null,
     input: {
       orderNo: o.order_no, saleAt: o.sale_occurred_at ?? o.created_at, owBranchId,
       customer: { name: o.customer_name, phone: o.customer_phone },
@@ -151,7 +164,9 @@ export async function deliverSaleEvent(ev: EventRow) {
   let stored = ev.payload.request as StoredRequest | undefined;
   if (!stored) {
     try {
-      const { input, orderId, itemIds } = await loadSaleInput(ev.aggregate_id, owBranchId);
+      const { input, orderId, itemIds, channel } = await loadSaleInput(ev.aggregate_id, owBranchId);
+      const hold = holdReasonForChannel(channel);
+      if (hold) return block(hold); // ไม่สร้าง request · ไม่ส่ง OW (ปลดได้เมื่อเปิดช่องทางนี้แล้ว กด "ส่งใหม่")
       const body = buildSaleBody(input, makeOpKey("sale", ev.event_key));
       stored = { body, hash: hashOf(body), order_id: orderId, item_ids: itemIds };
     } catch (e) {
