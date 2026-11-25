@@ -21,6 +21,7 @@ export const PERMISSION_KEYS = [
   "dashboard.view", "work.view", "sales.view", "product.view", "document.view",
   "deferred_sale.manage", "approval.view",
   "campaign.manage", "display.manage", "integration.manage", "integration.reconcile",
+  "loyalty.manage",
 ] as const;
 
 export type PermissionKey = (typeof PERMISSION_KEYS)[number];
@@ -89,6 +90,7 @@ export const ROLE_MATRIX: Record<EmployeeRole, Partial<Record<PermissionKey, Rul
     "deferred_sale.manage": { effect: "allow" },
     "approval.view": { effect: "allow" },
     "campaign.manage": { effect: "allow" },
+    "loyalty.manage": { effect: "allow" },
     "display.manage": { effect: "allow" },
     "pos.sell": { effect: "allow" },
     "pos.discount": { effect: "allow", limit: 20 },
@@ -128,6 +130,7 @@ export const ROLE_MATRIX: Record<EmployeeRole, Partial<Record<PermissionKey, Rul
     "deferred_sale.manage": { effect: "allow" },
     "approval.view": { effect: "allow" },
     "campaign.manage": { effect: "allow" },
+    "loyalty.manage": { effect: "allow" },
     "display.manage": { effect: "allow" },
     "integration.manage": { effect: "allow" },
     "integration.reconcile": { effect: "allow" },

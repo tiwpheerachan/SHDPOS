@@ -80,6 +80,9 @@ export default function SellPage() {
   const pendingDiscount = useRef<{ lineId: string | null; percent: number; amount: number } | null>(null);
 
   const [lastOrder, setLastOrder] = useState<Order | null>(null);
+  // แต้มสะสม: พรีวิวก่อนชำระ (สูตรเดียวกับ DB) + แต้มที่ได้จริงหลังขาย (จาก loyalty_ledger)
+  const [earnPreview, setEarnPreview] = useState<{ points: number; parts: { label: string; points: number }[]; reason?: string } | null>(null);
+  const [earnedActual, setEarnedActual] = useState<number | null>(null);
   const [printStatus, setPrintStatus] = useState<PrintStatus>("idle");
   const [printError, setPrintError] = useState<string | null>(null);
   const [holds, setHolds] = useState<HeldBill[]>([]);
@@ -319,6 +322,41 @@ export default function SellPage() {
     }, 180_000);
     return ()=>clearInterval(timer);
   },[payOpen,branchId]);
+
+  // พรีวิวแต้ม (หน่วง 500ms หลังตะกร้าเปลี่ยน) — เฉพาะเมื่อเลือกลูกค้าแล้ว
+  const earnKey = cart.customerId && branchId ? `${branchId}|${cart.customerId}|${totals.grandTotal}|${cart.redeemPoints}|${session.channel}|${cart.lines.map((l) => `${l.product_id}:${l.qty}:${l.is_gift ? 1 : 0}`).join(",")}` : "";
+  useEffect(() => {
+    if (!earnKey || !isLiveMode() || !cart.lines.length) { setEarnPreview(null); return; }
+    let alive = true;
+    const t = setTimeout(async () => {
+      try {
+        const r = await fetch("/api/pos/loyalty", { method: "POST", headers: { "Content-Type": "application/json" }, cache: "no-store",
+          body: JSON.stringify({ branch_id: branchId, channel: session.channel, customer_id: cart.customerId, grand_total: totals.grandTotal, redeem_points: cart.redeemPoints,
+            items: cart.lines.filter((l) => l.product_id).map((l) => ({ product_id: l.product_id, qty: l.qty, is_gift: !!l.is_gift })) }) });
+        const j = await r.json();
+        if (alive && r.ok) setEarnPreview(j.result ?? null);
+      } catch { /* ออฟไลน์: ไม่แสดง */ }
+    }, 500);
+    return () => { alive = false; clearTimeout(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [earnKey]);
+  // แต้มที่ได้จริงของบิลล่าสุด (คิดตอนบันทึกบิลเสร็จ — รอสั้น ๆ แล้วอ่าน)
+  useEffect(() => {
+    setEarnedActual(null);
+    const id = lastOrder?.client_uuid;
+    if (!id || !lastOrder?.customer_id || !isLiveMode()) return;
+    let alive = true, tries = 0;
+    const tick = async () => {
+      try {
+        const r = await fetch(`/api/pos/loyalty?client_uuid=${id}`, { cache: "no-store" });
+        const j = await r.json();
+        if (alive && r.ok && j.earned) { setEarnedActual(Number(j.earned.points) || 0); if (j.earned.points || tries > 3) return; }
+      } catch { /* ลองใหม่ */ }
+      if (alive && ++tries < 6) setTimeout(() => void tick(), 1500);
+    };
+    void tick();
+    return () => { alive = false; };
+  }, [lastOrder?.client_uuid, lastOrder?.customer_id]);
 
   async function beginCheckout(skipPromoCheck = false) {
     if(deferredMode){
@@ -1176,6 +1214,12 @@ export default function SellPage() {
               <span className="tnum text-danger">-{formatTHB(totals.couponAmount)}</span>
             </div>
           )}
+          {cart.customerId && earnPreview ? (
+            <div className="flex justify-between text-xs" title={earnPreview.parts.map((p) => `${p.label}: ${p.points > 0 ? "+" : ""}${p.points}`).join("\n")}>
+              <span className="text-muted flex items-center gap-1"><Star size={11} className="text-amber-500" /> {L("จะได้แต้มสะสม", "Points to earn", "将获积分")}{earnPreview.parts.length > 1 ? <span className="text-[10px] text-amber-600">({earnPreview.parts.filter((p) => p.points > 0 && p.label).slice(1).map((p) => p.label).join(", ")})</span> : null}</span>
+              <span className="tnum font-semibold text-amber-600">+{earnPreview.points.toLocaleString()}</span>
+            </div>
+          ) : null}
           {totals.redeemAmount > 0 && (
             <div className="flex justify-between text-xs">
               <span className="text-muted flex items-center gap-1"><Star size={11} className="text-amber-500" /> {L("ใช้แต้ม", "Points", "用积分")} ({cart.redeemPoints})</span>
@@ -1365,7 +1409,7 @@ export default function SellPage() {
         cashier={employee}
         company={COMPANY}
         logoUrl={brandLogo}
-        pointsEarned={lastOrder?.customer_id ? Math.floor(lastOrder.grand_total / 20) : 0}
+        pointsEarned={lastOrder?.customer_id ? earnedActual ?? 0 : 0}
         printStatus={printStatus}
         printError={printError}
         canOpenDrawer={can(employee, "pos.open_drawer")}

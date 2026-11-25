@@ -9,7 +9,7 @@ import {
   LayoutDashboard, TrendingUp, Users, Package, Boxes, ArrowLeftRight, ScanLine,
   ShieldCheck, ScrollText, Settings2, Store, Sun, Moon, Languages, Menu, X, Bell,
   Search, PanelLeftClose, PanelLeftOpen, ChevronDown, Command, Home, Activity, FileText, LogOut, Contact, CalendarClock, Ticket, Network, Landmark, Wand2, CreditCard, MonitorPlay, Cloud,
-  BadgePercent,
+  BadgePercent, Star,
 } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { useTheme } from "@/lib/theme";
@@ -47,6 +47,7 @@ const NAV: NavGroup[] = [
       { href: "/admin/discounts", icon: BadgePercent, key: "discounts", perm: "report.discount" },
       { href: "/admin/customers", icon: Contact, key: "customers", perm: "customer.manage" },
       { href: "/admin/campaigns", icon: Ticket, key: "campaigns", perm: "campaign.manage" },
+      { href: "/admin/loyalty", icon: Star, key: "loyalty", perm: "loyalty.manage" },
       { href: "/admin/display", icon: MonitorPlay, key: "display", perm: "display.manage" },
       { href: "/admin/employees", icon: Users, key: "employees", perm: "report.employee_perf" },
       { href: "/admin/org", icon: Network, key: "org", perm: "admin.employee_manage" },
@@ -177,6 +178,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
     deferredsales: L("บิลรอปิด", "Pending bills", "待结账"),
     tasks: L("ติดตามลูกค้า", "Follow-ups", "跟进任务"),
     campaigns: L("แคมเปญ", "Campaigns", "活动"),
+    loyalty: L("แต้มสะสม", "Loyalty points", "积分"),
     discounts: L("ประวัติส่วนลด", "Discount history", "折扣明细"),
     display: L("จอลูกค้า", "Customer display", "客显"),
     coupons: L("คูปอง", "Coupons", "优惠券"),
