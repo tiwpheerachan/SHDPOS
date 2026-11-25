@@ -1,6 +1,7 @@
 // /api/pos/loyalty — แต้มสะสมที่หน้าร้าน (สูตรเดียวกับตอนบันทึกบิล: pos_loyalty_calc)
 //   POST { branch_id, channel, customer_id, grand_total, redeem_points, items:[{product_id, qty, is_gift}] } → พรีวิว "จะได้กี่แต้ม"
 //   GET  ?client_uuid= → แต้มที่ได้จริงของบิล (จาก loyalty_ledger) สำหรับใบเสร็จ
+//   GET  ?expiring=<customer_id>&days=30 → แต้มที่จะหมดอายุ (เตือนพนักงานให้ชวนลูกค้าใช้)
 import { NextRequest, NextResponse } from "next/server";
 import { SSO_COOKIE, readSession } from "@/lib/sso/session-cookie";
 import { resolveAuthz } from "@/lib/sso/grants";
@@ -44,6 +45,14 @@ export async function POST(req: NextRequest) {
 export async function GET(req: NextRequest) {
   const a = await auth(req);
   if (!a) return reply({ error: "ไม่มีสิทธิ์" }, 403);
+  const exp = req.nextUrl.searchParams.get("expiring");
+  if (exp !== null) {
+    if (!UUID.test(exp)) return reply({ error: "รหัสลูกค้าไม่ถูกต้อง" }, 400);
+    const days = Math.min(Math.max(Number(req.nextUrl.searchParams.get("days")) || 30, 1), 365);
+    const r = await supabaseAdmin().rpc("pos_points_expiring", { p_cust: exp, p_days: days });
+    if (r.error) return reply({ error: "อ่านแต้มใกล้หมดอายุไม่สำเร็จ" }, 503);
+    return reply({ expiring: r.data, days });
+  }
   const id = req.nextUrl.searchParams.get("client_uuid") ?? "";
   if (!UUID.test(id)) return reply({ error: "รหัสบิลไม่ถูกต้อง" }, 400);
   const sb = supabaseAdmin();

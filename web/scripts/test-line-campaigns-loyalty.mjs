@@ -150,5 +150,27 @@ export async function testLineCampaignsLoyalty(db) {
     eq((await db.query('select points from customers where id=$1', [CUST])).rows[0].points, 20, 'แต้มลูกค้า');
     eq((await db.query('select points from brand_wallets where customer_id=$1 and brand_id=$2', [CUST, BRAND])).rows[0].points, 20, 'กระเป๋าแบรนด์');
   });
+  await t('แต้มหมดอายุ: FIFO แยกแบรนด์ · ตัดกระเป๋าแบรนด์ตรง · รันซ้ำไม่ตัดซ้ำ · ดูแต้มใกล้หมดอายุ', async () => {
+    const X = U(700);
+    await db.query("insert into customers(id,name,points) values($1,'Expiry UAT',180)", [X]);
+    await db.query('insert into brand_wallets(customer_id,brand_id,points) values($1,$2,120),($1,$3,40)', [X, BRAND, BRAND2]);
+    const led = (brand, kind, delta, createdDays, expDays) => db.query(`insert into loyalty_ledger(customer_id,brand_id,kind,points_delta,created_at,expires_at)
+      values($1,$2,$3,$4,now()+make_interval(days=>$5),case when $6::int is null then null else now()+make_interval(days=>$6::int) end)`, [X, brand, kind, delta, createdDays, expDays]);
+    await led(BRAND, 'earn', 100, -400, -35);   // หมดแล้ว
+    await led(BRAND, 'redeem', -30, -300, null); // ใช้จากก้อนเก่าก่อน → เหลือ 70 ที่หมดอายุ
+    await led(BRAND, 'earn', 50, -20, 10);       // จะหมดใน 10 วัน
+    await led(BRAND2, 'earn', 40, -366, -1);     // หมดแล้ว
+    await led(null, 'adjust', 20, -10, null);    // ไม่มีวันหมดอายุ
+    const soon = (await db.query('select pos_points_expiring($1,30) r', [X])).rows[0].r;
+    eq(Number(soon.total), 160, 'ใกล้/เลยหมดอายุใน 30 วัน (70+50+40)');
+    eq(Number((await db.query('select pos_points_expiring($1,5) r', [X])).rows[0].r.total), 110, 'ภายใน 5 วัน = เฉพาะที่เลยแล้ว');
+    eq((await db.query('select expire_points_one($1) n', [X])).rows[0].n, 110, 'ตัดหมดอายุ');
+    eq((await db.query('select points from customers where id=$1', [X])).rows[0].points, 70, 'ยอดลูกค้า');
+    const w = Object.fromEntries((await db.query('select brand_id,points from brand_wallets where customer_id=$1', [X])).rows.map((r) => [r.brand_id, r.points]));
+    eq(w[BRAND], 50, 'กระเป๋าแบรนด์ 1'); eq(w[BRAND2], 0, 'กระเป๋าแบรนด์ 2');
+    eq(Number((await db.query("select count(*) from loyalty_ledger where customer_id=$1 and kind='expire' and brand_id is not null", [X])).rows[0].count), 2, 'ledger expire แยกแบรนด์');
+    eq((await db.query('select expire_points($1) n', [X])).rows[0].n, 0, 'รันซ้ำไม่ตัดซ้ำ');
+    eq(Number((await db.query('select pos_points_expiring($1,30) r', [X])).rows[0].r.total), 50, 'เหลือใกล้หมด 50');
+  });
   console.log(`PASS: ${n} line-campaign / loyalty regressions (scope, caps, stacking, windows, per-item, trigger)`);
 }

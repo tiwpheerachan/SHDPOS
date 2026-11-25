@@ -7,6 +7,7 @@ import { useI18n } from "@/lib/i18n/provider";
 import { Button, Drawer } from "@/components/ui";
 import { SearchSelect } from "@/components/admin/search-select";
 import { formatTHB } from "@/lib/money";
+import { exportCsv, stampFilename } from "@/lib/export";
 
 type Program = { id: string; brand_id: string | null; active: boolean; spend_per_unit: number; points_per_unit: number; min_spend: number; max_points_per_bill: number | null; earn_on_redeemed_bill: boolean; expiry_months: number | null; note: string | null; updated_at: string };
 type Rule = { id?: string; brand_id: string | null; name: string; kind: "multiplier" | "per_item" | "bonus"; active: boolean; starts_at: string | null; ends_at: string | null; days_of_week: number[]; time_from: string | null; time_to: string | null; branch_ids: string[]; channels: string[]; target_segment: string; product_ids: string[]; category_ids: string[]; multiplier: number | null; points_per_unit: number | null; bonus_points: number | null; min_spend: number; min_qty: number; priority: number };
@@ -184,6 +185,8 @@ export default function LoyaltyPage() {
         <Simulator data={data} brand={brand} />
       </div>
 
+      <ExpiringReport brand={brand} />
+
       {edit ? <RuleDrawer rule={edit} data={data} onClose={() => setEdit(null)} onSaved={async () => { setEdit(null); await load(); }} post={post} /> : null}
     </div>
   );
@@ -356,5 +359,51 @@ function Simulator({ data, brand }: { data: Data | null; brand: string | null })
         </div>
       ) : null}
     </aside>
+  );
+}
+
+// ลูกค้าที่แต้มจะหมดอายุ — ให้ทีมการตลาดติดต่อชวนใช้ก่อนหมด (ตัดหมดอายุอัตโนมัติวันละครั้ง)
+type ExpRow = { customer_id: string; name: string; phone: string | null; points: number; expiring: number; next_at: string };
+function ExpiringReport({ brand }: { brand: string | null }) {
+  const { locale } = useI18n();
+  const L = (th: string, en: string) => (locale === "th" ? th : en);
+  const [days, setDays] = useState(30);
+  const [res, setRes] = useState<{ rows: ExpRow[]; last_run: { amount: number; created_at: string } | null } | null>(null), [err, setErr] = useState("");
+  useEffect(() => {
+    let alive = true; setRes(null); setErr("");
+    fetch(`/api/admin/loyalty?expiring=${days}${brand ? `&brand=${brand}` : ""}`, { cache: "no-store" }).then(async (r) => { const j = await r.json(); if (!alive) return; if (!r.ok) setErr(j.error); else setRes(j); }).catch(() => alive && setErr(L("โหลดไม่สำเร็จ", "Load failed")));
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [days, brand]);
+  const total = res?.rows.reduce((n, r) => n + r.expiring, 0) ?? 0;
+  const d = (iso: string) => new Date(iso).toLocaleDateString(locale === "th" ? "th-TH" : "en-US", { day: "numeric", month: "short", year: "2-digit" });
+  return (
+    <section className="rounded-2xl border border-line/70 bg-surface overflow-hidden">
+      <div className="p-4 flex flex-wrap items-center gap-2 border-b border-line">
+        <Clock3 size={15} className="text-danger" />
+        <p className="text-sm font-semibold">{L("แต้มใกล้หมดอายุ", "Points expiring soon")}{brand ? "" : L(" (ทุกแบรนด์)", " (all brands)")}</p>
+        <select value={days} onChange={(e) => setDays(Number(e.target.value))} className="h-8 rounded-lg border border-line bg-surface text-xs px-2">
+          {[7, 14, 30, 60, 90].map((n) => <option key={n} value={n}>{L(`ภายใน ${n} วัน`, `within ${n} days`)}</option>)}
+        </select>
+        {res ? <span className="text-xs text-muted">{res.rows.length.toLocaleString()} {L("คน", "customers")} · {total.toLocaleString()} {L("แต้ม", "pts")}</span> : null}
+        <span className="text-[11px] text-muted ml-auto">{L("ระบบตัดแต้มหมดอายุอัตโนมัติวันละครั้ง", "Auto-expiry runs daily")}{res?.last_run ? ` · ${L("ล่าสุด", "last")} ${new Date(res.last_run.created_at).toLocaleString(locale === "th" ? "th-TH" : "en-US")} (${Number(res.last_run.amount).toLocaleString()} ${L("แต้ม", "pts")})` : ""}</span>
+        <Button size="sm" variant="ghost" disabled={!res?.rows.length} onClick={() => res && exportCsv(stampFilename("points-expiring"), res.rows.map((r) => ({ name: r.name, phone: r.phone ?? "", points: r.points, expiring: r.expiring, expires_on: r.next_at.slice(0, 10) })))}>CSV</Button>
+      </div>
+      {err ? <p role="alert" className="px-4 py-2 text-xs text-danger">{err}</p> : null}
+      {res ? (res.rows.length ? (
+        <div className="max-h-80 overflow-auto">
+          <table className="w-full text-xs">
+            <thead className="bg-surface2 text-muted sticky top-0"><tr><th className="text-left font-semibold px-4 py-2">{L("ลูกค้า", "Customer")}</th><th className="text-right font-semibold px-3 py-2">{L("แต้มทั้งหมด", "Balance")}</th><th className="text-right font-semibold px-3 py-2">{L("จะหมดอายุ", "Expiring")}</th><th className="text-left font-semibold px-3 py-2">{L("เริ่มหมด", "From")}</th></tr></thead>
+            <tbody>{res.rows.map((r) => (
+              <tr key={r.customer_id} className="border-t border-line/60">
+                <td className="px-4 py-2"><a href={`/admin/customers?id=${r.customer_id}`} className="font-medium hover:underline">{r.name}</a><span className="text-muted"> {r.phone ?? ""}</span></td>
+                <td className="px-3 py-2 text-right tabular-nums">{r.points.toLocaleString()}</td>
+                <td className="px-3 py-2 text-right tabular-nums font-semibold text-danger">{Math.min(r.expiring, r.points).toLocaleString()}</td>
+                <td className="px-3 py-2">{new Date(r.next_at) < new Date() ? L("เลยกำหนด (รอตัดรอบถัดไป)", "Overdue") : d(r.next_at)}</td>
+              </tr>))}</tbody>
+          </table>
+        </div>
+      ) : <p className="text-xs text-muted text-center py-6">{L("ไม่มีลูกค้าที่แต้มจะหมดอายุในช่วงนี้", "Nothing expiring in this window")}</p>) : !err ? <p className="text-xs text-muted text-center py-6">…</p> : null}
+    </section>
   );
 }

@@ -323,6 +323,16 @@ export default function SellPage() {
     return ()=>clearInterval(timer);
   },[payOpen,branchId]);
 
+  // แต้มใกล้หมดอายุ (30 วัน) ของลูกค้าที่เลือก — เตือนพนักงานชวนใช้ก่อนหมด
+  const [expiring, setExpiring] = useState<{ total: number; next_at: string | null; next_points: number } | null>(null);
+  useEffect(() => {
+    setExpiring(null);
+    if (!cart.customerId || !isLiveMode()) return;
+    let alive = true;
+    fetch(`/api/pos/loyalty?expiring=${cart.customerId}&days=30`, { cache: "no-store" }).then((r) => r.json()).then((j) => { if (alive && j.expiring) setExpiring(j.expiring); }).catch(() => {});
+    return () => { alive = false; };
+  }, [cart.customerId]);
+
   // พรีวิวแต้ม (หน่วง 500ms หลังตะกร้าเปลี่ยน) — เฉพาะเมื่อเลือกลูกค้าแล้ว
   const earnKey = cart.customerId && branchId ? `${branchId}|${cart.customerId}|${totals.grandTotal}|${cart.redeemPoints}|${session.channel}|${cart.lines.map((l) => `${l.product_id}:${l.qty}:${l.is_gift ? 1 : 0}`).join(",")}` : "";
   useEffect(() => {
@@ -965,6 +975,11 @@ export default function SellPage() {
               <span className="flex items-center gap-1 text-[11px] text-amber-600 dark:text-amber-300 font-semibold">
                 <Star size={12} /> {cart.customerPoints.toLocaleString()} {L("แต้ม", "pts", "积分")}
               </span>
+              {expiring && expiring.total > 0 && expiring.next_at ? (
+                <span className="text-[10px] font-semibold text-danger" title={L(`ภายใน 30 วันจะหมดอายุรวม ${expiring.total} แต้ม`, `${expiring.total} pts expire within 30 days`, `30天内到期 ${expiring.total}`)}>
+                  {L("หมดอายุ", "expires", "到期")} {Math.min(expiring.next_points, cart.customerPoints).toLocaleString()} {L("แต้ม", "pts", "分")} · {new Date(expiring.next_at).toLocaleDateString(locale === "th" ? "th-TH" : "en-US", { day: "numeric", month: "short" })}
+                </span>
+              ) : null}
               {cart.customerCredit > 0 && (
                 <span className="flex items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-300 font-semibold">
                   <Wallet size={12} /> {formatTHB(cart.customerCredit, false)}

@@ -41,6 +41,16 @@ export async function GET(req: NextRequest) {
   try {
     await ctx(req);
     const sb = supabaseAdmin();
+    // ?expiring=30&brand=<uuid> → ลูกค้าที่แต้มจะหมดอายุ (ให้ทีมการตลาดชวนใช้)
+    const ex = req.nextUrl.searchParams.get("expiring");
+    if (ex !== null) {
+      const days = Math.min(Math.max(Number(ex) || 30, 1), 365);
+      const brand = req.nextUrl.searchParams.get("brand");
+      const r = await sb.rpc("pos_points_expiring_report", { p_days: days, p_brand: brand && /^[0-9a-f-]{36}$/i.test(brand) ? brand : null, p_limit: 2000 });
+      if (r.error) throw new PosError("อ่านรายงานแต้มใกล้หมดอายุไม่สำเร็จ — ตรวจ migration 0065", 503);
+      const last = await sb.from("audit_logs").select("amount,after_data,created_at").eq("action", "points_expire_run").order("created_at", { ascending: false }).limit(1).maybeSingle();
+      return reply({ days, rows: r.data ?? [], last_run: last.data ?? null });
+    }
     const [prog, rules, brands, branches, cats] = await Promise.all([
       sb.from("loyalty_programs").select("*"),
       sb.from("loyalty_rules").select("*").is("archived_at", null).order("priority", { ascending: false }).order("created_at"),
