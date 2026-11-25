@@ -40,10 +40,12 @@ export async function GET(req: NextRequest) {
     const canTrace = hasPerm(c.profile.email, c.authz, "sales.trace");
     const docs = (await listOrderDocs(o)).filter((d) => !d.internal || canTrace);
     const cust = o.customer_id ? (await supabaseAdmin().from("customers").select("name,tax_id,tax_name,tax_address,tax_branch_no,phone").eq("id", o.customer_id).maybeSingle()).data : null;
+    const rq = (await supabaseAdmin().from("tax_invoice_requests").select("id,buyer,contact,created_at").eq("order_id", o.id).eq("status", "pending").maybeSingle()).data;
     return reply({
       order: { order_no: o.order_no, client_uuid: o.client_uuid, status: o.status },
       docs, can_issue_tax: hasPerm(c.profile.email, c.authz, "tax.issue_full"),
-      buyer_prefill: cust ? { name: cust.tax_name || cust.name, tax_id: cust.tax_id ?? "", branch_no: cust.tax_branch_no ?? "", address: cust.tax_address ?? "", phone: cust.phone ?? "" } : null,
+      tax_request: rq ? { contact: rq.contact, created_at: rq.created_at } : null,
+      buyer_prefill: rq ? { name: rq.buyer.name ?? "", tax_id: rq.buyer.tax_id ?? "", branch_no: rq.buyer.branch_no ?? "", address: rq.buyer.address ?? "", phone: rq.buyer.phone ?? "" } : cust ? { name: cust.tax_name || cust.name, tax_id: cust.tax_id ?? "", branch_no: cust.tax_branch_no ?? "", address: cust.tax_address ?? "", phone: cust.phone ?? "" } : null,
     });
   } catch (e) { return reply({ error: e instanceof Error ? e.message : "ผิดพลาด" }, 503); }
 }
@@ -63,6 +65,9 @@ export async function POST(req: NextRequest) {
   const r = await sb.rpc("pos_issue_tax_invoice", { p_order: o.id, p_actor: c.authz.employee_id, p_buyer: b.buyer ?? {}, p_replace_reason: b.replace_reason ? String(b.replace_reason).slice(0, 500) : null });
   if (r.error) return reply({ error: ERR[r.error.message] ?? r.error.message }, 409);
   const out = r.data as { id: string; invoice_no: string; replay?: boolean; replaced?: string | null };
+  // ปิดคำขอของลูกค้า (ถ้ามี) + งานที่ระบบสร้างไว้
+  const done = await sb.from("tax_invoice_requests").update({ status: "issued", tax_invoice_id: out.id, updated_at: new Date().toISOString() }).eq("order_id", o.id).eq("status", "pending").select("work_item_id");
+  for (const w of done.data ?? []) if (w.work_item_id) await sb.from("pos_work_items").update({ status: "done", completed_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", w.work_item_id).not("status", "in", "(done,cancelled)");
   // เก็บข้อมูลภาษีไว้ที่ลูกค้า (ครั้งหน้าเติมให้อัตโนมัติ) — เฉพาะช่องที่ยังว่าง
   if (o.customer_id && b.buyer && typeof b.buyer === "object") {
     const by = b.buyer as Record<string, string>;

@@ -22,5 +22,16 @@ export async function testDocuments(db, ids) {
   await rejects(issue(o2, { ...buyer, tax_id: '123' }, 'x'), 'tax_invoice_buyer_tax_id'); n++;
   await rejects(issue(o2, { ...buyer, address: 'สั้น' }, 'x'), 'tax_invoice_buyer_address'); n++;
   await db.exec('set role anon'); await rejects(issue(o2, buyer), 'permission denied'); await db.exec('reset role'); n++;
+  // คำขอจากลูกค้า (0069)
+  const o4 = await mk(4);
+  const req = (o, b = buyer, c = 'line: test') => db.query('select pos_request_tax_invoice($1,$2,$3) r', [o, b, c]).then((x) => x.rows[0].r);
+  const r1 = await req(o4); eq(r1.status, 'pending', 'คำขอใหม่'); n++;
+  const r2 = await req(o4, { ...buyer, name: 'แก้ชื่อ จำกัด' }); eq(r2.updated, true, 'ส่งซ้ำ = แก้คำขอเดิม'); eq(r2.id, r1.id, 'คำขอเดิม');
+  eq(Number((await db.query("select count(*) from tax_invoice_requests where order_id=$1", [o4])).rows[0].count), 1, 'คำขอค้างบิลละ 1'); n++;
+  const wi = (await db.query('select w.title from tax_invoice_requests r join pos_work_items w on w.id=r.work_item_id where r.id=$1', [r1.id])).rows[0];
+  if (wi && !wi.title.includes('DOC-4')) throw Error('งานต้องอ้างเลขบิล'); n++;
+  await rejects(req(o1), 'tax_invoice_already_issued'); n++;
+  await rejects(req(o3), 'tax_invoice_order_not_eligible'); n++;
+  await rejects(req(o4, { ...buyer, tax_id: '12' }), 'tax_invoice_buyer_tax_id'); n++;
   console.log(`PASS: ${n} tax-invoice regressions (running number, one active, replace keeps history, buyer validation, eligibility, private RPC)`);
 }

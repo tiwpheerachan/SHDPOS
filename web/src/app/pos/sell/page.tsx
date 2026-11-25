@@ -33,6 +33,7 @@ import { ApprovalModal, type ApprovalRequestInput } from "@/components/pos/appro
 import { pushDisplay, type DisplayPayload } from "@/lib/customer-display";
 import { CustomerPicker } from "@/components/pos/customer-picker";
 import { BranchSwitcher } from "@/components/pos/branch-switcher";
+import { receiptLink } from "@/lib/receipt-link";
 import { maxRedeemablePoints, POINT_VALUE_THB } from "@/lib/loyalty";
 import { checkoutRequest, checkoutIdentity, clearCheckoutIdentity } from "@/lib/checkout";
 import { refreshBranchSnapshot } from "@/lib/offline/refresh";
@@ -780,7 +781,9 @@ export default function SellPage() {
   async function doPrint(order: Order) {
     setPrintStatus("printing");
     setPrintError(null);
+    const docUrl = isLiveMode() ? await receiptLink(order.client_uuid) : null;
     const builder = buildReceipt({
+      docUrl,
       order,
       branch,
       cashier: employee ?? undefined,

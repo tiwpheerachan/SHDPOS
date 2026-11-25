@@ -10,6 +10,7 @@ import { useToast } from "@/components/toast-host";
 import { listOrders, voidOrder, getBranch, refreshServerOrderStatuses } from "@/lib/data/repo";
 import { isLiveMode } from "@/lib/supabase/client";
 import { uuidv4 } from "@/lib/uuid";
+import { receiptLink } from "@/lib/receipt-link";
 import type { Branch, Order } from "@/lib/types";
 import { Button, Input, Modal, Table, Th, Td, Badge, EmptyState, Field, Segmented, SkeletonTable } from "@/components/ui";
 import { PosPage, TablePanel, StatChip } from "@/components/pos/page-shell";
@@ -103,9 +104,10 @@ export default function PosOrdersPage() {
   }, [filtered]);
 
   async function reprint(o: Order) {
+    const docUrl = isLiveMode() ? await receiptLink(o.client_uuid) : null;
     const res = await printEscPos(
       session.printer,
-      buildReceipt({ order: o, branch, cashier: employee ?? undefined, company: COMPANY, width: session.printer.width, copyLabel: L("สำเนา / REPRINT", "COPY / REPRINT", "副本 / 补打") })
+      buildReceipt({ docUrl, order: o, branch, cashier: employee ?? undefined, company: COMPANY, width: session.printer.width, copyLabel: L("สำเนา / REPRINT", "COPY / REPRINT", "副本 / 补打") })
     );
     toast.push(
       res.ok

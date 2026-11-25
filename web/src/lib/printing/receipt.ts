@@ -21,6 +21,8 @@ export interface ReceiptContext {
   copyLabel?: string;
   /** ข้อความประกาศท้ายสลิป */
   footerNote?: string;
+  /** ลิงก์ใบเสร็จออนไลน์ (ลงลายเซ็น) — มี = พิมพ์ QR ให้ลูกค้าสแกนดูใบเสร็จ/ใบรับประกัน/ขอใบกำกับเต็มรูป */
+  docUrl?: string | null;
 }
 
 const PAYMENT_LABEL: Record<string, string> = {
@@ -100,7 +102,11 @@ export function buildReceipt(ctx: ReceiptContext): EscPosBuilder {
   b.line(ctx.footerNote ?? "ขอบคุณที่ใช้บริการ");
   b.line("กรุณาเก็บใบเสร็จไว้เป็นหลักฐานการรับประกัน");
   b.line();
-  b.qr(`https://pos.shd-technology.co.th/r/${o.order_no}`, 5);
+  if (ctx.docUrl) {
+    b.line("สแกนดูใบเสร็จออนไลน์ · ใบรับประกัน");
+    b.line("ขอใบกำกับภาษีเต็มรูปได้ที่ลิงก์นี้");
+    b.qr(ctx.docUrl, 5);
+  }
   b.line(o.order_no);
   if (o.is_offline_origin) b.line("(บันทึกขณะออฟไลน์)");
   b.feed(3).cut();

@@ -10,7 +10,7 @@ const STAGE: Record<string, string> = { payment: "ชำระเงิน", sto
 type Buyer = { name: string; tax_id: string; branch_no: string; address: string; phone: string };
 
 export function OrderDocsPanel({ clientUuid, orderNo }: { clientUuid?: string | null; orderNo?: string | null }) {
-  const [data, setData] = useState<{ docs: OrderDocItem[]; can_issue_tax: boolean; buyer_prefill: Buyer | null; order: { client_uuid: string } } | null>(null);
+  const [data, setData] = useState<{ docs: OrderDocItem[]; can_issue_tax: boolean; buyer_prefill: Buyer | null; tax_request: { contact: string | null; created_at: string } | null; order: { client_uuid: string } } | null>(null);
   const [err, setErr] = useState(""), [copied, setCopied] = useState(""), [issue, setIssue] = useState<{ buyer: Buyer; reason: string; replace: boolean } | null>(null);
   const [busy, setBusy] = useState(false), [issueErr, setIssueErr] = useState("");
   const [viewKey, setViewKey] = useState<string | null>(null);
@@ -43,6 +43,13 @@ export function OrderDocsPanel({ clientUuid, orderNo }: { clientUuid?: string | 
 
   return (
     <div className="space-y-4">
+      {data.tax_request ? (
+        <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-xs flex flex-wrap items-center gap-2">
+          <span className="font-semibold text-amber-700 dark:text-amber-300">ลูกค้าขอใบกำกับภาษีเต็มรูปผ่านลิงก์ใบเสร็จ</span>
+          <span className="text-muted">{new Date(data.tax_request.created_at).toLocaleString("th-TH", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}{data.tax_request.contact ? ` · ติดต่อ: ${data.tax_request.contact}` : ""}</span>
+          {data.can_issue_tax && !issue ? <button onClick={() => { setIssue({ buyer: data.buyer_prefill ?? blank, reason: "", replace: false }); setIssueErr(""); }} className="ml-auto h-8 px-3 rounded-lg bg-brand text-brandInk font-medium">ตรวจข้อมูลแล้วออกใบกำกับ</button> : null}
+        </div>
+      ) : null}
       {groups.map(([stage, list]) => (
         <section key={stage} className="space-y-1.5">
           <p className="text-[11px] font-semibold text-muted px-0.5">{STAGE[stage]}</p>

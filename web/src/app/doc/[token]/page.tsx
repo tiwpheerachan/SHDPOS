@@ -13,6 +13,7 @@ export default function DocPage() {
   const { token } = useParams<{ token: string }>();
   const [doc, setDoc] = useState<DocPayload | null>(null), [err, setErr] = useState<{ msg: string; login?: boolean } | null>(null);
   const [exp, setExp] = useState<string | null>(null), [busy, setBusy] = useState(false), [copied, setCopied] = useState(false);
+  const [tax, setTax] = useState<TaxState | null>(null);
   const paper = useRef<HTMLDivElement>(null), zoomBox = useRef<HTMLDivElement>(null);
   // ?embed=1 = แสดงในหน้าต่างดูเอกสารของระบบ (ไม่มีแถบเครื่องมือ · ย่อ A4 ให้พอดีความกว้าง · ให้หน้าหลักสั่ง PDF/พิมพ์ได้)
   const [embed, setEmbed] = useState(false), [scale, setScale] = useState(1);
@@ -25,7 +26,7 @@ export default function DocPage() {
     return () => window.removeEventListener("resize", fit);
   }, []);
   useEffect(() => {
-    fetch(`/api/doc/${token}`, { cache: "no-store" }).then(async (r) => { const j = await r.json(); if (!r.ok) setErr({ msg: j.error, login: j.login }); else { setDoc(j.doc); setExp(j.expires_at); document.title = `${j.doc.title} ${j.doc.doc_no}`; } })
+    fetch(`/api/doc/${token}`, { cache: "no-store" }).then(async (r) => { const j = await r.json(); if (!r.ok) setErr({ msg: j.error, login: j.login }); else { setDoc(j.doc); setExp(j.expires_at); setTax(j.tax ?? null); document.title = `${j.doc.title} ${j.doc.doc_no}`; } })
       .catch(() => setErr({ msg: "โหลดเอกสารไม่สำเร็จ" }));
   }, [token]);
   const url = typeof window !== "undefined" ? `${window.location.origin}${window.location.pathname}` : "";
@@ -76,6 +77,7 @@ export default function DocPage() {
         </div>
       </div>
 
+      {doc.kind === "receipt" && tax && !embed ? <TaxRequestCard token={token} tax={tax} onSent={() => setTax({ ...tax, pending: true })} /> : null}
       <div ref={zoomBox} className={`print:py-0 ${embed ? "py-3 px-3" : "py-6 px-2"}`} style={embed ? { zoom: scale } : undefined}>
         <div ref={paper} className="sheet relative mx-auto bg-white text-gray-900 shadow-xl w-[210mm] min-h-[297mm] px-[16mm] py-[14mm] text-[11.5px] leading-relaxed" style={{ fontFamily: "'Sarabun','Noto Sans Thai','Prompt',system-ui,sans-serif" }}>
           {doc.watermark ? <div className="pointer-events-none absolute inset-0 grid place-items-center overflow-hidden"><span className="text-[110px] font-bold text-red-500/10 -rotate-[30deg] whitespace-nowrap">{doc.watermark}</span></div> : null}
@@ -172,4 +174,50 @@ export default function DocPage() {
 
 function Btn({ onClick, icon, label, primary }: { onClick: () => void; icon: React.ReactNode; label: string; primary?: boolean }) {
   return <button onClick={onClick} className={`h-9 px-3 rounded-xl text-xs font-medium inline-flex items-center gap-1.5 ${primary ? "bg-gray-900 text-white hover:bg-gray-800" : "border border-gray-300 bg-white text-gray-800 hover:bg-gray-50"}`}>{icon}{label}</button>;
+}
+
+// ── ลูกค้าขอใบกำกับภาษีเต็มรูปจากลิงก์/QR บนใบเสร็จ ──
+type TaxState = { eligible: boolean; issued: { invoice_no: string; url: string } | null; pending: boolean };
+function TaxRequestCard({ token, tax, onSent }: { token: string; tax: TaxState; onSent: () => void }) {
+  const [open, setOpen] = useState(false), [busy, setBusy] = useState(false), [err, setErr] = useState(""), [done, setDone] = useState(false);
+  const [f, setF] = useState({ name: "", tax_id: "", branch_no: "", address: "", phone: "", contact: "" });
+  const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setF({ ...f, [k]: e.target.value });
+  async function submit() {
+    setBusy(true); setErr("");
+    try {
+      const r = await fetch(`/api/doc/${token}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ buyer: { name: f.name, tax_id: f.tax_id, branch_no: f.branch_no, address: f.address, phone: f.phone }, contact: f.contact }) });
+      const j = await r.json(); if (!r.ok) throw Error(j.error);
+      setDone(true); setOpen(false); onSent();
+    } catch (e) { setErr(e instanceof Error ? e.message : "ส่งคำขอไม่สำเร็จ"); } finally { setBusy(false); }
+  }
+  const box = "no-print max-w-[210mm] mx-auto mt-4 mx-2 sm:mx-auto rounded-2xl border px-4 py-3";
+  const inp = "w-full h-10 px-3 rounded-xl border border-gray-300 bg-white text-sm outline-none focus:border-gray-900";
+  if (tax.issued) return (
+    <div className={`${box} border-emerald-300 bg-emerald-50 flex flex-wrap items-center gap-3`}>
+      <p className="text-sm text-emerald-800 flex-1">ออกใบกำกับภาษีเต็มรูปแล้ว เลขที่ <b className="font-mono">{tax.issued.invoice_no}</b></p>
+      <a href={tax.issued.url} className="h-9 px-4 rounded-xl bg-emerald-700 text-white text-xs font-medium inline-flex items-center">ดูใบกำกับภาษี</a>
+    </div>
+  );
+  if (!tax.eligible) return null;
+  return (
+    <div className={`${box} ${tax.pending || done ? "border-amber-300 bg-amber-50" : "border-gray-200 bg-white"}`}>
+      <div className="flex flex-wrap items-center gap-3">
+        <p className="text-sm text-gray-800 flex-1">{tax.pending || done ? "ส่งคำขอใบกำกับภาษีเต็มรูปแล้ว — สาขากำลังดำเนินการ เมื่อออกแล้วลิงก์นี้จะมีปุ่มดูใบกำกับภาษี" : "ต้องการใบกำกับภาษีเต็มรูป? กรอกข้อมูลผู้เสียภาษีได้ที่นี่"}</p>
+        <button onClick={() => setOpen(!open)} className="h-9 px-4 rounded-xl bg-gray-900 text-white text-xs font-medium">{open ? "ปิด" : tax.pending || done ? "แก้ไขข้อมูลคำขอ" : "ขอใบกำกับภาษีเต็มรูป"}</button>
+      </div>
+      {open ? (
+        <div className="mt-3 grid sm:grid-cols-2 gap-2">
+          <input className={inp} placeholder="ชื่อผู้ซื้อ / บริษัท *" value={f.name} onChange={set("name")} />
+          <input className={`${inp} font-mono`} placeholder="เลขประจำตัวผู้เสียภาษี 13 หลัก *" inputMode="numeric" value={f.tax_id} onChange={set("tax_id")} />
+          <input className={`${inp} font-mono`} placeholder="สาขา (ว่าง = สำนักงานใหญ่)" inputMode="numeric" value={f.branch_no} onChange={set("branch_no")} />
+          <input className={inp} placeholder="โทรศัพท์" inputMode="tel" value={f.phone} onChange={set("phone")} />
+          <textarea className={`${inp} h-auto py-2 sm:col-span-2`} rows={2} placeholder="ที่อยู่ตามทะเบียน *" value={f.address} onChange={set("address")} />
+          <input className={`${inp} sm:col-span-2`} placeholder="ช่องทางติดต่อกลับ (อีเมล / LINE) — ไม่บังคับ" value={f.contact} onChange={set("contact")} />
+          {err ? <p className="sm:col-span-2 text-sm text-red-600">{err}</p> : null}
+          <p className="sm:col-span-2 text-[11px] text-gray-500">ข้อมูลนี้ใช้ออกใบกำกับภาษีของบิลนี้เท่านั้น</p>
+          <div className="sm:col-span-2 flex justify-end"><button disabled={busy} onClick={() => void submit()} className="h-10 px-5 rounded-xl bg-gray-900 text-white text-sm font-medium disabled:opacity-50 inline-flex items-center gap-2">{busy ? <Loader2 size={15} className="animate-spin" /> : null}ส่งคำขอ</button></div>
+        </div>
+      ) : null}
+    </div>
+  );
 }
