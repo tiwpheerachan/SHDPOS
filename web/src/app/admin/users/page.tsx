@@ -51,6 +51,7 @@ const PERM_LABEL: Record<string, { th: string; en: string; zh: string }> = {
   "customer.manage": { th: "จัดการลูกค้า", en: "Manage customers", zh: "管理客户" },
   "tax.issue_full": { th: "ออกใบกำกับเต็มรูป", en: "Issue full tax invoice", zh: "开具增值税专用发票" },
   "tax.credit_note": { th: "ออกใบลดหนี้", en: "Issue credit note", zh: "开具红字发票" },
+  "report.share": { th: "แชร์รายงานภาพนิ่ง", en: "Share report links", zh: "分享报表" },
   "period.close": { th: "ปิดงวดบัญชี", en: "Close period", zh: "结账" },
   "period.reopen": { th: "เปิดงวดที่ปิดแล้ว", en: "Reopen period", zh: "反结账" },
 };

@@ -101,11 +101,14 @@ export function FilterBar({
   onChange,
   branches,
   brands,
+  hideViews,
 }: {
   value: AdminFilter;
   onChange: (f: AdminFilter) => void;
   branches: Branch[];
   brands: Brand[];
+  /** หน้าที่มีเมนูมุมมองแบบบันทึกบนเซิร์ฟเวอร์ (ViewsMenu) ของตัวเองแล้ว */
+  hideViews?: boolean;
 }) {
   const { t, locale } = useI18n();
   const { employee } = useSession();
@@ -248,9 +251,9 @@ export function FilterBar({
           <Filter size={14} /> {t.common.filter}
           {activeCount ? <span className="ml-1 px-1.5 rounded-full bg-brand text-brandInk text-[10px] tnum">{activeCount}</span> : null}
         </Button>
-        <Button variant="ghost" className="h-9 px-3 text-xs" onClick={() => setViewsOpen(true)}>
+        {!hideViews ? <Button variant="ghost" className="h-9 px-3 text-xs" onClick={() => setViewsOpen(true)}>
           <Bookmark size={14} /> {L("มุมมอง", "Views", "视图")}
-        </Button>
+        </Button> : null}
         {activeCount ? (
           <button onClick={clearAll} className="text-xs text-muted hover:text-ink">{L("ล้างทั้งหมด", "Clear all", "清除")}</button>
         ) : null}

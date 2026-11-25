@@ -1,7 +1,7 @@
 "use client";
 // แดชบอร์ดหน้ายอดขาย (กะทัดรัด) + รายการบิล — ข้อมูลจริงจากระบบกลาง
 //   ภาพรวม: KPI เทียบช่วงก่อนหน้า · ยอดสุทธิหลังหักคืน/ลดหนี้ · แนวโน้ม (ซ้อนช่วงก่อนหน้า) · ชำระ/ช่องทาง · แผนที่ความร้อน วัน×ชั่วโมง · สินค้า/สาขา/พนักงานท็อป
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { TrendingUp, TrendingDown, Minus, ArrowUpRight, Clock, Users, Store, Package, RotateCcw, ReceiptText } from "lucide-react";
 import type { Branch, Employee, Order } from "@/lib/types";
 import type { Adjustment, PrevOrder } from "@/lib/hooks/use-sales-data";
@@ -86,138 +86,240 @@ function Trend({ cur, prev, labels }: { cur: number[]; prev: number[]; labels: s
   );
 }
 
-export function SalesOverview({ orders, adjustments, prev, branches, employees, showCost, range, onDrill }: {
-  orders: Order[]; adjustments: Adjustment[]; prev: PrevOrder[]; branches: Branch[]; employees: Employee[]; showCost: boolean; range: { from: Date; to: Date };
-  onDrill: (tab: "branch" | "staff" | "bills", patch?: Record<string, unknown>) => void;
-}) {
-  const sold = useMemo(() => orders.filter(isCountedSale), [orders]);
-  const k = useMemo(() => {
-    const gross = sold.reduce((s, o) => s + o.grand_total, 0), bills = sold.length;
-    const units = sold.reduce((s, o) => s + o.items.reduce((a, i) => a + (i.is_gift ? 0 : i.qty), 0), 0);
-    const disc = sold.reduce((s, o) => s + o.discount_total, 0), gp = sold.reduce((s, o) => s + o.gross_profit, 0);
-    const members = sold.filter((o) => o.customer_id).length;
-    const refunds = adjustments.filter((a) => a.kind === "return").reduce((s, a) => s + a.amount, 0);
-    const cn = adjustments.filter((a) => a.kind === "credit_note").reduce((s, a) => s + a.amount, 0);
-    const voids = orders.filter((o) => o.status === "voided");
-    const pSold = prev.filter((o) => o.status === "completed" || o.status === "partially_refunded");
-    const pGross = pSold.reduce((s, o) => s + o.grand_total, 0);
-    return { gross, bills, units, disc, gp, members, refunds, cn, net: gross - refunds - cn, voids: voids.length, voidAmt: voids.reduce((s, o) => s + o.grand_total, 0),
-      avg: bills ? gross / bills : 0, pGross, pBills: pSold.length, pAvg: pSold.length ? pGross / pSold.length : 0, hasPrev: prev.length > 0 };
-  }, [sold, orders, adjustments, prev]);
+// ── โมเดลภาพรวม (ตัวเลขที่สรุปแล้ว · JSON ล้วน) — ใช้ทั้งหน้ายอดขาย และลิงก์แชร์ภาพนิ่ง (ไม่มีข้อมูลส่วนตัวลูกค้า) ──
+export type OverviewModel = {
+  kpi: { gross: number; net: number; bills: number; units: number; disc: number; gp: number; members: number; refunds: number; cn: number; voids: number; voidAmt: number; avg: number; pGross: number; pBills: number; pAvg: number; hasPrev: boolean; showCost: boolean };
+  spark: number[];
+  trend: { cur: number[]; prev: number[]; labels: string[]; hourly: boolean };
+  pay: { label: string; value: number }[]; ch: { label: string; value: number }[];
+  heat: { g: number[][]; max: number; peak: { d: number; h: number; v: number }; hours: [number, number] };
+  weekday: { label: string; cur: number; prev: number }[];
+  basket: { label: string; value: number }[];
+  categories: { label: string; value: number }[];
+  topProducts: { sku: string; name: string; qty: number; sales: number }[];
+  topBranches: { id: string; name: string; value: number }[];
+  topStaff: { id: string; name: string; value: number; bills: number }[];
+};
 
-  // แนวโน้ม: ช่วง ≤ 2 วัน = รายชั่วโมง · นอกนั้นรายวัน · ช่วงก่อนหน้าจัดตำแหน่งเดียวกัน
-  const trend = useMemo(() => {
-    const spanDays = Math.max(1, Math.round((+range.to - +range.from) / 86400_000));
-    if (spanDays <= 2) {
-      const cur = Array(24).fill(0), pv = Array(24).fill(0);
-      for (const o of sold) cur[bkkHour(saleAt(o))] += o.grand_total;
-      for (const o of prev) if (o.status !== "voided") pv[bkkHour(o.created_at)] += o.grand_total;
-      return { cur, prev: pv, labels: cur.map((_, h) => `${String(h).padStart(2, "0")}:00`) };
-    }
+export function buildOverview({ orders, adjustments, prev, branches, employees, showCost, range, productCat, catName }: {
+  orders: Order[]; adjustments: Adjustment[]; prev: PrevOrder[]; branches: Branch[]; employees: Employee[]; showCost: boolean; range: { from: Date; to: Date };
+  productCat?: Map<string, string | null>; catName?: Map<string, string>;
+}): OverviewModel {
+  const sold = orders.filter(isCountedSale);
+  const gross = sold.reduce((s, o) => s + o.grand_total, 0), bills = sold.length;
+  const units = sold.reduce((s, o) => s + o.items.reduce((a, i) => a + (i.is_gift ? 0 : i.qty), 0), 0);
+  const disc = sold.reduce((s, o) => s + o.discount_total, 0), gp = sold.reduce((s, o) => s + o.gross_profit, 0);
+  const refunds = adjustments.filter((a) => a.kind === "return").reduce((s, a) => s + a.amount, 0);
+  const cn = adjustments.filter((a) => a.kind === "credit_note").reduce((s, a) => s + a.amount, 0);
+  const voids = orders.filter((o) => o.status === "voided");
+  const pSold = prev.filter((o) => o.status === "completed" || o.status === "partially_refunded");
+  const pGross = pSold.reduce((s, o) => s + o.grand_total, 0);
+  const kpi = { gross, net: gross - refunds - cn, bills, units, disc, gp, members: sold.filter((o) => o.customer_id).length, refunds, cn, voids: voids.length,
+    voidAmt: voids.reduce((s, o) => s + o.grand_total, 0), avg: bills ? gross / bills : 0, pGross, pBills: pSold.length, pAvg: pSold.length ? pGross / pSold.length : 0, hasPrev: prev.length > 0, showCost };
+
+  const spanDays = Math.max(1, Math.round((+range.to - +range.from) / 86400_000));
+  let trend: OverviewModel["trend"];
+  if (spanDays <= 2) {
+    const cur = Array(24).fill(0), pv = Array(24).fill(0);
+    for (const o of sold) cur[bkkHour(saleAt(o))] += o.grand_total;
+    for (const o of pSold) pv[bkkHour(o.created_at)] += o.grand_total;
+    trend = { cur, prev: pv, labels: cur.map((_, h) => `${String(h).padStart(2, "0")}:00`), hourly: true };
+  } else {
     const days: string[] = [];
     for (let d = new Date(range.from); d <= range.to && days.length < 400; d = new Date(+d + 86400_000)) days.push(bkkDay(d.toISOString()));
     const idx = new Map(days.map((d, i) => [d, i]));
     const cur = Array(days.length).fill(0), pv = Array(days.length).fill(0);
     for (const o of sold) { const i = idx.get(bkkDay(saleAt(o))); if (i !== undefined) cur[i] += o.grand_total; }
     const shift = +range.to - +range.from + 1;
-    for (const o of prev) { if (o.status === "voided") continue; const i = idx.get(bkkDay(new Date(+new Date(o.created_at) + shift).toISOString())); if (i !== undefined) pv[i] += o.grand_total; }
-    return { cur, prev: pv, labels: days.map((d) => { const [, m, dd] = d.split("-"); return `${+dd}/${+m}`; }) };
-  }, [sold, prev, range]);
+    for (const o of pSold) { const i = idx.get(bkkDay(new Date(+new Date(o.created_at) + shift).toISOString())); if (i !== undefined) pv[i] += o.grand_total; }
+    trend = { cur, prev: pv, labels: days.map((d) => { const [, m, dd] = d.split("-"); return `${+dd}/${+m}`; }), hourly: false };
+  }
+  const agg = (pairs: [string, number][]) => { const m = new Map<string, number>(); for (const [k, v] of pairs) m.set(k, (m.get(k) ?? 0) + v); return [...m.entries()].sort((a, b) => b[1] - a[1]).map(([label, value]) => ({ label, value })); };
+  const pay = agg(sold.flatMap((o) => o.payments.map((p) => [PAY[p.method] ?? p.method, p.amount] as [string, number])));
+  const ch = agg(sold.map((o) => [CH[o.channel] ?? o.channel, o.grand_total]));
+  const g = Array.from({ length: 7 }, () => Array(24).fill(0));
+  const bkkDate = (iso: string) => new Date(new Date(iso).toLocaleString("en-US", { timeZone: "Asia/Bangkok" }));
+  for (const o of sold) { const t = bkkDate(saleAt(o)); g[t.getDay()][t.getHours()] += o.grand_total; }
+  let peak = { d: 0, h: 0, v: 0 }; g.forEach((row, d) => row.forEach((v, h) => { if (v > peak.v) peak = { d, h, v }; }));
+  const hs = g.flatMap((row) => row.map((v, h) => (v > 0 ? h : -1))).filter((h) => h >= 0);
+  const heat = { g, max: Math.max(1, ...g.flat()), peak, hours: (hs.length ? [Math.min(8, ...hs), Math.max(21, ...hs)] : [8, 21]) as [number, number] };
+  const wd = Array.from({ length: 7 }, (_, d) => ({ label: DAYS[d], cur: 0, prev: 0 }));
+  for (const o of sold) wd[bkkDate(saleAt(o)).getDay()].cur += o.grand_total;
+  for (const o of pSold) wd[bkkDate(o.created_at).getDay()].prev += o.grand_total;
+  const BUCKETS: [string, number][] = [["< 500", 500], ["500–1K", 1000], ["1K–3K", 3000], ["3K–5K", 5000], ["5K–10K", 10000], ["10K–20K", 20000], ["20K+", Infinity]];
+  const basket = BUCKETS.map(([label]) => ({ label, value: 0 }));
+  for (const o of sold) basket[BUCKETS.findIndex(([, lim]) => o.grand_total < lim)].value++;
+  const categories = agg(sold.flatMap((o) => o.items.filter((i) => !i.is_gift).map((i) => [catName?.get((i.product_id && productCat?.get(i.product_id)) || "") ?? "ไม่ระบุหมวด", i.line_total] as [string, number]))).slice(0, 7);
+  const pm = new Map<string, { name: string; qty: number; sales: number }>();
+  for (const o of sold) for (const i of o.items) { if (i.is_gift) continue; const c = pm.get(i.sku) ?? { name: i.name, qty: 0, sales: 0 }; c.qty += i.qty; c.sales += i.line_total; pm.set(i.sku, c); }
+  const topProducts = [...pm.entries()].map(([sku, v]) => ({ sku, ...v })).sort((a, b) => b.sales - a.sales).slice(0, 7);
+  const topBranches = agg(sold.map((o) => [o.branch_id, o.grand_total])).slice(0, 6).map((r) => { const b = branches.find((x) => x.id === r.label); return { id: r.label, name: b ? b.name_th ?? b.name : r.label, value: r.value }; });
+  const sm = new Map<string, { v: number; n: number }>();
+  for (const o of sold) { const id = o.salesperson_id ?? o.cashier_id; if (!id) continue; const c = sm.get(id) ?? { v: 0, n: 0 }; c.v += o.grand_total; c.n++; sm.set(id, c); }
+  const topStaff = [...sm.entries()].sort((a, b) => b[1].v - a[1].v).slice(0, 6).map(([id, c]) => ({ id, name: empName(employees.find((e) => e.id === id)), value: c.v, bills: c.n }));
+  const sparkN = Math.min(trend.cur.length, 30);
+  return { kpi, spark: trend.cur.slice(-sparkN), trend, pay, ch, heat, weekday: wd, basket, categories, topProducts, topBranches, topStaff };
+}
 
-  const pay = useMemo(() => { const m = new Map<string, number>(); for (const o of sold) for (const p of o.payments) m.set(p.method, (m.get(p.method) ?? 0) + p.amount); return [...m.entries()].sort((a, b) => b[1] - a[1]).map(([kk, v]) => ({ label: PAY[kk] ?? kk, value: v })); }, [sold]);
-  const ch = useMemo(() => { const m = new Map<string, number>(); for (const o of sold) m.set(o.channel, (m.get(o.channel) ?? 0) + o.grand_total); return [...m.entries()].sort((a, b) => b[1] - a[1]).map(([kk, v]) => ({ label: CH[kk] ?? kk, value: v })); }, [sold]);
-  const heat = useMemo(() => {
-    const g = Array.from({ length: 7 }, () => Array(24).fill(0));
-    for (const o of sold) { const t = new Date(saleAt(o)); const bkk = new Date(t.toLocaleString("en-US", { timeZone: "Asia/Bangkok" })); g[bkk.getDay()][bkk.getHours()] += o.grand_total; }
-    const max = Math.max(1, ...g.flat()); let peak = { d: 0, h: 0, v: 0 };
-    g.forEach((row, d) => row.forEach((v, h) => { if (v > peak.v) peak = { d, h, v }; }));
-    return { g, max, peak };
-  }, [sold]);
-  const hours = useMemo(() => { const hs = heat.g.flatMap((row) => row.map((v, h) => (v > 0 ? h : -1))).filter((h) => h >= 0); return hs.length ? [Math.min(8, ...hs), Math.max(21, ...hs)] : [8, 21]; }, [heat]); // แสดงช่วงเวลาทำการเต็มเสมอ
-  const topProducts = useMemo(() => {
-    const m = new Map<string, { name: string; qty: number; sales: number }>();
-    for (const o of sold) for (const i of o.items) { if (i.is_gift) continue; const c = m.get(i.sku) ?? { name: i.name, qty: 0, sales: 0 }; c.qty += i.qty; c.sales += i.line_total; m.set(i.sku, c); }
-    return [...m.entries()].map(([sku, v]) => ({ sku, ...v })).sort((a, b) => b.sales - a.sales).slice(0, 6);
-  }, [sold]);
-  const topBranches = useMemo(() => {
-    const m = new Map<string, number>(); for (const o of sold) m.set(o.branch_id, (m.get(o.branch_id) ?? 0) + o.grand_total);
-    return [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([id, v]) => { const b = branches.find((x) => x.id === id); return { id, name: b ? b.name_th ?? b.name : id, value: v }; });
-  }, [sold, branches]);
-  const topStaff = useMemo(() => {
-    const m = new Map<string, { v: number; n: number }>();
-    for (const o of sold) { const id = o.salesperson_id ?? o.cashier_id; if (!id) continue; const c = m.get(id) ?? { v: 0, n: 0 }; c.v += o.grand_total; c.n++; m.set(id, c); }
-    return [...m.entries()].sort((a, b) => b[1].v - a[1].v).slice(0, 5).map(([id, c]) => ({ id, name: empName(employees.find((e) => e.id === id)), value: c.v, bills: c.n }));
-  }, [sold, employees]);
+const COLORS = ["rgb(var(--chart-1))", "rgb(var(--chart-2))", "rgb(var(--chart-3))", "rgb(var(--chart-4))", "rgb(var(--chart-5))"];
+function Donut({ rows }: { rows: { label: string; value: number }[] }) {
+  const total = rows.reduce((s, r) => s + r.value, 0) || 1;
+  const R = 42, C = 2 * Math.PI * R;
+  let acc = 0;
+  return (
+    <div className="flex items-center gap-4">
+      <svg viewBox="0 0 110 110" className="w-[110px] h-[110px] shrink-0 -rotate-90">
+        <circle cx="55" cy="55" r={R} fill="none" stroke="rgb(var(--c-surface-2))" strokeWidth="16" />
+        {rows.slice(0, 5).map((r, i) => { const len = (r.value / total) * C; const el = <circle key={r.label} cx="55" cy="55" r={R} fill="none" stroke={COLORS[i % 5]} strokeWidth="16" strokeDasharray={`${Math.max(len - 1.5, 0)} ${C}`} strokeDashoffset={-acc} />; acc += len; return el; })}
+      </svg>
+      <div className="min-w-0 flex-1 space-y-1.5">
+        {rows.slice(0, 5).map((r, i) => (
+          <p key={r.label} className="text-xs flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: COLORS[i % 5] }} /><span className="truncate flex-1">{r.label}</span><span className="tnum text-muted">{Math.round((r.value / total) * 100)}%</span></p>
+        ))}
+      </div>
+    </div>
+  );
+}
+function Columns({ rows, fmt, highlightMax }: { rows: { label: string; value: number; prev?: number }[]; fmt?: (n: number) => string; highlightMax?: boolean }) {
+  const max = Math.max(1, ...rows.map((r) => Math.max(r.value, r.prev ?? 0)));
+  const top = Math.max(...rows.map((r) => r.value));
+  return (
+    <div className="flex items-end gap-1.5 h-[120px]">
+      {rows.map((r) => (
+        <div key={r.label} className="flex-1 flex flex-col items-center gap-1 min-w-0 h-full justify-end" title={`${r.label}: ${fmt ? fmt(r.value) : r.value}${r.prev !== undefined ? ` · ก่อนหน้า ${fmt ? fmt(r.prev) : r.prev}` : ""}`}>
+          <div className="w-full flex items-end gap-[2px] h-full">
+            {r.prev !== undefined ? <div className="flex-1 rounded-t-[3px] bg-muted/25" style={{ height: `${(r.prev / max) * 100}%` }} /> : null}
+            <div className={`flex-1 rounded-t-[3px] ${highlightMax && r.value === top && top > 0 ? "bg-brand" : "bg-brand/55"}`} style={{ height: `${(r.value / max) * 100}%`, minHeight: r.value ? 2 : 0 }} />
+          </div>
+          <span className="text-[9.5px] text-muted truncate max-w-full">{r.label}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+function Spark({ values }: { values: number[] }) {
+  if (values.length < 2) return null;
+  const max = Math.max(1, ...values), W = 80, H = 22;
+  const d = values.map((v, i) => `${i ? "L" : "M"}${((i * W) / (values.length - 1)).toFixed(1)},${(H - (v / max) * (H - 2) - 1).toFixed(1)}`).join(" ");
+  return <svg viewBox={`0 0 ${W} ${H}`} className="w-20 h-[22px]" preserveAspectRatio="none"><path d={d} fill="none" stroke="rgb(var(--c-brand))" strokeWidth="1.5" vectorEffect="non-scaling-stroke" /></svg>;
+}
+// จากยอดก่อนลด → สุทธิ (waterfall แนวนอนอ่านง่าย)
+function Flow({ k }: { k: OverviewModel["kpi"] }) {
+  const before = k.gross + k.disc;
+  const rows = [
+    { label: "ยอดก่อนส่วนลด", value: before, tone: "bg-brand/40", sign: "" },
+    { label: "หักส่วนลด", value: -k.disc, tone: "bg-warn", sign: "−" },
+    { label: "ยอดขาย", value: k.gross, tone: "bg-brand", sign: "" },
+    { label: "หักคืนเงิน", value: -k.refunds, tone: "bg-danger", sign: "−" },
+    { label: "หักใบลดหนี้", value: -k.cn, tone: "bg-danger/70", sign: "−" },
+    { label: "ยอดสุทธิ", value: k.net, tone: "bg-ok", sign: "" },
+  ];
+  const max = Math.max(1, before);
+  let run = before;
+  return (
+    <div className="space-y-1.5">
+      {rows.map((r, i) => {
+        const neg = r.value < 0; const start = neg ? run + r.value : 0; const w = Math.abs(r.value);
+        if (neg) run += r.value; else if (i) run = r.value;
+        return (
+          <div key={r.label} className="grid grid-cols-[88px_1fr_76px] items-center gap-2 text-[11px]">
+            <span className={`truncate ${r.sign ? "text-muted" : "font-medium"}`}>{r.label}</span>
+            <div className="relative h-4 rounded bg-surface2/60"><div className={`absolute top-0 h-4 rounded ${r.tone}`} style={{ left: `${(start / max) * 100}%`, width: `${Math.max((w / max) * 100, w ? 0.8 : 0)}%` }} /></div>
+            <span className={`tnum text-right ${neg ? "text-danger" : ""}`}>{r.sign}{baht(Math.abs(r.value))}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
-  const payTotal = pay.reduce((s, r) => s + r.value, 0), chTotal = ch.reduce((s, r) => s + r.value, 0);
+export function OverviewView({ m, onDrill }: { m: OverviewModel; onDrill?: (tab: "branch" | "staff" | "bills", patch?: Record<string, unknown>) => void }) {
+  const k = m.kpi;
+  const payTotal = m.pay.reduce((s, r) => s + r.value, 0), chTotal = m.ch.reduce((s, r) => s + r.value, 0);
+  const { g, max, peak, hours } = m.heat;
+  const drill = onDrill ?? (() => undefined);
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3">
-        <Kpi label="ยอดขาย" value={baht(k.gross)} delta={pct(k.gross, k.pGross)} showDelta={k.hasPrev} sub={k.hasPrev ? `ช่วงก่อน ${baht(k.pGross)}` : undefined} tone="brand" />
+        <div className="card px-3.5 py-3 min-w-0 ring-1 ring-brand/25 bg-brand/[0.04] col-span-2 sm:col-span-1">
+          <div className="flex items-center justify-between gap-1"><p className="text-[11px] text-muted">ยอดขาย</p><Delta v={pct(k.gross, k.pGross)} show={k.hasPrev} /></div>
+          <div className="flex items-end justify-between gap-2 mt-1"><p className="text-lg font-bold tnum leading-tight text-brand truncate">{baht(k.gross)}</p><Spark values={m.spark} /></div>
+          <p className="text-[10.5px] text-muted truncate mt-0.5">{k.hasPrev ? `ช่วงก่อน ${baht(k.pGross)}` : "—"}</p>
+        </div>
         <Kpi label="ยอดสุทธิ (หลังคืน/ลดหนี้)" value={baht(k.net)} sub={k.refunds || k.cn ? `คืน ${baht(k.refunds)} · ลดหนี้ ${baht(k.cn)}` : "ไม่มีคืนเงิน/ลดหนี้"} />
         <Kpi label="จำนวนบิล" value={formatInt(k.bills)} delta={pct(k.bills, k.pBills)} showDelta={k.hasPrev} sub={k.voids ? `ยกเลิก ${k.voids} บิล · ${baht(k.voidAmt)}` : "ไม่มีบิลยกเลิก"} />
         <Kpi label="เฉลี่ยต่อบิล" value={baht(k.avg)} delta={pct(k.avg, k.pAvg)} showDelta={k.hasPrev && k.pBills > 0} sub={`${formatInt(k.units)} ชิ้น · ${k.bills ? (k.units / k.bills).toFixed(1) : 0} ชิ้น/บิล`} />
         <Kpi label="ส่วนลด" value={baht(k.disc)} sub={`${k.gross + k.disc > 0 ? ((k.disc / (k.gross + k.disc)) * 100).toFixed(1) : 0}% ของยอดก่อนลด`} tone="warn" />
-        {showCost ? <Kpi label="กำไรขั้นต้น" value={baht(k.gp)} sub={`GP ${k.gross ? ((k.gp / (k.gross / 1.07)) * 100).toFixed(1) : 0}% ของยอดก่อน VAT`} tone="ok" />
+        {k.showCost ? <Kpi label="กำไรขั้นต้น" value={baht(k.gp)} sub={`GP ${k.gross ? ((k.gp / (k.gross / 1.07)) * 100).toFixed(1) : 0}% ของยอดก่อน VAT`} tone="ok" />
           : <Kpi label="ลูกค้าสมาชิก" value={`${k.bills ? Math.round((k.members / k.bills) * 100) : 0}%`} sub={`${formatInt(k.members)} จาก ${formatInt(k.bills)} บิล`} />}
       </div>
 
       <div className="grid lg:grid-cols-3 gap-4">
-        <Panel className="lg:col-span-2" title={trend.labels.length === 24 && trend.cur.length === 24 && +range.to - +range.from <= 2 * 86400_000 ? "ยอดขายรายชั่วโมง" : "แนวโน้มยอดขายรายวัน"} icon={<TrendingUp size={14} className="text-brand" />}
+        <Panel className="lg:col-span-2" title={m.trend.hourly ? "ยอดขายรายชั่วโมง" : "แนวโน้มยอดขายรายวัน"} icon={<TrendingUp size={14} className="text-brand" />}
           action={<span className="text-[10.5px] text-muted inline-flex items-center gap-3"><span className="inline-flex items-center gap-1"><span className="w-3 h-0.5 bg-brand rounded" />ช่วงนี้</span><span className="inline-flex items-center gap-1"><span className="w-3 border-t border-dashed border-muted" />ช่วงก่อนหน้า</span></span>}>
-          {sold.length ? <Trend cur={trend.cur} prev={trend.prev} labels={trend.labels} /> : <p className="text-xs text-muted py-10 text-center">ไม่มียอดขายในช่วงนี้</p>}
+          {k.bills ? <Trend cur={m.trend.cur} prev={m.trend.prev} labels={m.trend.labels} /> : <p className="text-xs text-muted py-10 text-center">ไม่มียอดขายในช่วงนี้</p>}
         </Panel>
-        <Panel title="รับชำระ & ช่องทางขาย" icon={<ReceiptText size={14} className="text-brand" />}>
-          <Bars rows={pay.slice(0, 5)} total={payTotal} />
-          <div className="border-t border-line my-3" />
-          <Bars rows={ch.slice(0, 4)} total={chTotal} color="bg-[rgb(var(--chart-4))]" />
-        </Panel>
+        <Panel title="จากยอดก่อนลด → ยอดสุทธิ" icon={<ReceiptText size={14} className="text-brand" />}><Flow k={k} /></Panel>
+      </div>
+
+      <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-4">
+        <Panel title="วิธีรับชำระ" icon={<ReceiptText size={14} className="text-brand" />}>{payTotal ? <Donut rows={m.pay} /> : <p className="text-xs text-muted">ไม่มีข้อมูล</p>}</Panel>
+        <Panel title="ช่องทางขาย" icon={<Store size={14} className="text-brand" />}><Bars rows={m.ch.slice(0, 5)} total={chTotal} color="bg-[rgb(var(--chart-4))]" /></Panel>
+        <Panel title="หมวดสินค้า" icon={<Package size={14} className="text-brand" />}>{m.categories.length ? <Donut rows={m.categories} /> : <p className="text-xs text-muted">ไม่มีข้อมูล</p>}</Panel>
+        <Panel title="ขนาดบิล (จำนวนบิล)" icon={<ReceiptText size={14} className="text-brand" />}><Columns rows={m.basket} highlightMax /></Panel>
       </div>
 
       <div className="grid lg:grid-cols-3 gap-4">
         <Panel className="lg:col-span-2" title="ช่วงเวลาขายดี (วัน × ชั่วโมง)" icon={<Clock size={14} className="text-brand" />}
-          action={heat.peak.v ? <span className="text-[10.5px] text-muted">พีค {DAYS[heat.peak.d]} {String(heat.peak.h).padStart(2, "0")}:00 · {baht(heat.peak.v)}</span> : null}>
+          action={peak.v ? <span className="text-[10.5px] text-muted">พีค {DAYS[peak.d]} {String(peak.h).padStart(2, "0")}:00 · {baht(peak.v)}</span> : null}>
           <div className="overflow-x-auto">
             <div className="grid gap-[3px] min-w-[420px]" style={{ gridTemplateColumns: `28px repeat(${hours[1] - hours[0] + 1}, minmax(0,1fr))` }}>
               <span />
               {Array.from({ length: hours[1] - hours[0] + 1 }, (_, i) => <span key={i} className="text-[9px] text-muted text-center tnum">{(hours[0] + i) % 3 === 0 ? hours[0] + i : ""}</span>)}
-              {heat.g.map((row, d) => [
+              {g.map((row, d) => [
                 <span key={`d${d}`} className="text-[10px] text-muted self-center">{DAYS[d]}</span>,
                 ...row.slice(hours[0], hours[1] + 1).map((v, i) => (
-                  <span key={`${d}-${i}`} title={`${DAYS[d]} ${hours[0] + i}:00 · ${baht(v)}`} className="h-5 rounded-[4px]"
-                    style={{ background: v ? `rgb(var(--c-brand) / ${0.12 + (v / heat.max) * 0.88})` : "rgb(var(--c-surface-2))" }} />
+                  <span key={`${d}-${i}`} title={`${DAYS[d]} ${hours[0] + i}:00 · ${baht(v)}`} className="h-5 rounded-[4px]" style={{ background: v ? `rgb(var(--c-brand) / ${0.12 + (v / max) * 0.88})` : "rgb(var(--c-surface-2))" }} />
                 )),
               ])}
             </div>
           </div>
         </Panel>
+        <Panel title="รายวันในสัปดาห์" icon={<TrendingUp size={14} className="text-brand" />} action={k.hasPrev ? <span className="text-[10px] text-muted">เทา = ช่วงก่อนหน้า</span> : null}>
+          <Columns rows={m.weekday.map((w) => ({ label: w.label, value: w.cur, prev: k.hasPrev ? w.prev : undefined }))} fmt={baht} highlightMax />
+        </Panel>
+      </div>
+
+      <div className="grid md:grid-cols-3 gap-4">
         <Panel title="สินค้าขายดี" icon={<Package size={14} className="text-brand" />}>
-          {topProducts.length ? <ol className="space-y-2">{topProducts.map((p, i) => (
+          {m.topProducts.length ? <ol className="space-y-2">{m.topProducts.map((p, i) => (
             <li key={p.sku} className="flex items-center gap-2.5 text-xs">
               <span className={`w-5 h-5 rounded-md grid place-items-center text-[10px] font-bold shrink-0 ${i < 3 ? "bg-brand/12 text-brand" : "bg-surface2 text-muted"}`}>{i + 1}</span>
               <span className="min-w-0 flex-1"><span className="block truncate font-medium">{p.name}</span><span className="block text-[10px] text-muted font-mono truncate">{p.sku}</span></span>
               <span className="text-right shrink-0 tnum"><span className="block font-semibold">{baht(p.sales)}</span><span className="block text-[10px] text-muted">{formatInt(p.qty)} ชิ้น</span></span>
             </li>))}</ol> : <p className="text-xs text-muted">ไม่มีข้อมูล</p>}
         </Panel>
-      </div>
-
-      <div className="grid md:grid-cols-2 gap-4">
-        <Panel title="สาขาท็อป" icon={<Store size={14} className="text-brand" />} action={<button onClick={() => onDrill("branch")} className="text-[11px] text-brand inline-flex items-center gap-0.5">ดูทุกสาขา<ArrowUpRight size={12} /></button>}>
-          <Bars rows={topBranches.map((b) => ({ label: b.name, value: b.value }))} total={k.gross} />
+        <Panel title="สาขาท็อป" icon={<Store size={14} className="text-brand" />} action={onDrill ? <button onClick={() => drill("branch")} className="text-[11px] text-brand inline-flex items-center gap-0.5">ดูทุกสาขา<ArrowUpRight size={12} /></button> : null}>
+          <Bars rows={m.topBranches.map((b) => ({ label: b.name, value: b.value }))} total={k.gross} />
         </Panel>
-        <Panel title="พนักงานท็อป" icon={<Users size={14} className="text-brand" />} action={<button onClick={() => onDrill("staff")} className="text-[11px] text-brand inline-flex items-center gap-0.5">ผลงานทั้งหมด<ArrowUpRight size={12} /></button>}>
-          {topStaff.length ? <div className="space-y-2">{topStaff.map((s, i) => (
-            <button key={s.id} onClick={() => onDrill("staff", { person: s.id })} className="w-full flex items-center gap-2.5 text-xs text-left hover:bg-surface2/60 rounded-lg -mx-1 px-1 py-0.5">
+        <Panel title="พนักงานท็อป" icon={<Users size={14} className="text-brand" />} action={onDrill ? <button onClick={() => drill("staff")} className="text-[11px] text-brand inline-flex items-center gap-0.5">ผลงานทั้งหมด<ArrowUpRight size={12} /></button> : null}>
+          {m.topStaff.length ? <div className="space-y-2">{m.topStaff.map((st, i) => (
+            <button key={st.id} disabled={!onDrill} onClick={() => drill("staff", { person: st.id })} className="w-full flex items-center gap-2.5 text-xs text-left hover:bg-surface2/60 rounded-lg -mx-1 px-1 py-0.5 disabled:hover:bg-transparent">
               <span className={`w-5 h-5 rounded-full grid place-items-center text-[10px] font-bold shrink-0 ${i === 0 ? "bg-warn/20 text-warn" : "bg-surface2 text-muted"}`}>{i + 1}</span>
-              <span className="flex-1 truncate">{s.name}</span><span className="text-muted tnum">{s.bills} บิล</span><span className="font-semibold tnum w-24 text-right">{baht(s.value)}</span>
+              <span className="flex-1 truncate">{st.name}</span><span className="text-muted tnum">{st.bills} บิล</span><span className="font-semibold tnum w-24 text-right">{baht(st.value)}</span>
             </button>))}</div> : <p className="text-xs text-muted">ไม่มีข้อมูล</p>}
         </Panel>
       </div>
-      {k.refunds || k.cn || k.voids ? (
-        <p className="text-[11px] text-muted flex items-center gap-1.5"><RotateCcw size={12} />ยอดสุทธิ = ยอดขาย − คืนเงินจากใบรับคืน − ใบลดหนี้ส่วนลด (ลงตามวันที่เกิด) · บิลยกเลิกไม่นับในยอดขาย</p>
-      ) : null}
+      {k.refunds || k.cn || k.voids ? <p className="text-[11px] text-muted flex items-center gap-1.5"><RotateCcw size={12} />ยอดสุทธิ = ยอดขาย − คืนเงินจากใบรับคืน − ใบลดหนี้ส่วนลด (ลงตามวันที่เกิด) · บิลยกเลิกไม่นับในยอดขาย</p> : null}
     </div>
   );
+}
+
+export function SalesOverview(props: Parameters<typeof buildOverview>[0] & { onDrill: (tab: "branch" | "staff" | "bills", patch?: Record<string, unknown>) => void; onModel?: (m: OverviewModel) => void }) {
+  const { onDrill, onModel, ...args } = props;
+  const m = useMemo(() => buildOverview(args), [args.orders, args.adjustments, args.prev, args.branches, args.employees, args.showCost, args.range.from, args.range.to, args.productCat, args.catName]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { onModel?.(m); }, [m]); // eslint-disable-line react-hooks/exhaustive-deps
+  return <OverviewView m={m} onDrill={onDrill} />;
 }
 
 // ── รายการบิล (แท็บแรก) ───────────────────────────────────────

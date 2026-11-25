@@ -8,7 +8,11 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useSalesData } from "@/lib/hooks/use-sales-data";
 import { useCatalogProducts } from "@/lib/hooks/use-catalog-products";
 import { StaffPerformance } from "@/components/admin/staff-performance";
-import { SalesOverview, BillsView } from "@/components/admin/sales-dashboard";
+import { OverviewView, BillsView, buildOverview } from "@/components/admin/sales-dashboard";
+import { ViewsMenu, ShareMenu, DownloadMenu, type ReportState } from "@/components/admin/report-actions";
+import { rangeToDates, type AdminFilter } from "@/components/admin/filters";
+import { listCategories } from "@/lib/data/repo";
+import { useRef } from "react";
 import { Segmented } from "@/components/ui";
 import { useI18n } from "@/lib/i18n/provider";
 import { useSession } from "@/lib/store/session";
@@ -79,6 +83,46 @@ function AdminSalesPage() {
   const adjustments = useMemo(() => data.adjustments.filter((a) => !scopeBranch || scopeBranch.has(a.branch_id)), [data.adjustments, scopeBranch]);
   const prevRows = useMemo(() => data.prev.filter((o) => (!scopeBranch || scopeBranch.has(o.branch_id)) && (!filter.channels.length || filter.channels.includes(o.channel))), [data.prev, scopeBranch, filter.channels]);
 
+  // ── มุมมอง/แชร์: สถานะรายงาน = ตัวกรอง + แท็บ (ช่วงสัมพัทธ์ เช่น 7 วัน คำนวณใหม่ทุกครั้งที่เปิด) ──
+  const reportRef = useRef<HTMLDivElement>(null);
+  const currentState = (): ReportState => ({ tab, filter: { ...filter, from: filter.from.toISOString(), to: filter.to.toISOString() } });
+  const applyState = (st: ReportState) => {
+    const f = st.filter as AdminFilter & { from: string; to: string };
+    if (f) { const dates = f.range && f.range !== "custom" ? rangeToDates(f.range) : { from: new Date(f.from), to: new Date(f.to) }; setFilter({ ...f, ...dates } as AdminFilter); }
+    if (st.tab) setTab(st.tab as Tab);
+  };
+  const teamUrl = () => { const u = new URL(window.location.href); u.searchParams.set("tab", tab); u.searchParams.set("s", btoa(unescape(encodeURIComponent(JSON.stringify(currentState()))))); u.searchParams.delete("person"); return u.href; };
+  useEffect(() => { const raw = new URLSearchParams(window.location.search).get("s"); if (raw) { try { applyState(JSON.parse(decodeURIComponent(escape(atob(raw))))); } catch { /* ลิงก์เสีย */ } } }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const rangeLabel = `${filter.from.toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "2-digit" })} – ${filter.to.toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "2-digit" })}`;
+  const filterSummary = useMemo(() => {
+    const parts: string[] = [];
+    if (filter.brandIds.length) parts.push(`แบรนด์: ${filter.brandIds.map((id) => brands.find((b) => b.id === id)?.name ?? "?").join(", ")}`);
+    if (filter.branchIds.length) parts.push(`สาขา: ${filter.branchIds.length <= 2 ? filter.branchIds.map((id) => { const b = branches.find((x) => x.id === id); return b ? b.name_th ?? b.name : "?"; }).join(", ") : `${filter.branchIds.length} สาขา`}`);
+    const others = (["salespersonIds", "cashierIds", "categoryIds", "skus", "paymentMethods", "channels", "orderStatuses", "customerTypes", "posIds", "flags", "provinces", "storeTypes"] as const).filter((k) => filter[k].length).length;
+    if (others) parts.push(`+ ตัวกรองอื่น ${others}`);
+    return parts.join(" · ");
+  }, [filter, brands, branches]);
+  const [cats, setCats] = useState<Map<string, string>>(new Map());
+  useEffect(() => { void listCategories().then((c) => setCats(new Map(c.map((x) => [x.id, x.name_th])))); }, []);
+  const productCat = useMemo(() => new Map(products.map((p) => [p.id, p.category_id])), [products]);
+  const overview = useMemo(() => buildOverview({ orders: rows, adjustments, prev: prevRows, branches, employees, showCost, range: { from: filter.from, to: filter.to }, productCat, catName: cats }),
+    [rows, adjustments, prevRows, branches, employees, showCost, filter.from, filter.to, productCat, cats]);
+  const excelRows = () => {
+    const m = overview, k = m.kpi, R: { section: string; label: string; value: string | number }[] = [];
+    const add = (section: string, label: string, value: string | number) => R.push({ section, label, value });
+    add("ตัวกรอง", "ช่วงวันที่", rangeLabel); if (filterSummary) add("ตัวกรอง", "เงื่อนไข", filterSummary);
+    add("สรุป", "ยอดขาย", k.gross); add("สรุป", "คืนเงิน", k.refunds); add("สรุป", "ใบลดหนี้ส่วนลด", k.cn); add("สรุป", "ยอดสุทธิ", k.net);
+    add("สรุป", "จำนวนบิล", k.bills); add("สรุป", "บิลยกเลิก", k.voids); add("สรุป", "เฉลี่ยต่อบิล", Math.round(k.avg * 100) / 100); add("สรุป", "ชิ้นที่ขาย", k.units); add("สรุป", "ส่วนลด", k.disc);
+    if (k.showCost) add("สรุป", "กำไรขั้นต้น", k.gp);
+    if (k.hasPrev) add("สรุป", "ยอดขายช่วงก่อนหน้า", k.pGross);
+    m.trend.labels.forEach((l, i) => m.trend.cur[i] && add(m.trend.hourly ? "รายชั่วโมง" : "รายวัน", l, m.trend.cur[i]));
+    m.pay.forEach((r) => add("วิธีรับชำระ", r.label, r.value)); m.ch.forEach((r) => add("ช่องทางขาย", r.label, r.value));
+    m.categories.forEach((r) => add("หมวดสินค้า", r.label, r.value)); m.basket.forEach((r) => add("ขนาดบิล (จำนวนบิล)", r.label, r.value));
+    m.topProducts.forEach((p) => add("สินค้าขายดี", `${p.sku} ${p.name} (${p.qty} ชิ้น)`, p.sales));
+    m.topBranches.forEach((b) => add("สาขาท็อป", b.name, b.value)); m.topStaff.forEach((p) => add("พนักงานท็อป", `${p.name} (${p.bills} บิล)`, p.value));
+    return { title: `รายงานยอดขาย ${rangeLabel}`, rows: R };
+  };
+
   function exportCsv() {
     const head = [
       "order_no", "date", "branch", "cashier", "status", "channel",
@@ -109,14 +153,15 @@ function AdminSalesPage() {
   return (
     <div className="p-4 sm:p-6 space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        <FilterBar value={filter} onChange={setFilter} branches={branches} brands={brands} />
+        <FilterBar value={filter} onChange={setFilter} branches={branches} brands={brands} hideViews />
         <div className="relative ml-auto w-full sm:w-56">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
           <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t.common.search} className="pl-9 h-9" />
         </div>
-        <Button variant="ghost" className="h-9" onClick={exportCsv}>
-          <Download size={15} /> CSV
-        </Button>
+        <ViewsMenu report="sales" current={currentState} onApply={applyState} />
+        <ShareMenu canPublic={can(employee, "report.share")} teamUrl={teamUrl} snapshot={() => ({ model: overview, meta: { range: rangeLabel, filters: filterSummary, generated_at: new Date().toISOString() } })} title={() => `รายงานยอดขาย · ${rangeLabel}${filterSummary ? ` · ${filterSummary}` : ""}`} />
+        <DownloadMenu target={() => reportRef.current} filename={() => `sales-${tab}-${filter.from.toISOString().slice(0, 10)}_${filter.to.toISOString().slice(0, 10)}`}
+          excel={excelRows} extra={[{ title: "CSV รายการบิล", sub: `${rows.length} บิลตามตัวกรอง`, onClick: exportCsv }]} />
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -136,13 +181,15 @@ function AdminSalesPage() {
       {data.error ? <p className="rounded-xl bg-danger/8 text-danger text-sm px-4 py-2.5 flex items-center gap-2"><AlertTriangle size={15} />{data.error}</p> : null}
       {data.truncated ? <p className="rounded-xl bg-warn/10 text-[12.5px] px-4 py-2.5">{L("ช่วงวันที่นี้มีบิลมากกว่า 20,000 ใบ — แสดงเฉพาะล่าสุด ให้แคบช่วงวันที่ลงเพื่อดูครบ", "More than 20,000 bills — showing latest only; narrow the date range", "数据过多")}</p> : null}
 
+      <div ref={reportRef} className="space-y-4">
       {tab === "bills" ? <BillsView orders={rows} branches={branches} employees={employees} showCost={showCost} owStatus={owStatus as never} onExport={exportCsv} /> : null}
-      {tab === "overview" ? <SalesOverview orders={rows} adjustments={adjustments} prev={prevRows} branches={branches} employees={employees} showCost={showCost} range={{ from: filter.from, to: filter.to }}
+      {tab === "overview" ? <OverviewView m={overview}
         onDrill={(to, patch) => { if (to === "staff" && patch?.person) { const u = new URLSearchParams(sp.toString()); u.set("tab", "staff"); u.set("person", String(patch.person)); router.replace(`/admin/sales?${u}`, { scroll: false }); } else setTab(to); }} /> : null}
 
       {tab === "branch" ? <BranchView orders={rows} branches={branches} brands={brands} showCost={showCost} L={L} locale={locale} onDrill={(id) => drill({ branchIds: [id] })} /> : null}
       {tab === "brand" ? <BrandView orders={rows} branches={branches} brands={brands} L={L} locale={locale} onDrill={(id) => drill({ brandIds: [id], branchIds: [] }, "branch")} /> : null}
       {tab === "staff" && can(employee, "report.employee_perf") ? <StaffPerformance filtered={rows} employees={employees} branches={branches} brands={brands} initialPerson={sp.get("person")} /> : null}
+      </div>
 
     </div>
   );

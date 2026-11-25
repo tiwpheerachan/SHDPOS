@@ -16,7 +16,7 @@ export const PERMISSION_KEYS = [
   "admin.employee_manage", "admin.permission_manage", "admin.product_manage",
   "admin.branch_manage", "admin.settings", "audit.view",
   "customer.manage", "tax.issue_full", "tax.credit_note",
-  "finance.view", "period.close", "period.reopen",
+  "finance.view", "period.close", "period.reopen", "report.share",
   // ── สิทธิ์เข้าฟีเจอร์ (เมนูหลังบ้าน) — กฎ: ทุกฟีเจอร์ใหม่ต้องมีคีย์ที่นี่ + PERM_GROUPS ใน permissions-ui.ts ──
   "dashboard.view", "work.view", "sales.view", "product.view", "document.view",
   "deferred_sale.manage", "approval.view",
@@ -131,6 +131,7 @@ export const ROLE_MATRIX: Record<EmployeeRole, Partial<Record<PermissionKey, Rul
     "tax.issue_full": { effect: "allow" },
     "finance.view": { effect: "allow" },
     "period.close": { effect: "allow" },
+    "report.share": { effect: "allow" },
   },
   brand_admin: {
     "dashboard.view": { effect: "allow" },
@@ -164,6 +165,7 @@ export const ROLE_MATRIX: Record<EmployeeRole, Partial<Record<PermissionKey, Rul
     "audit.view": { effect: "allow" },
     "finance.view": { effect: "allow" },
     "period.close": { effect: "allow" },
+    "report.share": { effect: "allow" },
   },
   hq: Object.fromEntries(
     PERMISSION_KEYS.map((k) => [k, { effect: "allow", limit: k === "pos.discount" ? 100 : undefined }])

@@ -2,10 +2,10 @@
 //   secret: DOC_SHARE_SECRET (แนะนำ) หรือ SSO_SESSION_SECRET · ต้องยาว ≥ 32 ตัว
 import { createHmac, timingSafeEqual } from "node:crypto";
 
-export type DocKind = "receipt" | "tax_invoice" | "credit_note" | "return" | "warranty" | "trace" | "transfer_out" | "transfer_in" | "transfer_diff";
+export type DocKind = "report" | "receipt" | "tax_invoice" | "credit_note" | "return" | "warranty" | "trace" | "transfer_out" | "transfer_in" | "transfer_diff";
 export type DocTokenPayload = { k: DocKind; id: string; e: number };
 export const INTERNAL_KINDS: DocKind[] = ["trace", "transfer_out", "transfer_in", "transfer_diff"];
-const KINDS: DocKind[] = ["receipt", "tax_invoice", "credit_note", "return", "warranty", "trace", "transfer_out", "transfer_in", "transfer_diff"];
+const KINDS: DocKind[] = ["report", "receipt", "tax_invoice", "credit_note", "return", "warranty", "trace", "transfer_out", "transfer_in", "transfer_diff"];
 
 function secret(): string {
   const s = process.env.DOC_SHARE_SECRET || process.env.SSO_SESSION_SECRET || "";
