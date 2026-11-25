@@ -303,43 +303,42 @@ export function StaffPerformance({ filtered, employees, branches, brands, initia
           const useHourly = personSeries.length < 2;
           return (
             <div className="space-y-4">
-              {/* ── Hero ── */}
-              <div className="relative overflow-hidden rounded-[26px] text-white shadow-card" style={{ background: FALLBACK_BG }}>
-                <AnimatedGradient config={GRAD} noise={{ opacity: 0.3 }} />
-                <div className="relative z-10 p-5 sm:p-6 space-y-5">
-                  <div className="flex flex-wrap items-start gap-4">
-                    <span className="rounded-full ring-[3px] ring-white/35 shadow-pop shrink-0"><Avatar name={personRow.label} src={activePerson ? empPhoto(activePerson) : null} size={64} /></span>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-[11px] uppercase tracking-wider text-white/55">{L("แดชบอร์ดพนักงาน", "Employee dashboard", "员工仪表盘")}</p>
-                      <h2 className="text-xl font-semibold leading-tight truncate mt-0.5">{nm}</h2>
-                      <p className="text-xs text-white/70 truncate mt-0.5">{[sub, empRole(activePerson ?? ""), personPosCode ? posLabel(personPosCode) : "", branchName(personRow.branchId)].filter(Boolean).join(" · ")}</p>
-                      <div className="flex flex-wrap gap-1.5 mt-2.5">
-                        <span className="inline-flex items-center gap-1 h-6 px-2.5 rounded-full bg-white/12 border border-white/15 text-[11px] backdrop-blur"><Award size={12} className="text-amber-300" />{L("อันดับ", "Rank", "排名")} #{personRank} / {rows.length}</span>
-                        {personRow.code && !personRow.code.includes("@") ? <span className="inline-flex items-center gap-1 h-6 px-2.5 rounded-full bg-white/12 border border-white/15 text-[11px] font-mono backdrop-blur"><BadgeCheck size={12} />{personRow.code}</span> : null}
-                        {peakH >= 0 && personHours[peakH] ? <span className="inline-flex items-center gap-1 h-6 px-2.5 rounded-full bg-white/12 border border-white/15 text-[11px] backdrop-blur"><Clock size={12} />{L("ขายดีช่วง", "Peak", "高峰")} {String(peakH).padStart(2, "0")}:00</span> : null}
+              {/* ── โปรไฟล์ (การ์ดพื้นหลังเคลื่อนไหว) + สถิติ (การ์ดเรียบ) — กะทัดรัด ── */}
+              <div className="grid lg:grid-cols-[300px_1fr] gap-3">
+                <div className="relative overflow-hidden rounded-2xl text-white shadow-card" style={{ background: FALLBACK_BG }}>
+                  <AnimatedGradient config={GRAD} noise={{ opacity: 0.3 }} />
+                  <div className="relative z-10 p-4 h-full flex flex-col gap-3">
+                    <div className="flex items-center gap-3">
+                      <span className="rounded-full ring-2 ring-white/35 shrink-0"><Avatar name={personRow.label} src={activePerson ? empPhoto(activePerson) : null} size={48} /></span>
+                      <div className="min-w-0 flex-1">
+                        <h2 className="text-[15px] font-semibold leading-tight truncate">{nm}</h2>
+                        <p className="text-[11px] text-white/70 truncate">{sub || empRole(activePerson ?? "")}</p>
                       </div>
+                      <button onClick={() => setPersonId(null)} title={L("เลือกพนักงานคนอื่น", "Choose another", "选择其他员工")}
+                        className="h-8 w-8 shrink-0 rounded-lg border border-white/25 bg-white/10 hover:bg-white/20 grid place-items-center transition-colors"><Users size={14} /></button>
                     </div>
-                    <div className="flex items-center gap-2 w-full sm:w-auto">
-                      <button onClick={() => setPersonId(null)} className="h-9 px-3.5 rounded-xl border border-white/25 bg-white/10 hover:bg-white/20 backdrop-blur text-sm inline-flex items-center gap-1.5 transition-colors">
-                        <ChevronRight size={14} className="rotate-180" />{L("เลือกพนักงานคนอื่น", "Choose another", "选择其他员工")}
-                      </button>
+                    <p className="text-[11px] text-white/60 truncate">{[empRole(activePerson ?? ""), personPosCode ? posLabel(personPosCode) : "", personRow.branchId ? branchName(personRow.branchId) : ""].filter((x) => x && x !== "—").join(" · ")}</p>
+                    <div className="flex flex-wrap gap-1.5 mt-auto">
+                      <span className="inline-flex items-center gap-1 h-6 px-2 rounded-full bg-white/12 border border-white/15 text-[11px]"><Award size={12} className="text-amber-300" />#{personRank} / {rows.length}</span>
+                      {peakH >= 0 && personHours[peakH] ? <span className="inline-flex items-center gap-1 h-6 px-2 rounded-full bg-white/12 border border-white/15 text-[11px]"><Clock size={12} />{L("ขายดี", "Peak", "高峰")} {String(peakH).padStart(2, "0")}:00</span> : null}
+                      {personRow.code && !personRow.code.includes("@") ? <span className="inline-flex items-center gap-1 h-6 px-2 rounded-full bg-white/12 border border-white/15 text-[11px] font-mono"><BadgeCheck size={12} />{personRow.code}</span> : null}
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
-                    {[
-                      { label: t.admin.gmv, value: formatTHB(personRow.value, false), hint: `${teamSharePct.toFixed(1)}% ${L("ของทีม", "of team", "团队")}` },
-                      { label: t.admin.orderCount, value: formatInt(personRow.orders), hint: `${formatInt(personRow.units)} ${t.admin.unitsSold}` },
-                      { label: t.admin.avgBasket, value: formatTHB(personRow.avgBasket, false), hint: `${L("ทีมเฉลี่ย", "Team", "团队")} ${formatTHB(totals.avgBasket, false)}` },
-                      showGp ? { label: t.admin.grossProfit, value: formatTHB(personRow.grossProfit, false), hint: personRow.value ? `GP ${((personRow.grossProfit / (personRow.value / 1.07)) * 100).toFixed(1)}%` : "—" }
-                        : { label: L("เทียบค่าเฉลี่ยทีม", "vs team avg", "对比团队平均"), value: `${vsAvg >= 0 ? "+" : ""}${vsAvg.toFixed(0)}%`, hint: `${L("เฉลี่ย", "avg", "平均")} ${formatTHB(teamAvg, false)}/${L("คน", "person", "人")}` },
-                    ].map((k) => (
-                      <div key={k.label} className="rounded-2xl bg-white/10 border border-white/15 backdrop-blur-md px-3.5 py-3 min-w-0">
-                        <p className="text-[11px] text-white/65 truncate">{k.label}</p>
-                        <p className="text-lg font-semibold tnum leading-tight mt-0.5 truncate">{k.value}</p>
-                        <p className="text-[10.5px] text-white/55 truncate mt-0.5">{k.hint}</p>
-                      </div>
-                    ))}
-                  </div>
+                </div>
+                <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
+                  {[
+                    { icon: <TrendingUp size={14} />, label: t.admin.gmv, value: formatTHB(personRow.value, false), hint: `${teamSharePct.toFixed(1)}% ${L("ของทีม", "of team", "团队")}`, strong: true },
+                    { icon: <Receipt size={14} />, label: t.admin.orderCount, value: formatInt(personRow.orders), hint: `${formatInt(personRow.units)} ${t.admin.unitsSold}` },
+                    { icon: <Users size={14} />, label: t.admin.avgBasket, value: formatTHB(personRow.avgBasket, false), hint: `${L("ทีมเฉลี่ย", "Team", "团队")} ${formatTHB(totals.avgBasket, false)}` },
+                    showGp ? { icon: <Award size={14} />, label: t.admin.grossProfit, value: formatTHB(personRow.grossProfit, false), hint: personRow.value ? `GP ${((personRow.grossProfit / (personRow.value / 1.07)) * 100).toFixed(1)}%` : "—" }
+                      : { icon: <Award size={14} />, label: L("เทียบค่าเฉลี่ยทีม", "vs team avg", "对比团队平均"), value: `${vsAvg >= 0 ? "+" : ""}${vsAvg.toFixed(0)}%`, hint: `${L("เฉลี่ย", "avg", "平均")} ${formatTHB(teamAvg, false)}` },
+                  ].map((k) => (
+                    <div key={k.label} className="card px-3.5 py-3 min-w-0 flex flex-col justify-between">
+                      <p className="text-[11px] text-muted inline-flex items-center gap-1.5 truncate"><span className="text-brand">{k.icon}</span>{k.label}</p>
+                      <p className={`text-lg font-semibold tnum leading-tight mt-1.5 truncate ${k.strong ? "text-brand" : ""}`}>{k.value}</p>
+                      <p className="text-[10.5px] text-muted truncate mt-0.5">{k.hint}</p>
+                    </div>
+                  ))}
                 </div>
               </div>
 
@@ -354,7 +353,7 @@ export function StaffPerformance({ filtered, employees, branches, brands, initia
                     {!useHourly ? <Segmented<TimeGran> size="sm" value={gran} onChange={setGran} options={granOptions} /> : null}
                   </div>
                   <div className="p-4 pt-3">
-                    {useHourly ? <HourBars hours={personHours} /> : <AreaChart data={personSeries} height={210} color={SERIES_COLORS[1]} valueFormat={(n) => formatTHB(n, false)} />}
+                    {useHourly ? <HourBars hours={personHours} height={170} /> : <AreaChart data={personSeries} height={180} color={SERIES_COLORS[1]} valueFormat={(n) => formatTHB(n, false)} />}
                   </div>
                 </Card>
                 <Card>
