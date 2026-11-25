@@ -13,10 +13,18 @@ import type { Brand, Category, CountType, StockCountSession } from "@/lib/types"
 import { Button, Input, Select, Table, Th, Td, EmptyState, Badge, Modal, Field, Skeleton } from "@/components/ui";
 import { PosPage, TablePanel } from "@/components/pos/page-shell";
 import { can } from "@/lib/permissions";
+import { isLiveMode } from "@/lib/supabase/client";
+import { CountLive } from "@/components/pos/count-live";
 
 const ZONES = ["Display Area", "Stock Room", "Counter", "Vending", "All"];
 
 export default function StockCountPage() {
+  // โหมดจริง: รอบนับอยู่บนเซิร์ฟเวอร์ (หลายเครื่อง/หลายคน · นับซ้ำ · freeze · อนุมัติแยกคน) — 0072
+  if (typeof window !== "undefined" && isLiveMode()) return <CountLive />;
+  return <LocalCountPage />;
+}
+
+function LocalCountPage() {
   const owLink = useOwBranchLink(); // ผูกคลังกลาง = นับเพื่อตรวจได้ แต่ไม่ปรับยอดใน POS
   const { t, locale, pick } = useI18n();
   const toast = useToast();

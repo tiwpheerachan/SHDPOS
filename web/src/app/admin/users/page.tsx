@@ -29,6 +29,7 @@ const PERM_LABEL: Record<string, { th: string; en: string; zh: string }> = {
   "inventory.view": { th: "ดูสต๊อก", en: "View stock", zh: "查看库存" },
   "inventory.adjust": { th: "ปรับสต๊อก", en: "Adjust stock", zh: "库存调整" },
   "inventory.count": { th: "นับสต๊อก", en: "Count stock", zh: "盘点" },
+  "inventory.count_approve": { th: "อนุมัติผลนับสต๊อก", en: "Approve stock count", zh: "审批盘点" },
   "transfer.request": { th: "ขอโอนย้าย", en: "Request transfer", zh: "申请调货" },
   "transfer.approve": { th: "อนุมัติโอน", en: "Approve transfer", zh: "审批调货" },
   "transfer.receive": { th: "รับของโอน", en: "Receive transfer", zh: "接收调货" },
