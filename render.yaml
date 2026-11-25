@@ -62,3 +62,5 @@ services:
         sync: false
       - key: COMPANY_NAME_EN
         sync: false
+      - key: OW_EVENTS_SECRET              # ลับ ≥32 ตัว — ให้ OW ตั้ง Pub/Sub push ไปที่ https://<โดเมน>/api/internal/ow-events?token=<ค่านี้>
+        sync: false
