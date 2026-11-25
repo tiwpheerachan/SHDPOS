@@ -107,14 +107,15 @@ const hashOf = (b: unknown) => createHash("sha256").update(JSON.stringify(b)).di
 /** อ่านบิลจริงจาก DB (client_uuid = hold id) แล้วสร้าง input (+ รหัสบรรทัดบิลตามลำดับ ใช้ตอนแก้ SN) */
 // ช่องทางที่ส่งเข้า JST ในนามสาขา (ลูกค้า JST = สาขา) — OW 25 พ.ย.:
 //   • ขายส่ง (b2b) ต้องเลือกลูกค้า JST จริง (jstCustomerId, ERIS-256) → ยังไม่ส่งจนกว่า API ขึ้น
-//   • ออนไลน์ (Shopee/Lazada/TikTok/เว็บ) ออเดอร์เข้า JST ทางแพลตฟอร์มเองอยู่แล้ว → ส่งซ้ำ = ตัดสต๊อก 2 รอบ
+//   • ออนไลน์ (Shopee/Lazada/TikTok/เว็บ) ร้านผูก JST โดยตรง (OW ยืนยันแล้ว) → ห้ามส่งถาวร ส่งซ้ำ = ออเดอร์ซ้ำ + ตัดสต๊อก 2 รอบ
 export const OW_SALE_CHANNELS = new Set(["offline", "event"]);
 export const HOLD_PREFIX = "พักไว้ไม่ส่ง:";
 export function holdReasonForChannel(channel: string | null | undefined): string | null {
   const c = channel ?? "offline";
   if (OW_SALE_CHANNELS.has(c)) return null;
   if (c === "b2b") return `${HOLD_PREFIX} บิลขายส่ง — ต้องเลือกลูกค้า JST จริง รอ OneWarehouse เปิด API ลูกค้า (jstCustomerId, ERIS-256)`;
-  if (c.startsWith("online_")) return `${HOLD_PREFIX} บิลช่องทางออนไลน์ (${c.replace("online_", "")}) — ออเดอร์เข้า JST ทางแพลตฟอร์มอยู่แล้ว ส่งซ้ำจะตัดสต๊อก 2 รอบ`;
+  // OW ยืนยัน 25 พ.ย.: ร้านออนไลน์ผูก JST โดยตรง (JST ดึงออเดอร์/ตัดสต๊อก/จัดส่งเอง) → ห้ามส่งผ่าน /v1/sales ถาวร
+  if (c.startsWith("online_")) return `${HOLD_PREFIX} บิลช่องทางออนไลน์ (${c.replace("online_", "")}) — ออเดอร์เข้า JST ทางแพลตฟอร์มโดยตรงอยู่แล้ว ห้ามส่งซ้ำผ่าน POS (ออเดอร์ซ้ำ + ตัดสต๊อก 2 รอบ) · ถ้าร้านนี้ยังไม่ขึ้นใน JST ให้แจ้งทีมคลังกลาง/ทีมออนไลน์ผูกร้านกับ JST`;
   return `${HOLD_PREFIX} ช่องทาง ${c} ยังไม่ได้ตกลงวิธีส่งเข้า JST`;
 }
 
