@@ -37,3 +37,19 @@ services:
         sync: false
       - key: NEXT_PUBLIC_SUPERADMIN_EMAILS   # ผู้ดูแลสูงสุด (คั่นด้วย , ได้)
         value: tiw.pheerachan@shd-technology.co.th
+      # ===== OneWarehouse / JST (ฝั่ง server เท่านั้น) =====
+      - key: ONEWAREHOUSE_BASE            # URL /v1 ของ OW (production ต่างจาก UAT)
+        sync: false
+      - key: ONEWAREHOUSE_ENV             # uat | production — ต้องตรงกับ BASE (production = remark ไม่มี "test")
+        sync: false
+      - key: ONEWAREHOUSE_SUB             # Central Login sub (ตัวเลข) ที่ OW ให้สิทธิ์
+        sync: false
+      - key: ONEWAREHOUSE_SERVICE_TOKEN   # ลับ — ขอใบใหม่ (ใบเดิมเคยหลุดในแชต)
+        sync: false
+      - key: OW_SYNC_CRON_SECRET          # ลับ ≥32 ตัว — ใช้กับ /api/internal/ow-outbox (cron ภายนอก)
+        sync: false
+      # ===== อื่น ๆ =====
+      - key: NEXT_PUBLIC_GOOGLE_MAPS_KEY  # จำกัด HTTP referrer เป็นโดเมนจริง (ใบเดิมเคยหลุด)
+        sync: false
+      - key: ANTHROPIC_API_KEY            # ผู้ช่วย AI (ไม่ใส่ = ใช้ตัวแยกคำถามในเครื่อง)
+        sync: false
