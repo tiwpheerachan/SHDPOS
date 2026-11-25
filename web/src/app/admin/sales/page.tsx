@@ -265,21 +265,32 @@ function BrandView({ orders, branches, brands, L, locale, onDrill }: { orders: O
     }).sort((a, b) => b.sales - a.sales);
   }, [orders, branches, brands, locale, L]);
   if (!rows.length) return <EmptyState title={L("ไม่มีข้อมูลแบรนด์ตามตัวกรอง", "No brand data", "无数据")} />;
+  const max = Math.max(1, ...rows.map((r) => r.sales));
   return (
-    <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-3">
-      {rows.map((r) => (
-        <button key={r.id} onClick={() => r.id !== "none" && onDrill(r.id)} className="card p-4 text-left hover:ring-1 hover:ring-brand/30 transition">
-          <div className="flex items-center justify-between gap-2"><p className="font-semibold truncate">{r.name}</p><span className="text-xs text-muted tnum">{r.share.toFixed(1)}%</span></div>
-          <p className="text-2xl font-bold tnum mt-1">{formatTHB(r.sales, false)}</p>
-          <div className="h-1.5 rounded-full bg-surface2 overflow-hidden mt-2"><div className="h-full bg-brand rounded-full" style={{ width: `${r.share}%` }} /></div>
-          <div className="grid grid-cols-3 gap-2 mt-3 text-[11px]">
-            <span><span className="block text-muted">{L("บิล", "Bills", "单数")}</span><b className="tnum">{formatInt(r.bills)}</b></span>
-            <span><span className="block text-muted">{L("เฉลี่ย/บิล", "Avg", "客单价")}</span><b className="tnum">{formatTHB(r.bills ? r.sales / r.bills : 0, false)}</b></span>
-            <span><span className="block text-muted">{L("สาขาที่ขาย", "Branches", "门店")}</span><b className="tnum">{r.branchCount}</b></span>
-          </div>
-          <p className="text-[11px] text-muted mt-2 truncate">{L("สาขาท็อป", "Top branch", "最佳门店")}: {r.top}</p>
-        </button>
-      ))}
-    </div>
+    <Card>
+      <CardHeader title={L("ยอดขายรายแบรนด์", "Sales by brand", "品牌销售")} subtitle={L(`${rows.length} แบรนด์ · กดแถวเพื่อดูสาขาในแบรนด์นั้น`, `${rows.length} brands · click to see its branches`, "点击查看门店")} />
+      <Table>
+        <thead><tr><Th>#</Th><Th>{L("แบรนด์", "Brand", "品牌")}</Th><Th align="right">{L("ยอดขาย", "Sales", "销售额")}</Th><Th>{L("สัดส่วน", "Share", "占比")}</Th>
+          <Th align="right">{L("บิล", "Bills", "单数")}</Th><Th align="right">{L("เฉลี่ย/บิล", "Avg", "客单价")}</Th><Th align="right">{L("ชิ้น", "Units", "件数")}</Th>
+          <Th align="right">{L("สาขาที่ขาย", "Branches", "门店")}</Th><Th>{L("สาขาท็อป", "Top branch", "最佳门店")}</Th><Th /></tr></thead>
+        <tbody>{rows.map((r, i) => {
+          const can = r.id !== "none";
+          return (
+            <tr key={r.id} className={can ? "hover:bg-surface2/60 cursor-pointer" : ""} onClick={() => can && onDrill(r.id)}>
+              <Td className="text-xs text-muted tnum">{i + 1}</Td>
+              <Td className={`text-xs font-medium ${can ? "" : "text-muted"}`}>{r.name}</Td>
+              <Td align="right" className="text-sm font-semibold tnum">{formatTHB(r.sales, false)}</Td>
+              <Td><div className="flex items-center gap-2 min-w-[120px]"><div className="h-2 flex-1 rounded-full bg-surface2 overflow-hidden"><div className="h-full rounded-full bg-brand" style={{ width: `${(r.sales / max) * 100}%` }} /></div><span className="text-[11px] text-muted tnum w-10 text-right">{r.share.toFixed(1)}%</span></div></Td>
+              <Td align="right" className="text-xs tnum">{formatInt(r.bills)}</Td>
+              <Td align="right" className="text-xs tnum">{formatTHB(r.bills ? r.sales / r.bills : 0, false)}</Td>
+              <Td align="right" className="text-xs tnum">{formatInt(r.units)}</Td>
+              <Td align="right" className="text-xs tnum">{r.branchCount}</Td>
+              <Td className="text-xs text-muted max-w-[260px] truncate">{r.top}</Td>
+              <Td>{can ? <ChevronRight size={14} className="text-muted" /> : null}</Td>
+            </tr>
+          );
+        })}</tbody>
+      </Table>
+    </Card>
   );
 }
