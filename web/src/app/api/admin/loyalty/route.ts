@@ -15,6 +15,7 @@ const reply = (d: unknown, s = 200) => NextResponse.json(d, { status: s, headers
 const CHANNELS = ["offline", "online_shopee", "online_lazada", "online_tiktok", "online_website", "event", "b2b", "other"];
 // ค่าที่ customer_segment() คืนจริง
 const SEGMENTS = ["all", "new", "returning", "vip", "lost"];
+const CONDITIONS = ["none", "birthday_day", "birthday_month", "first_purchase"];
 
 async function ctx(req: NextRequest) {
   const profile = readSession(req.cookies.get(SSO_COOKIE)?.value);
@@ -42,6 +43,13 @@ export async function GET(req: NextRequest) {
     await ctx(req);
     const sb = supabaseAdmin();
     // ?expiring=30&brand=<uuid> → ลูกค้าที่แต้มจะหมดอายุ (ให้ทีมการตลาดชวนใช้)
+    const stats = req.nextUrl.searchParams.get("stats");
+    if (stats !== null) {
+      const brand = req.nextUrl.searchParams.get("brand");
+      const r = await sb.rpc("pos_loyalty_stats", { p_brand: brand && UUID.test(brand) ? brand : null, p_days: Math.min(Math.max(Number(stats) || 30, 1), 365) });
+      if (r.error) throw new PosError("อ่านสถิติไม่สำเร็จ — ตรวจ migration 0066", 503);
+      return reply({ stats: r.data });
+    }
     const ex = req.nextUrl.searchParams.get("expiring");
     if (ex !== null) {
       const days = Math.min(Math.max(Number(ex) || 30, 1), 365);
@@ -51,17 +59,18 @@ export async function GET(req: NextRequest) {
       const last = await sb.from("audit_logs").select("amount,after_data,created_at").eq("action", "points_expire_run").order("created_at", { ascending: false }).limit(1).maybeSingle();
       return reply({ days, rows: r.data ?? [], last_run: last.data ?? null });
     }
-    const [prog, rules, brands, branches, cats] = await Promise.all([
+    const [prog, rules, brands, branches, cats, tiers] = await Promise.all([
       sb.from("loyalty_programs").select("*"),
       sb.from("loyalty_rules").select("*").is("archived_at", null).order("priority", { ascending: false }).order("created_at"),
       sb.from("brands").select("id,name").order("name"),
       sb.from("branches").select("id,name,code,brand_id").order("name"),
       sb.from("categories").select("id,name_th,name_en").eq("is_active", true).order("sort_order"),
+      sb.from("loyalty_tiers").select("*").order("min_spend"),
     ]);
     if (prog.error || rules.error) throw new PosError("อ่านการตั้งค่าแต้มไม่สำเร็จ — ตรวจ migration 0061", 503);
     const pids = [...new Set((rules.data ?? []).flatMap((r) => r.product_ids ?? []))];
     const prods = pids.length ? await sb.from("products").select("id,sku,name_th").in("id", pids) : { data: [] };
-    return reply({ programs: prog.data ?? [], rules: rules.data ?? [], brands: brands.data ?? [], branches: branches.data ?? [], categories: cats.data ?? [], products: prods.data ?? [] });
+    return reply({ programs: prog.data ?? [], rules: rules.data ?? [], brands: brands.data ?? [], branches: branches.data ?? [], categories: cats.data ?? [], products: prods.data ?? [], tiers: tiers.data ?? [] });
   } catch (e) { return fail(e); }
 }
 
@@ -115,11 +124,13 @@ export async function POST(req: NextRequest) {
         if (channels.some((c: string) => !CHANNELS.includes(c))) throw new PosError("ช่องทางไม่ถูกต้อง");
         const seg = String(r.target_segment ?? "all");
         if (!SEGMENTS.includes(seg)) throw new PosError("กลุ่มลูกค้าไม่ถูกต้อง");
+        const cond = String(r.customer_condition ?? "none");
+        if (!CONDITIONS.includes(cond)) throw new PosError("เงื่อนไขลูกค้าไม่ถูกต้อง");
         const row = {
           brand_id: brand, name, kind, active: r.active !== false,
           starts_at: ts(r.starts_at, "วันเริ่ม"), ends_at: ts(r.ends_at, "วันสิ้นสุด"),
           days_of_week: days, time_from: time(r.time_from), time_to: time(r.time_to),
-          branch_ids: uuids(r.branch_ids, "สาขา"), channels, target_segment: seg,
+          branch_ids: uuids(r.branch_ids, "สาขา"), channels, target_segment: seg, customer_condition: cond,
           product_ids: uuids(r.product_ids, "สินค้า"), category_ids: uuids(r.category_ids, "หมวดสินค้า"),
           multiplier: kind === "multiplier" ? num(r.multiplier, "ตัวคูณ", 1, 100) : null,
           points_per_unit: kind === "per_item" ? Math.floor(num(r.points_per_unit, "แต้มต่อชิ้น", 0, 1e6)) : null,
@@ -141,6 +152,29 @@ export async function POST(req: NextRequest) {
         if (r.error) throw new PosError("ลบกฎไม่สำเร็จ", 400);
         return reply({ ok: true });
       }
+      case "save_tiers": {
+        // บันทึกชุดระดับของแบรนด์ทั้งชุด (แทนที่ของเดิม) — brand_id null = ค่าเริ่มต้นทุกแบรนด์
+        const brand = b.brand_id ? String(b.brand_id) : null;
+        if (brand && !UUID.test(brand)) throw new PosError("แบรนด์ไม่ถูกต้อง");
+        const list = Array.isArray(b.tiers) ? b.tiers.slice(0, 10) : [];
+        const codes = new Set<string>();
+        const rows = list.map((t: Record<string, unknown>, i: number) => {
+          const name = String(t.name ?? "").trim();
+          if (!name || name.length > 60) throw new PosError(`ระดับที่ ${i + 1}: กรุณาตั้งชื่อ`);
+          const code = (String(t.code ?? "").trim().toLowerCase() || name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || `tier${i + 1}`).slice(0, 30);
+          if (!/^[a-z0-9_-]{1,30}$/.test(code)) throw new PosError(`ระดับ ${name}: รหัสใช้ a-z 0-9 - _ เท่านั้น`);
+          if (codes.has(code)) throw new PosError(`รหัสระดับซ้ำ: ${code}`); codes.add(code);
+          const color = /^#[0-9a-f]{6}$/i.test(String(t.color)) ? String(t.color) : "#9CA3AF";
+          return { brand_id: brand, code, name, min_spend: num(t.min_spend ?? 0, `ยอดขั้นต่ำของ ${name}`, 0, 1e10), multiplier: num(t.multiplier ?? 1, `ตัวคูณของ ${name}`, 1, 10),
+            color, perks: t.perks ? String(t.perks).slice(0, 300) : null, active: t.active !== false, updated_by: actor, updated_at: new Date().toISOString() };
+        });
+        const spends = rows.map((r: { min_spend: number }) => r.min_spend);
+        if (new Set(spends).size !== spends.length) throw new PosError("ยอดขั้นต่ำของแต่ละระดับต้องไม่ซ้ำกัน");
+        const del = brand ? await sb.from("loyalty_tiers").delete().eq("brand_id", brand) : await sb.from("loyalty_tiers").delete().is("brand_id", null);
+        if (del.error) throw new PosError("บันทึกระดับไม่สำเร็จ", 400);
+        if (rows.length) { const ins = await sb.from("loyalty_tiers").insert(rows); if (ins.error) throw new PosError("บันทึกระดับไม่สำเร็จ: " + ins.error.message, 400); }
+        return reply({ ok: true });
+      }
       case "simulate": {
         if (!UUID.test(String(b.branch_id))) throw new PosError("กรุณาเลือกสาขา");
         const items = Array.isArray(b.items) ? b.items.filter((i: { product_id?: string }) => UUID.test(String(i?.product_id))).slice(0, 100) : [];
@@ -149,6 +183,7 @@ export async function POST(req: NextRequest) {
           p_at: b.at ? new Date(b.at).toISOString() : new Date().toISOString(), p_net: num(b.net, "ยอดซื้อ", 0, 1e9),
           p_items: items.map((i: { product_id: string; qty?: number }) => ({ product_id: i.product_id, qty: Number(i.qty) || 1, is_gift: false })),
           p_redeemed: Math.floor(Number(b.redeem_points) || 0),
+          p_sim: { tier_code: typeof b.sim?.tier_code === "string" ? b.sim.tier_code.slice(0, 30) : null, birthday: b.sim?.birthday === true, birthday_month: b.sim?.birthday_month === true, first_purchase: b.sim?.first_purchase === true },
         });
         if (r.error) throw new PosError("คำนวณไม่สำเร็จ: " + r.error.message, 400);
         return reply({ result: r.data });

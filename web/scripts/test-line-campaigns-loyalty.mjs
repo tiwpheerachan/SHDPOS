@@ -86,12 +86,12 @@ export async function testLineCampaignsLoyalty(db) {
 
   // ---------- แต้มสะสม ----------
   const SAT = '2026-11-28T06:00:00Z'; // เสาร์ 13:00 เวลาไทย
-  const calc = async (o = {}) => (await db.query('select pos_loyalty_calc($1,$2,$3,$4,$5,$6,$7) r',
-    [o.branch ?? BR, o.channel ?? 'offline', o.customer ?? null, o.at ?? SAT, o.net ?? 1000, o.items ?? [], o.redeemed ?? 0])).rows[0].r;
+  const calc = async (o = {}) => (await db.query('select pos_loyalty_calc($1,$2,$3,$4,$5,$6,$7,$8) r',
+    [o.branch ?? BR, o.channel ?? 'offline', o.customer ?? null, o.at ?? SAT, o.net ?? 1000, o.items ?? [], o.redeemed ?? 0, o.sim ?? null])).rows[0].r;
   const rule = async (f) => {
-    const r = { brand_id: null, kind: 'multiplier', multiplier: null, points_per_unit: null, bonus_points: null, min_spend: 0, min_qty: 1, days_of_week: [], time_from: null, time_to: null, branch_ids: [], channels: [], product_ids: [], category_ids: [], starts_at: null, ends_at: null, active: true, ...f };
-    return (await db.query(`insert into loyalty_rules(name,brand_id,kind,multiplier,points_per_unit,bonus_points,min_spend,min_qty,days_of_week,time_from,time_to,branch_ids,channels,product_ids,category_ids,starts_at,ends_at,active)
-      values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) returning id`, [f.name ?? f.kind, r.brand_id, r.kind, r.multiplier, r.points_per_unit, r.bonus_points, r.min_spend, r.min_qty, r.days_of_week, r.time_from, r.time_to, r.branch_ids, r.channels, r.product_ids, r.category_ids, r.starts_at, r.ends_at, r.active])).rows[0].id;
+    const r = { brand_id: null, kind: 'multiplier', multiplier: null, points_per_unit: null, bonus_points: null, min_spend: 0, min_qty: 1, days_of_week: [], time_from: null, time_to: null, branch_ids: [], channels: [], product_ids: [], category_ids: [], starts_at: null, ends_at: null, active: true, customer_condition: 'none', ...f };
+    return (await db.query(`insert into loyalty_rules(name,brand_id,kind,multiplier,points_per_unit,bonus_points,min_spend,min_qty,days_of_week,time_from,time_to,branch_ids,channels,product_ids,category_ids,starts_at,ends_at,active,customer_condition)
+      values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) returning id`, [f.name ?? f.kind, r.brand_id, r.kind, r.multiplier, r.points_per_unit, r.bonus_points, r.min_spend, r.min_qty, r.days_of_week, r.time_from, r.time_to, r.branch_ids, r.channels, r.product_ids, r.category_ids, r.starts_at, r.ends_at, r.active, r.customer_condition])).rows[0].id;
   };
   const off = (id) => db.query('update loyalty_rules set active=false where id=$1', [id]);
 
@@ -171,6 +171,38 @@ export async function testLineCampaignsLoyalty(db) {
     eq(Number((await db.query("select count(*) from loyalty_ledger where customer_id=$1 and kind='expire' and brand_id is not null", [X])).rows[0].count), 2, 'ledger expire แยกแบรนด์');
     eq((await db.query('select expire_points($1) n', [X])).rows[0].n, 0, 'รันซ้ำไม่ตัดซ้ำ');
     eq(Number((await db.query('select pos_points_expiring($1,30) r', [X])).rows[0].r.total), 50, 'เหลือใกล้หมด 50');
+  });
+  await t('ระดับสมาชิก: ตามยอด 12 เดือน (ไม่รวมบิลปัจจุบัน) · แต้มเพิ่ม = ฐาน × (ตัวคูณ−1) · ชุดระดับรายแบรนด์แทนค่าเริ่มต้น · จำลองได้', async () => {
+    await db.query("insert into loyalty_tiers(brand_id,code,name,min_spend,multiplier) values(null,'member','Member',0,1),(null,'gold','Gold',1000,1.5)");
+    const Y = U(710), Z = U(711);
+    await db.query("insert into customers(id,name,points,birth_date) values($1,'Tier Y',0,'1990-11-28'),($2,'Tier Z',0,'1990-03-03')", [Y, Z]);
+    await db.query(`insert into orders(id,client_uuid,order_no,branch_id,customer_id,status,channel,subtotal,grand_total,created_at) values($1,$1,'TIER-1',$2,$3,'completed','offline',1200,1200,$4::timestamptz - interval '10 days')`, [U(712), BR, Y, SAT]);
+    const y = await calc({ customer: Y, net: 1000 });
+    eq(y.tier.code, 'gold', 'Y = Gold'); eq(y.points, 75, '50 + Gold 25');
+    const z = await calc({ customer: Z, net: 1000 });
+    eq([z.tier.code, z.points, Number(z.tier.next.remaining)].join(), 'member,50,1000', 'Z = Member ขาดอีก 1000');
+    eq((await calc({ net: 1000, sim: { tier_code: 'gold' } })).points, 75, 'จำลอง Gold');
+    await db.query("insert into loyalty_tiers(brand_id,code,name,min_spend,multiplier) values($1,'b2vip','B2 VIP',0,2)", [BRAND2]);
+    eq((await calc({ customer: Z, net: 1000, branch: BR2 })).points, 100, 'แบรนด์ 2 ใช้ชุดระดับของตัวเอง (x2)');
+  });
+  await t('เงื่อนไขลูกค้า: วันเกิด (วัน/เดือน) · ซื้อครั้งแรก · ใช้กับกฎทุกชนิด', async () => {
+    const Y = U(710), Z = U(711);
+    const a = await rule({ kind: 'bonus', bonus_points: 100, customer_condition: 'birthday_day' });
+    const b = await rule({ kind: 'multiplier', multiplier: 3, customer_condition: 'birthday_month' });
+    const c = await rule({ kind: 'bonus', bonus_points: 40, customer_condition: 'first_purchase' });
+    eq((await calc({ customer: Y, net: 1000 })).points, 150 + 25 + 100, 'Y วันเกิด: x3 ฐาน + Gold + โบนัสวันเกิด');
+    eq((await calc({ customer: Z, net: 1000 })).points, 50 + 40, 'Z ไม่ใช่วันเกิด แต่ซื้อครั้งแรก');
+    eq((await calc({ net: 1000, sim: { birthday: true } })).points, 150 + 100, 'จำลองวันเกิด');
+    eq((await calc({ net: 1000, sim: { first_purchase: true } })).points, 90, 'จำลองซื้อครั้งแรก');
+    eq((await calc({ net: 1000 })).points, 50, 'ไม่มีลูกค้า = ไม่เข้าเงื่อนไข');
+    await off(a); await off(b); await off(c);
+  });
+  await t('บันทึกบิลจริง: ระดับล่าสุดเขียนลง customers.tier', async () => {
+    const Z = U(711);
+    await db.query(`insert into orders(id,client_uuid,order_no,branch_id,customer_id,status,channel,subtotal,grand_total) values($1,$1,'TIER-2',$2,$3,'completed','offline',1500,1500)`, [U(713), BR, Z]);
+    eq((await db.query('select tier from customers where id=$1', [Z])).rows[0].tier, 'gold', 'ซื้อครบ 1500 → Gold');
+    const st = (await db.query('select pos_loyalty_stats(null,30) r')).rows[0].r;
+    assert(Number(st.earned) > 0 && st.tiers.gold >= 1, 'สถิติภาพรวม');
   });
   console.log(`PASS: ${n} line-campaign / loyalty regressions (scope, caps, stacking, windows, per-item, trigger)`);
 }

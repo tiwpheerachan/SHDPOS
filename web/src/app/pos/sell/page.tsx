@@ -325,13 +325,14 @@ export default function SellPage() {
 
   // แต้มใกล้หมดอายุ (30 วัน) ของลูกค้าที่เลือก — เตือนพนักงานชวนใช้ก่อนหมด
   const [expiring, setExpiring] = useState<{ total: number; next_at: string | null; next_points: number } | null>(null);
+  const [tier, setTier] = useState<{ code: string | null; name?: string; color?: string; multiplier?: number; next?: { name: string; remaining: number } | null } | null>(null);
   useEffect(() => {
-    setExpiring(null);
+    setExpiring(null); setTier(null);
     if (!cart.customerId || !isLiveMode()) return;
     let alive = true;
-    fetch(`/api/pos/loyalty?expiring=${cart.customerId}&days=30`, { cache: "no-store" }).then((r) => r.json()).then((j) => { if (alive && j.expiring) setExpiring(j.expiring); }).catch(() => {});
+    fetch(`/api/pos/loyalty?expiring=${cart.customerId}&days=30${branchId ? `&branch_id=${branchId}` : ""}`, { cache: "no-store" }).then((r) => r.json()).then((j) => { if (!alive) return; if (j.expiring) setExpiring(j.expiring); if (j.tier) setTier(j.tier); }).catch(() => {});
     return () => { alive = false; };
-  }, [cart.customerId]);
+  }, [cart.customerId, branchId]);
 
   // พรีวิวแต้ม (หน่วง 500ms หลังตะกร้าเปลี่ยน) — เฉพาะเมื่อเลือกลูกค้าแล้ว
   const earnKey = cart.customerId && branchId ? `${branchId}|${cart.customerId}|${totals.grandTotal}|${cart.redeemPoints}|${session.channel}|${cart.lines.map((l) => `${l.product_id}:${l.qty}:${l.is_gift ? 1 : 0}`).join(",")}` : "";
@@ -975,6 +976,12 @@ export default function SellPage() {
               <span className="flex items-center gap-1 text-[11px] text-amber-600 dark:text-amber-300 font-semibold">
                 <Star size={12} /> {cart.customerPoints.toLocaleString()} {L("แต้ม", "pts", "积分")}
               </span>
+              {tier?.code ? (
+                <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full border border-line" title={tier.next ? L(`ซื้ออีก ${formatTHB(tier.next.remaining, false)} ขึ้นระดับ ${tier.next.name}`, `${formatTHB(tier.next.remaining, false)} more to ${tier.next.name}`, `再消费 ${formatTHB(tier.next.remaining, false)} 升级 ${tier.next.name}`) : undefined}>
+                  <span className="h-1.5 w-1.5 rounded-full" style={{ background: tier.color }} />{tier.name}{(tier.multiplier ?? 1) > 1 ? ` ×${tier.multiplier}` : ""}
+                </span>
+              ) : null}
+              {tier?.next && tier.next.remaining > 0 ? <span className="text-[10px] text-muted">{L(`อีก ${formatTHB(tier.next.remaining, false)} → ${tier.next.name}`, `${formatTHB(tier.next.remaining, false)} → ${tier.next.name}`, `还差 ${formatTHB(tier.next.remaining, false)} → ${tier.next.name}`)}</span> : null}
               {expiring && expiring.total > 0 && expiring.next_at ? (
                 <span className="text-[10px] font-semibold text-danger" title={L(`ภายใน 30 วันจะหมดอายุรวม ${expiring.total} แต้ม`, `${expiring.total} pts expire within 30 days`, `30天内到期 ${expiring.total}`)}>
                   {L("หมดอายุ", "expires", "到期")} {Math.min(expiring.next_points, cart.customerPoints).toLocaleString()} {L("แต้ม", "pts", "分")} · {new Date(expiring.next_at).toLocaleDateString(locale === "th" ? "th-TH" : "en-US", { day: "numeric", month: "short" })}
