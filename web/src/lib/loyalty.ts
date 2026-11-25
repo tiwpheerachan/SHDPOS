@@ -14,6 +14,7 @@ export function pointsToBaht(points: number): number {
 
 /** แต้มสูงสุดที่ใช้ได้ = ไม่เกินแต้มที่มี และไม่เกินยอดที่ต้องจ่าย */
 export function maxRedeemablePoints(availablePoints: number, payableBaht: number): number {
-  const byCash = Math.floor(payableBaht / POINT_VALUE_THB);
+  // เซิร์ฟเวอร์ไม่รับบิลยอด 0 (promotion_requires_positive_payable) → ต้องเหลือให้ชำระอย่างน้อย 1 บาท
+  const byCash = Math.floor(Math.max(payableBaht - 1, 0) / POINT_VALUE_THB);
   return Math.max(0, Math.min(Math.floor(availablePoints), byCash));
 }

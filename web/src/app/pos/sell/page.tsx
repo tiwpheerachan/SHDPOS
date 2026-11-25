@@ -934,9 +934,17 @@ export default function SellPage() {
               )}
               {cart.customerPoints > 0 && (
                 cart.redeemPoints > 0 ? (
-                  <button onClick={() => cart.setRedeem(0)} className="ml-auto text-[11px] font-semibold text-danger hover:underline">
-                    {L("ยกเลิกใช้แต้ม", "Cancel points", "取消用积分")}
-                  </button>
+                  <span className="ml-auto flex items-center gap-1.5">
+                    {/* เลือกจำนวนแต้มเองได้ (ไม่เกินแต้มที่มี และต้องเหลือให้จ่ายอย่างน้อย 1 บาท) */}
+                    <input type="number" inputMode="numeric" min={1} value={cart.redeemPoints}
+                      aria-label={L("จำนวนแต้มที่ใช้", "Points to use", "使用积分")}
+                      onChange={(e) => { const max = maxRedeemablePoints(cart.customerPoints, totals.grandTotal + totals.redeemAmount); cart.setRedeem(Math.min(Number(e.target.value) || 0, max)); }}
+                      className="w-20 h-7 px-2 rounded-md border border-line bg-surface text-xs text-ink text-right tnum" />
+                    <span className="text-[10px] text-muted">{L("แต้ม", "pts", "分")}</span>
+                    <button onClick={() => cart.setRedeem(0)} className="text-[11px] font-semibold text-danger hover:underline">
+                      {L("ยกเลิก", "Cancel", "取消")}
+                    </button>
+                  </span>
                 ) : (
                   <button
                     onClick={() => cart.setRedeem(maxRedeemablePoints(cart.customerPoints, totals.grandTotal))}
