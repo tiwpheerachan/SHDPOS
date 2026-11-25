@@ -397,6 +397,8 @@ export interface OrderItem {
   salesperson_id?: string | null;
   returned_qty: number;
   is_gift?: boolean;
+  /** แบรนด์ของสินค้า (จากระบบกลาง — ใช้แยกยอดตามแบรนด์ในสาขาที่ขายหลายแบรนด์) */
+  brand_id?: string | null;
   gift_source?: "campaign" | "bundle" | "manual";
   gift_campaign_id?: string | null;
   gift_of_sku?: string | null;

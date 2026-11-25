@@ -27,7 +27,7 @@ function Delta({ v, show }: { v: number; show: boolean }) {
   const I = up ? TrendingUp : down ? TrendingDown : Minus;
   return <span className={`inline-flex items-center gap-0.5 text-[10.5px] font-medium px-1.5 py-0.5 rounded-md ${up ? "bg-ok/12 text-ok" : down ? "bg-danger/10 text-danger" : "bg-surface2 text-muted"}`}><I size={11} />{Math.abs(v) >= 1000 ? ">999" : Math.abs(v).toFixed(Math.abs(v) < 10 ? 1 : 0)}%</span>;
 }
-function Kpi({ label, value, sub, delta, showDelta, tone }: { label: string; value: string; sub?: string; delta?: number; showDelta?: boolean; tone?: "brand" | "ok" | "warn" }) {
+export function Kpi({ label, value, sub, delta, showDelta, tone }: { label: string; value: string; sub?: string; delta?: number; showDelta?: boolean; tone?: "brand" | "ok" | "warn" }) {
   return (
     <div className={`card px-3.5 py-3 min-w-0 ${tone === "brand" ? "ring-1 ring-brand/25 bg-brand/[0.04]" : ""}`}>
       <div className="flex items-center justify-between gap-1"><p className="text-[11px] text-muted truncate">{label}</p><Delta v={delta ?? 0} show={!!showDelta} /></div>
@@ -36,7 +36,7 @@ function Kpi({ label, value, sub, delta, showDelta, tone }: { label: string; val
     </div>
   );
 }
-function Panel({ title, icon, action, children, className = "" }: { title: string; icon?: React.ReactNode; action?: React.ReactNode; children: React.ReactNode; className?: string }) {
+export function Panel({ title, icon, action, children, className = "" }: { title: string; icon?: React.ReactNode; action?: React.ReactNode; children: React.ReactNode; className?: string }) {
   return (
     <div className={`card p-4 min-w-0 ${className}`}>
       <div className="flex items-center justify-between gap-2 mb-3"><p className="text-[13px] font-semibold flex items-center gap-1.5">{icon}{title}</p>{action}</div>
@@ -44,7 +44,7 @@ function Panel({ title, icon, action, children, className = "" }: { title: strin
     </div>
   );
 }
-function Bars({ rows, total, color = "bg-brand" }: { rows: { label: string; value: number; sub?: string }[]; total: number; color?: string }) {
+export function Bars({ rows, total, color = "bg-brand" }: { rows: { label: string; value: number; sub?: string }[]; total: number; color?: string }) {
   if (!rows.length) return <p className="text-xs text-muted">ไม่มีข้อมูล</p>;
   return (
     <div className="space-y-2">
@@ -99,14 +99,16 @@ export type OverviewModel = {
   weekday: { label: string; cur: number; prev: number }[];
   basket: { label: string; value: number }[];
   categories: { label: string; value: number }[];
+  /** "category" = หมวดสินค้า · "brand" = ใช้แบรนด์แทนเมื่อสินค้ายังไม่ได้ตั้งหมวด */
+  catKind?: "category" | "brand";
   topProducts: { sku: string; name: string; qty: number; sales: number }[];
   topBranches: { id: string; name: string; value: number }[];
   topStaff: { id: string; name: string; value: number; bills: number }[];
 };
 
-export function buildOverview({ orders, adjustments, prev, branches, employees, showCost, range, productCat, catName }: {
+export function buildOverview({ orders, adjustments, prev, branches, employees, showCost, range, productCat, catName, brandName }: {
   orders: Order[]; adjustments: Adjustment[]; prev: PrevOrder[]; branches: Branch[]; employees: Employee[]; showCost: boolean; range: { from: Date; to: Date };
-  productCat?: Map<string, string | null>; catName?: Map<string, string>;
+  productCat?: Map<string, string | null>; catName?: Map<string, string>; brandName?: Map<string, string>;
 }): OverviewModel {
   const sold = orders.filter(isCountedSale);
   const gross = sold.reduce((s, o) => s + o.grand_total, 0), bills = sold.length;
@@ -152,7 +154,12 @@ export function buildOverview({ orders, adjustments, prev, branches, employees, 
   const BUCKETS: [string, number][] = [["< 500", 500], ["500–1K", 1000], ["1K–3K", 3000], ["3K–5K", 5000], ["5K–10K", 10000], ["10K–20K", 20000], ["20K+", Infinity]];
   const basket = BUCKETS.map(([label]) => ({ label, value: 0 }));
   for (const o of sold) basket[BUCKETS.findIndex(([, lim]) => o.grand_total < lim)].value++;
-  const categories = agg(sold.flatMap((o) => o.items.filter((i) => !i.is_gift).map((i) => [catName?.get((i.product_id && productCat?.get(i.product_id)) || "") ?? "ไม่ระบุหมวด", i.line_total] as [string, number]))).slice(0, 7);
+  let categories = agg(sold.flatMap((o) => o.items.filter((i) => !i.is_gift).map((i) => [catName?.get((i.product_id && productCat?.get(i.product_id)) || "") ?? "ไม่ระบุหมวด", i.line_total] as [string, number]))).slice(0, 7);
+  let catKind: "category" | "brand" = "category";
+  if (categories.length === 1 && categories[0].label === "ไม่ระบุหมวด" && brandName) {
+    const byBrand = agg(sold.flatMap((o) => o.items.filter((i) => !i.is_gift).map((i) => [(i.brand_id && brandName.get(i.brand_id)) || "ไม่ระบุแบรนด์", i.line_total] as [string, number]))).slice(0, 7);
+    if (byBrand.some((r) => r.label !== "ไม่ระบุแบรนด์")) { categories = byBrand; catKind = "brand"; }
+  }
   const pm = new Map<string, { name: string; qty: number; sales: number }>();
   for (const o of sold) for (const i of o.items) { if (i.is_gift) continue; const c = pm.get(i.sku) ?? { name: i.name, qty: 0, sales: 0 }; c.qty += i.qty; c.sales += i.line_total; pm.set(i.sku, c); }
   const topProducts = [...pm.entries()].map(([sku, v]) => ({ sku, ...v })).sort((a, b) => b.sales - a.sales).slice(0, 7);
@@ -161,11 +168,11 @@ export function buildOverview({ orders, adjustments, prev, branches, employees, 
   for (const o of sold) { const id = o.salesperson_id ?? o.cashier_id; if (!id) continue; const c = sm.get(id) ?? { v: 0, n: 0 }; c.v += o.grand_total; c.n++; sm.set(id, c); }
   const topStaff = [...sm.entries()].sort((a, b) => b[1].v - a[1].v).slice(0, 6).map(([id, c]) => ({ id, name: empName(employees.find((e) => e.id === id)), value: c.v, bills: c.n }));
   const sparkN = Math.min(trend.cur.length, 30);
-  return { kpi, spark: trend.cur.slice(-sparkN), trend, pay, ch, heat, weekday: wd, basket, categories, topProducts, topBranches, topStaff };
+  return { kpi, spark: trend.cur.slice(-sparkN), trend, pay, ch, heat, weekday: wd, basket, categories, catKind, topProducts, topBranches, topStaff };
 }
 
-const COLORS = ["rgb(var(--chart-1))", "rgb(var(--chart-2))", "rgb(var(--chart-3))", "rgb(var(--chart-4))", "rgb(var(--chart-5))"];
-function Donut({ rows }: { rows: { label: string; value: number }[] }) {
+export const COLORS = ["rgb(var(--chart-1))", "rgb(var(--chart-2))", "rgb(var(--chart-3))", "rgb(var(--chart-4))", "rgb(var(--chart-5))"];
+export function Donut({ rows }: { rows: { label: string; value: number }[] }) {
   const total = rows.reduce((s, r) => s + r.value, 0) || 1;
   const R = 42, C = 2 * Math.PI * R;
   let acc = 0;
@@ -183,7 +190,7 @@ function Donut({ rows }: { rows: { label: string; value: number }[] }) {
     </div>
   );
 }
-function Columns({ rows, fmt, highlightMax }: { rows: { label: string; value: number; prev?: number }[]; fmt?: (n: number) => string; highlightMax?: boolean }) {
+export function Columns({ rows, fmt, highlightMax }: { rows: { label: string; value: number; prev?: number }[]; fmt?: (n: number) => string; highlightMax?: boolean }) {
   const max = Math.max(1, ...rows.map((r) => Math.max(r.value, r.prev ?? 0)));
   const top = Math.max(...rows.map((r) => r.value));
   return (
@@ -200,7 +207,7 @@ function Columns({ rows, fmt, highlightMax }: { rows: { label: string; value: nu
     </div>
   );
 }
-function Spark({ values }: { values: number[] }) {
+export function Spark({ values }: { values: number[] }) {
   if (values.length < 2) return null;
   const max = Math.max(1, ...values), W = 80, H = 22;
   const d = values.map((v, i) => `${i ? "L" : "M"}${((i * W) / (values.length - 1)).toFixed(1)},${(H - (v / max) * (H - 2) - 1).toFixed(1)}`).join(" ");
@@ -268,7 +275,7 @@ export function OverviewView({ m, onDrill }: { m: OverviewModel; onDrill?: (tab:
       <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-4">
         <Panel title="วิธีรับชำระ" icon={<ReceiptText size={14} className="text-brand" />}>{payTotal ? <Donut rows={m.pay} /> : <p className="text-xs text-muted">ไม่มีข้อมูล</p>}</Panel>
         <Panel title="ช่องทางขาย" icon={<Store size={14} className="text-brand" />}><Bars rows={m.ch.slice(0, 5)} total={chTotal} color="bg-[rgb(var(--chart-4))]" /></Panel>
-        <Panel title="หมวดสินค้า" icon={<Package size={14} className="text-brand" />}>{m.categories.length ? <Donut rows={m.categories} /> : <p className="text-xs text-muted">ไม่มีข้อมูล</p>}</Panel>
+        <Panel title={m.catKind === "brand" ? "สัดส่วนตามแบรนด์" : "หมวดสินค้า"} icon={<Package size={14} className="text-brand" />} action={m.catKind === "brand" ? <span className="text-[10px] text-muted">สินค้ายังไม่ตั้งหมวด</span> : null}>{m.categories.length ? <Donut rows={m.categories} /> : <p className="text-xs text-muted">ไม่มีข้อมูล</p>}</Panel>
         <Panel title="ขนาดบิล (จำนวนบิล)" icon={<ReceiptText size={14} className="text-brand" />}><Columns rows={m.basket} highlightMax /></Panel>
       </div>
 

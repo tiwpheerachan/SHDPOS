@@ -228,8 +228,8 @@ export function StaffPerformance({ filtered, employees, branches, brands, initia
                     <span className="w-5 text-center text-[11px] font-bold text-muted shrink-0">{i + 1}</span>
                     <Avatar name={r.label} src={empPhoto(r.id)} size={34} />
                     <div className="min-w-0 flex-1">
-                      <p className="text-xs font-medium truncate">{r.label}</p>
-                      <p className="text-[10px] text-muted truncate">{empRole(r.id)} · {branchName(r.branchId)}</p>
+                      <p className="text-xs font-medium truncate">{splitName(r.label)[0]}</p>
+                      <p className="text-[10px] text-muted truncate">{[splitName(r.label)[1], empRole(r.id), r.branchId ? branchName(r.branchId) : ""].filter((x) => x && x !== "—").join(" · ")}</p>
                     </div>
                     <div className="text-right shrink-0">
                       <p className="text-xs font-semibold tnum">{formatTHB(r.value, false)}</p>
@@ -243,7 +243,7 @@ export function StaffPerformance({ filtered, employees, branches, brands, initia
             <Card>
               <CardHeader title={t.admin.gmv} subtitle={L("สัดส่วนรายคน", "Share by person", "各员工占比")} />
               <div className="p-5 pt-3">
-                <BarList data={rows.slice(0, 12).map((r) => ({ label: r.label, value: r.value, sub: `${r.orders} ${t.admin.orderCount}` }))} />
+                <BarList data={rows.slice(0, 12).map((r) => ({ label: splitName(r.label)[0], value: r.value, sub: `${r.orders} ${t.admin.orderCount}` }))} />
               </div>
             </Card>
           </div>

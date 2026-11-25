@@ -8,6 +8,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useSalesData } from "@/lib/hooks/use-sales-data";
 import { useCatalogProducts } from "@/lib/hooks/use-catalog-products";
 import { StaffPerformance } from "@/components/admin/staff-performance";
+import { BrandView } from "@/components/admin/brand-view";
 import { OverviewView, BillsView, buildOverview } from "@/components/admin/sales-dashboard";
 import { ViewsMenu, ShareMenu, DownloadMenu, type ReportState } from "@/components/admin/report-actions";
 import { rangeToDates, type AdminFilter } from "@/components/admin/filters";
@@ -78,8 +79,10 @@ function AdminSalesPage() {
     const ids = new Set<string>(filter.branchIds);
     if (filter.brandIds.length) for (const b of branches) if (b.brand_id && filter.brandIds.includes(b.brand_id) && (!filter.branchIds.length || filter.branchIds.includes(b.id))) ids.add(b.id);
     if (filter.brandIds.length && filter.branchIds.length) for (const id of [...ids]) { const b = branches.find((x) => x.id === id); if (b && !(b.brand_id && filter.brandIds.includes(b.brand_id))) ids.delete(id); }
+    // สาขาที่ไม่ผูกแบรนด์แต่ขายสินค้าแบรนด์นั้น (คลัง/ร้านรวมแบรนด์) — นับจากบิลที่ผ่านตัวกรองแล้ว
+    if (filter.brandIds.length) for (const o of filtered) if (!filter.branchIds.length || filter.branchIds.includes(o.branch_id)) ids.add(o.branch_id);
     return ids.size || filter.brandIds.length ? ids : null;
-  }, [filter.branchIds, filter.brandIds, branches]);
+  }, [filter.branchIds, filter.brandIds, branches, filtered]);
   const adjustments = useMemo(() => data.adjustments.filter((a) => !scopeBranch || scopeBranch.has(a.branch_id)), [data.adjustments, scopeBranch]);
   const prevRows = useMemo(() => data.prev.filter((o) => (!scopeBranch || scopeBranch.has(o.branch_id)) && (!filter.channels.length || filter.channels.includes(o.channel))), [data.prev, scopeBranch, filter.channels]);
 
@@ -104,9 +107,10 @@ function AdminSalesPage() {
   }, [filter, brands, branches]);
   const [cats, setCats] = useState<Map<string, string>>(new Map());
   useEffect(() => { void listCategories().then((c) => setCats(new Map(c.map((x) => [x.id, x.name_th])))); }, []);
+  const brandName = useMemo(() => new Map(brands.map((b) => [b.id, b.name])), [brands]);
   const productCat = useMemo(() => new Map(products.map((p) => [p.id, p.category_id])), [products]);
-  const overview = useMemo(() => buildOverview({ orders: rows, adjustments, prev: prevRows, branches, employees, showCost, range: { from: filter.from, to: filter.to }, productCat, catName: cats }),
-    [rows, adjustments, prevRows, branches, employees, showCost, filter.from, filter.to, productCat, cats]);
+  const overview = useMemo(() => buildOverview({ orders: rows, adjustments, prev: prevRows, branches, employees, showCost, range: { from: filter.from, to: filter.to }, productCat, catName: cats, brandName }),
+    [rows, adjustments, prevRows, branches, employees, showCost, filter.from, filter.to, productCat, cats, brandName]);
   const excelRows = () => {
     const m = overview, k = m.kpi, R: { section: string; label: string; value: string | number }[] = [];
     const add = (section: string, label: string, value: string | number) => R.push({ section, label, value });
@@ -117,7 +121,7 @@ function AdminSalesPage() {
     if (k.hasPrev) add("สรุป", "ยอดขายช่วงก่อนหน้า", k.pGross);
     m.trend.labels.forEach((l, i) => m.trend.cur[i] && add(m.trend.hourly ? "รายชั่วโมง" : "รายวัน", l, m.trend.cur[i]));
     m.pay.forEach((r) => add("วิธีรับชำระ", r.label, r.value)); m.ch.forEach((r) => add("ช่องทางขาย", r.label, r.value));
-    m.categories.forEach((r) => add("หมวดสินค้า", r.label, r.value)); m.basket.forEach((r) => add("ขนาดบิล (จำนวนบิล)", r.label, r.value));
+    m.categories.forEach((r) => add(m.catKind === "brand" ? "แบรนด์" : "หมวดสินค้า", r.label, r.value)); m.basket.forEach((r) => add("ขนาดบิล (จำนวนบิล)", r.label, r.value));
     m.topProducts.forEach((p) => add("สินค้าขายดี", `${p.sku} ${p.name} (${p.qty} ชิ้น)`, p.sales));
     m.topBranches.forEach((b) => add("สาขาท็อป", b.name, b.value)); m.topStaff.forEach((p) => add("พนักงานท็อป", `${p.name} (${p.bills} บิล)`, p.value));
     return { title: `รายงานยอดขาย ${rangeLabel}`, rows: R };
@@ -187,7 +191,7 @@ function AdminSalesPage() {
         onDrill={(to, patch) => { if (to === "staff" && patch?.person) { const u = new URLSearchParams(sp.toString()); u.set("tab", "staff"); u.set("person", String(patch.person)); router.push(`/admin/sales?${u}`, { scroll: false }); } else setTab(to); }} /> : null}
 
       {tab === "branch" ? <BranchView orders={rows} branches={branches} brands={brands} showCost={showCost} L={L} locale={locale} onDrill={(id) => drill({ branchIds: [id] })} /> : null}
-      {tab === "brand" ? <BrandView orders={rows} branches={branches} brands={brands} L={L} locale={locale} onDrill={(id) => drill({ brandIds: [id], branchIds: [] }, "branch")} /> : null}
+      {tab === "brand" ? <BrandView orders={rows} branches={branches} brands={brands} products={products} showCost={showCost} range={{ from: filter.from, to: filter.to }} L={L} locale={locale} onDrill={(id) => drill({ brandIds: [id], branchIds: [] }, "branch")} /> : null}
       {tab === "staff" && can(employee, "report.employee_perf") ? <StaffPerformance filtered={rows} employees={employees} branches={branches} brands={brands} initialPerson={sp.get("person")} /> : null}
       </div>
 
@@ -198,9 +202,10 @@ function AdminSalesPage() {
 // ── รายสาขา: ยอด / บิล / เฉลี่ย / ส่วนลด / ยกเลิก / สัดส่วน · กดเพื่อเจาะดูสาขานั้น ──
 function BranchView({ orders, branches, brands, showCost, L, locale, onDrill }: { orders: Order[]; branches: Branch[]; brands: Brand[]; showCost: boolean; L: (a: string, b: string, c: string) => string; locale: string; onDrill: (id: string) => void }) {
   const rows = useMemo(() => {
-    const m = new Map<string, { sales: number; bills: number; discount: number; voids: number; units: number; gp: number; members: number }>();
+    const m = new Map<string, { sales: number; bills: number; discount: number; voids: number; units: number; gp: number; members: number; soldBrands: Set<string> }>();
     for (const o of orders) {
-      const cur = m.get(o.branch_id) ?? { sales: 0, bills: 0, discount: 0, voids: 0, units: 0, gp: 0, members: 0 };
+      const cur = m.get(o.branch_id) ?? { sales: 0, bills: 0, discount: 0, voids: 0, units: 0, gp: 0, members: 0, soldBrands: new Set<string>() };
+      for (const it of o.items) if (it.brand_id) cur.soldBrands.add(it.brand_id);
       if (o.status === "voided") cur.voids++;
       else if (isCountedSale(o)) { cur.sales += o.grand_total; cur.bills++; cur.discount += o.discount_total; cur.gp += o.gross_profit; cur.units += o.items.reduce((s, i) => s + i.qty, 0); if (o.customer_id) cur.members++; }
       m.set(o.branch_id, cur);
@@ -208,7 +213,7 @@ function BranchView({ orders, branches, brands, showCost, L, locale, onDrill }: 
     const total = [...m.values()].reduce((s, v) => s + v.sales, 0) || 1;
     return [...m.entries()].map(([id, v]) => {
       const b = branches.find((x) => x.id === id);
-      return { id, name: b ? (locale === "th" ? b.name_th ?? b.name : b.name) : id, code: (b as Branch & { code?: string })?.code ?? "", brand: brands.find((x) => x.id === b?.brand_id)?.name ?? "—", ...v, share: (v.sales / total) * 100 };
+      return { id, name: b ? (locale === "th" ? b.name_th ?? b.name : b.name) : id, code: (b as Branch & { code?: string })?.code ?? "", brand: brands.find((x) => x.id === b?.brand_id)?.name ?? ([...v.soldBrands].map((id) => brands.find((x) => x.id === id)?.name).filter(Boolean).join(", ") || "—"), ...v, share: (v.sales / total) * 100 };
     }).sort((a, b) => b.sales - a.sales);
   }, [orders, branches, brands, locale]);
   const max = Math.max(1, ...rows.map((r) => r.sales));
@@ -242,55 +247,3 @@ function BranchView({ orders, branches, brands, showCost, L, locale, onDrill }: 
   );
 }
 
-// ── แบรนด์: ยอดรวม / สาขาที่ขายได้ / สาขาท็อป · กดเพื่อดูรายสาขาในแบรนด์ ──
-function BrandView({ orders, branches, brands, L, locale, onDrill }: { orders: Order[]; branches: Branch[]; brands: Brand[]; L: (a: string, b: string, c: string) => string; locale: string; onDrill: (id: string) => void }) {
-  const rows = useMemo(() => {
-    const br = new Map(branches.map((b) => [b.id, b]));
-    const m = new Map<string, { sales: number; bills: number; units: number; branchSales: Map<string, number> }>();
-    for (const o of orders) {
-      if (!isCountedSale(o)) continue;
-      const bid = br.get(o.branch_id)?.brand_id ?? "none";
-      const cur = m.get(bid) ?? { sales: 0, bills: 0, units: 0, branchSales: new Map() };
-      cur.sales += o.grand_total; cur.bills++; cur.units += o.items.reduce((s, i) => s + i.qty, 0);
-      cur.branchSales.set(o.branch_id, (cur.branchSales.get(o.branch_id) ?? 0) + o.grand_total);
-      m.set(bid, cur);
-    }
-    const total = [...m.values()].reduce((s, v) => s + v.sales, 0) || 1;
-    return [...m.entries()].map(([id, v]) => {
-      const b = brands.find((x) => x.id === id);
-      const top = [...v.branchSales.entries()].sort((a, c) => c[1] - a[1])[0];
-      const tb = top ? br.get(top[0]) : null;
-      return { id, name: b ? (locale === "zh" ? (b as Brand & { name_zh?: string }).name_zh ?? b.name : b.name) : L("ไม่ระบุแบรนด์", "No brand", "无品牌"), ...v, share: (v.sales / total) * 100,
-        branchCount: v.branchSales.size, top: tb ? `${locale === "th" ? tb.name_th ?? tb.name : tb.name} · ${formatTHB(top![1], false)}` : "—" };
-    }).sort((a, b) => b.sales - a.sales);
-  }, [orders, branches, brands, locale, L]);
-  if (!rows.length) return <EmptyState title={L("ไม่มีข้อมูลแบรนด์ตามตัวกรอง", "No brand data", "无数据")} />;
-  const max = Math.max(1, ...rows.map((r) => r.sales));
-  return (
-    <Card>
-      <CardHeader title={L("ยอดขายรายแบรนด์", "Sales by brand", "品牌销售")} subtitle={L(`${rows.length} แบรนด์ · กดแถวเพื่อดูสาขาในแบรนด์นั้น`, `${rows.length} brands · click to see its branches`, "点击查看门店")} />
-      <Table>
-        <thead><tr><Th>#</Th><Th>{L("แบรนด์", "Brand", "品牌")}</Th><Th align="right">{L("ยอดขาย", "Sales", "销售额")}</Th><Th>{L("สัดส่วน", "Share", "占比")}</Th>
-          <Th align="right">{L("บิล", "Bills", "单数")}</Th><Th align="right">{L("เฉลี่ย/บิล", "Avg", "客单价")}</Th><Th align="right">{L("ชิ้น", "Units", "件数")}</Th>
-          <Th align="right">{L("สาขาที่ขาย", "Branches", "门店")}</Th><Th>{L("สาขาท็อป", "Top branch", "最佳门店")}</Th><Th /></tr></thead>
-        <tbody>{rows.map((r, i) => {
-          const can = r.id !== "none";
-          return (
-            <tr key={r.id} className={can ? "hover:bg-surface2/60 cursor-pointer" : ""} onClick={() => can && onDrill(r.id)}>
-              <Td className="text-xs text-muted tnum">{i + 1}</Td>
-              <Td className={`text-xs font-medium ${can ? "" : "text-muted"}`}>{r.name}</Td>
-              <Td align="right" className="text-sm font-semibold tnum">{formatTHB(r.sales, false)}</Td>
-              <Td><div className="flex items-center gap-2 min-w-[120px]"><div className="h-2 flex-1 rounded-full bg-surface2 overflow-hidden"><div className="h-full rounded-full bg-brand" style={{ width: `${(r.sales / max) * 100}%` }} /></div><span className="text-[11px] text-muted tnum w-10 text-right">{r.share.toFixed(1)}%</span></div></Td>
-              <Td align="right" className="text-xs tnum">{formatInt(r.bills)}</Td>
-              <Td align="right" className="text-xs tnum">{formatTHB(r.bills ? r.sales / r.bills : 0, false)}</Td>
-              <Td align="right" className="text-xs tnum">{formatInt(r.units)}</Td>
-              <Td align="right" className="text-xs tnum">{r.branchCount}</Td>
-              <Td className="text-xs text-muted max-w-[260px] truncate">{r.top}</Td>
-              <Td>{can ? <ChevronRight size={14} className="text-muted" /> : null}</Td>
-            </tr>
-          );
-        })}</tbody>
-      </Table>
-    </Card>
-  );
-}

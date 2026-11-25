@@ -105,6 +105,7 @@ export function applyOrderFilters(
   const branchType = new Map(ctx.branches.map((b) => [b.id, b.branch_type]));
   const catById = new Map((ctx.products ?? []).map((p) => [p.id, p.category_id]));
   const catBySku = new Map((ctx.products ?? []).map((p) => [p.sku, p.category_id]));
+  const brandByProduct = new Map((ctx.products ?? []).map((p) => [p.id, p.brand_id]));
 
   const set = (a?: string[]) => (a && a.length ? new Set(a) : null);
   const brand = set(f.brandIds), branch = set(f.branchIds), prov = set(f.provinces),
@@ -118,7 +119,11 @@ export function applyOrderFilters(
     if (from && o.created_at < from) return false;
     if (to && o.created_at > to) return false;
     if (branch && !branch.has(o.branch_id)) return false;
-    if (brand) { const b = branchBrand.get(o.branch_id); if (!b || !brand.has(b)) return false; }
+    if (brand) {
+      // นับเป็นของแบรนด์ถ้าสาขาเป็นของแบรนด์นั้น หรือบิลมีสินค้าแบรนด์นั้น (สาขาคลัง/ร้านรวมแบรนด์)
+      const b = branchBrand.get(o.branch_id), pb = (id?: string | null) => (id ? brandByProduct.get(id) : null);
+      if (!((b && brand.has(b)) || o.items.some((it) => { const x = it.brand_id ?? pb(it.product_id); return !!x && brand.has(x); }))) return false;
+    }
     if (prov && !prov.has(branchProv.get(o.branch_id) ?? "")) return false;
     if (stype && !stype.has(branchType.get(o.branch_id) ?? "")) return false;
     if (cashier && !(o.cashier_id && cashier.has(o.cashier_id))) return false;
