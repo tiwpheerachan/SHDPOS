@@ -141,7 +141,7 @@ export default function PosOrdersPage() {
       try {
         const r = await fetch("/api/pos/returns", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "request", payload: {
           client_uuid: uuidv4(), order_client_uuid: voidTarget.client_uuid, kind: "void", type: "refund",
-          refund_method: voidTarget.payments?.[0]?.method ?? "cash", reason_code: "void", reason_note: voidReason || null, shift_id: session.shift?.id ?? null } }) });
+          refund_method: null, reason_code: "void", reason_note: voidReason || null, shift_id: session.shift?.id ?? null } }) });
         const j = await r.json(); if (!r.ok) throw Error(j.error);
         toast.push(j.approved_now
           ? { tone: "warn", title: L(`ยกเลิกบิลแล้ว · คืนเงิน ${formatTHB(j.refund_amount, false)}`, `Voided · refund ${formatTHB(j.refund_amount, false)}`, "已作废"), body: j.ow_linked ? L("บิลอยู่ใน JST แล้ว — สร้างงานให้ทีมคลังกลางทำรับคืนใน JST", "Task created for JST return", "已建任务") : voidTarget.order_no }

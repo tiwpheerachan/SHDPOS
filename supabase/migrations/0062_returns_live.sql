@@ -80,7 +80,9 @@ begin
                       requested_by, kind, ow_linked, restock, created_at)
   values (rid, 'RT-' || to_char(now() at time zone 'Asia/Bangkok','YYMMDD') || '-' || upper(substr(replace(rid::text,'-',''),1,5)),
           (p_payload->>'client_uuid')::uuid, o.id, o.branch_id, nullif(p_payload->>'shift_id','')::uuid, v_type, 'pending_approval',
-          left(p_payload->>'reason_code',100), left(p_payload->>'reason_note',1000), nullif(p_payload->>'refund_method','')::payment_method, 0,
+          left(p_payload->>'reason_code',100), left(p_payload->>'reason_note',1000), -- ยกเลิกบิล = คืนตามวิธีชำระเดิมของบิล (ยอดสูงสุด) ไม่เชื่อค่าจากเครื่อง
+          case when v_kind = 'void' then (select p.method from order_payments p where p.order_id = o.id order by p.amount desc limit 1)
+               else nullif(p_payload->>'refund_method','')::payment_method end, 0,
           p_actor, v_kind, exists (select 1 from pos_warehouse_links w where w.branch_id = o.branch_id), true, now());
   for it in select * from order_items where order_id = o.id order by sort_order loop
     if v_kind = 'void' then

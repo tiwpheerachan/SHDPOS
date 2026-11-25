@@ -23,6 +23,7 @@ const ERR: Record<string, string> = {
   return_not_found: "ไม่พบคำขอคืน", return_invalid_kind: "ประเภทรายการไม่ถูกต้อง",
 };
 const msg = (m: string) => ERR[m] ?? m;
+const REFUND_METHODS = ["cash", "credit_card", "debit_card", "qr_promptpay", "bank_transfer", "edc", "gift"];
 
 async function ctx(req: NextRequest) {
   const profile = readSession(req.cookies.get(SSO_COOKIE)?.value);
@@ -85,6 +86,9 @@ export async function POST(req: NextRequest) {
       }
       const p = (b.payload ?? {}) as Record<string, unknown>;
       if (!UUID.test(String(p.client_uuid)) || !UUID.test(String(p.order_client_uuid))) return reply({ error: "ข้อมูลคำขอไม่ถูกต้อง" }, 400);
+      // ช่องทางคืนเงินต้องตรง enum payment_method (ไม่มี store_credit) · ยกเลิกบิล DB ใช้วิธีชำระเดิมของบิลเอง
+      if (p.kind === "void") p.refund_method = null;
+      else if (p.refund_method != null && !REFUND_METHODS.includes(String(p.refund_method))) return reply({ error: "ช่องทางคืนเงินนี้ยังไม่รองรับในระบบกลาง" }, 400);
       // บรรทัดบิล: เครื่องส่ง sku+occurrence (รหัสบรรทัดในเครื่อง ≠ ในระบบกลาง) → แปลงเป็น order_item_id ที่นี่ (ตรวจ sku ตรงกัน)
       if (Array.isArray(p.items)) {
         const ord = await sb.from("orders").select("id").eq("client_uuid", String(p.order_client_uuid)).maybeSingle();

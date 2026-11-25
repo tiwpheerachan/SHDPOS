@@ -13,9 +13,11 @@
     "sso:sync": "node scripts/sso-schema-sync.mjs",
     "test:real-users": "node scripts/test-real-user-regressions.cjs && node scripts/test-central-sale-cache.cjs && node scripts/test-ow-access.cjs && node scripts/test-permissions.cjs && node scripts/test-pin-session.cjs && node scripts/test-cart-serials.cjs && node scripts/test-catalog-integration.cjs && node scripts/test-ow-full-sync.cjs",
     "test:checkout-db": "node scripts/test-checkout-db.mjs",
+    "test:returns-db": "node scripts/test-returns-db.mjs",
+    "test:ow-sale": "tsx --tsconfig tsconfig.json scripts/test-ow-sale-body.ts",
     "test:schema": "node scripts/test-full-schema.mjs",
     "test:sale-validation": "node scripts/test-sale-validation.cjs",
-    "test:readiness": "npm run test:real-users && npm run test:sale-validation && node scripts/test-deferred-validation.cjs && node scripts/test-deferred-pagination.cjs && node scripts/test-work-model.cjs && node scripts/test-work-access.cjs && node scripts/test-catalog-model.cjs && node scripts/test-catalog-access.cjs && npm run test:checkout-db && npm run test:schema && npm run typecheck -- --incremental false",
+    "test:readiness": "npm run test:real-users && npm run test:sale-validation && node scripts/test-deferred-validation.cjs && node scripts/test-deferred-pagination.cjs && node scripts/test-work-model.cjs && node scripts/test-work-access.cjs && node scripts/test-catalog-model.cjs && node scripts/test-catalog-access.cjs && npm run test:checkout-db && npm run test:returns-db && npm run test:ow-sale && npm run test:schema && npm run typecheck -- --incremental false",
     "test:catalog": "node scripts/test-catalog-model.cjs && node scripts/test-catalog-access.cjs && npm run test:schema"
   },
   "dependencies": {
@@ -47,6 +49,7 @@
     "autoprefixer": "^10.4.20",
     "postcss": "^8.4.47",
     "tailwindcss": "^3.4.13",
+    "tsx": "^4.23.15",
     "typescript": "^5.6.2"
   }
 }

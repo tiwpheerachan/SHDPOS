@@ -325,7 +325,7 @@ export default function ReturnsPage() {
 
             {type === "refund" ? (
               <Field label={t.payment.method}><Select value={refundMethod} onChange={(e) => setRefundMethod(e.target.value as PaymentMethod)}>
-                <option value="cash">{t.payment.cash}</option><option value="bank_transfer">{t.payment.bank_transfer}</option><option value="credit_card">{t.payment.credit_card}</option><option value="store_credit">{t.payment.store_credit}</option>
+                <option value="cash">{t.payment.cash}</option><option value="bank_transfer">{t.payment.bank_transfer}</option><option value="credit_card">{t.payment.credit_card}</option>{live ? null : <option value="store_credit">{t.payment.store_credit}</option>}
               </Select></Field>
             ) : null}
 
