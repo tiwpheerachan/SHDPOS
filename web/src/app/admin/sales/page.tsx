@@ -1,7 +1,7 @@
 "use client";
 import { OrderTraceButton } from "@/components/order-trace";
 
-import { Suspense, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { OwSaleBadge, useOwSaleStatus } from "@/components/pos/ow-sale-badge";
 import { Download, Search, LayoutDashboard, Store, Tag, Users, ReceiptText, Loader2, AlertTriangle, Cloud, ChevronRight } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -38,7 +38,10 @@ function AdminSalesPage() {
   const data = useSalesData({ from: filter.from, to: filter.to });
   const { orders, branches, brands, employees } = data;
   const [products] = useCatalogProducts();
-  const [q, setQ] = useState("");
+  const [q, setQ] = useState(() => (typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("q") ?? "" : ""));
+  // ลิงก์จากช่องค้นหาอัจฉริยะ: ?branch= เจาะดูสาขา
+  const branchParam = sp.get("branch");
+  useEffect(() => { if (branchParam) setFilter({ ...filter, branchIds: [branchParam] }); }, [branchParam]); // eslint-disable-line react-hooks/exhaustive-deps
   const tab = (sp.get("tab") as Tab) || "overview";
   const setTab = (v: Tab) => { const u = new URLSearchParams(sp.toString()); u.set("tab", v); u.delete("person"); router.replace(`/admin/sales?${u}`, { scroll: false }); };
   const drill = (patch: Partial<typeof filter>, to: Tab = "overview") => { setFilter({ ...filter, ...patch }); setTab(to); };

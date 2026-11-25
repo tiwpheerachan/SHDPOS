@@ -148,6 +148,8 @@ export default function AdminCustomersPage() {
   const [loading, setLoading] = useState(true);
   const [seg, setSeg] = useState<"all" | Segment>("all");
   const [openId, setOpenId] = useState<string | null>(null);
+  // ลิงก์จากช่องค้นหาอัจฉริยะ: ?id= เปิดลูกค้าคนนั้น · ?q= ค้นหา
+  useEffect(() => { const u = new URLSearchParams(window.location.search); const id = u.get("id"), qq = u.get("q"); if (id) setOpenId(id); if (qq) setQ(qq); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [detail, setDetail] = useState<Detail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [adjustMode, setAdjustMode] = useState<null | "credit" | "points">(null);

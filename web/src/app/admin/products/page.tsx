@@ -23,6 +23,7 @@ export default function AdminProductsPage() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [reviewId,setReviewId]=useState<string|null>(null);
   const [q, setQ] = useState("");
+  useEffect(() => { const qq = new URLSearchParams(window.location.search).get("q"); if (qq) setQ(qq); }, []); // ลิงก์จากช่องค้นหาอัจฉริยะ
   const [brandId, setBrandId] = useState("all");
 
   useEffect(() => {

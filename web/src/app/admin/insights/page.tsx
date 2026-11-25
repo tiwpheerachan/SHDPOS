@@ -67,6 +67,7 @@ export default function AdminInsightsPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [prompt, setPrompt] = useState("");
+  useEffect(() => { const qq = new URLSearchParams(window.location.search).get("q"); if (qq) setPrompt(qq); }, []); // คำถามจากช่องค้นหาอัจฉริยะ
   const [thinking, setThinking] = useState(false);
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [view, setView] = useState<View | null>(null);
