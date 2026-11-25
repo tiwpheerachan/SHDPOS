@@ -62,5 +62,9 @@ services:
         sync: false
       - key: COMPANY_NAME_EN
         sync: false
-      - key: OW_EVENTS_SECRET              # ลับ ≥32 ตัว — ให้ OW ตั้ง Pub/Sub push ไปที่ https://<โดเมน>/api/internal/ow-events?token=<ค่านี้>
+      - key: OW_EVENTS_AUDIENCE            # Pub/Sub push แบบ OIDC: audience ที่ตั้งใน subscription (แนะนำ = https://<โดเมน>/api/internal/ow-events) — ตั้งแล้วรับเฉพาะ JWT ของ Google
+        sync: false
+      - key: OW_EVENTS_SA_EMAIL            # service account ของ OW ที่ใช้ push (เช็ค email ใน token)
+        sync: false
+      - key: OW_EVENTS_SECRET              # สำรองตอนยังไม่ตั้ง OIDC: Authorization: Bearer <ค่านี้> (≥32 ตัว) · ?token= ใน URL ไม่รับแล้ว
         sync: false

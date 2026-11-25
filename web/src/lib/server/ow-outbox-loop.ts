@@ -10,6 +10,7 @@ import { owConfig } from "./ow-gateway";
 import { processSaleOutbox, followUpSales } from "./ow-sales";
 import { runRecon } from "./ow-recon";
 import { owSyncAllReservations } from "./ow-reconcile";
+import { warehouseLinks, owSyncInbound } from "./ow-transfers";
 import { syncSaleIssues, syncOutboxHealth } from "./ow-issues";
 
 const g = globalThis as unknown as { __owOutboxLoop?: boolean };
@@ -40,6 +41,13 @@ export function startOwOutboxLoop(): void {
         });
         // ยอดจองตาม JST (ใบโอนขาออกที่ยังไม่ส่ง) → POS ไม่ขายของที่ JST กันไว้
         await step("reservations", async () => { await owSyncAllReservations(); });
+        // ใบโอนขาเข้าจากคลังกลาง — poll GET /v1/transfers ทุก 2 นาที (ทีม OW แนะนำระหว่างที่ Pub/Sub push ยังไม่เปิด)
+        //   ทำแบบเดียวกับตอนได้ event transfer.* · ไม่ต้องรอให้มีคนเปิดหน้าโอนย้าย
+        await step("inbound", async () => {
+          let added = 0;
+          for (const branch of (await warehouseLinks()).keys()) added += await owSyncInbound(branch, null).catch((e) => { console.error("[ow-outbox-loop:inbound]", branch, e instanceof Error ? e.message : e); return 0; });
+          if (added) console.log(JSON.stringify({ at: new Date().toISOString(), ow_inbound_added: added }));
+        });
         // ปัญหาบิล → งาน + แจ้งเตือนผู้รับผิดชอบ (ปิดเองเมื่อ JST ยืนยัน)
         await step("issues", async () => {
           const is = await syncSaleIssues(source);
