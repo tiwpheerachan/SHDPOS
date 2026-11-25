@@ -111,3 +111,49 @@ export async function syncTransferIssues(source: string, rows: ReconRowLite[]): 
   }
   return out;
 }
+
+/** สุขภาพการส่งบิลรายสาขา: บิลค้างคิว > 30 นาที หรือ JST ปฏิเสธ ≥ 3 บิลใน 1 ชม. → งานด่วนให้ผู้รับผิดชอบสาขา (กลับมาปกติ = ปิดเอง)
+ *  ใช้ source = branch_id (ไม่ชนกับงานรายบิลที่ใช้ client_uuid) · ลายเซ็นตามระดับความรุนแรง ไม่แจ้งซ้ำทุกรอบ */
+export async function syncOutboxHealth(source: string): Promise<{ alerted: number; resolved: number }> {
+  const sb = supabaseAdmin(), out = { alerted: 0, resolved: 0 };
+  const now = Date.now(), since = new Date(now - 24 * 3600_000).toISOString();
+  const ev = await sb.from("pos_integration_events").select("aggregate_id,state,reason,response,created_at,updated_at,payload")
+    .eq("source", source).eq("event_type", "sale.committed").gte("created_at", since).in("state", ["queued", "retry", "blocked", "dead"]).limit(1000);
+  if (ev.error) throw new Error("อ่านคิวบิลขายไม่สำเร็จ: " + ev.error.message);
+  type B = { stuck: number; rejected: number; dead: number };
+  const per = new Map<string, B>();
+  for (const e of ev.data ?? []) {
+    if ((e.reason ?? "").startsWith(HOLD_PREFIX)) continue; // พักไว้ตามกติกา ไม่ใช่ปัญหา
+    const branch = (e.payload as { branch_id?: string } | null)?.branch_id;
+    if (!branch || !UUID.test(branch)) continue;
+    const b = per.get(branch) ?? { stuck: 0, rejected: 0, dead: 0 };
+    const age = now - new Date(e.created_at as string).getTime();
+    if ((e.state === "queued" || e.state === "retry") && age > 30 * 60_000) b.stuck++;
+    if (e.state === "dead") b.dead++;
+    const st = (e.response as SaleEv["response"])?.sale?.status;
+    if (e.state === "blocked" && st === "failed" && now - new Date(e.updated_at as string).getTime() < 3600_000) b.rejected++;
+    per.set(branch, b);
+  }
+  const bucket = (n: number) => (n >= 10 ? "10+" : n >= 5 ? "5+" : n >= 3 ? "3+" : n > 0 ? "1+" : "0");
+  const alerting = new Set<string>();
+  for (const [branch, b] of per) {
+    if (!(b.stuck > 0 || b.dead > 0 || b.rejected >= 3)) continue;
+    alerting.add(branch);
+    const parts = [b.stuck ? `ค้างคิวเกิน 30 นาที ${b.stuck} บิล` : "", b.dead ? `ลองซ้ำครบแล้วไม่ผ่าน ${b.dead} บิล` : "", b.rejected >= 3 ? `JST ปฏิเสธ ${b.rejected} บิลใน 1 ชม.` : ""].filter(Boolean);
+    const r = await upsert({
+      kind: "ow_sale", source: branch, branch, priority: b.stuck >= 5 || b.dead >= 3 || b.rejected >= 5 ? "urgent" : "high",
+      title: `ส่งบิลเข้า JST ติดขัด: ${parts.join(" · ")}`.slice(0, 200),
+      desc: `${parts.join("\n")}\n\nสาเหตุที่พบบ่อย: OneWarehouse/อินเทอร์เน็ตล่ม · SKU ยังไม่เปิดใน JST POS ของสาขา · สต๊อก JST ไม่พอ\nตรวจที่: หลังบ้าน › เชื่อมระบบ › เชื่อมคลังกลาง › ส่งบิลขาย (ดูเหตุผลรายบิล แล้วกด "ลองใหม่")`,
+      sig: `${bucket(b.stuck)}:${bucket(b.dead)}:${bucket(b.rejected >= 3 ? b.rejected : 0)}`, hint: null,
+    });
+    if (r === "created" || r === "reopened") out.alerted++;
+  }
+  // สาขาที่เคยแจ้งแต่ตอนนี้ปกติ → ปิดงาน
+  const open = await sb.from("pos_work_items").select("source_id,branch_id").eq("source_kind", "ow_sale").not("status", "in", "(done,cancelled)").limit(500);
+  for (const w of open.data ?? []) {
+    if (w.source_id === w.branch_id && !alerting.has(w.source_id as string)) {
+      if (await resolve("ow_sale", w.source_id as string, "การส่งบิลเข้า JST กลับมาปกติแล้ว")) out.resolved++;
+    }
+  }
+  return out;
+}

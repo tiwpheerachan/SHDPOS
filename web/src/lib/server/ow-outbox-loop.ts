@@ -10,7 +10,7 @@ import { owConfig } from "./ow-gateway";
 import { processSaleOutbox, followUpSales } from "./ow-sales";
 import { runRecon } from "./ow-recon";
 import { owSyncAllReservations } from "./ow-reconcile";
-import { syncSaleIssues } from "./ow-issues";
+import { syncSaleIssues, syncOutboxHealth } from "./ow-issues";
 
 const g = globalThis as unknown as { __owOutboxLoop?: boolean };
 
@@ -44,6 +44,11 @@ export function startOwOutboxLoop(): void {
         await step("issues", async () => {
           const is = await syncSaleIssues(source);
           if (is.created || is.updated || is.resolved) console.log(JSON.stringify({ at: new Date().toISOString(), ow_issues: is }));
+        });
+        // สุขภาพการส่งบิลรายสาขา (ค้างคิว / JST ปฏิเสธต่อเนื่อง) → งานด่วน + กระดิ่ง
+        await step("health", async () => {
+          const h = await syncOutboxHealth(source);
+          if (h.alerted || h.resolved) console.log(JSON.stringify({ at: new Date().toISOString(), ow_health: h }));
         });
       }
       if (t % 120 === 119) {
