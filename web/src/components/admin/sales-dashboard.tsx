@@ -7,7 +7,10 @@ import type { Branch, Employee, Order } from "@/lib/types";
 import type { Adjustment, PrevOrder } from "@/lib/hooks/use-sales-data";
 import { formatTHB, formatInt } from "@/lib/money";
 import { isCountedSale, saleAt, bkkHour, bkkDay } from "@/lib/sales-basis";
-import { OrderTraceButton } from "@/components/order-trace";
+import { OrderTraceDrawer } from "@/components/order-trace";
+import { useSession } from "@/lib/store/session";
+import { can } from "@/lib/permissions";
+import { ChevronRight } from "lucide-react";
 import { OwSaleBadge } from "@/components/pos/ow-sale-badge";
 import { Segmented } from "@/components/ui";
 
@@ -328,6 +331,9 @@ export function BillsView({ orders, branches, employees, showCost, owStatus, onE
   orders: Order[]; branches: Branch[]; employees: Employee[]; showCost: boolean; owStatus: Record<string, { ow_status?: string } | undefined>; onExport: () => void;
 }) {
   const [st, setSt] = useState<BillStatus>("all"), [sort, setSort] = useState<"new" | "amount">("new"), [page, setPage] = useState(0);
+  const [openBill, setOpenBill] = useState<Order | null>(null);
+  const { employee } = useSession();
+  const canTrace = !employee || can(employee, "sales.trace");
   const PER = 50;
   const counts = useMemo(() => ({ all: orders.length, sold: orders.filter((o) => o.status === "completed").length, refund: orders.filter((o) => o.status === "refunded" || o.status === "partially_refunded").length, void: orders.filter((o) => o.status === "voided").length }), [orders]);
   const list = useMemo(() => {
@@ -354,7 +360,7 @@ export function BillsView({ orders, branches, employees, showCost, owStatus, onE
               <th className="text-left font-medium px-4 py-2">เลขบิล</th><th className="text-left font-medium px-2 py-2">เวลา</th><th className="text-left font-medium px-2 py-2">สาขา</th>
               <th className="text-left font-medium px-2 py-2">พนักงาน</th><th className="text-left font-medium px-2 py-2">ลูกค้า</th><th className="text-left font-medium px-2 py-2">สินค้า</th>
               <th className="text-left font-medium px-2 py-2">ชำระ</th><th className="text-center font-medium px-2 py-2">สถานะ</th><th className="text-center font-medium px-2 py-2">JST</th>
-              <th className="text-right font-medium px-2 py-2">ยอด</th>{showCost ? <th className="text-right font-medium px-4 py-2">กำไร</th> : null}
+              <th className="text-right font-medium px-2 py-2">ยอด</th>{showCost ? <th className="text-right font-medium px-2 py-2">กำไร</th> : null}<th className="w-6" />
             </tr></thead>
             <tbody className="divide-y divide-line">
               {shown.map((o) => {
@@ -362,8 +368,10 @@ export function BillsView({ orders, branches, employees, showCost, owStatus, onE
                 const items = o.items.filter((i) => !i.is_gift);
                 const staff = employees.find((e) => e.id === (o.salesperson_id ?? o.cashier_id));
                 return (
-                  <tr key={o.id} className="hover:bg-surface2/50">
-                    <td className="px-4 py-2 font-mono whitespace-nowrap"><span className="inline-flex items-center gap-1">{o.order_no}<OrderTraceButton clientUuid={o.client_uuid} orderNo={o.order_no} label="" className="h-6 w-6 grid place-items-center rounded-md border border-line hover:border-brand/50 hover:bg-brand/5" /></span></td>
+                  <tr key={o.id} tabIndex={canTrace ? 0 : -1} onClick={canTrace ? () => setOpenBill(o) : undefined} onKeyDown={(e) => { if (canTrace && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); setOpenBill(o); } }}
+                    title={canTrace ? "กดเพื่อดูรายละเอียดและที่มาของบิล" : undefined}
+                    className={`group transition-colors ${canTrace ? "cursor-pointer hover:bg-brand/[0.045] focus-visible:outline-none focus-visible:bg-brand/[0.07]" : ""} ${openBill?.id === o.id ? "bg-brand/[0.07]" : ""}`}>
+                    <td className="px-4 py-2.5 font-mono whitespace-nowrap"><span className="inline-flex items-center gap-1.5"><span className={`w-1 h-4 rounded-full transition-colors ${openBill?.id === o.id ? "bg-brand" : "bg-transparent group-hover:bg-brand/40"}`} />{o.order_no}</span></td>
                     <td className="px-2 py-2 text-muted whitespace-nowrap tnum">{new Date(saleAt(o)).toLocaleString("th-TH", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</td>
                     <td className="px-2 py-2 max-w-[160px] truncate">{bName(o.branch_id)}</td>
                     <td className="px-2 py-2 max-w-[120px] truncate">{empName(staff)}</td>
@@ -373,7 +381,8 @@ export function BillsView({ orders, branches, employees, showCost, owStatus, onE
                     <td className="px-2 py-2 text-center"><span className={`inline-block px-1.5 py-0.5 rounded-md text-[10.5px] font-medium ${s[1]}`}>{s[0]}</span></td>
                     <td className="px-2 py-2 text-center"><OwSaleBadge status={(o.client_uuid ? owStatus[o.client_uuid] : null) as never} /></td>
                     <td className={`px-2 py-2 text-right font-semibold tnum whitespace-nowrap ${o.status === "voided" ? "line-through text-muted" : ""}`}>{baht(o.grand_total)}</td>
-                    {showCost ? <td className="px-4 py-2 text-right tnum text-ok whitespace-nowrap">{baht(o.gross_profit)}</td> : null}
+                    {showCost ? <td className="px-2 py-2 text-right tnum text-ok whitespace-nowrap">{baht(o.gross_profit)}</td> : null}
+                    <td className="pr-3 pl-1 py-2 w-6 text-muted">{canTrace ? <ChevronRight size={14} className="opacity-30 group-hover:opacity-100 group-hover:text-brand group-hover:translate-x-0.5 transition" /> : null}</td>
                   </tr>
                 );
               })}
@@ -381,6 +390,7 @@ export function BillsView({ orders, branches, employees, showCost, owStatus, onE
           </table>
         </div>
       ) : <p className="text-sm text-muted text-center py-10">ไม่มีบิลตามตัวกรอง</p>}
+      {openBill ? <OrderTraceDrawer key={openBill.id} clientUuid={openBill.client_uuid} orderNo={openBill.order_no} onClose={() => setOpenBill(null)} /> : null}
       {pages > 1 ? (
         <div className="flex items-center justify-between px-4 py-2.5 border-t border-line text-xs">
           <span className="text-muted">{formatInt(cur * PER + 1)}–{formatInt(Math.min(list.length, cur * PER + PER))} จาก {formatInt(list.length)}</span>

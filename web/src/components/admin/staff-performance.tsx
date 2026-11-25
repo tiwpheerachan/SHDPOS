@@ -1,20 +1,31 @@
 "use client";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Users, Trophy, LayoutDashboard, Table as TableIcon, UserRound, Network, Briefcase, TrendingUp, Package, Receipt, Award, Building2, BadgeCheck } from "lucide-react";
+import { Clock, ChevronRight, Crown, Users, LayoutDashboard, Table as TableIcon, UserRound, Network, Briefcase, TrendingUp, Receipt, Award, BadgeCheck } from "lucide-react";
 import Link from "next/link";
 import { useI18n } from "@/lib/i18n/provider";
 import { useSession } from "@/lib/store/session";
 import { loadAllPositions } from "@/lib/data/org";
 import type { Branch, Brand, Employee, Order } from "@/lib/types";
-import { Card, CardHeader, Table, Th, Td, EmptyState, KpiTile, Avatar, Segmented, Select } from "@/components/ui";
+import { Card, CardHeader, Table, Th, Td, EmptyState, KpiTile, Avatar, Segmented } from "@/components/ui";
 import { ExportShareBar } from "@/components/admin/export-share";
 import { BarList, AreaChart, SERIES_COLORS } from "@/components/charts";
-import { byEmployee, summarize, salesSeries, type TimeGran } from "@/lib/analytics";
+import { byEmployee, summarize, salesSeries, lineNet, type TimeGran } from "@/lib/analytics";
 import { formatTHB, formatInt } from "@/lib/money";
 import { ROLE_LABEL, can } from "@/lib/permissions";
 import { positionLabel, positionLevel, type Locale } from "@/lib/positions";
-import { isCountedSale } from "@/lib/sales-basis";
+import { isCountedSale, saleAt } from "@/lib/sales-basis";
+import { AnimatedGradient, type GradientConfig } from "@/components/ui/animated-gradient";
+import { OrderTraceDrawer } from "@/components/order-trace";
+
+// พื้นหลังไล่สีเคลื่อนไหว โทนม่วงของระบบ (#7950D8)
+const GRAD: GradientConfig = { preset: "custom", color1: "#100828", color2: "#35206e", color3: "#8f6cf0", rotation: -30, proportion: 42, scale: 0.42, speed: 10, distortion: 22, swirl: 60, swirlIterations: 10, softness: 100, offset: 180, shape: "Checks", shapeSize: 32 };
+const FALLBACK_BG = "linear-gradient(135deg,#120a2a 0%,#2a1a5c 55%,#5b3fb8 100%)";
+/** แยกชื่อกับตำแหน่งในวงเล็บ: "Tiw - Pheerachan (Senior …)" → ["Tiw - Pheerachan", "Senior …"] */
+function splitName(label: string): [string, string] {
+  const m = label.match(/^(.*?)\s*\((.+)\)\s*$/);
+  return m ? [m[1], m[2]] : [label, ""];
+}
 
 type View = "dashboard" | "table" | "person" | "position";
 
@@ -69,12 +80,17 @@ export function StaffPerformance({ filtered, employees, branches, brands, initia
         const eid = it.salesperson_id ?? o.salesperson_id ?? o.cashier_id;
         if (eid !== activePerson) continue;
         const cur = m.get(it.name) ?? { name: it.name, qty: 0, gross: 0 };
-        cur.qty += it.qty; cur.gross += it.line_total;
+        cur.qty += it.qty; cur.gross += lineNet(o, it).net;
         m.set(it.name, cur);
       }
     }
     return [...m.values()].sort((a, b) => b.gross - a.gross).slice(0, 8);
   }, [filtered, activePerson]);
+  // บิลของคนนี้ (ใหม่สุดก่อน) + ยอดรายชั่วโมง (เวลาไทย)
+  const personOrders = useMemo(() => activePerson ? filtered.filter((o) => isCountedSale(o) && o.items.some((it) => (it.salesperson_id ?? o.salesperson_id ?? o.cashier_id) === activePerson)).sort((a, b) => saleAt(b).localeCompare(saleAt(a))) : [], [filtered, activePerson]);
+  const personHours = useMemo(() => hourTotals(personOrders, activePerson), [personOrders, activePerson]);
+  const teamHours = useMemo(() => hourTotals(filtered), [filtered]);
+  const [traceBill, setTraceBill] = useState<Order | null>(null);
   const personRank = activePerson ? rows.findIndex((r) => r.id === activePerson) + 1 : 0;
   const teamSharePct = totals.gross > 0 && personRow ? (personRow.value / totals.gross) * 100 : 0;
 
@@ -147,13 +163,19 @@ export function StaffPerformance({ filtered, employees, branches, brands, initia
         <KpiTile label={t.admin.employees} value={formatInt(rows.length)} icon={<Users size={15} />} />
         <KpiTile label={t.admin.gmv} value={formatTHB(totals.gross)} tone="brand" />
         <KpiTile label={t.admin.avgBasket} value={formatTHB(totals.avgBasket)} />
-        <KpiTile
-          label={t.admin.topEmployees}
-          value={best?.label ?? "—"}
-          sub={best ? formatTHB(best.value) : undefined}
-          tone="ok"
-          icon={<Trophy size={15} />}
-        />
+        <button disabled={!best} onClick={() => { if (best) { setPersonId(best.id); setView("person"); } }}
+          className="relative overflow-hidden rounded-2xl text-left text-white min-h-[84px] shadow-card group disabled:cursor-default" style={{ background: FALLBACK_BG }}>
+          <AnimatedGradient config={GRAD} noise={{ opacity: 0.25 }} />
+          <div className="relative z-10 p-3.5 flex items-center gap-3 h-full">
+            {best ? <span className="rounded-full ring-2 ring-white/40 shrink-0"><Avatar name={best.label} src={empPhoto(best.id)} size={40} /></span> : null}
+            <div className="min-w-0 flex-1">
+              <p className="text-[11px] text-white/70 inline-flex items-center gap-1"><Crown size={12} className="text-amber-300" />{t.admin.topEmployees}</p>
+              <p className="text-sm font-semibold truncate leading-tight mt-0.5">{best ? splitName(best.label)[0] : "—"}</p>
+              {best && splitName(best.label)[1] ? <p className="text-[10.5px] text-white/60 truncate">{splitName(best.label)[1]}</p> : null}
+            </div>
+            {best ? <p className="text-sm font-bold tnum shrink-0">{formatTHB(best.value, false)}</p> : null}
+          </div>
+        </button>
       </div>
 
       {/* ============ DASHBOARD ============ */}
@@ -168,9 +190,9 @@ export function StaffPerformance({ filtered, employees, branches, brands, initia
               <Segmented<TimeGran> size="sm" value={gran} onChange={setGran} options={granOptions} />
             </div>
             <div className="p-4 pt-3">
-              {overallSeries.length ? (
+              {overallSeries.length >= 2 ? (
                 <AreaChart data={overallSeries} height={220} valueFormat={(n) => formatTHB(n, false)} />
-              ) : <EmptyState title={t.common.empty} />}
+              ) : overallSeries.length ? <><p className="text-[11px] text-muted -mt-1 mb-2">{L("ข้อมูลมีวันเดียว — แสดงรายชั่วโมง", "Single day — hourly view", "仅一天数据 — 按小时")}</p><HourBars hours={teamHours} height={200} /></> : <EmptyState title={t.common.empty} />}
             </div>
           </Card>
 
@@ -269,107 +291,132 @@ export function StaffPerformance({ filtered, employees, branches, brands, initia
         </Card>
       ) : null}
 
-      {/* ============ PERSON (แดชบอร์ดพนักงาน สไตล์ Crextio — ข้อมูลจริง) ============ */}
+      {/* ============ PERSON (แดชบอร์ดพนักงาน — ข้อมูลจริงทั้งหมด) ============ */}
       {view === "person" ? (
-        <div className="space-y-4">
-          {/* แถบเลือกคน + ช่วงเวลา */}
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-sm font-semibold text-muted">{L("แดชบอร์ดพนักงาน", "Employee dashboard", "员工仪表盘")}</p>
-            <div className="flex items-center gap-2">
-              <Select value={activePerson ?? ""} onChange={(e) => setPersonId(e.target.value || null)} className="w-52">
-                {rows.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
-              </Select>
-              <Segmented<TimeGran> size="sm" value={gran} onChange={setGran} options={granOptions} />
-            </div>
-          </div>
-
-          {personRow ? (
-            <div className="relative">
-              {/* พื้นหลังสีนุ่มๆ ให้กระจกฝ้าเบลอขึ้นมาสวย */}
-              <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
-                <div className="absolute -top-16 left-2 w-72 h-72 rounded-full blur-[90px]" style={{ background: "rgb(var(--c-brand) / 0.22)" }} />
-                <div className="absolute top-28 right-6 w-80 h-80 rounded-full blur-[100px]" style={{ background: "rgb(var(--c-aqua) / 0.20)" }} />
-                <div className="absolute bottom-0 left-1/3 w-72 h-72 rounded-full blur-[90px]" style={{ background: "rgb(var(--c-lavender) / 0.22)" }} />
-              </div>
-
-              <div className="relative grid lg:grid-cols-[300px_1fr] gap-4 items-start">
-                {/* ── ซ้าย: การ์ดโปรไฟล์ ── */}
-                <div className="space-y-4">
-                  <div className="rounded-[24px] overflow-hidden border border-white/40 relative text-ink shadow-card"
-                    style={{ background: "linear-gradient(155deg, rgb(var(--c-brand) / 0.26) 0%, rgb(var(--c-lavender) / 0.34) 55%, rgb(var(--c-aqua) / 0.26) 100%)" }}>
-                    <div className="p-5 flex flex-col items-center text-center backdrop-blur-sm">
-                      <div className="rounded-full ring-4 ring-surface/70 shadow-pop">
-                        <Avatar name={personRow.label} src={activePerson ? empPhoto(activePerson) : null} size={92} />
-                      </div>
-                      <p className="text-lg font-bold mt-3 leading-tight">{personRow.label}</p>
-                      <p className="text-[12px] text-ink/70 mt-0.5">{empRole(activePerson ?? "")}{personPosCode ? ` · ${posLabel(personPosCode)}` : ""}</p>
-                      <div className="mt-3 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-surface/80 backdrop-blur border border-line/60 shadow-sm">
-                        <TrendingUp size={14} className="text-brand" />
-                        <span className="text-sm font-bold tnum">{formatTHB(personRow.value, false)}</span>
-                        <span className="text-[10px] text-muted">{L("ยอดขาย", "sales", "销售")}</span>
+        personRow ? (() => {
+          const [nm, sub] = splitName(personRow.label);
+          const teamAvg = rows.length ? totals.gross / rows.length : 0;
+          const vsAvg = teamAvg ? ((personRow.value - teamAvg) / teamAvg) * 100 : 0;
+          const peakH = personHours.indexOf(Math.max(...personHours));
+          const useHourly = personSeries.length < 2;
+          return (
+            <div className="space-y-4">
+              {/* ── Hero ── */}
+              <div className="relative overflow-hidden rounded-[26px] text-white shadow-card" style={{ background: FALLBACK_BG }}>
+                <AnimatedGradient config={GRAD} noise={{ opacity: 0.3 }} />
+                <div className="relative z-10 p-5 sm:p-6 space-y-5">
+                  <div className="flex flex-wrap items-start gap-4">
+                    <span className="rounded-full ring-[3px] ring-white/35 shadow-pop shrink-0"><Avatar name={personRow.label} src={activePerson ? empPhoto(activePerson) : null} size={64} /></span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[11px] uppercase tracking-wider text-white/55">{L("แดชบอร์ดพนักงาน", "Employee dashboard", "员工仪表盘")}</p>
+                      <h2 className="text-xl font-semibold leading-tight truncate mt-0.5">{nm}</h2>
+                      <p className="text-xs text-white/70 truncate mt-0.5">{[sub, empRole(activePerson ?? ""), personPosCode ? posLabel(personPosCode) : "", branchName(personRow.branchId)].filter(Boolean).join(" · ")}</p>
+                      <div className="flex flex-wrap gap-1.5 mt-2.5">
+                        <span className="inline-flex items-center gap-1 h-6 px-2.5 rounded-full bg-white/12 border border-white/15 text-[11px] backdrop-blur"><Award size={12} className="text-amber-300" />{L("อันดับ", "Rank", "排名")} #{personRank} / {rows.length}</span>
+                        {personRow.code && !personRow.code.includes("@") ? <span className="inline-flex items-center gap-1 h-6 px-2.5 rounded-full bg-white/12 border border-white/15 text-[11px] font-mono backdrop-blur"><BadgeCheck size={12} />{personRow.code}</span> : null}
+                        {peakH >= 0 && personHours[peakH] ? <span className="inline-flex items-center gap-1 h-6 px-2.5 rounded-full bg-white/12 border border-white/15 text-[11px] backdrop-blur"><Clock size={12} />{L("ขายดีช่วง", "Peak", "高峰")} {String(peakH).padStart(2, "0")}:00</span> : null}
                       </div>
                     </div>
-                  </div>
-
-                  {/* ข้อมูลพนักงาน (จริง) — กระจกฝ้า */}
-                  <div className="glass rounded-[24px] overflow-hidden">
-                    <div className="p-4 space-y-2.5 text-sm">
-                      <div className="flex items-center justify-between gap-2"><span className="text-muted inline-flex items-center gap-1.5"><Building2 size={14} /> {L("สาขา", "Branch", "门店")}</span><span className="font-medium truncate text-right">{branchName(personRow.branchId)}</span></div>
-                      <div className="flex items-center justify-between gap-2"><span className="text-muted inline-flex items-center gap-1.5"><BadgeCheck size={14} /> {L("รหัสพนักงาน", "Employee code", "员工编号")}</span><span className="font-medium font-mono text-xs">{personRow.code || "—"}</span></div>
-                      <div className="flex items-center justify-between gap-2"><span className="text-muted inline-flex items-center gap-1.5"><Award size={14} /> {L("อันดับในทีม", "Team rank", "团队排名")}</span><span className="font-semibold">{personRank ? `#${personRank} / ${rows.length}` : "—"}</span></div>
-                      <div className="flex items-center justify-between gap-2"><span className="text-muted inline-flex items-center gap-1.5"><Receipt size={14} /> {L("ตะกร้าเฉลี่ย", "Avg basket", "平均篮子")}</span><span className="font-medium">{formatTHB(personRow.avgBasket, false)}</span></div>
+                    <div className="flex items-center gap-2 w-full sm:w-auto">
+                      <select value={activePerson ?? ""} onChange={(e) => setPersonId(e.target.value || null)}
+                        style={{ background: "rgba(255,255,255,0.12)", color: "#fff", colorScheme: "dark" }}
+                        className="h-9 flex-1 sm:w-56 rounded-xl border border-white/25 text-sm px-3 backdrop-blur outline-none focus:border-white/60">
+                        {rows.map((r) => <option key={r.id} value={r.id}>{splitName(r.label)[0]}</option>)}
+                      </select>
                     </div>
                   </div>
-                </div>
-
-                {/* ── ขวา: สถิติ + กราฟ ── */}
-                <div className="space-y-4 min-w-0">
-                  {/* สถิติตัวใหญ่ */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    <StatTile icon={<TrendingUp size={14} />} label={t.admin.gmv} value={formatTHB(personRow.value, false)} tone="brand" />
-                    <StatTile icon={<Receipt size={14} />} label={t.admin.orderCount} value={formatInt(personRow.orders)} />
-                    <StatTile icon={<Package size={14} />} label={t.admin.unitsSold} value={formatInt(personRow.units)} />
-                    {showGp
-                      ? <StatTile icon={<Award size={14} />} label={t.admin.grossProfit} value={formatTHB(personRow.grossProfit, false)} tone="ok" />
-                      : <StatTile icon={<Award size={14} />} label={t.admin.avgBasket} value={formatTHB(personRow.avgBasket, false)} tone="ok" />}
-                  </div>
-
-                  {/* กราฟแนวโน้มผลงาน — กระจกฝ้า */}
-                  <div className="glass rounded-[24px] overflow-hidden">
-                    <CardHeader
-                      title={L("แนวโน้มผลงาน", "Performance trend", "业绩趋势")}
-                      subtitle={`${personRow.label} · ${granOptions.find((g) => g.value === gran)?.label}`}
-                    />
-                    <div className="p-4 pt-3">
-                      {personSeries.length ? (
-                        <AreaChart data={personSeries} height={230} color={SERIES_COLORS[1]} valueFormat={(n) => formatTHB(n, false)} />
-                      ) : <EmptyState title={t.common.empty} />}
-                    </div>
-                  </div>
-
-                  {/* เกจสัดส่วนทีม + สินค้าขายดีของคนนี้ */}
-                  <div className="grid md:grid-cols-[230px_1fr] gap-4">
-                    <div className="glass rounded-[24px] overflow-hidden">
-                      <CardHeader title={L("สัดส่วนยอดขายทีม", "Share of team", "团队占比")} />
-                      <div className="p-4 pt-2 grid place-items-center">
-                        <Radial pct={teamSharePct} label={L("ของทีม", "of team", "团队")} />
-                        <p className="text-[11px] text-muted mt-2 text-center">{formatTHB(personRow.value, false)} / {formatTHB(totals.gross, false)}</p>
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+                    {[
+                      { label: t.admin.gmv, value: formatTHB(personRow.value, false), hint: `${teamSharePct.toFixed(1)}% ${L("ของทีม", "of team", "团队")}` },
+                      { label: t.admin.orderCount, value: formatInt(personRow.orders), hint: `${formatInt(personRow.units)} ${t.admin.unitsSold}` },
+                      { label: t.admin.avgBasket, value: formatTHB(personRow.avgBasket, false), hint: `${L("ทีมเฉลี่ย", "Team", "团队")} ${formatTHB(totals.avgBasket, false)}` },
+                      showGp ? { label: t.admin.grossProfit, value: formatTHB(personRow.grossProfit, false), hint: personRow.value ? `GP ${((personRow.grossProfit / (personRow.value / 1.07)) * 100).toFixed(1)}%` : "—" }
+                        : { label: L("เทียบค่าเฉลี่ยทีม", "vs team avg", "对比团队平均"), value: `${vsAvg >= 0 ? "+" : ""}${vsAvg.toFixed(0)}%`, hint: `${L("เฉลี่ย", "avg", "平均")} ${formatTHB(teamAvg, false)}/${L("คน", "person", "人")}` },
+                    ].map((k) => (
+                      <div key={k.label} className="rounded-2xl bg-white/10 border border-white/15 backdrop-blur-md px-3.5 py-3 min-w-0">
+                        <p className="text-[11px] text-white/65 truncate">{k.label}</p>
+                        <p className="text-lg font-semibold tnum leading-tight mt-0.5 truncate">{k.value}</p>
+                        <p className="text-[10.5px] text-white/55 truncate mt-0.5">{k.hint}</p>
                       </div>
-                    </div>
-                    <div className="glass rounded-[24px] overflow-hidden">
-                      <CardHeader title={L("สินค้าขายดีของคนนี้", "Top products by this person", "该员工畅销商品")} subtitle={L("ตามยอดขายจริง", "By real sales", "按实际销售额")} />
-                      <div className="p-5 pt-3">
-                        {personTop.length ? (
-                          <BarList data={personTop.map((p) => ({ label: p.name, value: p.gross, sub: `${formatInt(p.qty)} ${t.admin.unitsSold}` }))} />
-                        ) : <EmptyState title={t.common.empty} />}
-                      </div>
-                    </div>
+                    ))}
                   </div>
                 </div>
               </div>
+
+              {/* ── แนวโน้ม + ตำแหน่งในทีม ── */}
+              <div className="grid lg:grid-cols-3 gap-4">
+                <Card className="lg:col-span-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2 p-4 pb-0">
+                    <div>
+                      <p className="text-sm font-semibold inline-flex items-center gap-1.5"><TrendingUp size={14} className="text-brand" />{useHourly ? L("ยอดขายรายชั่วโมง", "Sales by hour", "按小时销售") : L("แนวโน้มผลงาน", "Performance trend", "业绩趋势")}</p>
+                      <p className="text-[11px] text-muted">{useHourly ? L("ข้อมูลมีวันเดียว จึงแสดงรายชั่วโมงแทน", "Single day of data — showing hourly", "仅一天数据，按小时显示") : granOptions.find((g) => g.value === gran)?.label}</p>
+                    </div>
+                    {!useHourly ? <Segmented<TimeGran> size="sm" value={gran} onChange={setGran} options={granOptions} /> : null}
+                  </div>
+                  <div className="p-4 pt-3">
+                    {useHourly ? <HourBars hours={personHours} /> : <AreaChart data={personSeries} height={210} color={SERIES_COLORS[1]} valueFormat={(n) => formatTHB(n, false)} />}
+                  </div>
+                </Card>
+                <Card>
+                  <CardHeader title={L("ตำแหน่งในทีม", "Standing in team", "团队位置")} subtitle={L("สัดส่วนยอดขาย และเทียบค่าเฉลี่ย", "Share and vs average", "占比与平均对比")} />
+                  <div className="p-4 pt-1 space-y-4">
+                    <div className="flex items-center gap-4">
+                      <Radial pct={teamSharePct} label={L("ของทีม", "of team", "团队")} />
+                      <div className="text-xs space-y-1 min-w-0">
+                        <p className="text-muted">{L("ยอดคนนี้", "This person", "此员工")}</p><p className="font-semibold tnum">{formatTHB(personRow.value, false)}</p>
+                        <p className="text-muted pt-1">{L("ทั้งทีม", "Team total", "团队合计")}</p><p className="font-semibold tnum">{formatTHB(totals.gross, false)}</p>
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      {rows.slice(0, 5).map((r, i) => (
+                        <button key={r.id} onClick={() => setPersonId(r.id)} className={`w-full flex items-center gap-2 text-xs rounded-lg px-1.5 py-1 text-left ${r.id === activePerson ? "bg-brand/8 text-brand font-medium" : "hover:bg-surface2"}`}>
+                          <span className="w-4 text-center text-[10px] text-muted">{i + 1}</span>
+                          <span className="flex-1 truncate">{splitName(r.label)[0]}</span>
+                          <span className="w-16 h-1.5 rounded-full bg-surface2 overflow-hidden"><span className="block h-full bg-brand/70 rounded-full" style={{ width: `${(r.value / (rows[0]?.value || 1)) * 100}%` }} /></span>
+                          <span className="tnum w-20 text-right">{formatTHB(r.value, false)}</span>
+                        </button>
+                      ))}
+                      {personRank > 5 ? <p className="text-[11px] text-muted px-1.5">… {L("คนนี้อยู่อันดับ", "this person is #", "此员工排名")} {personRank}</p> : null}
+                    </div>
+                  </div>
+                </Card>
+              </div>
+
+              {/* ── สินค้าขายดี + บิลล่าสุด ── */}
+              <div className="grid lg:grid-cols-2 gap-4">
+                <Card>
+                  <CardHeader title={L("สินค้าขายดีของคนนี้", "Top products", "畅销商品")} subtitle={L("ตามยอดขายจริง", "By real sales", "按实际销售额")} />
+                  <div className="p-4 pt-1">
+                    {personTop.length ? <ol className="space-y-2.5">{personTop.map((p, i) => (
+                      <li key={p.name} className="text-xs">
+                        <div className="flex items-center gap-2">
+                          <span className={`w-5 h-5 rounded-md grid place-items-center text-[10px] font-bold shrink-0 ${i < 3 ? "bg-brand/12 text-brand" : "bg-surface2 text-muted"}`}>{i + 1}</span>
+                          <span className="flex-1 truncate font-medium">{p.name}</span>
+                          <span className="text-muted tnum">{formatInt(p.qty)} {L("ชิ้น", "pcs", "件")}</span>
+                          <span className="font-semibold tnum w-24 text-right">{formatTHB(p.gross, false)}</span>
+                        </div>
+                        <div className="ml-7 mt-1 h-1 rounded-full bg-surface2 overflow-hidden"><div className="h-full rounded-full bg-brand/60" style={{ width: `${(p.gross / (personTop[0]?.gross || 1)) * 100}%` }} /></div>
+                      </li>))}</ol> : <EmptyState title={t.common.empty} />}
+                  </div>
+                </Card>
+                <Card>
+                  <CardHeader title={L("บิลล่าสุด", "Recent bills", "最近账单")} subtitle={L("กดเพื่อดูที่มาของบิล", "Click to trace", "点击查看")} />
+                  <div className="px-2 pb-2">
+                    {personOrders.length ? personOrders.slice(0, 7).map((o) => (
+                      <button key={o.id} onClick={() => setTraceBill(o)} className="group w-full flex items-center gap-3 px-2.5 py-2 rounded-xl hover:bg-surface2/70 text-left text-xs">
+                        <span className="w-8 h-8 rounded-lg bg-brand/8 text-brand grid place-items-center shrink-0"><Receipt size={14} /></span>
+                        <span className="min-w-0 flex-1"><span className="block font-mono truncate">{o.order_no}</span>
+                          <span className="block text-[10.5px] text-muted truncate">{new Date(saleAt(o)).toLocaleString(locale === "th" ? "th-TH" : "en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })} · {o.items.filter((x) => !x.is_gift)[0]?.name ?? "—"}</span></span>
+                        <span className="font-semibold tnum">{formatTHB(o.grand_total, false)}</span>
+                        <ChevronRight size={14} className="text-muted opacity-40 group-hover:opacity-100 group-hover:text-brand" />
+                      </button>)) : <EmptyState title={t.common.empty} />}
+                  </div>
+                </Card>
+              </div>
+              {traceBill ? <OrderTraceDrawer key={traceBill.id} clientUuid={traceBill.client_uuid} orderNo={traceBill.order_no} onClose={() => setTraceBill(null)} /> : null}
             </div>
-          ) : <EmptyState title={t.common.empty} />}
-        </div>
+          );
+        })() : <EmptyState title={t.common.empty} />
       ) : null}
 
       {/* ============ BY POSITION (เทียบตามตำแหน่ง ข้ามสาขา/แบรนด์) ============ */}
@@ -456,14 +503,31 @@ export function StaffPerformance({ filtered, employees, branches, brands, initia
   );
 }
 
-// สถิติตัวใหญ่ (สไตล์ Crextio) — ข้อมูลจริง
-function StatTile({ icon, label, value, tone }: { icon: ReactNode; label: string; value: string; tone?: "brand" | "ok" }) {
+
+// ยอดรายชั่วโมง (ใช้เมื่อข้อมูลมีวันเดียว — กราฟเส้นจุดเดียวอ่านไม่ได้)
+function hourTotals(orders: Order[], who?: string | null) {
+  const h = Array(24).fill(0) as number[];
+  for (const o of orders) {
+    if (!isCountedSale(o)) continue;
+    const hr = new Date(new Date(saleAt(o)).toLocaleString("en-US", { timeZone: "Asia/Bangkok" })).getHours();
+    if (!who) { h[hr] += o.grand_total; continue; }
+    for (const it of o.items) if ((it.salesperson_id ?? o.salesperson_id ?? o.cashier_id) === who) h[hr] += lineNet(o, it).net;
+  }
+  return h;
+}
+function HourBars({ hours, height = 210 }: { hours: number[]; height?: number }) {
+  const max = Math.max(1, ...hours), peak = hours.indexOf(Math.max(...hours));
+  const hs = hours.map((v, h) => (v ? h : -1)).filter((h) => h >= 0);
+  const [h0, h1] = hs.length ? [Math.min(9, ...hs), Math.max(20, ...hs)] : [9, 20];
   return (
-    <div className="glass rounded-2xl p-3.5">
-      <span className={`inline-flex items-center gap-1.5 ${tone === "brand" ? "text-brand" : tone === "ok" ? "text-ok" : "text-muted"}`}>
-        {icon}<span className="text-[11px] text-muted">{label}</span>
-      </span>
-      <p className="text-xl font-bold mt-1.5 tnum leading-none truncate">{value}</p>
+    <div className="flex items-end gap-1" style={{ height }}>
+      {Array.from({ length: h1 - h0 + 1 }, (_, i) => h0 + i).map((h) => (
+        <div key={h} className="flex-1 h-full flex flex-col justify-end items-center gap-1 min-w-0" title={`${h}:00 · ${formatTHB(hours[h], false)}`}>
+          <span className="text-[9.5px] tnum text-muted truncate max-w-full">{hours[h] ? formatInt(Math.round(hours[h])) : ""}</span>
+          <div className={`w-full rounded-t-md transition-all ${h === peak && hours[h] ? "bg-brand" : "bg-brand/40"}`} style={{ height: `${(hours[h] / max) * 78}%`, minHeight: hours[h] ? 3 : 0 }} />
+          <span className="text-[9.5px] text-muted tnum">{h}</span>
+        </div>
+      ))}
     </div>
   );
 }

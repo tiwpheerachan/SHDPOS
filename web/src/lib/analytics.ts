@@ -196,7 +196,7 @@ export function salesSeries(
       let add = 0, hit = false;
       for (const it of o.items) {
         const eid = it.salesperson_id ?? o.salesperson_id ?? o.cashier_id;
-        if (eid === employeeId) { add += it.line_total; hit = true; }
+        if (eid === employeeId) { add += lineNet(o, it).net; hit = true; }
       }
       if (hit) { cur.gross += add; cur.ids.add(o.id); }
     } else {
@@ -258,6 +258,16 @@ export function byBrand(orders: Order[], branches: Branch[], brandNames: Map<str
     .sort((a, b) => b.value - a.value);
 }
 
+/** ยอดสุทธิ+กำไรของรายการ หลังกระจายส่วนลดท้ายบิลตามสัดส่วน — รวมทุกบรรทัดแล้ว = grand_total / gross_profit ของบิลพอดี
+ *  (line_total เป็นยอดก่อนส่วนลดท้ายบิล ถ้าใช้ตรง ๆ ยอดรายคนรวมกันจะเกินยอดขายจริง) */
+export function lineNet(o: Order, it: Order["items"][number]): { net: number; gp: number } {
+  let sumLine = 0, sumGp = 0;
+  for (const x of o.items) { sumLine += x.line_total; sumGp += x.gross_profit; }
+  if (sumLine <= 0) return { net: 0, gp: it.gross_profit };
+  const w = it.line_total / sumLine;
+  return { net: o.grand_total * w, gp: it.gross_profit - (sumGp - o.gross_profit) * w };
+}
+
 export function byEmployee(orders: Order[], employees: Employee[]) {
   const map = new Map<string, { gross: number; orders: Set<string>; units: number; gp: number }>();
   for (const o of orders) {
@@ -266,9 +276,10 @@ export function byEmployee(orders: Order[], employees: Employee[]) {
       const eid = it.salesperson_id ?? o.salesperson_id ?? o.cashier_id;
       if (!eid) continue;
       const cur = map.get(eid) ?? { gross: 0, orders: new Set<string>(), units: 0, gp: 0 };
-      cur.gross += it.line_total;
+      const ln = lineNet(o, it);
+      cur.gross += ln.net;
       cur.units += it.qty;
-      cur.gp += it.gross_profit;
+      cur.gp += ln.gp;
       cur.orders.add(o.id);
       map.set(eid, cur);
     }
