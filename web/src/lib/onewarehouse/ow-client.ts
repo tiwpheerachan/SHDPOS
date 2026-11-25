@@ -38,7 +38,7 @@ export interface OwWarehouse {
   status: "active" | "inactive";
   updated_at: string;
 }
-export interface OwSerial { serialNo: string; sku: string; warehouseId: string | null; status: string; lastMovementId: string | null }
+export interface OwSerial { serialNo: string; sku: string; warehouseId: string | null; status: string; stockType?: string | null; lastMovementId: string | null }
 export interface OwCarrier { id: string; name: string; enabled: boolean; platformId?: string | null; codEnabled?: boolean }
 export interface OwComponents { sku: string; available: boolean; reason?: string; components?: { sku: string; qty: number }[] }
 export interface OwStatus { configured: boolean; authConfigured: boolean; subNumeric: boolean | null }

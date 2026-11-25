@@ -1,7 +1,8 @@
 // POST /api/pos/ow-stock-check — เช็กยอด "ขายได้จริงใน JST" ก่อนรับเงิน (สาขาที่ผูกคลังกลางเท่านั้น)
 //   body: { branch_id, items:[{product_id, qty}] }
 //   ขายได้ = /v1/stock qty (JST: on-hand − OrderLock − pickLock, ERIS-255) − บิลของสาขาที่ยังไม่เข้า JST
-//   คืน { linked, checked, short:[{product_id, sku, need, sellable}] } · OW ล่ม/อ่านไม่ได้ = checked:false (ไม่บล็อกการขาย แค่เตือน)
+//   คืน { linked, checked, short:[{product_id, sku, need, sellable}], sn_issues, sn_unchecked } · OW ล่ม/อ่านไม่ได้ = checked:false (ไม่บล็อกการขาย แค่เตือน)
+//   items[].serials (ถ้ามี) → ถาม JST ทีละ SN ว่าอยู่คลังนี้/SKU ตรง/ยังขายได้/ไม่ชำรุด (กัน JST ปฏิเสธบิลหลังลูกค้าจ่าย)
 import { NextRequest, NextResponse } from "next/server";
 import { SSO_COOKIE, readSession } from "@/lib/sso/session-cookie";
 import { resolveAuthz } from "@/lib/sso/grants";
@@ -11,6 +12,7 @@ import { owWarehouseOf } from "@/lib/server/ow-branch";
 import { owConfig } from "@/lib/server/ow-gateway";
 import { owCall } from "@/lib/server/ow-write";
 import { pendingSaleQty } from "@/lib/server/ow-reconcile";
+import { checkSaleSerials } from "@/lib/server/ow-serials";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,7 +24,7 @@ export async function POST(req: NextRequest) {
   if (!profile) return reply({ error: "กรุณาเข้าสู่ระบบ" }, 401);
   const authz = await resolveAuthz(profile);
   if (!authz.allowed) return reply({ error: "ไม่มีสิทธิ์" }, 403);
-  const b = (await req.json().catch(() => null)) as { branch_id?: string; items?: { product_id?: string; qty?: number }[] } | null;
+  const b = (await req.json().catch(() => null)) as { branch_id?: string; items?: { product_id?: string; qty?: number; serials?: string[] }[] } | null;
   const branchId = b?.branch_id ?? "";
   if (!UUID.test(branchId)) return reply({ error: "สาขาไม่ถูกต้อง" }, 400);
   const allowed = await visibleBranchIds(authz);
@@ -56,6 +58,11 @@ export async function POST(req: NextRequest) {
   let pending = new Map<string, number>();
   try { pending = await pendingSaleQty(branchId, owConfig().source); } catch { /* อ่านไม่ได้ = ไม่หัก (ยังเช็กจาก JST ได้) */ }
 
+  // SN: ตรวจกับ JST พร้อมกัน (ไม่รอผลสต๊อก)
+  const snItems = (b?.items ?? []).filter((it) => it.product_id && Array.isArray(it.serials) && it.serials.length)
+    .map((it) => ({ sku: skuOf.get(it.product_id!) ?? "", serials: (it.serials ?? []).map(String).filter(Boolean) })).filter((x) => x.sku);
+  const snCheck = snItems.length ? checkSaleSerials(wh, snItems).catch(() => ({ issues: [], unchecked: snItems.flatMap((x) => x.serials) })) : Promise.resolve({ issues: [], unchecked: [] as string[] });
+
   const short: { product_id: string; sku: string; need: number; sellable: number }[] = [];
   for (const [pid, q] of need) {
     const sku = skuOf.get(pid);
@@ -63,5 +70,6 @@ export async function POST(req: NextRequest) {
     const avail = Math.max(0, (sellable.get(sku) ?? 0) - (pending.get(pid) ?? 0));
     if (q > avail) short.push({ product_id: pid, sku, need: q, sellable: avail });
   }
-  return reply({ linked: true, checked: true, short });
+  const sn = await snCheck;
+  return reply({ linked: true, checked: true, short, sn_issues: sn.issues, sn_unchecked: sn.unchecked });
 }

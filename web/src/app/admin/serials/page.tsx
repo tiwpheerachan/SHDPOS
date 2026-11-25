@@ -53,6 +53,7 @@ export default function AdminSerialsPage() {
   const [emps, setEmps] = useState<Employee[]>([]);
   const [owConn, setOwConn] = useState<boolean | null>(null);   // เชื่อม OneWarehouse แล้ว (มี token+sub)
   const [owInfo, setOwInfo] = useState<OwSerial | null>(null);  // ข้อมูล SN สดจาก OW
+  const [owState, setOwState] = useState<"idle" | "loading" | "found" | "missing" | "error">("idle");
   const inputRef = useRef<HTMLInputElement>(null);
   const empName = (id?: string | null) => { if (!id) return ""; const e = emps.find((x) => x.id === id); return e ? (e.nickname || `${e.first_name ?? ""} ${e.last_name ?? ""}`.trim() || id) : ""; };
 
@@ -68,10 +69,16 @@ export default function AdminSerialsPage() {
       const r = await resolveSerial(v);
       setInfo(r);
       if (r.status !== "unknown") setHistory((h) => [{ serialNo: r.serialNo, name: r.product?.name ?? "", image: r.product?.image_url ?? null, status: r.status, at: Date.now() }, ...h.filter((x) => x.serialNo !== r.serialNo)].slice(0, 20));
-      // ดึงสถานะสดจาก OneWarehouse (ถ้าเชื่อมต่อแล้ว) — ไม่บล็อก/ไม่ทำให้ fail ถ้าไม่มี
-      if (owConn) { const o = await owSerial(v); setOwInfo(o.ok ? (o.data ?? null) : null); }
     } finally { setBusy(false); inputRef.current?.select(); }
   }
+
+  // ดึงสถานะสดจาก OneWarehouse เมื่อรู้ว่าเชื่อมแล้ว (เปิดจากลิงก์ ?sn= อาจค้นก่อนรู้สถานะการเชื่อม)
+  useEffect(() => {
+    if (!owConn || !info || info.status === "unknown") { setOwState("idle"); return; }
+    let alive = true; setOwState("loading"); setOwInfo(null);
+    void owSerial(info.serialNo).then((o) => { if (!alive) return; if (o.ok && o.data) { setOwInfo(o.data); setOwState("found"); } else setOwState(o.status === 404 ? "missing" : "error"); });
+    return () => { alive = false; };
+  }, [owConn, info]);
 
   const dt = (iso: string) => new Date(iso).toLocaleString(locale === "th" ? "th-TH" : locale === "zh" ? "zh-CN" : "en-GB", { day: "2-digit", month: "short", year: "2-digit", hour: "2-digit", minute: "2-digit" });
   const dateOnly = (iso: string | Date) => new Date(iso).toLocaleDateString(locale === "th" ? "th-TH" : "en-GB", { day: "2-digit", month: "short", year: "numeric" });
@@ -268,21 +275,35 @@ export default function AdminSerialsPage() {
                 {/* OneWarehouse — สถานะสด (เมื่อเชื่อมต่อ) */}
                 {owConn && owInfo ? (() => {
                   const b = branchForWarehouseId(owInfo.warehouseId);
+                  const OW_TH: Record<string, string> = { in_stock: "อยู่ในสต๊อก", sold: "ขายแล้ว", in_transit: "ระหว่างโอน", reserved: "ถูกจอง", written_off: "ตัดจำหน่าย", shipped: "ส่งออกแล้ว" };
+                  // เทียบ POS ↔ JST → อธิบายเหตุที่ไม่ตรงเป็นภาษาคน
+                  const pos = info?.status;
+                  const diff: string | null =
+                    pos === "sold" && owInfo.status === "in_stock" ? L("POS ขายแล้ว แต่ JST ยังเห็นว่าอยู่ในสต๊อก — บิลขายยังไม่เข้า JST (ดูที่หน้ายอดขาย → ที่มาของบิล)", "Sold in POS but in stock in JST — sale not in JST yet", "")
+                    : (pos === "returned" || pos === "in_stock") && owInfo.status === "sold" ? L("POS รับคืนแล้ว แต่ JST ยังเป็นขายแล้ว — รอทีมคลังกลางทำรับคืนใน JST", "Returned in POS, still sold in JST — awaiting JST return", "")
+                    : pos === "in_stock" && owInfo.warehouseId && info?.currentBranchId && b && b !== info.currentBranchId ? L(`POS อยู่ ${branchName(info.currentBranchId)} แต่ JST อยู่ ${branchName(b)} — ตรวจใบโอน/กด "ปรับยอดจาก OW"`, "Branch differs between POS and JST", "")
+                    : owInfo.stockType && owInfo.stockType !== "sellable" && pos !== "quarantined" ? L("JST บันทึกเป็นของชำรุด แต่ POS ยังขายได้ — ควรพักตรวจใน POS", "Damaged in JST but sellable in POS", "")
+                    : null;
                   return (
                     <Card>
-                      <div className="p-4 space-y-1.5">
-                        <span className="text-sm font-semibold inline-flex items-center gap-1.5"><ShieldCheck size={15} className="text-emerald-600" /> {L("OneWarehouse (สด)", "OneWarehouse (live)", "OneWarehouse(实时)")}</span>
-                        <div className="text-[12px] space-y-0.5">
-                          <p>{L("สถานะ", "Status", "状态")}: <b>{owInfo.status}</b></p>
-                          <p className="text-muted">{L("คลัง", "Warehouse", "仓")}: {owInfo.warehouseId ? (b ? branchName(b) : owInfo.warehouseId) : "—"}</p>
-                          {owInfo.sku ? <p className="text-muted font-mono text-[11px]">{owInfo.sku}</p> : null}
+                      <div className="p-4 space-y-2">
+                        <span className="text-sm font-semibold inline-flex items-center gap-1.5"><ShieldCheck size={15} className={diff ? "text-amber-500" : "text-emerald-600"} /> {L("คลังกลาง JST (สด)", "Central JST (live)", "中央仓 JST（实时）")}</span>
+                        <div className="grid grid-cols-2 gap-2 text-[12px]">
+                          <div className="rounded-xl bg-surface2/60 px-2.5 py-2"><p className="text-[10.5px] text-muted">{L("สถานะ", "Status", "状态")}</p><p className="font-semibold">{OW_TH[owInfo.status] ?? owInfo.status}</p></div>
+                          <div className="rounded-xl bg-surface2/60 px-2.5 py-2"><p className="text-[10.5px] text-muted">{L("ประเภทสต๊อก", "Stock type", "库存类型")}</p><p className={`font-semibold ${owInfo.stockType && owInfo.stockType !== "sellable" ? "text-danger" : ""}`}>{owInfo.stockType === "damaged" ? L("ชำรุด", "Damaged", "损坏") : owInfo.stockType === "sellable" || !owInfo.stockType ? L("ขายได้", "Sellable", "可售") : owInfo.stockType}</p></div>
+                          <div className="col-span-2 rounded-xl bg-surface2/60 px-2.5 py-2"><p className="text-[10.5px] text-muted">{L("คลัง", "Warehouse", "仓")}</p><p className="font-semibold">{owInfo.warehouseId ? (b ? `${branchName(b)} · ${owInfo.warehouseId}` : owInfo.warehouseId) : "—"}</p>{owInfo.sku ? <p className="text-muted font-mono text-[10.5px]">{owInfo.sku}</p> : null}</div>
                         </div>
+                        {diff ? <p className="rounded-xl bg-amber-500/10 text-amber-700 dark:text-amber-300 text-[11.5px] px-3 py-2 leading-snug">⚠ {diff}</p> : <p className="text-[11px] text-ok">{L("ตรงกับ POS", "Matches POS", "与 POS 一致")}</p>}
                         <p className="text-[10px] text-muted/70">{L("ข้อมูลจริงจากคลังกลาง (JST ผ่าน OneWarehouse)", "Authoritative from central WMS", "中央仓权威数据")}</p>
                       </div>
                     </Card>
                   );
-                })() : owConn && info ? (
-                  <Card><div className="p-3 text-[11px] text-muted inline-flex items-center gap-1.5"><ShieldCheck size={13} className="text-muted/50" /> {L("OneWarehouse: ไม่พบ SN นี้ในคลังกลาง (อาจเป็นข้อมูลภายใน)", "OW: serial not in central WMS", "中央仓无此序列号")}</div></Card>
+                })() : owConn && info && owState === "loading" ? (
+                  <Card><div className="p-3 text-[11px] text-muted">{L("กำลังถามคลังกลาง JST…", "Checking JST…", "查询中…")}</div></Card>
+                ) : owConn && info && owState === "error" ? (
+                  <Card><div className="p-3 text-[11px] text-muted">{L("ตอนนี้ถามคลังกลาง JST ไม่ได้ — ลองใหม่ภายหลัง", "Could not reach JST", "暂无法查询")}</div></Card>
+                ) : owConn && info && owState === "missing" ? (
+                  <Card><div className="p-3 text-[11px] text-muted inline-flex items-center gap-1.5"><ShieldCheck size={13} className="text-amber-500" /> {L("ไม่พบ SN นี้ในคลังกลาง JST — ถ้าเป็นสินค้าที่ต้องส่งเข้า JST บิลขายจะไม่ผ่าน ให้แจ้งทีมคลังกลางลงทะเบียน SN", "Serial not in central WMS", "中央仓无此序列号")}</div></Card>
                 ) : null}
                 {/* ประกัน */}
                 {insight?.warranty?.started ? (

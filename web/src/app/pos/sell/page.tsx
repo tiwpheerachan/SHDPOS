@@ -421,8 +421,15 @@ export default function SellPage() {
       // สาขาผูกคลังกลาง: เช็กยอดขายได้จริงใน JST ก่อนรับเงิน (กัน JST ปฏิเสธบิล "สต๊อกไม่พอ" หลังลูกค้าจ่ายแล้ว)
       if(isLiveMode()&&!reserveMode){
         const sc=await fetch("/api/pos/ow-stock-check",{method:"POST",headers:{"Content-Type":"application/json"},cache:"no-store",
-          body:JSON.stringify({branch_id:branchId,items:cart.lines.filter(l=>l.product_id).map(l=>({product_id:l.product_id,qty:l.qty}))})})
-          .then(r=>r.ok?r.json():null).catch(()=>null) as {linked?:boolean;checked?:boolean;short?:{sku:string;need:number;sellable:number}[]}|null;
+          body:JSON.stringify({branch_id:branchId,items:cart.lines.filter(l=>l.product_id).map(l=>({product_id:l.product_id,qty:l.qty,serials:l.is_gift?[]:(l.serials??[])}))})})
+          .then(r=>r.ok?r.json():null).catch(()=>null) as {linked?:boolean;checked?:boolean;short?:{sku:string;need:number;sellable:number}[];sn_issues?:{sn:string;message:string}[];sn_unchecked?:string[]}|null;
+        // SN ที่ JST จะไม่รับ (ไม่มี/อยู่คลังอื่น/ขายแล้ว/ชำรุด/ผิดรุ่น) → หยุดก่อนรับเงิน ให้แก้ SN ในตะกร้า
+        if(sc?.sn_issues?.length){
+          toast.push({tone:"danger",title:L(`SN ไม่ตรงกับคลังกลาง (JST) ${sc.sn_issues.length} รายการ`,`${sc.sn_issues.length} SN not valid in JST`,`${sc.sn_issues.length} 个 SN 与 JST 不符`),
+            body:sc.sn_issues.slice(0,4).map(i=>i.message).join("\n")+(sc.sn_issues.length>4?`\n+${sc.sn_issues.length-4}`:"")});
+          return;
+        }
+        if(sc?.sn_unchecked?.length) toast.push({tone:"warn",title:L("ตรวจ SN กับคลังกลางไม่ได้ตอนนี้","Could not verify SN with JST","暂无法核对 SN"),body:L("ขายต่อได้ แต่ถ้า SN ไม่ตรง JST จะให้แก้ SN ภายหลัง","You may continue; fix SN later if JST rejects","可继续")});
         if(sc?.short?.length){
           toast.push({tone:"danger",title:L("สต๊อกในคลังกลาง (JST) ไม่พอ","Not enough stock in JST","JST 库存不足"),
             body:sc.short.map(s=>`${s.sku}: ${L("ต้องการ","need","需要")} ${s.need} · ${L("ขายได้","sellable","可售")} ${s.sellable}`).join("\n")});
