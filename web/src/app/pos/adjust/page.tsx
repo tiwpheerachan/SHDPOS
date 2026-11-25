@@ -13,8 +13,16 @@ import { Button, Input, Select, Table, Th, Td, EmptyState, Badge } from "@/compo
 import { PosPage, TablePanel } from "@/components/pos/page-shell";
 import { IntegrationNotice, useOwBranchLink } from "@/components/pos/integration-notice";
 import { can } from "@/lib/permissions";
+import { isLiveMode } from "@/lib/supabase/client";
+import { AdjustLive } from "@/components/pos/adjust-live";
 
 export default function StockAdjustPage() {
+  // โหมดจริง: ใบขอปรับ + อนุมัติแยกคน (0078) — ไม่ปรับยอดทันทีจากเครื่อง
+  if (typeof window !== "undefined" && isLiveMode()) return <AdjustLive />;
+  return <LocalAdjustPage />;
+}
+
+function LocalAdjustPage() {
   const owLink = useOwBranchLink(); // ผูกคลังกลาง = ปรับยอดที่ OneWarehouse เท่านั้น
   const { t, locale, pick } = useI18n();
   const toast = useToast();
