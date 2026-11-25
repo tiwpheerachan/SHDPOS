@@ -127,6 +127,7 @@ export interface Product {
   price: number;
   cost: number;
   vat_rate: number;
+  vat_mode?: "inclusive" | "exclusive" | "exempt";
   is_discountable: boolean;
   max_discount_percent?: number | null;
   track_serial: boolean;
@@ -193,6 +194,9 @@ export interface CartLine {
   gift_of_sku?: string | null;
   /** โปรรายสินค้า (แคมเปญผูกสินค้า) — ยอดจริงเซิร์ฟเวอร์คิด (pos_apply_line_campaigns) ค่านี้ใช้แสดง/ประเมิน */
   campaign?: LineCampaign | null;
+  /** ภาษีของสินค้า (ค่าเริ่มต้น รวม VAT 7%) — exclusive = ราคาก่อน VAT บวกเพิ่มตอนคิดเงิน */
+  vat_mode?: "inclusive" | "exclusive" | "exempt";
+  vat_rate?: number;
 }
 
 export interface LineCampaign {

@@ -4,6 +4,7 @@
 // =====================================================================
 
 import type { CartLine } from "./types";
+import { computeVat } from "./tax";
 
 export const VAT_RATE = 7;
 
@@ -91,8 +92,10 @@ export interface CartTotals {
   grandTotal: number;
   /** ฐานภาษี (ไม่รวม VAT) */
   baseAmount: number;
-  /** VAT ที่รวมอยู่ในยอดสุทธิ */
+  /** VAT รวมทั้งบิล (= ผลรวม VAT รายบรรทัด) */
   vatAmount: number;
+  /** VAT ที่บวกเพิ่มจากสินค้าราคาก่อน VAT (exclusive) — รวมอยู่ใน grandTotal แล้ว */
+  exclusiveVat: number;
   costTotal: number;
   grossProfit: number;
   itemCount: number;
@@ -126,9 +129,12 @@ export function computeTotals(lines: CartLine[], billDiscount = 0, billDiscountP
   const afterBill = Math.max(afterLines - billDisc, 0);
   const coupon = round2(Math.min(Math.max(couponAmount, 0), afterBill));
   const redeem = round2(Math.min(Math.max(redeemAmount, 0), Math.max(afterBill - coupon, 0)));
-  const grandTotal = round2(Math.max(afterBill - coupon - redeem, 0));
-  const baseAmount = round2((grandTotal * 100) / (100 + VAT_RATE));
-  const vatAmount = round2(grandTotal - baseAmount);
+  // VAT รายบรรทัด (lib/tax — สูตรเดียวกับเซิร์ฟเวอร์ 0076): กระจายส่วนลดหัวบิล · รวม/แยก/ยกเว้น VAT ตามสินค้า
+  const header = round2(Math.max(afterBill - coupon - redeem, 0));
+  const tax = computeVat(lines.map((l) => ({ amount: l.is_gift ? 0 : lineTotal(l), mode: l.vat_mode ?? "inclusive", rate: l.vat_rate ?? VAT_RATE })), header);
+  const grandTotal = tax.total;
+  const baseAmount = tax.base;
+  const vatAmount = tax.vat;
 
   return {
     subtotal,
@@ -142,6 +148,7 @@ export function computeTotals(lines: CartLine[], billDiscount = 0, billDiscountP
     grandTotal,
     baseAmount,
     vatAmount,
+    exclusiveVat: tax.exclusiveVat,
     costTotal: round2(costTotal),
     grossProfit: round2(baseAmount - costTotal),
     itemCount: lines.length,

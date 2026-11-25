@@ -38,4 +38,5 @@ await (await import('./test-documents.mjs')).testDocuments(db,ids);
 await (await import('./test-stock-count.mjs')).testStockCount(db,ids);
 await (await import('./test-credit-notes.mjs')).testCreditNotes(db,ids);
 await (await import('./test-period-close.mjs')).testPeriodClose(db,ids);
+await (await import('./test-vat-engine.mjs')).testVatEngine(db);
 await db.close();

@@ -1,5 +1,6 @@
 import { legacyUuid } from "@/lib/server/legacy-ids";
 import { kickSaleOutbox } from "@/lib/server/ow-sales";
+import { owWarehouseOf } from "@/lib/server/ow-branch";
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import {
@@ -66,7 +67,7 @@ export async function POST(req: NextRequest) {
         { ...draft, items:draft.items.filter((i:any)=>!i.is_gift),discount_total:manual,grand_total:Math.round((draft.subtotal-manual)*100)/100,coupon_code:null,redeem_points:0,client_uuid: body.id, branch_id: body.branch_id },
         data ?? [],
         !ctx.authz.isSuperadmin && ["deny", "approval"].includes(ctx.authz.permission_overrides["pos.discount"]) ? 0 : ctx.authz.max_discount_percent,
-        {preview:body.action==="preview"},
+        {preview:body.action==="preview", allowVatModes: !(await owWarehouseOf(body.branch_id))},
       );
       // โปรรายสินค้า: เครื่องส่งแค่รหัสต่อบรรทัด — ยอดลดคิดที่ DB (pos_apply_line_campaigns) ไม่นับเพดานส่วนลดพนักงาน
       draft.items.filter((i:any)=>!i.is_gift).forEach((i:any,k:number)=>{

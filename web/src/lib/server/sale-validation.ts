@@ -31,7 +31,7 @@ export function validateQuote(
   input: unknown,
   catalog: CatalogPrice[],
   limit: number,
-  options: {preview?:boolean} = {},
+  options: {preview?:boolean; allowVatModes?:boolean} = {},
 ): Record<string, any> {
   const p = object(input);
   if (!UUID.test(p.client_uuid) || !UUID.test(p.branch_id))
@@ -72,11 +72,13 @@ export function validateQuote(
     if (!product?.is_active) throw new Error("สินค้าไม่พบหรือปิดใช้งานแล้ว");
     if (product.kind === "bundle")
       throw new Error("สินค้าชุดต้องตรวจส่วนประกอบ BOM ก่อนเปิดขาย");
-    if (
-      (product.vat_rate != null && Number(product.vat_rate) !== 7) ||
-      (product.vat_mode && product.vat_mode !== "inclusive")
-    )
-      throw new Error("รูปแบบภาษีสินค้านี้ยังไม่รองรับใน Checkout กลาง");
+    // ภาษีแยก/ยกเว้น/อัตราอื่น: คิดที่ขั้นสุดท้าย pos_quote_finalize_vat (0076) · สาขาที่ส่งบิลเข้า JST ยังรับเฉพาะราคารวม VAT 7%
+    const vatMode = product.vat_mode ?? "inclusive";
+    const vatRate = product.vat_rate == null ? 7 : Number(product.vat_rate);
+    if (!["inclusive", "exclusive", "exempt"].includes(vatMode) || !Number.isFinite(vatRate) || vatRate < 0 || vatRate > 30)
+      throw new Error(`ตั้งค่าภาษีของ ${product.sku} ไม่ถูกต้อง`);
+    if (!options.allowVatModes && (vatRate !== 7 || vatMode !== "inclusive"))
+      throw new Error(`${product.sku} ตั้งภาษีแบบ${vatMode === "exclusive" ? "แยก VAT" : vatMode === "exempt" ? "ยกเว้น VAT" : `อัตรา ${vatRate}%`} — สาขาที่ส่งบิลเข้า JST รับได้เฉพาะราคารวม VAT 7%`);
     const qty = i.qty;
     if (
       typeof qty !== "number" ||
@@ -135,6 +137,8 @@ export function validateQuote(
       discount_amount: discount,
       discount_percent: percent,
       line_total: round2(gross - discount),
+      vat_mode: vatMode,
+      vat_rate: vatRate,
       vat_amount: round2(gross - discount - (gross - discount) / 1.07),
       unit_cost: Number(product.cost),
       cost_total: round2(Number(product.cost) * qty),

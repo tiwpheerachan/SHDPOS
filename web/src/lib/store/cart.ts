@@ -124,6 +124,8 @@ export const useCart = create<CartState>((set, get) => ({
         track_serial: p.track_serial,
         serials: [],
         salesperson_id: s.defaultSalespersonId,
+        vat_mode: p.vat_mode ?? "inclusive",
+        vat_rate: p.vat_rate ?? 7,
       };
       return { lines: [...lines, line] };
     }),
