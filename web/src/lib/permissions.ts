@@ -21,7 +21,7 @@ export const PERMISSION_KEYS = [
   "dashboard.view", "work.view", "sales.view", "product.view", "document.view",
   "deferred_sale.manage", "approval.view",
   "campaign.manage", "display.manage", "integration.manage", "integration.reconcile",
-  "loyalty.manage",
+  "loyalty.manage", "sales.trace",
 ] as const;
 
 export type PermissionKey = (typeof PERMISSION_KEYS)[number];
@@ -36,6 +36,7 @@ export const ROLE_MATRIX: Record<EmployeeRole, Partial<Record<PermissionKey, Rul
   staff: {
     "work.view": { effect: "allow" },
     "sales.view": { effect: "allow" },
+    "sales.trace": { effect: "allow" },
     "product.view": { effect: "allow" },
     "deferred_sale.manage": { effect: "allow" },
     "pos.sell": { effect: "allow" },
@@ -56,6 +57,7 @@ export const ROLE_MATRIX: Record<EmployeeRole, Partial<Record<PermissionKey, Rul
     "dashboard.view": { effect: "allow" },
     "work.view": { effect: "allow" },
     "sales.view": { effect: "allow" },
+    "sales.trace": { effect: "allow" },
     "product.view": { effect: "allow" },
     "document.view": { effect: "allow" },
     "deferred_sale.manage": { effect: "allow" },
@@ -85,6 +87,7 @@ export const ROLE_MATRIX: Record<EmployeeRole, Partial<Record<PermissionKey, Rul
     "dashboard.view": { effect: "allow" },
     "work.view": { effect: "allow" },
     "sales.view": { effect: "allow" },
+    "sales.trace": { effect: "allow" },
     "product.view": { effect: "allow" },
     "document.view": { effect: "allow" },
     "deferred_sale.manage": { effect: "allow" },
@@ -125,6 +128,7 @@ export const ROLE_MATRIX: Record<EmployeeRole, Partial<Record<PermissionKey, Rul
     "dashboard.view": { effect: "allow" },
     "work.view": { effect: "allow" },
     "sales.view": { effect: "allow" },
+    "sales.trace": { effect: "allow" },
     "product.view": { effect: "allow" },
     "document.view": { effect: "allow" },
     "deferred_sale.manage": { effect: "allow" },
@@ -159,6 +163,7 @@ export const ROLE_MATRIX: Record<EmployeeRole, Partial<Record<PermissionKey, Rul
   auditor: {
     "dashboard.view": { effect: "allow" },
     "sales.view": { effect: "allow" },
+    "sales.trace": { effect: "allow" },
     "product.view": { effect: "allow" },
     "document.view": { effect: "allow" },
     "approval.view": { effect: "allow" },

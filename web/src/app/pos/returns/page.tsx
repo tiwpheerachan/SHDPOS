@@ -22,13 +22,14 @@ import { can, needsApproval } from "@/lib/permissions";
 import { ApprovalModal, type ApprovalRequestInput } from "@/components/pos/approval-modal";
 import { exportCsv, stampFilename } from "@/lib/export";
 import { isLiveMode } from "@/lib/supabase/client";
+import { OrderTraceButton } from "@/components/order-trace";
 
 // คำขอคืน/ยกเลิกจากระบบกลาง (0062) — เซิร์ฟเวอร์คิดยอดและตัดสิน
 type ServerReturn = {
   id: string; return_no: string; kind: "return" | "void"; type: ReturnType; status: "pending_approval" | "approved" | "rejected" | "completed" | "cancelled";
   reason_code: string | null; reason_note: string | null; refund_method: string | null; refund_amount: number; created_at: string;
   ow_linked: boolean; jst_state: "not_needed" | "pending" | "done"; points_reversed: number; decided_note: string | null;
-  orders: { order_no: string } | null; return_items: { sku: string; name: string; qty: number; line_total: number; condition: string; serials: string[] }[];
+  orders: { order_no: string; client_uuid: string } | null; return_items: { sku: string; name: string; qty: number; line_total: number; condition: string; serials: string[] }[];
 };
 
 const REASONS = [
@@ -366,7 +367,7 @@ export default function ReturnsPage() {
                     {srv.items.map((x) => (
                       <tr key={x.id}>
                         <Td className="font-mono text-xs">{x.return_no}</Td>
-                        <Td className="font-mono text-[11px] text-muted">{x.orders?.order_no ?? "—"}</Td>
+                        <Td className="font-mono text-[11px] text-muted"><span className="inline-flex items-center gap-1">{x.orders?.order_no ?? "—"}{x.orders ? <OrderTraceButton clientUuid={x.orders.client_uuid} orderNo={x.orders.order_no} className="h-7 w-7 inline-flex items-center justify-center rounded-lg text-muted hover:text-brand hover:bg-brand/10" label="" /> : null}</span></Td>
                         <Td className="text-xs">{x.kind === "void" ? L("ยกเลิกบิล", "Void", "作废") : x.type === "exchange" ? t.returns.exchange : x.type === "claim" ? t.returns.claim : t.returns.refund}
                           <p className="text-[10px] text-muted truncate max-w-[220px]">{x.return_items.map((i) => `${i.sku}×${Number(i.qty)}`).join(", ")}</p></Td>
                         <Td align="right" className="text-xs font-medium">{formatTHB(x.refund_amount, false)}</Td>

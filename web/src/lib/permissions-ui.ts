@@ -6,7 +6,7 @@ import { ROLE_MATRIX, PERMISSION_KEYS, type PermissionKey } from "@/lib/permissi
 export type FourState = "inherit" | PermissionEffect;
 
 export const PERM_GROUPS: { th: string; en: string; zh: string; keys: PermissionKey[] }[] = [
-  { th: "เมนูหลังบ้าน", en: "Back-office menus", zh: "后台菜单", keys: ["dashboard.view", "work.view", "sales.view", "product.view", "document.view", "approval.view"] },
+  { th: "เมนูหลังบ้าน", en: "Back-office menus", zh: "后台菜单", keys: ["dashboard.view", "work.view", "sales.view", "sales.trace", "product.view", "document.view", "approval.view"] },
   { th: "ขายหน้าร้าน", en: "Store sales", zh: "门店销售", keys: ["pos.sell", "pos.discount", "pos.price_override", "pos.void", "pos.reprint", "pos.open_drawer", "pos.quotation", "deferred_sale.manage"] },
   { th: "คืนสินค้า", en: "Returns", zh: "退货", keys: ["return.create", "return.approve"] },
   { th: "สต็อก", en: "Stock", zh: "库存", keys: ["inventory.view", "inventory.adjust", "inventory.count"] },
@@ -25,6 +25,7 @@ export const PERM_LABEL: Record<PermissionKey, { th: string; en: string; zh: str
   "dashboard.view": { th: "แดชบอร์ด", en: "Dashboard", zh: "仪表盘" },
   "work.view": { th: "งานของฉัน + ปฏิทินขาย", en: "My work + sales calendar", zh: "我的工作" },
   "sales.view": { th: "หน้ายอดขาย", en: "Sales page", zh: "销售页" },
+  "sales.trace": { th: "ดูแผนภาพที่มาของบิล (ที่มา→โปร→ชำระ→สต๊อก→JST→แต้ม→คืน)", en: "Order trace diagram", zh: "订单来源图" },
   "product.view": { th: "ดูรายการสินค้า", en: "View products", zh: "查看商品" },
   "document.view": { th: "เอกสาร", en: "Documents", zh: "单据" },
   "approval.view": { th: "รายการรออนุมัติ", en: "Approvals inbox", zh: "待审批" },

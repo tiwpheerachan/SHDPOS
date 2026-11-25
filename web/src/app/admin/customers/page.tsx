@@ -18,6 +18,7 @@ import type { Branch } from "@/lib/types";
 import { Drawer, EmptyState, Modal, Table, Th, Td, Avatar, Button } from "@/components/ui";
 import { ExportShareBar } from "@/components/admin/export-share";
 import { CustomerDashboard } from "@/components/admin/customer-dashboard";
+import { OrderTraceButton } from "@/components/order-trace";
 import { CustomerFollowups } from "@/components/admin/customer-followups";
 import { formatTHB } from "@/lib/money";
 import { useI18n } from "@/lib/i18n/provider";
@@ -689,6 +690,7 @@ export default function AdminCustomersPage() {
                     <li key={o.id} className="rounded-xl border border-line overflow-hidden">
                       <div className="flex items-center gap-2 px-3 py-2 bg-surface2/50 flex-wrap">
                         <span className="font-mono text-xs font-semibold">{o.order_no}</span>
+                        <OrderTraceButton orderNo={o.order_no} className="h-7 w-7 inline-flex items-center justify-center rounded-lg text-muted hover:text-brand hover:bg-brand/10" label="" />
                         {o.status === "voided" && <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface2 text-danger border border-line">{L("ยกเลิก", "Voided", "已作废")}</span>}
                         <span className="text-[11px] text-muted inline-flex items-center gap-1"><MapPin size={10} />{o.branch_name ?? branchName(o.branch_id)}</span>
                         {(o.brand_names ?? []).map((bn) => (

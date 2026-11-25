@@ -1,4 +1,5 @@
 "use client";
+import { OrderTraceButton } from "@/components/order-trace";
 
 import { useEffect, useMemo, useState } from "react";
 import { OwSaleBadge, useOwSaleStatus } from "@/components/pos/ow-sale-badge";
@@ -293,7 +294,7 @@ export default function AdminSalesPage() {
                 const b = branches.find((x) => x.id === o.branch_id);
                 return (
                   <tr key={o.id} className="hover:bg-surface2/60">
-                    <Td className="font-mono text-xs">{o.order_no}</Td>
+                    <Td className="font-mono text-xs"><span className="inline-flex items-center gap-1">{o.order_no}<OrderTraceButton clientUuid={o.client_uuid} orderNo={o.order_no} className="h-7 w-7 inline-flex items-center justify-center rounded-lg text-muted hover:text-brand hover:bg-brand/10" label="" /></span></Td>
                     <Td className="text-xs text-muted">
                       {new Date(o.created_at).toLocaleString("th-TH", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
                     </Td>

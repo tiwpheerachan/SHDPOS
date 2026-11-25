@@ -13,6 +13,7 @@ import { Drawer, DrawerTabs, DetailRow, Badge, Button, Avatar, EmptyState } from
 import { OwSaleBadge, OwSaleLive, useOwSaleStatus } from "@/components/pos/ow-sale-badge";
 import { formatTHB } from "@/lib/money";
 import { BankMark } from "@/components/pos/bank-mark";
+import { OrderTraceButton } from "@/components/order-trace";
 
 type Tab = "overview" | "items" | "timeline" | "docs" | "audit";
 
@@ -117,6 +118,7 @@ export function OrderDrawer({
           <Button variant="soft" onClick={() => onReprint(order)}><Printer size={15} /> {t.pos.reprint}</Button>
           <Button variant="soft" onClick={() => window.print()}><FileDown size={15} /> PDF</Button>
           <Link href={`/pos/returns?order=${encodeURIComponent(order.order_no)}`} className="btn-soft"><RotateCcw size={15} /> {t.returns.title}</Link>
+          <OrderTraceButton clientUuid={order.client_uuid} orderNo={order.order_no} className="btn-soft" />
           {!voided ? <Button variant="danger" className="ml-auto" onClick={() => onVoid(order)}><Ban size={15} /> {t.orders.void}</Button> : null}
         </>
       }>

@@ -12,6 +12,7 @@ import type { Order, Branch, Employee } from "@/lib/types";
 import { formatTHB } from "@/lib/money";
 import type { PrintStatus } from "@/components/pos/sale-modals";
 import { OwSaleLive, type OwSaleStatus } from "@/components/pos/ow-sale-badge";
+import { OrderTraceButton } from "@/components/order-trace";
 import { isOwSaleFailed } from "@/lib/ow/sale-status";
 
 interface Company { name_th: string; tax_id: string; address?: string; phone?: string }
@@ -74,6 +75,7 @@ export function ReceiptPreview({
 
         {/* สถานะบิลใน JST (สด) — JST ไม่รับ = ยังไม่ถือว่าขายสำเร็จ (ตามข้อกำหนด OW) */}
         {order.client_uuid ? <div className="px-4 pt-2 shrink-0"><OwSaleLive key={order.client_uuid} clientUuid={order.client_uuid} onStatus={setOw} /></div> : null}
+        {order.client_uuid ? <div className="px-4 pt-2 shrink-0 flex justify-end"><OrderTraceButton clientUuid={order.client_uuid} orderNo={order.order_no} /></div> : null}
 
         {/* สถานะพิมพ์ */}
         {printStatus !== "idle" && (
