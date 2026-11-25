@@ -64,5 +64,21 @@ export async function GET(req: NextRequest) {
   const brands = brandIds.length ? ((await sb.from("brands").select("id,code,name,name_th,name_zh,logo_url").in("id", brandIds)).data ?? []) : [];
   const people = [...new Set(orders.flatMap((o) => [o.cashier_id, o.salesperson_id, ...o.items.map((i: Row) => i.salesperson_id)]).filter(Boolean))] as string[];
   const employees = people.length ? ((await sb.from("employees").select("id,employee_code,first_name,last_name,nickname,role,home_branch_id,photo_url,status").in("id", people.slice(0, 1000))).data ?? []) : [];
-  return reply({ orders, branches, brands, employees, truncated, show_cost: showCost });
+  // ยอดหักออก (ลงตามวันที่เกิด): คืนเงินจากรับคืน · ยกเลิกบิล · ใบลดหนี้ส่วนลด → ยอดสุทธิ
+  const scopeIn = <T extends { in: (c: string, v: string[]) => T }>(q: T) => (allowed !== null ? q.in("branch_id", allowed.length ? allowed : ["00000000-0000-0000-0000-000000000000"]) : q);
+  const [rets, cns] = await Promise.all([
+    scopeIn(sb.from("returns").select("branch_id,refund_amount,kind,completed_at").eq("status", "completed").gte("completed_at", from.toISOString()).lte("completed_at", to.toISOString()).limit(5000)),
+    scopeIn(sb.from("credit_notes").select("branch_id,amount_total,kind,issued_at").eq("kind", "discount").gte("issued_at", from.toISOString()).lte("issued_at", to.toISOString()).limit(5000)),
+  ]);
+  const adjustments = [
+    ...(rets.data ?? []).map((r) => ({ branch_id: r.branch_id, kind: r.kind === "void" ? "void" : "return", amount: +r.refund_amount, at: r.completed_at })),
+    ...(cns.data ?? []).map((c) => ({ branch_id: c.branch_id, kind: "credit_note", amount: +c.amount_total, at: c.issued_at })),
+  ];
+  // ช่วงก่อนหน้า (ยาวเท่ากัน) — แถวย่อสำหรับเทียบ % (หน้าเว็บกรองสาขา/แบรนด์/ช่องทางเหมือนช่วงปัจจุบัน)
+  const len = +to - +from, pFrom = new Date(+from - len), pTo = new Date(+from - 1);
+  let pq = sb.from("orders").select("branch_id,grand_total,status,channel,created_at,sale_occurred_at,cashier_id,salesperson_id").gte("created_at", pFrom.toISOString()).lte("created_at", pTo.toISOString()).limit(20000);
+  if (allowed !== null) pq = pq.in("branch_id", allowed.length ? allowed : ["00000000-0000-0000-0000-000000000000"]);
+  if (own) pq = pq.or(`cashier_id.eq.${own},salesperson_id.eq.${own}`);
+  const prev = ((await pq).data ?? []).map((o) => ({ branch_id: o.branch_id, grand_total: +o.grand_total, status: o.status, channel: o.channel, created_at: o.sale_occurred_at ?? o.created_at }));
+  return reply({ orders, branches, brands, employees, truncated, show_cost: showCost, adjustments, prev, prev_range: { from: pFrom, to: pTo } });
 }
