@@ -22,6 +22,7 @@ import { TransferStepper, ItemJourney, TransferTimeline } from "@/components/adm
 import { printTransferCO } from "@/lib/transfer/print-co";
 import { isLiveMode } from "@/lib/supabase/client";
 import { TransferDocsButton } from "@/components/transfer-docs-button";
+import { TransferFiles } from "@/components/transfer-files";
 import { can } from "@/lib/permissions";
 
 type Tab = "overview" | "timeline";
@@ -279,6 +280,7 @@ export default function PosTransfersPage() {
                     </div>
                   </div>
                 ) : null}
+                {isLiveMode() ? <div className="pt-1"><TransferFiles transferId={detail.id} stage={detail.status} /></div> : null}
               </div>
             ) : (
               <TransferTimeline rows={timeline} locale={locale} L={L} />

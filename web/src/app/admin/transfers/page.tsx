@@ -8,7 +8,7 @@ import { IntegrationNotice } from "@/components/pos/integration-notice";
 import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { nanoid } from "nanoid";
-import { ArrowLeftRight, Plus, Trash2, Check, X, Clock, Barcode, CircleAlert, Printer, ScanLine, Truck, PackageCheck, Upload, FileText, Boxes, ChevronRight, ChevronLeft, RotateCcw, Share2, Link as LinkIcon, ExternalLink, FileDown, Download, Copy, Home, MapPin, CornerDownRight } from "lucide-react";
+import { ArrowLeftRight, Plus, Trash2, Check, X, Clock, Barcode, CircleAlert, Printer, ScanLine, Truck, PackageCheck, Upload, FileText, Boxes, ChevronRight, ChevronLeft, RotateCcw, Share2, Link as LinkIcon, ExternalLink, FileDown, Download, Copy, Home, MapPin, CornerDownRight, Loader2 } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { useSession } from "@/lib/store/session";
 import { useToast } from "@/components/toast-host";
@@ -66,6 +66,8 @@ export default function AdminTransfersPage() {
   const [rules, setRules] = useState<ApprovalRule[]>([]); // สายอนุมัติที่ตั้งไว้ (ตามแบรนด์/สาขา)
   const [approveNote, setApproveNote] = useState("");
   const [lbIdx, setLbIdx] = useState<number | null>(null); // lightbox รูปแนบ
+  // โหมดจริง: ไฟล์แนบเก็บบน Storage ส่วนตัว (/api/pos/transfer-files) · โหมดสาธิต: data URL ในเครื่อง
+  const [srvFiles, setSrvFiles] = useState<TransferAttachment[] | null>(null), [uploading, setUploading] = useState(false);
   const [copied, setCopied] = useState<"" | "img" | "link">("");
   const [shareOpen, setShareOpen] = useState(false); // เมนูแชร์ฟอร์ม
   const [repOpen, setRepOpen] = useState(false); // ฟอร์มแจ้งของมีปัญหา (พักตรวจ)
@@ -369,9 +371,30 @@ export default function AdminTransfersPage() {
     return { label: L("ยกเลิก · คืนจอง", "Cancelled · reservation released", "已取消·释放预留"), tone: "neutral" };
   };
 
-  // แนบไฟล์/รูป (ไม่จำกัดจำนวน · เก็บ data URL ในโหมด demo)
+  async function loadFiles(id: string) {
+    try { const r = await fetch(`/api/pos/transfer-files?id=${encodeURIComponent(id)}`, { cache: "no-store" }); const j = await r.json(); setSrvFiles(r.ok ? j.files : []); } catch { setSrvFiles([]); }
+  }
+  useEffect(() => { setSrvFiles(null); if (detail && isLiveMode()) void loadFiles(detail.id); }, [detail?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const atts: TransferAttachment[] = isLiveMode() ? srvFiles ?? [] : detail?.attachments ?? [];
+
+  // แนบไฟล์/รูป (ไม่จำกัดจำนวน · โหมดจริงอัปโหลดขึ้น Storage · โหมดสาธิตเก็บ data URL ในเครื่อง)
   async function onUploadFiles(files: FileList | null) {
     if (!detail || !files || !files.length) return;
+    if (isLiveMode()) {
+      const fd = new FormData(); fd.set("id", detail.id); fd.set("stage", detail.status);
+      [...files].slice(0, 20).forEach((f) => fd.append("file", f));
+      setUploading(true);
+      try {
+        const r = await fetch("/api/pos/transfer-files", { method: "POST", body: fd });
+        const j = await r.json().catch(() => ({}));
+        if (j.uploaded) toast.push({ tone: "ok", title: L(`แนบไฟล์แล้ว ${j.uploaded} ไฟล์`, `${j.uploaded} file(s) attached`, "已附加") });
+        if (j.skipped?.length) toast.push({ tone: "warn", title: L(`ข้าม ${j.skipped.length} ไฟล์`, `${j.skipped.length} skipped`, "已跳过"), body: j.skipped.map((x: { name: string; reason: string }) => `${x.name}: ${x.reason}`).join("\n") });
+        if (!r.ok && !j.skipped?.length) toast.push({ tone: "danger", title: L("แนบไฟล์ไม่สำเร็จ", "Upload failed", "上传失败"), body: j.error ?? `HTTP ${r.status}` });
+        await loadFiles(detail.id);
+      } catch (e) { toast.push({ tone: "danger", title: L("แนบไฟล์ไม่สำเร็จ", "Upload failed", "上传失败"), body: e instanceof Error ? e.message : String(e) }); }
+      finally { setUploading(false); }
+      return;
+    }
     const read = await Promise.all([...files].slice(0, 20).map((f) => new Promise<TransferAttachment>((res) => {
       const r = new FileReader();
       r.onload = () => res({ id: nanoid(8), name: f.name, type: f.type || "application/octet-stream", url: String(r.result), size: f.size, at: new Date().toISOString(), by: employee?.id ?? null, stage: detail.status });
@@ -385,6 +408,11 @@ export default function AdminTransfersPage() {
   }
   async function removeAttachment(id: string) {
     if (!detail) return;
+    if (isLiveMode()) {
+      const r = await fetch(`/api/pos/transfer-files?file_id=${id}`, { method: "DELETE" });
+      if (!r.ok) { const j = await r.json().catch(() => ({})); toast.push({ tone: "danger", title: L("ลบไฟล์ไม่สำเร็จ", "Delete failed", "删除失败"), body: j.error }); }
+      await loadFiles(detail.id); return;
+    }
     const updated = await owSetAttachments(detail.id, (detail.attachments ?? []).filter((a) => a.id !== id));
     if (updated) { setDetail(updated); await reload(); }
   }
@@ -1117,15 +1145,15 @@ export default function AdminTransfersPage() {
                 {/* เอกสาร / รูปแนบ (ไม่จำกัด) */}
                 <div>
                   <div className="flex items-center justify-between mb-2">
-                    <p className="text-sm font-medium">{L("เอกสาร / รูปแนบ", "Files / images", "文件/图片")} <span className="text-muted font-normal">({detail.attachments?.length ?? 0})</span></p>
+                    <p className="text-sm font-medium">{L("เอกสาร / รูปแนบ", "Files / images", "文件/图片")} <span className="text-muted font-normal">({atts.length})</span></p>
                     <label className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-brand/40 text-brand text-xs font-medium hover:bg-brand/10 cursor-pointer transition-colors">
-                      <Upload size={14} /> {L("เพิ่มไฟล์", "Add files", "添加")}
+                      {uploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />} {uploading ? L("กำลังอัปโหลด…", "Uploading…", "上传中…") : L("เพิ่มไฟล์", "Add files", "添加")}
                       <input type="file" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.csv" className="hidden" onChange={(e) => { void onUploadFiles(e.target.files); e.currentTarget.value = ""; }} />
                     </label>
                   </div>
-                  {detail.attachments?.length ? (
+                  {atts.length ? (
                     <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-                      {detail.attachments.map((a, idx) => (
+                      {atts.map((a, idx) => (
                         <div key={a.id} className="relative group rounded-xl border border-line overflow-hidden bg-surface2">
                           {a.type.startsWith("image/")
                             ? <button onClick={() => setLbIdx(idx)} className="block w-full"><img src={a.url} alt={a.name} className="w-full h-20 object-cover" /></button>
@@ -1316,15 +1344,14 @@ export default function AdminTransfersPage() {
       })() : null}
 
       {/* Lightbox รูปแนบ — เลื่อนซ้าย-ขวา + บันทึก + คัดลอก */}
-      {lbIdx !== null && detail?.attachments?.length ? (() => {
-        const atts = detail.attachments;
+      {lbIdx !== null && atts.length ? (() => {
         const i = Math.min(lbIdx, atts.length - 1); const a = atts[i];
         const go = (d: number) => setLbIdx((i + d + atts.length) % atts.length);
         const isImg = a.type?.startsWith("image/");
         return (
           <div className="fixed inset-0 z-[70] bg-black/85 backdrop-blur-sm flex flex-col" onClick={() => setLbIdx(null)}>
             <div className="flex items-center gap-2 p-3 text-white/90" onClick={(e) => e.stopPropagation()}>
-              <span className="font-mono text-sm">{detail.transfer_no}</span>
+              <span className="font-mono text-sm">{detail?.transfer_no}</span>
               <span className="text-white/45 text-xs truncate hidden sm:block">· {a.name}</span>
               <span className="ml-auto text-xs tabular-nums text-white/60">{i + 1}/{atts.length}</span>
               <button onClick={() => setLbIdx(null)} className="w-9 h-9 rounded-full hover:bg-white/10 grid place-items-center text-white"><X size={18} /></button>
