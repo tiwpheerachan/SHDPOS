@@ -8,7 +8,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { posContext, PosError, requireSameOrigin } from "@/lib/server/pos-context";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { object, UUID } from "@/lib/server/sale-validation";
-import { assertNotOwStockBranch } from "@/lib/server/ow-branch";
+import { assertNotOwStockBranch, owWarehouseOf } from "@/lib/server/ow-branch";
+import { owSerialLookup, owSerialStatusTh } from "@/lib/server/ow-serials";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -36,6 +37,7 @@ const MSG: [string, string][] = [
   ["count_already_posted", "รอบนี้อนุมัติและปรับสต๊อกแล้ว ยกเลิกไม่ได้"],
   ["count_wrong_status", "สถานะรอบนับเปลี่ยนไปแล้ว — รีเฟรชหน้า"],
   ["count_not_found", "ไม่พบรอบนับ"],
+  ["count_sn_unverified", "ยังตรวจ SN กับคลังกลางไม่ครบ — ลองกดส่งตรวจอีกครั้ง"],
   ["employee_access_revoked", "บัญชีพนักงานถูกระงับ"],
 ];
 const friendly = (m: string) => { const hit = MSG.find(([k]) => m.includes(k)); return hit ? hit[1] + (m.includes(": ") && !hit[0].startsWith("count_wrong") ? ` (${m.split(": ").pop()})` : "") : m; };
@@ -69,7 +71,7 @@ export async function GET(req: NextRequest) {
       const hide = sess.blind && (sess.status === "counting" || sess.status === "recount");
       const out = (lines.data ?? []).map((l) => hide ? {
         ...l, snapshot_qty: null, sys1: null, sys2: null, expected_sns: [], variance: null, variance_value: null, missing_sns: null, extra_sns: null,
-        final_sys: null, count1: sess.status === "recount" && l.needs_recount && l.count1_by !== ctx.actorId ? null : l.count1,
+        final_sys: null, sn_check: null, count1: sess.status === "recount" && l.needs_recount && l.count1_by !== ctx.actorId ? null : l.count1,
         count1_sns: sess.status === "recount" && l.needs_recount && l.count1_by !== ctx.actorId ? null : l.count1_sns,
       } : l);
       return reply({ session: sess, lines: out, names, hidden: hide, me: ctx.actorId });
@@ -153,7 +155,9 @@ export async function POST(req: NextRequest) {
         return reply(await call("pos_count_record", { p_actor: ctx.actorId, p_session: b.id, p_lines: lines }));
       }
       case "submit": {
-        const ctx = await posContext(req, "inventory.count", await sessionBranch(String(b.id ?? "")));
+        const branch = await sessionBranch(String(b.id ?? ""));
+        const ctx = await posContext(req, "inventory.count", branch);
+        await verifyOwSerials(String(b.id), branch);
         return reply(await call("pos_count_submit", { p_actor: ctx.actorId, p_session: b.id }));
       }
       case "approve": {
@@ -168,6 +172,43 @@ export async function POST(req: NextRequest) {
     }
   } catch (e) {
     return reply({ error: e instanceof Error ? friendly(e.message) : "ทำรายการไม่สำเร็จ" }, e instanceof PosError ? e.status : 400);
+  }
+}
+
+// ── สาขาผูกคลังกลาง: ถาม OneWarehouse ทีละ SN ที่สแกน แล้วจัดหมวด (ตรง/ขายแล้ว/อยู่คลังอื่น/สินค้าอื่น/ชำรุด/ไม่รู้จัก) ──
+//   OW ไม่มี API รายการ SN ทั้งคลัง → บอกได้ว่าขาดกี่ชิ้น (ยอดระบบ − SN ที่ตรง) แต่ระบุเลขที่หายไม่ได้
+async function verifyOwSerials(sessionId: string, branch: string) {
+  const sb = supabaseAdmin();
+  const sess = (await sb.from("pos_count_sessions").select("ow_linked,status").eq("id", sessionId).single()).data;
+  if (!sess?.ow_linked || !["counting", "recount"].includes(sess.status)) return;
+  const wh = await owWarehouseOf(branch);
+  if (!wh) return;
+  const lines = (await sb.from("pos_count_lines").select("product_id,sku,count1_sns,count2_sns,skipped").eq("session_id", sessionId).eq("track_serial", true).eq("skipped", false)).data ?? [];
+  const jobs = lines.flatMap((l) => ((l.count2_sns ?? l.count1_sns ?? []) as string[]).map((sn) => ({ l, sn })));
+  if (jobs.length > 1500) throw new PosError("SN ในรอบนี้มากเกินกว่าจะตรวจกับคลังกลางในครั้งเดียว — แบ่งรอบนับ");
+  const results = new Map<string, Awaited<ReturnType<typeof owSerialLookup>>>();
+  for (let i = 0; i < jobs.length; i += 8) {
+    await Promise.all(jobs.slice(i, i + 8).map(async (j) => results.set(j.sn, await owSerialLookup(j.sn))));
+  }
+  const failed = jobs.filter((j) => results.get(j.sn)?.error);
+  if (failed.length) throw new PosError(`ตรวจ SN กับคลังกลางไม่สำเร็จ ${failed.length} รายการ (${failed.slice(0, 3).map((f) => f.sn).join(", ")}) — คลังกลางไม่ตอบ ลองส่งตรวจใหม่อีกครั้ง`, 503);
+  for (const l of lines) {
+    const check = ((l.count2_sns ?? l.count1_sns ?? []) as string[]).map((sn) => {
+      const r = results.get(sn)!;
+      const d = r.data;
+      if (!r.found || !d) return { sn, verdict: "unknown" };
+      const st = (d.status ?? "").toLowerCase();
+      const base = { sn, status: owSerialStatusTh(d.status) };
+      if (d.sku && d.sku.trim().toUpperCase() !== String(l.sku).trim().toUpperCase()) return { ...base, verdict: "wrong_product", other_sku: d.sku };
+      if (st === "sold" || st === "shipped") return { ...base, verdict: "sold", ref: "JST" };
+      // อยู่ผิดที่มาก่อนสภาพ — สิ่งที่ต้องทำคือส่งคืนคลังเจ้าของ (บอกสภาพไว้ใน status)
+      const damaged = (d.stockType ?? "").toLowerCase() === "damaged";
+      if (d.warehouseId !== wh || st === "in_transit") return { ...base, status: damaged ? `${base.status} · ชำรุด` : base.status, verdict: "other_branch", ref: d.warehouseId ? `คลัง ${d.warehouseId}` : undefined };
+      if (st === "written_off" || damaged) return { ...base, verdict: "not_sellable" };
+      return { ...base, verdict: "match" };
+    });
+    const { error } = await sb.rpc("pos_count_set_sn_check", { p_session: sessionId, p_product: l.product_id, p_check: check });
+    if (error) throw new PosError(friendly(error.message), 409);
   }
 }
 

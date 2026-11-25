@@ -110,6 +110,38 @@ export async function testStockCount(db, ids) {
   eq(Number((await line(s11.id, S2)).variance), -3, 'นับ 2 จากระบบ 5 → ขาด 3 (ไม่ใช่ 0)');
   await approve(s11.id); eq(await qty(W1, S2), 2, 'ปรับเหลือ 2 ตามที่เห็นจริง'); n++;
 
+  // กระทบยอดราย SN (0073): ขายแล้วแต่ยังอยู่ร้าน / ของสาขาอื่น / สินค้าอื่น / ไม่รู้จัก / หาย / ตรง
+  const S3 = U(18), ORD = U(19);
+  await db.query("insert into products(id,sku,name_th,price,cost,track_serial) values($1,'SKU-S3','S3',1000,100,true)", [S3]);
+  await db.query("insert into orders(id,client_uuid,order_no,branch_id,cashier_id,status,channel,subtotal,grand_total,vat_amount) values($1,$1,'BILL-SOLD-1',$2,$3,'completed','offline',1,1,0)", [ORD, W1, ids.actor]);
+  await db.query(`insert into serials(product_id,serial_no,branch_id,status,sold_order_id) values
+    ($1,'R-OK',$2,'in_stock',null),($1,'R-LOST',$2,'in_stock',null),($1,'R-SOLD',$2,'sold',$4),($1,'R-W2',$3,'defective',null),($5,'R-OTHER',$2,'in_stock',null)`, [S3, W1, W2, ORD, S]);
+  await setQty(W1, S3, 2);
+  const s12 = await open({ scope: { product_ids: [S3] }, thr: { qty: 100 } });
+  await rec(s12.id, [{ product_id: S3, sns: ['R-OK', 'R-SOLD', 'R-W2', 'R-OTHER', 'R-NOPE'] }]);
+  const sub12 = await submit(s12.id);
+  const chk = Object.fromEntries((await line(s12.id, S3)).sn_check.map((c) => [c.sn, c]));
+  eq(chk['R-OK'].verdict, 'match', 'SN ตรง'); eq(chk['R-LOST'].verdict, 'missing', 'SN หาย');
+  eq(chk['R-SOLD'].verdict, 'sold', 'ขายแล้วแต่ยังอยู่ร้าน'); eq(chk['R-SOLD'].ref, 'BILL-SOLD-1', 'อ้างเลขบิลที่ขาย');
+  eq(chk['R-W2'].verdict, 'other_branch', 'ของสาขาอื่น'); eq(chk['R-OTHER'].verdict, 'wrong_product', 'SN ของสินค้าอื่น'); eq(chk['R-OTHER'].other_sku, 'SKU-S', 'บอก SKU จริง');
+  eq(chk['R-NOPE'].verdict, 'unknown', 'ไม่รู้จัก'); eq(sub12.sn_summary.sold, 1, 'สรุปจำนวน sold'); eq(sub12.status, 'recount', 'SN ไม่ตรง → นับซ้ำ');
+  eq(Number((await line(s12.id, S3)).variance), -1, 'ผลต่าง = −SN หาย (SN เกินไม่บวก)'); n++;
+  await cancel(s12.id);
+
+  // สาขาผูกคลังกลาง: ต้องมีผลตรวจ SN จาก OW ก่อนส่ง · ขาด = ยอดระบบ − SN ที่ตรง
+  const S4 = U(20), W4 = U(21);
+  await db.query("insert into branches(id,code,name,name_th) values($1,'W4','W4','W4')", [W4]);
+  await db.query("insert into pos_warehouse_links(source,warehouse_id,branch_id,updated_by) values('test','WH-W4',$1,$2)", [W4, ids.actor]);
+  await db.query("insert into products(id,sku,name_th,price,cost,track_serial) values($1,'SKU-S4','S4',1000,100,true)", [S4]);
+  await setQty(W4, S4, 5);
+  const s13 = await open({ branch: W4, scope: { product_ids: [S4] }, thr: { qty: 100 } });
+  await rec(s13.id, [{ product_id: S4, sns: ['O-1', 'O-2'] }]);
+  await rejects(submit(s13.id), 'count_sn_unverified'); n++;
+  await db.query('select pos_count_set_sn_check($1,$2,$3)', [s13.id, S4, JSON.stringify([{ sn: 'O-1', verdict: 'match' }, { sn: 'O-2', verdict: 'sold', ref: 'JST-1' }])]);
+  await submit(s13.id); const l13 = await line(s13.id, S4);
+  eq(Number(l13.variance), -4, 'OW: ตรง 1 จากระบบ 5 → ขาด 4'); eq(l13.extra_sns.join(), 'O-2', 'OW: SN ผิดปกติ'); n++;
+  await cancel(s13.id);
+
   // ข้ามรายการต้องมีเหตุผล · ข้ามแล้วไม่ปรับ
   await setQty(W1, C, 5);
   const s8 = await open({ scope: { product_ids: [C] } });

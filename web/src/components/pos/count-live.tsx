@@ -27,7 +27,10 @@ type Line = {
   count2: number | null; count2_sns: string[] | null; count2_by: string | null; count2_at: string | null; sys2: number | null;
   skipped: boolean; skip_reason: string | null; needs_recount: boolean; final_qty: number | null; final_sys: number | null;
   variance: number | null; variance_value: number | null; posted_delta: number | null; missing_sns: string[] | null; extra_sns: string[] | null;
+  sn_check: SnCheck[] | null;
 };
+type SnVerdict = "match" | "missing" | "sold" | "other_branch" | "wrong_product" | "not_sellable" | "unknown";
+type SnCheck = { sn: string; verdict: SnVerdict; status?: string; ref?: string; other_sku?: string };
 type ListRow = Pick<Sess, "id" | "count_no" | "scope_type" | "scope" | "zone" | "mode" | "blind" | "status" | "ow_linked" | "posted" | "created_by" | "created_at" | "result">;
 type Meta = { categories: { id: string; name: string }[]; brands: { id: string; name: string }[]; staff: { id: string; name: string }[]; ow_linked: boolean };
 type Edit = { qty?: string; sns?: string[]; skip?: string };
@@ -254,6 +257,18 @@ function SessionView({ data, edits, setEdits, busy, setBusy, q, setQ, onlyTodo, 
   toast: Pick<ReturnType<typeof useToast.getState>, "push">;
 }) {
   const { session: s, lines, names, hidden, me } = data;
+  const VERDICT: Record<SnVerdict, { label: string; cls: string; hint: string }> = {
+    match: { label: L("ตรง", "Match", "一致"), cls: "bg-ok/12 text-ok", hint: L("อยู่สาขานี้ พร้อมขาย", "In this branch, sellable", "在本店") },
+    missing: { label: L("หาย", "Missing", "缺失"), cls: "bg-danger/12 text-danger", hint: L("ระบบว่าอยู่ แต่ไม่พบตอนนับ", "Expected but not found", "系统有但未找到") },
+    sold: { label: L("ขายแล้วแต่ยังอยู่", "Sold but present", "已售仍在"), cls: "bg-danger text-white", hint: L("ระบบบันทึกว่าขายแล้ว แต่ยังอยู่ในร้าน — อาจส่งเครื่องผิดชิ้นให้ลูกค้า ตรวจบิลที่อ้าง", "Recorded as sold but still here — customer may have received a different unit", "可能发错货") },
+    other_branch: { label: L("ของที่อื่น", "Other location", "他处"), cls: "bg-warn/15 text-warn", hint: L("ระบบว่าอยู่สาขา/คลังอื่น หรือระหว่างโอน", "Belongs to another branch/warehouse or in transit", "属于其他门店") },
+    wrong_product: { label: L("สินค้าอื่น", "Wrong product", "非本商品"), cls: "bg-warn/15 text-warn", hint: L("SN นี้เป็นของสินค้าอื่น — วางผิดที่/ติดฉลากผิด", "SN belongs to another product", "SN属于其他商品") },
+    not_sellable: { label: L("ชำรุด/ตัดแล้ว", "Not sellable", "不可售"), cls: "bg-surface2 text-muted", hint: L("ชำรุด/ตัดจำหน่าย/รับคืน ไม่ควรอยู่บนชั้นขาย", "Defective/written off", "损坏/已核销") },
+    unknown: { label: L("ไม่รู้จัก", "Unknown", "未知"), cls: "bg-warn/15 text-warn", hint: L("ไม่มีในระบบ — ตรวจที่มา (รับเข้าไม่ได้บันทึก?)", "Not in system — check origin", "系统无此SN") },
+  };
+  const snAll = lines.flatMap((l) => (l.sn_check ?? []).map((c) => ({ ...c, sku: l.sku })));
+  const snCount = (v: SnVerdict) => snAll.filter((c) => c.verdict === v).length;
+  const soldPresent = snAll.filter((c) => c.verdict === "sold");
   const round2 = s.status === "recount";
   const editable = s.status === "counting" || s.status === "recount";
   const reviewing = s.status === "review" || s.status === "approved";
@@ -330,6 +345,8 @@ function SessionView({ data, edits, setEdits, busy, setBusy, q, setQ, onlyTodo, 
     if (j) {
       if (j.status === "recount") toast.push({ tone: "warn", title: L(`มี ${j.recount} รายการต้องนับซ้ำ`, `${j.recount} line(s) need recount`, "需复盘"), body: s.recount_other ? L("ให้พนักงานคนอื่นนับรายการที่ไฮไลต์อีกครั้ง", "Ask another staff member to recount highlighted lines", "请他人复盘") : undefined });
       else toast.push({ tone: "ok", title: L("ส่งตรวจทานแล้ว", "Submitted for review", "已提交") });
+      const sold = Number((j.sn_summary as Record<string, number> | undefined)?.sold ?? 0);
+      if (sold) toast.push({ tone: "danger", title: L(`พบ ${sold} SN ที่ขายแล้วแต่ยังอยู่ในร้าน`, `${sold} sold SN still in store`, "已售SN仍在店"), body: L("อาจส่งเครื่องผิดชิ้นให้ลูกค้า — ดูรายละเอียดในผลตรวจราย SN", "Customer may have received a different unit", "请核对") });
       await reload();
     }
   }
@@ -353,8 +370,7 @@ function SessionView({ data, edits, setEdits, busy, setBusy, q, setQ, onlyTodo, 
       { key: "count2", label: L("นับรอบ 2", "Count 2", "复盘"), map: (l: Line) => (l.count2 ?? "") as number },
       { key: "variance", label: L("ผลต่าง", "Variance", "差异"), map: (l: Line) => (l.skipped ? L("ข้าม", "skipped", "跳过") : l.variance ?? "") as string },
       { key: "variance_value", label: L("มูลค่าผลต่าง (บาท)", "Variance ฿", "差异金额"), map: (l: Line) => (l.variance_value ?? "") as number },
-      { key: "missing", label: L("SN หาย", "Missing SN", "缺失SN"), map: (l: Line) => (l.missing_sns ?? []).join(" ") },
-      { key: "extra", label: L("SN เกิน", "Extra SN", "多出SN"), map: (l: Line) => (l.extra_sns ?? []).join(" ") },
+      { key: "sn_check", label: L("ผลตรวจราย SN", "Serial check", "序列号核对"), map: (l: Line) => (l.sn_check ?? []).map((c) => `${c.sn}=${VERDICT[c.verdict].label}${c.ref ? `(${c.ref})` : ""}${c.other_sku ? `→${c.other_sku}` : ""}`).join(" · ") },
       { key: "who", label: L("ผู้นับ", "Counter", "盘点人"), map: (l: Line) => [name(l.count1_by), l.count2_by ? name(l.count2_by) : ""].filter(Boolean).join(" / ") },
       { key: "skip_reason", label: L("เหตุผลข้าม", "Skip reason", "跳过原因"), map: (l: Line) => l.skip_reason ?? "" },
     ], lines, `${L("รายงานผลนับ", "Count report", "盘点报告")} ${s.count_no} · ${STATUS[s.status].label}`);
@@ -434,6 +450,27 @@ function SessionView({ data, edits, setEdits, busy, setBusy, q, setQ, onlyTodo, 
           </div>
         ) : null}
 
+        {snAll.length ? (
+          <div className="card p-4 space-y-3">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <p className="text-sm font-semibold flex items-center gap-1.5"><ScanLine size={15} /> {L("ผลตรวจราย SN — SN ไหนยังอยู่ ตรงกับระบบไหม", "Serial reconciliation", "序列号核对")}</p>
+              {s.ow_linked ? <span className="text-[11px] text-muted">{L("ตรวจกับคลังกลาง OneWarehouse ทีละ SN · SN ที่หายระบุเลขไม่ได้ (คลังกลางยังไม่มีรายการ SN ทั้งคลัง) — ดูจำนวนขาดที่คอลัมน์ผลต่าง", "Checked against OneWarehouse per SN; missing SNs can't be listed yet", "逐个向中央仓核对")}</span> : null}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {(Object.keys(VERDICT) as SnVerdict[]).filter((v) => snCount(v)).map((v) => (
+                <span key={v} title={VERDICT[v].hint} className={`text-xs px-2.5 py-1 rounded-lg ${VERDICT[v].cls}`}>{VERDICT[v].label} <b className="tnum">{snCount(v)}</b></span>
+              ))}
+            </div>
+            {soldPresent.length ? (
+              <div role="alert" className="rounded-xl border border-danger/40 bg-danger/8 px-3 py-2.5 text-[12.5px] text-danger">
+                <b>{L(`พบ ${soldPresent.length} SN ที่ระบบบันทึกว่าขายแล้ว แต่ยังอยู่ในร้าน`, `${soldPresent.length} SN recorded as sold are still in store`, "已售SN仍在店内")}</b>
+                <span className="block mt-0.5 text-ink/80">{L("อาจส่งเครื่องผิดชิ้นให้ลูกค้า (บิลระบุ SN นี้แต่ลูกค้าได้อีกเครื่อง) — ตรวจบิลที่อ้าง ติดต่อลูกค้า และแก้ SN ในบิลให้ถูก", "The customer may have received a different unit — check the bill, contact the customer and correct the SN", "请核对订单")}:
+                  {" "}{soldPresent.map((c) => `${c.sn}${c.ref ? ` (${c.ref})` : ""}`).join(", ")}</span>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative w-full sm:w-64"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" /><Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={L("ค้นหา SKU / ชื่อ", "Search", "搜索")} className="pl-9 h-9" /></div>
           {editable ? <Segmented size="sm" value={onlyTodo ? "todo" : "all"} onChange={(v) => setOnlyTodo(v === "todo")} options={[{ value: "all", label: L("ทั้งหมด", "All", "全部") }, { value: "todo", label: L(round2 ? "ต้องนับซ้ำ" : "ยังไม่นับ", round2 ? "Recount" : "To count", "未盘") }]} /> : null}
@@ -461,7 +498,11 @@ function SessionView({ data, edits, setEdits, busy, setBusy, q, setQ, onlyTodo, 
                     <Td className="font-mono text-[11px] text-muted">{l.sku}</Td>
                     <Td className="text-xs">{l.name}{l.track_serial ? <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-surface2 text-muted">SN</span> : null}
                       {skipped ? <span className="block text-[10px] text-muted">{L("ข้าม", "Skipped", "跳过")}: {e?.skip ?? l.skip_reason}</span> : null}
-                      {reviewing && (l.missing_sns?.length || l.extra_sns?.length) ? <span className="block text-[10px] mt-0.5">{l.missing_sns?.length ? <span className="text-danger">{L("หาย", "Missing", "缺")}: {l.missing_sns.join(", ")} </span> : null}{l.extra_sns?.length ? <span className="text-warn">{L("เกิน", "Extra", "多")}: {l.extra_sns.join(", ")}</span> : null}</span> : null}
+                      {l.sn_check?.some((c) => c.verdict !== "match") ? (
+                        <span className="flex flex-wrap gap-1 mt-1">{l.sn_check.filter((c) => c.verdict !== "match").map((c) => (
+                          <span key={c.sn} title={VERDICT[c.verdict].hint} className={`text-[10px] px-1.5 py-0.5 rounded-md font-mono ${VERDICT[c.verdict].cls}`}>{c.sn} · {VERDICT[c.verdict].label}{c.ref ? ` (${c.ref})` : ""}{c.other_sku ? ` → ${c.other_sku}` : ""}</span>
+                        ))}{l.sn_check.some((c) => c.verdict === "match") ? <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-ok/12 text-ok">{L("ตรง", "Match", "一致")} {l.sn_check.filter((c) => c.verdict === "match").length}</span> : null}</span>
+                      ) : null}
                     </Td>
                     {!hidden ? <Td align="right" className="text-xs tnum">{(l.final_sys ?? l.sys2 ?? l.sys1 ?? l.snapshot_qty) ?? "—"}</Td> : null}
                     {round2 || (reviewing && lines.some((x) => x.count2 !== null)) ? <Td align="center" className="text-xs tnum text-muted">{l.skipped ? "—" : l.count1 ?? (hidden && l.needs_recount ? <EyeOff size={12} className="inline" /> : "—")}</Td> : null}
