@@ -158,7 +158,8 @@ export function StaffPerformance({ filtered, employees, branches, brands, initia
         </Link>
       </div>
 
-      {/* KPI รวม */}
+      {/* KPI รวม — ภาพรวมทีม (ไม่แสดงในมุมมองรายบุคคล) */}
+      {view !== "person" ? (
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <KpiTile label={t.admin.employees} value={formatInt(rows.length)} icon={<Users size={15} />} />
         <KpiTile label={t.admin.gmv} value={formatTHB(totals.gross)} tone="brand" />
@@ -177,6 +178,7 @@ export function StaffPerformance({ filtered, employees, branches, brands, initia
           </div>
         </button>
       </div>
+      ) : null}
 
       {/* ============ DASHBOARD ============ */}
       {view === "dashboard" ? (
@@ -264,7 +266,7 @@ export function StaffPerformance({ filtered, employees, branches, brands, initia
               </thead>
               <tbody>
                 {rows.map((r, i) => (
-                  <tr key={r.id} className="hover:bg-surface2/60 cursor-pointer" onClick={() => { setPersonId(r.id); setView("person"); }}>
+                  <tr key={r.id} title={L("กดเพื่อเปิดแดชบอร์ดรายบุคคล", "Open individual dashboard", "打开个人仪表盘")} className="group hover:bg-brand/[0.045] cursor-pointer" onClick={() => { setPersonId(r.id); setView("person"); }}>
                     <Td>
                       <span className="w-5 h-5 rounded-md grid place-items-center text-[10px] font-bold text-white" style={{ background: SERIES_COLORS[i % SERIES_COLORS.length] }}>{i + 1}</span>
                     </Td>
@@ -272,8 +274,8 @@ export function StaffPerformance({ filtered, employees, branches, brands, initia
                       <div className="flex items-center gap-2.5">
                         <Avatar name={r.label} src={empPhoto(r.id)} size={30} />
                         <div className="min-w-0">
-                          <p className="text-xs font-medium truncate">{r.label}</p>
-                          <p className="text-[10px] text-muted truncate">{r.code}{empRole(r.id) ? ` · ${empRole(r.id)}` : ""}</p>
+                          <p className="text-xs font-medium truncate group-hover:text-brand">{splitName(r.label)[0]}</p>
+                          <p className="text-[10px] text-muted truncate">{[splitName(r.label)[1], r.code && !r.code.includes("@") ? r.code : "", empRole(r.id)].filter(Boolean).join(" · ")}</p>
                         </div>
                       </div>
                     </Td>
@@ -293,7 +295,7 @@ export function StaffPerformance({ filtered, employees, branches, brands, initia
 
       {/* ============ PERSON (แดชบอร์ดพนักงาน — ข้อมูลจริงทั้งหมด) ============ */}
       {view === "person" ? (
-        personRow ? (() => {
+        personId && personRow ? (() => {
           const [nm, sub] = splitName(personRow.label);
           const teamAvg = rows.length ? totals.gross / rows.length : 0;
           const vsAvg = teamAvg ? ((personRow.value - teamAvg) / teamAvg) * 100 : 0;
@@ -318,11 +320,9 @@ export function StaffPerformance({ filtered, employees, branches, brands, initia
                       </div>
                     </div>
                     <div className="flex items-center gap-2 w-full sm:w-auto">
-                      <select value={activePerson ?? ""} onChange={(e) => setPersonId(e.target.value || null)}
-                        style={{ background: "rgba(255,255,255,0.12)", color: "#fff", colorScheme: "dark" }}
-                        className="h-9 flex-1 sm:w-56 rounded-xl border border-white/25 text-sm px-3 backdrop-blur outline-none focus:border-white/60">
-                        {rows.map((r) => <option key={r.id} value={r.id}>{splitName(r.label)[0]}</option>)}
-                      </select>
+                      <button onClick={() => setPersonId(null)} className="h-9 px-3.5 rounded-xl border border-white/25 bg-white/10 hover:bg-white/20 backdrop-blur text-sm inline-flex items-center gap-1.5 transition-colors">
+                        <ChevronRight size={14} className="rotate-180" />{L("เลือกพนักงานคนอื่น", "Choose another", "选择其他员工")}
+                      </button>
                     </div>
                   </div>
                   <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
@@ -416,7 +416,24 @@ export function StaffPerformance({ filtered, employees, branches, brands, initia
               {traceBill ? <OrderTraceDrawer key={traceBill.id} clientUuid={traceBill.client_uuid} orderNo={traceBill.order_no} onClose={() => setTraceBill(null)} /> : null}
             </div>
           );
-        })() : <EmptyState title={t.common.empty} />
+        })() : (
+          // ยังไม่ได้เลือกคน → รายชื่อให้เลือก (กดแล้วเข้าแดชบอร์ดของคนนั้น)
+          <Card>
+            <CardHeader title={L("เลือกพนักงาน", "Choose an employee", "选择员工")} subtitle={L("กดที่ชื่อเพื่อเปิดแดชบอร์ดรายบุคคล", "Click a name to open their dashboard", "点击姓名打开个人仪表盘")} />
+            {rows.length ? (
+              <div className="p-3 pt-1 grid sm:grid-cols-2 xl:grid-cols-3 gap-2">
+                {rows.map((r, i) => { const [nm, sub] = splitName(r.label); return (
+                  <button key={r.id} onClick={() => setPersonId(r.id)} className="group flex items-center gap-3 rounded-2xl border border-line px-3 py-2.5 text-left hover:border-brand/40 hover:bg-brand/[0.04] transition-colors">
+                    <span className="w-5 text-center text-[11px] font-bold text-muted">{i + 1}</span>
+                    <Avatar name={r.label} src={empPhoto(r.id)} size={36} />
+                    <span className="min-w-0 flex-1"><span className="block text-sm font-medium truncate">{nm}</span><span className="block text-[11px] text-muted truncate">{sub || empRole(r.id)} · {branchName(r.branchId)}</span></span>
+                    <span className="text-right shrink-0"><span className="block text-xs font-semibold tnum">{formatTHB(r.value, false)}</span><span className="block text-[10.5px] text-muted">{r.orders} {t.admin.orderCount}</span></span>
+                    <ChevronRight size={14} className="text-muted opacity-40 group-hover:opacity-100 group-hover:text-brand" />
+                  </button>); })}
+              </div>
+            ) : <EmptyState title={t.common.empty} />}
+          </Card>
+        )
       ) : null}
 
       {/* ============ BY POSITION (เทียบตามตำแหน่ง ข้ามสาขา/แบรนด์) ============ */}
