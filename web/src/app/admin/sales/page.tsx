@@ -300,7 +300,7 @@ export default function AdminSalesPage() {
                     <Td className="text-xs truncate max-w-[180px]">{b ? (locale === "th" ? b.name_th ?? b.name : b.name) : "—"}</Td>
                     <Td className="text-xs">{o.customer_name ?? "—"}</Td>
                     <Td align="center">
-                      {o.status === "voided" ? <Badge tone="danger">{t.orders.voided}</Badge> : <Badge tone="ok">{t.orders.completed}</Badge>}
+                      {o.status === "voided" ? <Badge tone="danger">{t.orders.voided}</Badge> : o.client_uuid && owStatus[o.client_uuid]?.ow_status === "failed" ? <Badge tone="danger">ยังไม่สมบูรณ์</Badge> : <Badge tone="ok">{t.orders.completed}</Badge>}
                     </Td>
                     <Td align="center"><OwSaleBadge status={o.client_uuid ? owStatus[o.client_uuid] : null} /></Td>
                     <Td align="right" className="font-medium">{formatTHB(o.grand_total, false)}</Td>
