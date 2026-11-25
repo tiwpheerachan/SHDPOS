@@ -42,7 +42,7 @@ function ruleWhen(r: Rule) {
   const p: string[] = [];
   if (r.starts_at || r.ends_at) p.push(`${r.starts_at ? fmtDT(r.starts_at) : "ตั้งแต่ตอนนี้"} → ${r.ends_at ? fmtDT(r.ends_at) : "ไม่มีกำหนด"}`);
   if (r.days_of_week.length) p.push(`ทุกวัน ${r.days_of_week.slice().sort().map((d) => DAYS[d]).join(" ")}`);
-  if (r.time_from || r.time_to) p.push(`เวลา ${r.time_from?.slice(0, 5) ?? "00:00"}–${r.time_to?.slice(0, 5) ?? "24:00"}`);
+  if (r.time_from || r.time_to) p.push(`เวลา ${r.time_from?.slice(0, 5) ?? "00:00"}–${r.time_to?.slice(0, 5) ?? "24:00"}${r.time_from && r.time_to && r.time_from > r.time_to ? " (ข้ามเที่ยงคืน)" : ""}`);
   return p.length ? p.join(" · ") : "ตลอดเวลา";
 }
 
