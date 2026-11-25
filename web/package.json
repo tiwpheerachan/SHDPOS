@@ -34,6 +34,7 @@
     "lucide-react": "^0.446.0",
     "nanoid": "^5.0.7",
     "next": "14.2.15",
+    "ogl": "^1.0.11",
     "qrcode.react": "^4.2.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

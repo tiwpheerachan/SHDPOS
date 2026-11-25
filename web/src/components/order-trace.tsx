@@ -2,10 +2,11 @@
 // แผนภาพ "ที่มาของบิล" — กดจากใบเสร็จ/รายการบิล/ประวัติ เพื่อดูว่าบิลไหลมาอย่างไรทีละขั้น (ข้อมูลจาก /api/pos/order-trace)
 //   ที่มา → ราคาและโปร → ชำระเงิน → สต๊อก/SN → คลังกลาง/JST → แต้มสะสม → หลังการขาย  + ไทม์ไลน์ทุกเหตุการณ์
 import { useEffect, useState } from "react";
-import { GitBranch, Store, Tags, CreditCard, Boxes, Warehouse, Star, RotateCcw, ChevronRight, Loader2, ListTree, Clock3, FileStack, Sparkles, RefreshCw, AlertTriangle, CheckCircle2, ArrowRight } from "lucide-react";
+import { GitBranch, Store, Tags, CreditCard, Boxes, Warehouse, Star, RotateCcw, ChevronRight, Loader2, ListTree, Clock3, FileStack, RefreshCw } from "lucide-react";
 import { Drawer } from "@/components/ui";
 import { OrderDocsPanel, StageDocs, useOrderDocs } from "@/components/order-docs";
 import { DocViewer } from "@/components/doc-viewer";
+import { VoicePoweredOrb } from "@/components/ui/voice-powered-orb";
 import { useSession } from "@/lib/store/session";
 import { can } from "@/lib/permissions";
 
@@ -156,8 +157,13 @@ export function OrderTraceDrawer({ clientUuid, orderNo, onClose }: { clientUuid?
   );
 }
 
-// สรุปบิลเร็ว ๆ — AI (ถ้ามีคีย์) หรือสรุปจากกฎ · กดประเด็นเพื่อกระโดดไปขั้นที่เกี่ยวข้อง
+// สรุปบิลเร็ว ๆ — AI (ถ้ามีคีย์) หรือสรุปจากกฎ · ลูกแก้ว AI ขยับตลอด (แรงขึ้นตอนกำลังคิด) · กดประเด็นเพื่อไปที่ขั้นนั้น
 type Summary = { headline: string; bullets: string[]; actions: string[]; risk: "ok" | "warn" | "error"; source: "ai" | "rules" };
+const RISK = {
+  ok: { label: "เรียบร้อย", pill: "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300", hue: 0 },
+  warn: { label: "ต้องติดตาม", pill: "bg-amber-500/15 text-amber-700 dark:text-amber-300", hue: 0 },
+  error: { label: "มีปัญหา", pill: "bg-red-500/12 text-red-700 dark:text-red-300", hue: 0 },
+} as const;
 function AiSummary({ clientUuid, orderNo, stages, onJump }: { clientUuid?: string | null; orderNo?: string | null; stages: Stage[]; onJump: (k: string) => void }) {
   const [s, setS] = useState<Summary | null>(null), [busy, setBusy] = useState(true), [err, setErr] = useState("");
   async function load(refresh = false) {
@@ -167,30 +173,58 @@ function AiSummary({ clientUuid, orderNo, stages, onJump }: { clientUuid?: strin
     catch (e) { setErr(e instanceof Error ? e.message : "สรุปไม่สำเร็จ"); } finally { setBusy(false); }
   }
   useEffect(() => { void load(); }, [clientUuid, orderNo]); // eslint-disable-line react-hooks/exhaustive-deps
-  const tone = s?.risk === "error" ? { ring: "border-red-500/35", bg: "from-red-500/10", text: "text-red-600", I: AlertTriangle } : s?.risk === "warn" ? { ring: "border-amber-500/40", bg: "from-amber-500/10", text: "text-amber-600", I: AlertTriangle } : { ring: "border-emerald-500/35", bg: "from-emerald-500/10", text: "text-emerald-600", I: CheckCircle2 };
-  const jumpFor = (text: string) => stages.find((st) => text.includes(st.title))?.key;
+  const stageOf = (text: string) => stages.find((st) => text.includes(st.title));
+  const risk = s ? RISK[s.risk] : null;
+
   return (
-    <section className={`relative overflow-hidden rounded-2xl border ${tone.ring} bg-gradient-to-br ${tone.bg} via-surface to-surface`}>
-      <div className="px-4 pt-3 pb-3.5 space-y-2">
-        <div className="flex items-center gap-2">
-          <span className="h-7 w-7 grid place-items-center rounded-lg bg-gradient-to-br from-violet-500 to-fuchsia-500 text-white shadow-sm"><Sparkles size={14} /></span>
-          <p className="text-xs font-semibold">สรุปบิล</p>
-          {s ? <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-surface2 text-muted">{s.source === "ai" ? "โดย AI" : "สรุปอัตโนมัติ"}</span> : null}
-          <button onClick={() => void load(true)} disabled={busy} title="สรุปใหม่" className="ml-auto h-7 w-7 grid place-items-center rounded-lg text-muted hover:text-ink hover:bg-surface2 disabled:opacity-40"><RefreshCw size={13} className={busy ? "animate-spin" : ""} /></button>
+    <section className="relative overflow-hidden rounded-[20px] border border-line/70 bg-surface">
+      {/* แสงพื้นหลังนุ่ม ๆ ตามสีลูกแก้ว */}
+      <div aria-hidden className="pointer-events-none absolute -left-16 -top-20 h-56 w-56 rounded-full bg-violet-500/15 blur-3xl" />
+      <div aria-hidden className="pointer-events-none absolute left-24 -bottom-24 h-48 w-64 rounded-full bg-cyan-400/10 blur-3xl" />
+      <div className="relative flex gap-4 p-4">
+        <div className="relative h-[72px] w-[72px] shrink-0 rounded-full bg-[radial-gradient(circle_at_50%_40%,#1e1b4b,#0b1026_70%)] shadow-[0_10px_28px_-10px_rgba(99,102,241,.75),inset_0_0_0_1px_rgba(255,255,255,.06)] overflow-hidden">
+          <VoicePoweredOrb active={busy} className="!absolute inset-[4%]" />
         </div>
-        {busy && !s ? (
-          <div className="space-y-1.5 animate-pulse"><div className="h-4 w-3/4 rounded bg-surface2" /><div className="h-3 w-1/2 rounded bg-surface2" /><div className="h-3 w-2/3 rounded bg-surface2" /></div>
-        ) : err ? <p className="text-xs text-danger">{err}</p> : s ? <>
-          <p className={`text-sm font-semibold leading-snug flex items-start gap-1.5 ${tone.text}`}><tone.I size={15} className="mt-0.5 shrink-0" /><span className="text-ink">{s.headline}</span></p>
-          {s.bullets.length ? <ul className="grid sm:grid-cols-2 gap-x-4 gap-y-1">{s.bullets.map((b, i) => { const k = jumpFor(b); return (
-            <li key={i}><button type="button" disabled={!k} onClick={() => k && onJump(k)} className="text-left text-xs text-muted hover:text-ink disabled:hover:text-muted flex items-start gap-1.5"><span className="mt-1.5 h-1 w-1 rounded-full bg-current shrink-0" />{b}</button></li>); })}</ul> : null}
-          {s.actions.length ? (
-            <div className="rounded-xl bg-surface/80 border border-line px-3 py-2 space-y-1">
-              <p className="text-[10.5px] font-semibold text-muted">ควรทำต่อ</p>
-              {s.actions.map((a, i) => <p key={i} className="text-xs flex items-start gap-1.5"><ArrowRight size={12} className={`mt-0.5 shrink-0 ${tone.text}`} />{a}</p>)}
+        <div className="min-w-0 flex-1 space-y-2">
+          <div className="flex items-center gap-2">
+            <p className="text-[11px] font-semibold tracking-wide bg-gradient-to-r from-violet-600 via-indigo-500 to-cyan-500 bg-clip-text text-transparent">AI สรุปบิล</p>
+            {risk && !busy ? <span className={`text-[10.5px] font-medium px-2 py-0.5 rounded-full ${risk.pill}`}>{risk.label}</span> : null}
+            <button onClick={() => void load(true)} disabled={busy} title="สรุปใหม่" aria-label="สรุปใหม่" className="ml-auto h-7 w-7 grid place-items-center rounded-full text-muted hover:text-ink hover:bg-surface2 disabled:opacity-40"><RefreshCw size={13} className={busy ? "animate-spin" : ""} /></button>
+          </div>
+
+          {busy && !s ? (
+            <div className="space-y-2 pt-0.5">
+              <p className="text-sm text-muted">กำลังอ่านบิลทุกขั้น…</p>
+              <div className="space-y-1.5 animate-pulse"><div className="h-2.5 w-4/5 rounded-full bg-surface2" /><div className="h-2.5 w-3/5 rounded-full bg-surface2" /></div>
             </div>
-          ) : null}
-        </> : null}
+          ) : err ? <p className="text-xs text-danger">{err}</p> : s ? <>
+            <p className="text-[15px] font-semibold leading-snug text-ink">{s.headline}</p>
+            {s.bullets.length ? (
+              <div className="flex flex-wrap gap-1.5">
+                {s.bullets.map((b, i) => {
+                  const st = stageOf(b), T = st ? TONE[st.status] : TONE.none;
+                  return (
+                    <button key={i} type="button" disabled={!st} onClick={() => st && onJump(st.key)} title={st ? `ไปที่ขั้น ${st.title}` : undefined}
+                      className="inline-flex items-center gap-1.5 max-w-full rounded-full border border-line bg-surface/80 px-2.5 py-1 text-[11.5px] text-ink/85 enabled:hover:border-brand/40 enabled:hover:bg-brand/5 transition">
+                      <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${T.dot}`} /><span className="truncate">{b}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
+            {s.actions.length ? (
+              <ol className="mt-1 space-y-1.5 rounded-2xl bg-surface2/60 px-3 py-2.5">
+                <p className="text-[10.5px] font-semibold text-muted">ขั้นตอนถัดไป</p>
+                {s.actions.map((a, i) => (
+                  <li key={i} className="flex items-start gap-2 text-[12.5px] leading-snug">
+                    <span className="mt-px h-[18px] w-[18px] shrink-0 grid place-items-center rounded-full bg-ink text-surface text-[10px] font-semibold">{i + 1}</span>{a}
+                  </li>
+                ))}
+              </ol>
+            ) : null}
+            <p className="text-[10px] text-muted">{s.source === "ai" ? "สรุปโดย AI จากสถานะและตัวเลขของบิล · ไม่ได้ส่งชื่อ/เบอร์ลูกค้า" : "สรุปอัตโนมัติจากกฎของระบบ"}</p>
+          </> : null}
+        </div>
       </div>
     </section>
   );
