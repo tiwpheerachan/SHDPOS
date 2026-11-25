@@ -1,8 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Clock, ChevronRight, Crown, Users, LayoutDashboard, Table as TableIcon, UserRound, Network, Briefcase, TrendingUp, Receipt, Award, BadgeCheck } from "lucide-react";
+import { Clock, ChevronRight, Crown, Users, LayoutDashboard, Table as TableIcon, Network, Briefcase, TrendingUp, Receipt, Award, BadgeCheck } from "lucide-react";
 import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useRef } from "react";
+import { ChevronLeft } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { useSession } from "@/lib/store/session";
 import { loadAllPositions } from "@/lib/data/org";
@@ -34,14 +37,29 @@ export function StaffPerformance({ filtered, employees, branches, brands, initia
   const { t, locale } = useI18n();
   const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
   const { employee } = useSession();
-  const [view, setView] = useState<View>("dashboard");
+  // ── สถานะอยู่ใน URL: ?sv=dashboard|table|position (มุมมองหลัก) + ?person=<id> (เจาะดูรายคน ซ้อนบนมุมมองหลัก)
+  //    → ปุ่มย้อนกลับของเบราว์เซอร์/ลิงก์แชร์ พากลับมาที่เดิมได้ถูกต้อง
+  const router = useRouter(), pathname = usePathname(), sp = useSearchParams();
+  const svRaw = sp.get("sv") as View | null;
+  const baseView: Exclude<View, "person"> = svRaw === "table" || svRaw === "position" ? svRaw : "dashboard";
+  const personId = sp.get("person");
+  const view: View = personId ? "person" : baseView;
+  const pushedRef = useRef(false);
+  const nav = (patch: Record<string, string | null>, push: boolean) => {
+    const u = new URLSearchParams(sp.toString());
+    for (const [k, v] of Object.entries(patch)) { if (v) u.set(k, v); else u.delete(k); }
+    if (u.get("sv") === "dashboard") u.delete("sv");
+    router[push ? "push" : "replace"](`${pathname}?${u}`, { scroll: false });
+  };
+  const setView = (v: View) => nav({ sv: v === "person" ? baseView : v, person: null }, false);
+  const openPerson = (id: string, from?: Exclude<View, "person">) => { if (!personId) pushedRef.current = true; nav({ person: id, ...(from ? { sv: from } : {}) }, !personId); };
+  const closePerson = () => { if (pushedRef.current) { pushedRef.current = false; router.back(); } else nav({ person: null }, false); };
   const [gran, setGran] = useState<TimeGran>("day");
-  const [personId, setPersonId] = useState<string | null>(null);
   const [allPos, setAllPos] = useState<{ branch_id: string; employee_id: string; title: string }[]>([]);
   const [posCode, setPosCode] = useState<string | null>(null);
 
   useEffect(() => { void loadAllPositions().then(setAllPos); }, []);
-  useEffect(() => { if (initialPerson) { setPersonId(initialPerson); setView("person"); } }, [initialPerson]);
+  void initialPerson; // อ่านจาก URL โดยตรงแล้ว
 
   const rows = useMemo(() => {
     const list = byEmployee(filtered, employees);
@@ -64,7 +82,7 @@ export function StaffPerformance({ filtered, employees, branches, brands, initia
   const overallSeries = useMemo(() => salesSeries(filtered, gran), [filtered, gran]);
   // ค่าเริ่มต้น = ตัวเอง (ถ้ามีข้อมูลขายของตัวเอง) ไม่งั้นคนยอดสูงสุด
   const selfId = employee && rows.some((r) => r.id === employee.id) ? employee.id : null;
-  const activePerson = personId ?? selfId ?? best?.id ?? null;
+  const activePerson = personId ?? selfId ?? best?.id ?? null; // ในมุมมองรายบุคคล personId มีค่าเสมอ
   const personRow = rows.find((r) => r.id === activePerson) ?? null;
   const personSeries = useMemo(
     () => (activePerson ? salesSeries(filtered, gran, activePerson) : []),
@@ -144,12 +162,11 @@ export function StaffPerformance({ filtered, employees, branches, brands, initia
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Segmented<View>
           size="sm"
-          value={view}
+          value={baseView}
           onChange={setView}
           options={[
             { value: "dashboard", label: <span className="inline-flex items-center gap-1.5"><LayoutDashboard size={14} /> {L("แดชบอร์ด", "Dashboard", "仪表盘")}</span> },
             { value: "table", label: <span className="inline-flex items-center gap-1.5"><TableIcon size={14} /> {L("ตาราง", "Table", "表格")}</span> },
-            { value: "person", label: <span className="inline-flex items-center gap-1.5"><UserRound size={14} /> {L("รายบุคคล", "Individual", "个人")}</span> },
             { value: "position", label: <span className="inline-flex items-center gap-1.5"><Briefcase size={14} /> {L("ตามตำแหน่ง", "By position", "按职位")}</span> },
           ]}
         />
@@ -164,7 +181,7 @@ export function StaffPerformance({ filtered, employees, branches, brands, initia
         <KpiTile label={t.admin.employees} value={formatInt(rows.length)} icon={<Users size={15} />} />
         <KpiTile label={t.admin.gmv} value={formatTHB(totals.gross)} tone="brand" />
         <KpiTile label={t.admin.avgBasket} value={formatTHB(totals.avgBasket)} />
-        <button disabled={!best} onClick={() => { if (best) { setPersonId(best.id); setView("person"); } }}
+        <button disabled={!best} onClick={() => { if (best) openPerson(best.id); }}
           className="relative overflow-hidden rounded-2xl text-left text-white min-h-[84px] shadow-card group disabled:cursor-default" style={{ background: FALLBACK_BG }}>
           <AnimatedGradient config={GRAD} noise={{ opacity: 0.25 }} />
           <div className="relative z-10 p-3.5 flex items-center gap-3 h-full">
@@ -205,7 +222,7 @@ export function StaffPerformance({ filtered, employees, branches, brands, initia
                 {rows.length ? rows.slice(0, 15).map((r, i) => (
                   <button
                     key={r.id}
-                    onClick={() => { setPersonId(r.id); setView("person"); }}
+                    onClick={() => openPerson(r.id)}
                     className="w-full flex items-center gap-3 px-2.5 py-2 rounded-xl hover:bg-surface2 transition-colors text-left"
                   >
                     <span className="w-5 text-center text-[11px] font-bold text-muted shrink-0">{i + 1}</span>
@@ -266,7 +283,7 @@ export function StaffPerformance({ filtered, employees, branches, brands, initia
               </thead>
               <tbody>
                 {rows.map((r, i) => (
-                  <tr key={r.id} title={L("กดเพื่อเปิดแดชบอร์ดรายบุคคล", "Open individual dashboard", "打开个人仪表盘")} className="group hover:bg-brand/[0.045] cursor-pointer" onClick={() => { setPersonId(r.id); setView("person"); }}>
+                  <tr key={r.id} title={L("กดเพื่อเปิดแดชบอร์ดรายบุคคล", "Open individual dashboard", "打开个人仪表盘")} className="group hover:bg-brand/[0.045] cursor-pointer" onClick={() => openPerson(r.id)}>
                     <Td>
                       <span className="w-5 h-5 rounded-md grid place-items-center text-[10px] font-bold text-white" style={{ background: SERIES_COLORS[i % SERIES_COLORS.length] }}>{i + 1}</span>
                     </Td>
@@ -301,8 +318,25 @@ export function StaffPerformance({ filtered, employees, branches, brands, initia
           const vsAvg = teamAvg ? ((personRow.value - teamAvg) / teamAvg) * 100 : 0;
           const peakH = personHours.indexOf(Math.max(...personHours));
           const useHourly = personSeries.length < 2;
+          const idx = rows.findIndex((r) => r.id === activePerson);
+          const prevP = idx > 0 ? rows[idx - 1] : null, nextP = idx >= 0 && idx < rows.length - 1 ? rows[idx + 1] : null;
+          const fromLabel = baseView === "table" ? L("ตาราง", "Table", "表格") : baseView === "position" ? L("ตามตำแหน่ง", "By position", "按职位") : L("แดชบอร์ด", "Dashboard", "仪表盘");
           return (
-            <div className="space-y-4">
+            <div className="space-y-3">
+              {/* ── แถบนำทาง: ย้อนกลับ · เส้นทาง · คนก่อน/ถัดไป ── */}
+              <div className="flex flex-wrap items-center gap-2">
+                <button onClick={closePerson} className="h-8 pl-2 pr-3 rounded-lg border border-line bg-surface hover:bg-surface2 text-xs font-medium inline-flex items-center gap-1"><ChevronLeft size={14} />{L("กลับ", "Back", "返回")}</button>
+                <nav className="text-xs text-muted flex items-center gap-1.5 min-w-0">
+                  <button onClick={closePerson} className="hover:text-ink">{L("ผลงานพนักงาน", "Staff performance", "员工业绩")}</button><ChevronRight size={12} />
+                  <button onClick={closePerson} className="hover:text-ink">{fromLabel}</button><ChevronRight size={12} />
+                  <span className="text-ink font-medium truncate">{nm}</span>
+                </nav>
+                <div className="ml-auto flex items-center gap-1">
+                  <span className="text-[11px] text-muted tnum mr-1">{idx + 1} / {rows.length}</span>
+                  <button disabled={!prevP} onClick={() => prevP && openPerson(prevP.id)} title={prevP ? splitName(prevP.label)[0] : ""} className="h-8 w-8 rounded-lg border border-line bg-surface hover:bg-surface2 grid place-items-center disabled:opacity-35"><ChevronLeft size={14} /></button>
+                  <button disabled={!nextP} onClick={() => nextP && openPerson(nextP.id)} title={nextP ? splitName(nextP.label)[0] : ""} className="h-8 w-8 rounded-lg border border-line bg-surface hover:bg-surface2 grid place-items-center disabled:opacity-35"><ChevronRight size={14} /></button>
+                </div>
+              </div>
               {/* ── โปรไฟล์ (การ์ดพื้นหลังเคลื่อนไหว) + สถิติ (การ์ดเรียบ) — กะทัดรัด ── */}
               <div className="grid lg:grid-cols-[300px_1fr] gap-3">
                 <div className="relative overflow-hidden rounded-2xl text-white shadow-card" style={{ background: FALLBACK_BG }}>
@@ -314,8 +348,7 @@ export function StaffPerformance({ filtered, employees, branches, brands, initia
                         <h2 className="text-[15px] font-semibold leading-tight truncate">{nm}</h2>
                         <p className="text-[11px] text-white/70 truncate">{sub || empRole(activePerson ?? "")}</p>
                       </div>
-                      <button onClick={() => setPersonId(null)} title={L("เลือกพนักงานคนอื่น", "Choose another", "选择其他员工")}
-                        className="h-8 w-8 shrink-0 rounded-lg border border-white/25 bg-white/10 hover:bg-white/20 grid place-items-center transition-colors"><Users size={14} /></button>
+
                     </div>
                     <p className="text-[11px] text-white/60 truncate">{[empRole(activePerson ?? ""), personPosCode ? posLabel(personPosCode) : "", personRow.branchId ? branchName(personRow.branchId) : ""].filter((x) => x && x !== "—").join(" · ")}</p>
                     <div className="flex flex-wrap gap-1.5 mt-auto">
@@ -368,7 +401,7 @@ export function StaffPerformance({ filtered, employees, branches, brands, initia
                     </div>
                     <div className="space-y-1.5">
                       {rows.slice(0, 5).map((r, i) => (
-                        <button key={r.id} onClick={() => setPersonId(r.id)} className={`w-full flex items-center gap-2 text-xs rounded-lg px-1.5 py-1 text-left ${r.id === activePerson ? "bg-brand/8 text-brand font-medium" : "hover:bg-surface2"}`}>
+                        <button key={r.id} onClick={() => openPerson(r.id)} className={`w-full flex items-center gap-2 text-xs rounded-lg px-1.5 py-1 text-left ${r.id === activePerson ? "bg-brand/8 text-brand font-medium" : "hover:bg-surface2"}`}>
                           <span className="w-4 text-center text-[10px] text-muted">{i + 1}</span>
                           <span className="flex-1 truncate">{splitName(r.label)[0]}</span>
                           <span className="w-16 h-1.5 rounded-full bg-surface2 overflow-hidden"><span className="block h-full bg-brand/70 rounded-full" style={{ width: `${(r.value / (rows[0]?.value || 1)) * 100}%` }} /></span>
@@ -415,24 +448,7 @@ export function StaffPerformance({ filtered, employees, branches, brands, initia
               {traceBill ? <OrderTraceDrawer key={traceBill.id} clientUuid={traceBill.client_uuid} orderNo={traceBill.order_no} onClose={() => setTraceBill(null)} /> : null}
             </div>
           );
-        })() : (
-          // ยังไม่ได้เลือกคน → รายชื่อให้เลือก (กดแล้วเข้าแดชบอร์ดของคนนั้น)
-          <Card>
-            <CardHeader title={L("เลือกพนักงาน", "Choose an employee", "选择员工")} subtitle={L("กดที่ชื่อเพื่อเปิดแดชบอร์ดรายบุคคล", "Click a name to open their dashboard", "点击姓名打开个人仪表盘")} />
-            {rows.length ? (
-              <div className="p-3 pt-1 grid sm:grid-cols-2 xl:grid-cols-3 gap-2">
-                {rows.map((r, i) => { const [nm, sub] = splitName(r.label); return (
-                  <button key={r.id} onClick={() => setPersonId(r.id)} className="group flex items-center gap-3 rounded-2xl border border-line px-3 py-2.5 text-left hover:border-brand/40 hover:bg-brand/[0.04] transition-colors">
-                    <span className="w-5 text-center text-[11px] font-bold text-muted">{i + 1}</span>
-                    <Avatar name={r.label} src={empPhoto(r.id)} size={36} />
-                    <span className="min-w-0 flex-1"><span className="block text-sm font-medium truncate">{nm}</span><span className="block text-[11px] text-muted truncate">{sub || empRole(r.id)} · {branchName(r.branchId)}</span></span>
-                    <span className="text-right shrink-0"><span className="block text-xs font-semibold tnum">{formatTHB(r.value, false)}</span><span className="block text-[10.5px] text-muted">{r.orders} {t.admin.orderCount}</span></span>
-                    <ChevronRight size={14} className="text-muted opacity-40 group-hover:opacity-100 group-hover:text-brand" />
-                  </button>); })}
-              </div>
-            ) : <EmptyState title={t.common.empty} />}
-          </Card>
-        )
+        })() : <EmptyState title={L("ไม่พบผลงานของพนักงานคนนี้ในช่วง/ตัวกรองที่เลือก", "No sales for this person in the current filter", "当前筛选下无此员工业绩")} />
       ) : null}
 
       {/* ============ BY POSITION (เทียบตามตำแหน่ง ข้ามสาขา/แบรนด์) ============ */}

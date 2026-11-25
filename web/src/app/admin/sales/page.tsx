@@ -48,7 +48,7 @@ function AdminSalesPage() {
   const branchParam = sp.get("branch");
   useEffect(() => { if (branchParam) setFilter({ ...filter, branchIds: [branchParam] }); }, [branchParam]); // eslint-disable-line react-hooks/exhaustive-deps
   const tab = (sp.get("tab") as Tab) || "bills";
-  const setTab = (v: Tab) => { const u = new URLSearchParams(sp.toString()); u.set("tab", v); u.delete("person"); router.replace(`/admin/sales?${u}`, { scroll: false }); };
+  const setTab = (v: Tab) => { const u = new URLSearchParams(sp.toString()); u.set("tab", v); u.delete("person"); u.delete("sv"); router.replace(`/admin/sales?${u}`, { scroll: false }); };
   const drill = (patch: Partial<typeof filter>, to: Tab = "overview") => { setFilter({ ...filter, ...patch }); setTab(to); };
 
   const scoped = useMemo(() => {
@@ -184,7 +184,7 @@ function AdminSalesPage() {
       <div ref={reportRef} className="space-y-4">
       {tab === "bills" ? <BillsView orders={rows} branches={branches} employees={employees} showCost={showCost} owStatus={owStatus as never} onExport={exportCsv} /> : null}
       {tab === "overview" ? <OverviewView m={overview}
-        onDrill={(to, patch) => { if (to === "staff" && patch?.person) { const u = new URLSearchParams(sp.toString()); u.set("tab", "staff"); u.set("person", String(patch.person)); router.replace(`/admin/sales?${u}`, { scroll: false }); } else setTab(to); }} /> : null}
+        onDrill={(to, patch) => { if (to === "staff" && patch?.person) { const u = new URLSearchParams(sp.toString()); u.set("tab", "staff"); u.set("person", String(patch.person)); router.push(`/admin/sales?${u}`, { scroll: false }); } else setTab(to); }} /> : null}
 
       {tab === "branch" ? <BranchView orders={rows} branches={branches} brands={brands} showCost={showCost} L={L} locale={locale} onDrill={(id) => drill({ branchIds: [id] })} /> : null}
       {tab === "brand" ? <BrandView orders={rows} branches={branches} brands={brands} L={L} locale={locale} onDrill={(id) => drill({ brandIds: [id], branchIds: [] }, "branch")} /> : null}
