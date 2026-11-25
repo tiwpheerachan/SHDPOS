@@ -4,6 +4,7 @@
 //   ของแถม = บรรทัดของตัวเอง isFreebie:true unitPrice:0 (ยังต้องมี SN ถ้าเป็นสินค้า SN)
 //   SN ไม่ครบ/ไม่รู้จัก → OW รับเป็น sn_pending (ยังไม่ตัดสต๊อก/ไม่เปิดบิล JST) → ต้อง PATCH SN ที่ถูก
 // =====================================================================
+import { isOwSaleDone } from "@/lib/ow/sale-status";
 import { createHash } from "node:crypto";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { owConfig } from "./ow-gateway";
@@ -16,7 +17,7 @@ export interface OwSaleBody {
   customer?: { name: string; phone: string } | null; lines: OwSaleLine[]; billDiscount?: number;
   payments: { method: string; amount: number }[]; remark?: string | null;
 }
-export interface OwSale { id: string; saleNo: string; status: "draft" | "submitted" | "jst_confirmed" | "sn_pending" | "failed" | "void"; statusReason?: string | null; version: number; problems?: { code: string; message: string; params?: unknown }[]; jstProgress?: { jstOrderNo?: string }; editableUntil?: string }
+export interface OwSale { id: string; saleNo: string; status: "draft" | "submitted" | "jst_confirmed" | "shipped" | "sn_pending" | "failed" | "void"; statusReason?: string | null; version: number; problems?: { code: string; message: string; params?: unknown }[]; jstProgress?: { jstOrderNo?: string }; editableUntil?: string }
 
 export interface PosSaleInput {
   orderNo: string; saleAt: string; owBranchId: string;
@@ -74,11 +75,13 @@ export async function postSale(body: OwSaleBody) {
 
 /** สรุปผลส่งบิล → สถานะคิว */
 /** แปลข้อความผิดพลาดที่พบบ่อยของ JST เป็นภาษาไทย + วิธีแก้ (คงข้อความเดิมไว้ท้าย เพื่อส่งทีม OW ได้) */
-export function jstReasonTh(raw: string | null | undefined): string {
+//   OW (24 พ.ย.): สาเหตุหลักของ "库存不足" = SKU ยังไม่ถูกเปิดใน POS ของ JST สำหรับร้าน/สาขานั้น (แม้คลังมีของ)
+//   OW กำลังเปลี่ยนเป็นรหัส jst_stock_insufficient + ข้อความไทย → รองรับทั้งรหัสใหม่และข้อความจีนเดิม
+export function jstReasonTh(raw: string | null | undefined, code?: string | null): string {
   const r = raw ?? "";
-  if (/库存不足/.test(r)) {
+  if (code === "jst_stock_insufficient" || /库存不足/.test(r)) {
     const sku = r.match(/商品(.+?)库存不足/)?.[1];
-    return `JST สต๊อกไม่พอ${sku ? ` (${sku})` : ""} — ของถูกกันในใบโอนที่ยังไม่ส่ง หรือคลังมีไม่พอ: เติมสต๊อก/ปิดใบโอนที่ค้างใน OneWarehouse แล้วกด "ลองใหม่" · [${r}]`;
+    return `JST ไม่รับบิล: สต๊อกใน JST ไม่พอจัดส่ง หรือ SKU${sku ? ` ${sku}` : ""} ยังไม่เปิดขายใน POS ของสาขานี้ — ให้ทีมคลังกลางเปิด SKU ในสาขา (หรือเติมสต๊อก/ปิดใบโอนที่ค้าง) แล้วกด "ส่งใหม่" · บิลนี้ยังไม่สมบูรณ์ · [${r}]`;
   }
   return r;
 }
@@ -86,9 +89,9 @@ export function jstReasonTh(raw: string | null | undefined): string {
 export function saleOutcome(r: { ok: boolean; status: number; data?: OwSale; error?: OwApiError }, attempts: number) {
   if (r.ok && r.data) {
     const s = r.data;
-    if (s.status === "jst_confirmed" || s.status === "submitted") return { state: "delivered" as const, reason: s.status === "submitted" ? "OW รับบิลแล้ว (รอเปิดบิล JST)" : null };
+    if (isOwSaleDone(s.status) || s.status === "submitted") return { state: "delivered" as const, reason: s.status === "submitted" ? "OW รับบิลแล้ว (รอเปิดบิล JST)" : null };
     if (s.status === "sn_pending") return { state: "blocked" as const, reason: `รอแก้ SN: ${(s.problems ?? []).map((p) => p.message || p.code).join(" · ") || "SN ไม่ครบ/ไม่รู้จัก"}` };
-    return { state: "blocked" as const, reason: `OW สถานะ ${s.status}${s.statusReason ? `: ${jstReasonTh(s.statusReason)}` : ""}` };
+    return { state: "blocked" as const, reason: `OW สถานะ ${s.status}${s.statusReason || s.problems?.length ? `: ${jstReasonTh(s.statusReason ?? s.problems?.[0]?.message, s.problems?.[0]?.code)}` : ""}` };
   }
   const code = r.error?.code ?? "unknown";
   if (isRetryable(r as never) || (r.status === 409 && code !== "sale_op_key_conflict")) {
@@ -230,7 +233,7 @@ export async function patchSaleSerials(eventId: string, actor: string, reason: s
   if (!latest.ok || !latest.data) throw new Error(`อ่านบิลล่าสุดจาก OW ไม่ได้: ${latest.error?.message ?? latest.status}`);
   const sale = latest.data;
   // ตาม OpenAPI: PATCH ได้เฉพาะ submitted | sn_pending | failed และก่อน JST รับบิล — jst_confirmed ผ่านได้เฉพาะ "ส่งซ้ำของเดิม" (ตรวจด้านล่าง)
-  if (!["sn_pending", "submitted", "failed", "jst_confirmed"].includes(sale.status)) throw new Error(`บิลสถานะ ${sale.status} แก้ SN ไม่ได้`);
+  if (!["sn_pending", "submitted", "failed", "jst_confirmed", "shipped"].includes(sale.status)) throw new Error(`บิลสถานะ ${sale.status} แก้ SN ไม่ได้`);
   if (sale.editableUntil && Date.parse(sale.editableUntil) < Date.now()) throw new Error("เกินช่วงแก้ไขบิล (7 วัน) — ต้องดำเนินการผ่าน OW/บัญชี");
   const baseLines: OwSaleLine[] = (sale.lines && sale.lines.length ? sale.lines : resp.request.lines).map((l) => ({ ...l }));
   const owNow = baseLines.map((l) => [...(l.serials ?? [])].sort().join("|"));
@@ -252,7 +255,7 @@ export async function patchSaleSerials(eventId: string, actor: string, reason: s
   }
   // OW มี SN ตามที่ขออยู่แล้ว (เช่น ส่งซ้ำหลังสำเร็จ / เน็ตหลุดหลัง OW บันทึกแล้ว) → ไม่ PATCH ซ้ำ แต่ทำฝั่ง POS ให้ครบ
   const alreadyApplied = Object.entries(serialsByLine).every(([i, list]) => owNow[Number(i)] === list.map((x) => x.trim()).filter(Boolean).sort().join("|"));
-  if (sale.status === "jst_confirmed" && !alreadyApplied) throw new Error("JST รับบิลนี้แล้ว — แก้ SN ผ่านคลังกลางไม่ได้ (OpenAPI: แก้ได้ก่อน JST รับบิลเท่านั้น) ต้องให้ฝ่ายคลัง/บัญชีแก้ใน JST");
+  if (isOwSaleDone(sale.status) && !alreadyApplied) throw new Error("JST รับบิลนี้แล้ว — แก้ SN ผ่านคลังกลางไม่ได้ (OpenAPI: แก้ได้ก่อน JST รับบิลเท่านั้น) ต้องให้ฝ่ายคลัง/บัญชีแก้ใน JST");
   let r: { ok: boolean; status: number; data?: OwSale; error?: OwApiError };
   if (alreadyApplied) r = { ok: true, status: 200, data: sale };
   else {

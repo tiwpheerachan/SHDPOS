@@ -8,6 +8,7 @@
 //   • ⚠ /v1/stock = ยอด JST ซึ่งอัปเดตช้ากว่าใบโอน (~1 นาที แม้ใบขึ้น synced แล้ว — ทดสอบจริง 2026-11-24)
 //     → สินค้าที่เพิ่งมีการเคลื่อนไหวจากใบโอนในช่วง settleMinutes ข้ามไว้ก่อน ("รอ JST อัปเดต") ไม่ทับด้วยยอดเก่า
 // =====================================================================
+import { isOwSaleDone } from "@/lib/ow/sale-status";
 import { randomUUID } from "node:crypto";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { pool } from "@/lib/ow-sync/model";
@@ -34,7 +35,7 @@ export async function pendingSaleQty(branchId: string, source: string): Promise<
   if (ev.error) throw new OwTransferError("อ่านคิวบิลขายไม่สำเร็จ", 503, "events_read");
   const holds = (ev.data ?? []).filter((e) => {
     const st = (e.response as { sale?: { status?: string } } | null)?.sale?.status;
-    return st !== "jst_confirmed" && st !== "void";
+    return !isOwSaleDone(st) && st !== "void";
   }).map((e) => e.aggregate_id as string);
   const out = new Map<string, number>();
   for (let i = 0; i < holds.length; i += 200) {

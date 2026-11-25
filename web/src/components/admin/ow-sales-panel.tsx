@@ -1,5 +1,6 @@
 "use client";
 // คิวส่งบิลขาย POS → OneWarehouse: สถานะทุกบิล · ส่งทันที · ลองใหม่ · แก้ SN ของบิล sn_pending (PATCH)
+import { isOwSaleDone } from "@/lib/ow/sale-status";
 import { useEffect, useMemo, useState } from "react";
 import { RefreshCw, Send, RotateCcw, ScanLine, CheckCircle2, AlertTriangle, Clock3, X } from "lucide-react";
 import { Button, Badge, Drawer } from "@/components/ui";
@@ -73,8 +74,8 @@ export function OwSalesPanel() {
                   <td className="px-3 py-2"><Badge tone={STATE[e.state]?.tone ?? "neutral"}>{STATE[e.state]?.label ?? e.state}</Badge>{e.attempts > 1 ? <span className="ml-1 text-[10px] text-muted">×{e.attempts}</span> : null}</td>
                   <td className="px-3 py-2">
                     <p className="font-mono">{e.ow_sale_no ?? "—"}</p>
-                    {e.ow_status ? <span className={`text-[10px] px-1.5 py-0.5 rounded ${e.ow_status === "jst_confirmed" ? "bg-ok/12 text-ok" : e.ow_status === "sn_pending" ? "bg-warn/12 text-warn" : e.ow_status === "failed" ? "bg-danger/12 text-danger" : "bg-sky-500/10 text-sky-600"}`}>
-                      {e.ow_status === "jst_confirmed" ? "JST ยืนยันแล้ว" : e.ow_status === "sn_pending" ? "รอแก้ SN" : e.ow_status === "submitted" ? "OW รับแล้ว · รอ JST" : e.ow_status === "failed" ? "JST ล้มเหลว" : e.ow_status}
+                    {e.ow_status ? <span className={`text-[10px] px-1.5 py-0.5 rounded ${isOwSaleDone(e.ow_status) ? "bg-ok/12 text-ok" : e.ow_status === "sn_pending" ? "bg-warn/12 text-warn" : e.ow_status === "failed" ? "bg-danger/12 text-danger" : "bg-sky-500/10 text-sky-600"}`}>
+                      {isOwSaleDone(e.ow_status) ? "JST ยืนยันแล้ว" : e.ow_status === "sn_pending" ? "รอแก้ SN" : e.ow_status === "submitted" ? "OW รับแล้ว · รอ JST" : e.ow_status === "failed" ? "JST ล้มเหลว" : e.ow_status}
                     </span> : null}
                     {e.jst_order_no ? <p className="text-[10px] text-muted">JST {e.jst_order_no}</p> : null}
                   </td>

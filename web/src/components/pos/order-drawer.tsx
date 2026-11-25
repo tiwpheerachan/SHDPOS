@@ -10,7 +10,7 @@ import { useI18n } from "@/lib/i18n/provider";
 import { listEmployees, listTerminals, listReturns, listAudit } from "@/lib/data/repo";
 import type { AuditEntry, Branch, Employee, Order, ReturnDoc, Terminal } from "@/lib/types";
 import { Drawer, DrawerTabs, DetailRow, Badge, Button, Avatar, EmptyState } from "@/components/ui";
-import { OwSaleBadge, useOwSaleStatus } from "@/components/pos/ow-sale-badge";
+import { OwSaleBadge, OwSaleLive, useOwSaleStatus } from "@/components/pos/ow-sale-badge";
 import { formatTHB } from "@/lib/money";
 import { BankMark } from "@/components/pos/bank-mark";
 
@@ -145,6 +145,8 @@ export function OrderDrawer({
                 <span className="inline-flex items-center gap-2 flex-wrap"><OwSaleBadge status={ow} />{ow?.sale_no ? <span className="font-mono text-[11px] text-muted">{ow.sale_no}</span> : null}{ow?.sent_at ? <span className="text-[11px] text-muted">{L("ส่ง JST", "sent", "已发")} {fmtTime(ow.sent_at)}</span> : null}</span>
               </DetailRow>
             </div>
+            {/* JST ไม่รับบิล → แสดงสาเหตุ + ปุ่มส่งใหม่ (หลังแก้สาเหตุ) */}
+            {order.client_uuid && ow && (ow.ow_status === "failed" || ["blocked", "dead"].includes(ow.state)) ? <OwSaleLive key={order.client_uuid} clientUuid={order.client_uuid} /> : null}
 
             <div className="rounded-2xl bg-surface2 px-4 py-3 space-y-1.5">
               <div className="flex justify-between text-sm"><span className="text-muted">{t.pos.subtotal}</span><span className="tnum">{formatTHB(base)}</span></div>

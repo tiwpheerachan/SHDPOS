@@ -11,6 +11,8 @@ import { useI18n } from "@/lib/i18n/provider";
 import type { Order, Branch, Employee } from "@/lib/types";
 import { formatTHB } from "@/lib/money";
 import type { PrintStatus } from "@/components/pos/sale-modals";
+import { OwSaleLive, type OwSaleStatus } from "@/components/pos/ow-sale-badge";
+import { isOwSaleFailed } from "@/lib/ow/sale-status";
 
 interface Company { name_th: string; tax_id: string; address?: string; phone?: string }
 
@@ -35,6 +37,8 @@ export function ReceiptPreview({
   const { locale } = useI18n();
   const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
   const [min, setMin] = useState(false);
+  const [ow, setOw] = useState<OwSaleStatus | null>(null);
+  const jstRejected = !!ow && (isOwSaleFailed(ow.ow_status) || ["blocked", "dead"].includes(ow.state));
   useEffect(() => { if (order) setMin(false); }, [order?.id]);
   if (!order) return null;
 
@@ -59,14 +63,17 @@ export function ReceiptPreview({
         {/* หัวค้างบน */}
         <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-line shrink-0">
           <div className="flex items-center gap-2">
-            <CheckCircle2 size={18} className="text-ok" />
-            <span className="font-semibold text-sm">{L("ขายสำเร็จ · ตัวอย่างบิล", "Sale completed · Receipt preview", "交易完成 · 小票预览")}</span>
+            {jstRejected ? <AlertTriangle size={18} className="text-danger" /> : <CheckCircle2 size={18} className="text-ok" />}
+            <span className="font-semibold text-sm">{jstRejected ? L("บันทึกบิลแล้ว · JST ยังไม่รับ", "Saved · JST rejected", "已保存 · JST 拒收") : L("ขายสำเร็จ · ตัวอย่างบิล", "Sale completed · Receipt preview", "交易完成 · 小票预览")}</span>
           </div>
           <div className="flex items-center gap-1">
             <button onClick={() => setMin(true)} title={L("ย่อ (เก็บไว้ดูทีหลัง)", "Minimize (keep for later)", "最小化（稍后查看）")} className="h-8 w-8 grid place-items-center rounded-lg text-muted hover:bg-surface2"><ChevronDown size={17} /></button>
             <button onClick={onNewSale} title={L("ปิด / ขายใหม่", "Close / new sale", "关闭 / 新订单")} className="h-8 w-8 grid place-items-center rounded-lg text-muted hover:bg-surface2"><X size={17} /></button>
           </div>
         </div>
+
+        {/* สถานะบิลใน JST (สด) — JST ไม่รับ = ยังไม่ถือว่าขายสำเร็จ (ตามข้อกำหนด OW) */}
+        {order.client_uuid ? <div className="px-4 pt-2 shrink-0"><OwSaleLive key={order.client_uuid} clientUuid={order.client_uuid} onStatus={setOw} /></div> : null}
 
         {/* สถานะพิมพ์ */}
         {printStatus !== "idle" && (

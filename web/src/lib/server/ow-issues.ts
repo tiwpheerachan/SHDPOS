@@ -4,6 +4,7 @@
 //   ใบโอน: ผลตรวจ "ไม่ตรง" หรือค้าง recovery_required → สร้างงาน · กลับมาตรงกัน → ปิดงานเอง
 //   ปัญหาเดิม (ลายเซ็นเดิม) ไม่แจ้งซ้ำ · ปัญหาเปลี่ยน = อัปเดตงาน + แจ้งใหม่
 // =====================================================================
+import { isOwSaleDone } from "@/lib/ow/sale-status";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -67,7 +68,7 @@ export async function syncSaleIssues(source: string): Promise<{ created: number;
     if (ok.error) throw new Error("อ่านคิวบิลขายไม่สำเร็จ: " + ok.error.message);
     for (const e of ok.data ?? []) {
       const s = (e.response as SaleEv["response"])?.sale;
-      if (s?.status !== "jst_confirmed") continue;
+      if (!s || !isOwSaleDone(s.status)) continue;
       if (await resolve("ow_sale", e.aggregate_id as string, `JST ยืนยันบิลแล้ว${s.saleNo ? ` (${s.saleNo})` : ""}`)) out.resolved++;
     }
   }

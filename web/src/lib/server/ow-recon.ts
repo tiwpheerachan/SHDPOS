@@ -5,6 +5,7 @@
 //   • สต๊อก: ยอดคงคลัง POS เทียบ OW รายสินค้า (สินค้าที่เพิ่งเคลื่อนไหว = รอ JST อัปเดต ไม่นับว่าไม่ตรง)
 //   หมายเหตุเวลา: JST ใช้เวลาที่ OW ส่ง (submittedAt) จนกว่า ERIS-254 → แสดงเป็นข้อมูล ไม่ถือว่าไม่ตรง
 // =====================================================================
+import { isOwSaleDone } from "@/lib/ow/sale-status";
 import { syncTransferIssues } from "./ow-issues";
 import { randomUUID } from "node:crypto";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -103,7 +104,7 @@ async function checkSales(source: string, limit: number): Promise<ReconRow[]> {
     const posVoid = ["voided", "refunded"].includes(String(o.status));
     diffs.push({ field: "สถานะบิล", pos: o.status, ow: s.status, ok: posVoid ? s.status === "void" : s.status !== "void", note: posVoid ? "บิลยกเลิก/คืนเงินใน POS — ยังไม่มีการส่งยกเลิกไป OW/JST" : undefined });
     // JST
-    const jstOk = s.status === "jst_confirmed" && !!s.jstProgress?.jstOrderNo;
+    const jstOk = isOwSaleDone(s.status) && !!s.jstProgress?.jstOrderNo;
     diffs.push({ field: "บิล JST", pos: "—", ow: s.status, jst: s.jstProgress?.jstOrderNo ?? (s.problems?.map((p) => p.message).join("; ") || null), ok: jstOk || s.status === "sn_pending" || s.status === "submitted", note: s.status === "sn_pending" ? "รอแก้ SN — JST ยังไม่เปิดบิล/ไม่ตัดสต๊อก" : undefined });
     rows.push(finalize({
       kind: "sale", ref: o.order_no, branch_id: o.branch_id, diffs,
