@@ -2,9 +2,10 @@
 // แผนภาพ "ที่มาของบิล" — กดจากใบเสร็จ/รายการบิล/ประวัติ เพื่อดูว่าบิลไหลมาอย่างไรทีละขั้น (ข้อมูลจาก /api/pos/order-trace)
 //   ที่มา → ราคาและโปร → ชำระเงิน → สต๊อก/SN → คลังกลาง/JST → แต้มสะสม → หลังการขาย  + ไทม์ไลน์ทุกเหตุการณ์
 import { useEffect, useState } from "react";
-import { GitBranch, Store, Tags, CreditCard, Boxes, Warehouse, Star, RotateCcw, ChevronRight, Loader2, ListTree, Clock3, FileStack } from "lucide-react";
+import { GitBranch, Store, Tags, CreditCard, Boxes, Warehouse, Star, RotateCcw, ChevronRight, Loader2, ListTree, Clock3, FileStack, Sparkles, RefreshCw, AlertTriangle, CheckCircle2, ArrowRight } from "lucide-react";
 import { Drawer } from "@/components/ui";
-import { OrderDocsPanel } from "@/components/order-docs";
+import { OrderDocsPanel, StageDocs, useOrderDocs } from "@/components/order-docs";
+import { DocViewer } from "@/components/doc-viewer";
 import { useSession } from "@/lib/store/session";
 import { can } from "@/lib/permissions";
 
@@ -52,6 +53,9 @@ export function OrderTraceDrawer({ clientUuid, orderNo, onClose }: { clientUuid?
       .catch(() => alive && setErr("โหลดไม่สำเร็จ — ตรวจการเชื่อมต่อ"));
     return () => { alive = false; };
   }, [clientUuid, orderNo]);
+  const docs = useOrderDocs(clientUuid, orderNo);
+  const [viewKey, setViewKey] = useState<string | null>(null);
+  const docCount = (k: string) => (docs ?? []).filter((d) => d.stage === k && d.available).length;
   const stage = data?.stages.find((s) => s.key === sel) ?? data?.stages[0];
   const issues = data?.stages.filter((s) => s.status === "warn" || s.status === "error") ?? [];
 
@@ -63,6 +67,7 @@ export function OrderTraceDrawer({ clientUuid, orderNo, onClose }: { clientUuid?
         {err ? <p role="alert" className="rounded-xl bg-red-500/8 text-red-600 text-sm px-4 py-3">{err}</p> : null}
         {!data && !err ? <div className="py-16 grid place-items-center text-muted text-sm gap-2"><Loader2 className="animate-spin" size={20} />กำลังโหลด…</div> : null}
         {data ? <>
+          <AiSummary clientUuid={clientUuid} orderNo={orderNo} onJump={(k) => { setView("flow"); setSel(k); }} stages={data.stages} />
           <div className="flex flex-wrap items-center gap-2">
             <div className="inline-flex rounded-xl bg-surface2 border border-line p-0.5 h-9">
               {([["flow", "แผนภาพ", GitBranch], ["timeline", "ไทม์ไลน์", Clock3], ["docs", "เอกสาร", FileStack]] as const).map(([k, l, I]) => (
@@ -85,6 +90,7 @@ export function OrderTraceDrawer({ clientUuid, orderNo, onClose }: { clientUuid?
                       <span className={`relative z-[1] h-10 w-10 grid place-items-center rounded-full border-2 bg-surface transition ${T.ring} ${T.text} ${on ? "ring-4 ring-brand/15 scale-110" : "group-hover:scale-105"} ${s.status === "none" ? "opacity-50" : ""}`}>
                         <I size={16} />
                         <span className={`absolute -top-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-surface ${T.dot}`} />
+                        {docCount(s.key) ? <span className="absolute -bottom-1 -right-1.5 min-w-[17px] h-[17px] px-1 rounded-full bg-ink text-surface text-[9px] font-semibold grid place-items-center" title={`เอกสาร ${docCount(s.key)} ใบ`}>{docCount(s.key)}</span> : null}
                       </span>
                       <span className={`text-[10.5px] leading-tight text-center ${on ? "font-semibold text-ink" : "text-muted"}`}>{s.title}</span>
                     </button>
@@ -124,6 +130,7 @@ export function OrderTraceDrawer({ clientUuid, orderNo, onClose }: { clientUuid?
                   </div>
                 ) : null}
                 {!stage.details.length && !stage.items?.length ? <p className="px-4 py-6 text-xs text-muted text-center">{stage.summary}</p> : null}
+                {docs ? <StageDocs docs={docs} stage={stage.key} onOpen={setViewKey} onMore={() => setView("docs")} /> : null}
               </section>
             ) : null}
           </> : view === "docs" ? (
@@ -144,6 +151,47 @@ export function OrderTraceDrawer({ clientUuid, orderNo, onClose }: { clientUuid?
           )}
         </> : null}
       </div>
+      {viewKey && docs ? <DocViewer docs={docs} startKey={viewKey} onClose={() => setViewKey(null)} /> : null}
     </Drawer>
+  );
+}
+
+// สรุปบิลเร็ว ๆ — AI (ถ้ามีคีย์) หรือสรุปจากกฎ · กดประเด็นเพื่อกระโดดไปขั้นที่เกี่ยวข้อง
+type Summary = { headline: string; bullets: string[]; actions: string[]; risk: "ok" | "warn" | "error"; source: "ai" | "rules" };
+function AiSummary({ clientUuid, orderNo, stages, onJump }: { clientUuid?: string | null; orderNo?: string | null; stages: Stage[]; onJump: (k: string) => void }) {
+  const [s, setS] = useState<Summary | null>(null), [busy, setBusy] = useState(true), [err, setErr] = useState("");
+  async function load(refresh = false) {
+    setBusy(true); setErr("");
+    const q = clientUuid ? `client_uuid=${clientUuid}` : `order_no=${encodeURIComponent(orderNo ?? "")}`;
+    try { const r = await fetch(`/api/pos/order-summary?${q}${refresh ? "&refresh=1" : ""}`, { cache: "no-store" }); const j = await r.json(); if (!r.ok) throw Error(j.error); setS(j.summary); }
+    catch (e) { setErr(e instanceof Error ? e.message : "สรุปไม่สำเร็จ"); } finally { setBusy(false); }
+  }
+  useEffect(() => { void load(); }, [clientUuid, orderNo]); // eslint-disable-line react-hooks/exhaustive-deps
+  const tone = s?.risk === "error" ? { ring: "border-red-500/35", bg: "from-red-500/10", text: "text-red-600", I: AlertTriangle } : s?.risk === "warn" ? { ring: "border-amber-500/40", bg: "from-amber-500/10", text: "text-amber-600", I: AlertTriangle } : { ring: "border-emerald-500/35", bg: "from-emerald-500/10", text: "text-emerald-600", I: CheckCircle2 };
+  const jumpFor = (text: string) => stages.find((st) => text.includes(st.title))?.key;
+  return (
+    <section className={`relative overflow-hidden rounded-2xl border ${tone.ring} bg-gradient-to-br ${tone.bg} via-surface to-surface`}>
+      <div className="px-4 pt-3 pb-3.5 space-y-2">
+        <div className="flex items-center gap-2">
+          <span className="h-7 w-7 grid place-items-center rounded-lg bg-gradient-to-br from-violet-500 to-fuchsia-500 text-white shadow-sm"><Sparkles size={14} /></span>
+          <p className="text-xs font-semibold">สรุปบิล</p>
+          {s ? <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-surface2 text-muted">{s.source === "ai" ? "โดย AI" : "สรุปอัตโนมัติ"}</span> : null}
+          <button onClick={() => void load(true)} disabled={busy} title="สรุปใหม่" className="ml-auto h-7 w-7 grid place-items-center rounded-lg text-muted hover:text-ink hover:bg-surface2 disabled:opacity-40"><RefreshCw size={13} className={busy ? "animate-spin" : ""} /></button>
+        </div>
+        {busy && !s ? (
+          <div className="space-y-1.5 animate-pulse"><div className="h-4 w-3/4 rounded bg-surface2" /><div className="h-3 w-1/2 rounded bg-surface2" /><div className="h-3 w-2/3 rounded bg-surface2" /></div>
+        ) : err ? <p className="text-xs text-danger">{err}</p> : s ? <>
+          <p className={`text-sm font-semibold leading-snug flex items-start gap-1.5 ${tone.text}`}><tone.I size={15} className="mt-0.5 shrink-0" /><span className="text-ink">{s.headline}</span></p>
+          {s.bullets.length ? <ul className="grid sm:grid-cols-2 gap-x-4 gap-y-1">{s.bullets.map((b, i) => { const k = jumpFor(b); return (
+            <li key={i}><button type="button" disabled={!k} onClick={() => k && onJump(k)} className="text-left text-xs text-muted hover:text-ink disabled:hover:text-muted flex items-start gap-1.5"><span className="mt-1.5 h-1 w-1 rounded-full bg-current shrink-0" />{b}</button></li>); })}</ul> : null}
+          {s.actions.length ? (
+            <div className="rounded-xl bg-surface/80 border border-line px-3 py-2 space-y-1">
+              <p className="text-[10.5px] font-semibold text-muted">ควรทำต่อ</p>
+              {s.actions.map((a, i) => <p key={i} className="text-xs flex items-start gap-1.5"><ArrowRight size={12} className={`mt-0.5 shrink-0 ${tone.text}`} />{a}</p>)}
+            </div>
+          ) : null}
+        </> : null}
+      </div>
+    </section>
   );
 }

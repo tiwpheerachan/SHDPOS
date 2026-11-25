@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { ReceiptText, FileText, ShieldCheck, RotateCcw, GitBranch, ExternalLink, Link2, Check, Loader2, Plus, Lock } from "lucide-react";
 import type { OrderDocItem } from "@/lib/doc-types";
+import { DocViewer } from "@/components/doc-viewer";
 
 const ICON: Record<OrderDocItem["kind"], typeof FileText> = { receipt: ReceiptText, tax_invoice: FileText, warranty: ShieldCheck, return: RotateCcw, trace: GitBranch };
 const STAGE: Record<string, string> = { payment: "ชำระเงิน", stock: "สต๊อก / SN", after: "หลังการขาย", all: "ทั้งโฟลว์" };
@@ -12,6 +13,7 @@ export function OrderDocsPanel({ clientUuid, orderNo }: { clientUuid?: string | 
   const [data, setData] = useState<{ docs: OrderDocItem[]; can_issue_tax: boolean; buyer_prefill: Buyer | null; order: { client_uuid: string } } | null>(null);
   const [err, setErr] = useState(""), [copied, setCopied] = useState(""), [issue, setIssue] = useState<{ buyer: Buyer; reason: string; replace: boolean } | null>(null);
   const [busy, setBusy] = useState(false), [issueErr, setIssueErr] = useState("");
+  const [viewKey, setViewKey] = useState<string | null>(null);
   async function load() {
     const q = clientUuid ? `client_uuid=${clientUuid}` : `order_no=${encodeURIComponent(orderNo ?? "")}`;
     try { const r = await fetch(`/api/pos/order-docs?${q}`, { cache: "no-store" }); const j = await r.json(); if (!r.ok) throw Error(j.error); setData(j); setErr(""); }
@@ -29,7 +31,7 @@ export function OrderDocsPanel({ clientUuid, orderNo }: { clientUuid?: string | 
     try {
       const r = await fetch("/api/pos/order-docs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "issue_tax_invoice", client_uuid: data.order.client_uuid, buyer: issue.buyer, replace_reason: issue.replace ? issue.reason : null }) });
       const j = await r.json(); if (!r.ok) throw Error(j.error);
-      setIssue(null); await load(); window.open(j.url, "_blank", "noopener");
+      setIssue(null); await load(); setViewKey(`ti:${j.id}`);
     } catch (e) { setIssueErr(e instanceof Error ? e.message : "ออกใบกำกับไม่สำเร็จ"); } finally { setBusy(false); }
   }
 
@@ -56,7 +58,7 @@ export function OrderDocsPanel({ clientUuid, orderNo }: { clientUuid?: string | 
                 </div>
                 {d.available && d.url ? (
                   <span className="flex items-center gap-1 shrink-0">
-                    <a href={d.url} target="_blank" rel="noopener" className="h-8 px-2.5 rounded-lg border border-line text-xs inline-flex items-center gap-1 hover:border-brand/50 hover:bg-brand/5"><ExternalLink size={12} />เปิด / PDF</a>
+                    <button onClick={() => setViewKey(d.key)} className="h-8 px-2.5 rounded-lg border border-line text-xs inline-flex items-center gap-1 hover:border-brand/50 hover:bg-brand/5"><ExternalLink size={12} />ดู / PDF</button>
                     <button onClick={() => void copy(d)} title="คัดลอกลิงก์แชร์" className="h-8 w-8 grid place-items-center rounded-lg border border-line text-muted hover:text-brand">{copied === d.key ? <Check size={13} className="text-ok" /> : <Link2 size={13} />}</button>
                   </span>
                 ) : d.kind === "tax_invoice" && !d.doc_no && data.can_issue_tax && d.reason?.startsWith("ยังไม่ได้ออก") ? (
@@ -69,6 +71,7 @@ export function OrderDocsPanel({ clientUuid, orderNo }: { clientUuid?: string | 
       ))}
       {activeTi && data.can_issue_tax && !issue ? <button onClick={() => { setIssue({ buyer: data.buyer_prefill ?? blank, reason: "", replace: true }); setIssueErr(""); }} className="text-[11px] text-muted hover:text-ink underline">แก้ข้อมูลผู้ซื้อ (ยกเลิกใบกำกับเดิมแล้วออกใบใหม่)</button> : null}
 
+      {viewKey ? <DocViewer docs={data.docs} startKey={viewKey} onClose={() => setViewKey(null)} /> : null}
       {issue ? (
         <section className="rounded-2xl border border-brand/40 bg-brand/5 p-4 space-y-2.5 text-xs">
           <p className="text-sm font-semibold">{issue.replace ? "ออกใบกำกับภาษีใหม่แทนใบเดิม" : "ออกใบกำกับภาษีเต็มรูป"}</p>
@@ -95,4 +98,43 @@ export function OrderDocsPanel({ clientUuid, orderNo }: { clientUuid?: string | 
 
 function Inp({ label, v, on, mono }: { label: string; v: string; on: (v: string) => void; mono?: boolean }) {
   return <label className="block space-y-1"><span className="text-muted">{label}</span><input value={v} onChange={(e) => on(e.target.value)} className={`w-full h-9 px-2.5 rounded-lg border border-line bg-surface text-sm ${mono ? "font-mono" : ""}`} /></label>;
+}
+
+/** ดึงรายการเอกสารของบิล (ใช้ในแผนภาพ: แสดงเอกสารของแต่ละขั้น) */
+export function useOrderDocs(clientUuid?: string | null, orderNo?: string | null) {
+  const [docs, setDocs] = useState<OrderDocItem[] | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const q = clientUuid ? `client_uuid=${clientUuid}` : `order_no=${encodeURIComponent(orderNo ?? "")}`;
+    fetch(`/api/pos/order-docs?${q}`, { cache: "no-store" }).then((r) => r.json()).then((j) => { if (alive && Array.isArray(j.docs)) setDocs(j.docs); }).catch(() => {});
+    return () => { alive = false; };
+  }, [clientUuid, orderNo]);
+  return docs;
+}
+
+/** การ์ดเอกสารเล็ก ๆ ในรายละเอียดของขั้น */
+export function StageDocs({ docs, stage, onOpen, onMore }: { docs: OrderDocItem[]; stage: string; onOpen: (key: string) => void; onMore?: () => void }) {
+  const list = docs.filter((d) => d.stage === stage);
+  if (!list.length) return null;
+  return (
+    <div className="px-4 py-3 border-t border-line/60 bg-surface2/30">
+      <p className="text-[11px] font-semibold text-muted mb-2">เอกสารของขั้นนี้</p>
+      <div className="flex flex-wrap gap-2">
+        {list.map((d) => {
+          const I = ICON[d.kind];
+          const can = d.available && !!d.url;
+          return (
+            <button key={d.key} type="button" onClick={() => (can ? onOpen(d.key) : onMore?.())} title={d.reason ?? d.title}
+              className={`group inline-flex items-center gap-2 rounded-xl border px-2.5 py-1.5 text-left transition ${can ? "border-line bg-surface hover:border-brand/50 hover:shadow-sm" : "border-dashed border-line bg-transparent text-muted"}`}>
+              <span className={`h-7 w-7 grid place-items-center rounded-lg ${can ? "bg-brand/10 text-brand" : "bg-surface2"}`}><I size={13} /></span>
+              <span className="min-w-0">
+                <span className={`block text-xs font-medium ${d.status === "cancelled" ? "line-through text-muted" : ""}`}>{d.title}</span>
+                <span className="block text-[10px] text-muted truncate max-w-[200px]">{d.doc_no ?? d.reason}</span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
 }

@@ -13,12 +13,22 @@ export default function DocPage() {
   const { token } = useParams<{ token: string }>();
   const [doc, setDoc] = useState<DocPayload | null>(null), [err, setErr] = useState<{ msg: string; login?: boolean } | null>(null);
   const [exp, setExp] = useState<string | null>(null), [busy, setBusy] = useState(false), [copied, setCopied] = useState(false);
-  const paper = useRef<HTMLDivElement>(null);
+  const paper = useRef<HTMLDivElement>(null), zoomBox = useRef<HTMLDivElement>(null);
+  // ?embed=1 = แสดงในหน้าต่างดูเอกสารของระบบ (ไม่มีแถบเครื่องมือ · ย่อ A4 ให้พอดีความกว้าง · ให้หน้าหลักสั่ง PDF/พิมพ์ได้)
+  const [embed, setEmbed] = useState(false), [scale, setScale] = useState(1);
+  useEffect(() => {
+    const e = new URLSearchParams(window.location.search).get("embed") === "1";
+    setEmbed(e);
+    if (!e) return;
+    const fit = () => setScale(Math.min(1, (window.innerWidth - 24) / 794));
+    fit(); window.addEventListener("resize", fit);
+    return () => window.removeEventListener("resize", fit);
+  }, []);
   useEffect(() => {
     fetch(`/api/doc/${token}`, { cache: "no-store" }).then(async (r) => { const j = await r.json(); if (!r.ok) setErr({ msg: j.error, login: j.login }); else { setDoc(j.doc); setExp(j.expires_at); document.title = `${j.doc.title} ${j.doc.doc_no}`; } })
       .catch(() => setErr({ msg: "โหลดเอกสารไม่สำเร็จ" }));
   }, [token]);
-  const url = typeof window !== "undefined" ? window.location.href : "";
+  const url = typeof window !== "undefined" ? `${window.location.origin}${window.location.pathname}` : "";
 
   async function pdf() {
     if (!paper.current || !doc) return;
@@ -26,12 +36,19 @@ export default function DocPage() {
     const el = paper.current, prev = { minHeight: el.style.minHeight, boxShadow: el.style.boxShadow };
     // ความสูงขั้นต่ำ A4 บนจอ + การปัดเศษ px→mm ทำให้เกิดหน้าว่างท้าย PDF → ตอนสร้างใช้ความสูงตามเนื้อหา
     el.style.minHeight = "auto"; el.style.boxShadow = "none";
+    const z = zoomBox.current, prevZoom = z?.style.zoom ?? "";
+    if (z) z.style.zoom = "1";
     try {
       const html2pdf = (await import("html2pdf.js")).default;
       await html2pdf().set({ margin: 0, filename: `${doc.doc_no}-${doc.kind}.pdf`, image: { type: "jpeg", quality: 0.96 }, html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff" },
         jsPDF: { unit: "mm", format: "a4", orientation: "portrait" }, pagebreak: { mode: ["css", "legacy"], avoid: ["tr", ".avoid-break"] } }).from(el).save();
-    } finally { el.style.minHeight = prev.minHeight; el.style.boxShadow = prev.boxShadow; setBusy(false); }
+    } finally { el.style.minHeight = prev.minHeight; el.style.boxShadow = prev.boxShadow; if (z) z.style.zoom = prevZoom; setBusy(false); }
   }
+  useEffect(() => {
+    if (!doc) return;
+    (window as unknown as { __docActions?: unknown }).__docActions = { pdf: () => pdf(), print: () => window.print(), busy: () => busy };
+    window.parent?.postMessage({ type: "doc-ready", kind: doc.kind, doc_no: doc.doc_no }, window.location.origin);
+  }); // eslint-disable-line react-hooks/exhaustive-deps
   async function copy() { try { await navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch { /* */ } }
   async function share() { if (navigator.share && doc) { try { await navigator.share({ title: `${doc.title} ${doc.doc_no}`, url }); } catch { /* ยกเลิก */ } } else void copy(); }
 
@@ -47,9 +64,9 @@ export default function DocPage() {
   if (!doc) return <main className="min-h-screen grid place-items-center bg-[#f3f4f6] text-gray-500 text-sm gap-2"><Loader2 className="animate-spin" />กำลังโหลดเอกสาร…</main>;
 
   return (
-    <main className="min-h-screen bg-[#e5e7eb] print:bg-white">
+    <main className={`min-h-screen print:bg-white ${embed ? "bg-[#eef0f3]" : "bg-[#e5e7eb]"}`}>
       <style>{`@page { size: A4; margin: 0 } @media print { .no-print { display: none !important } .sheet { box-shadow: none !important; margin: 0 !important } }`}</style>
-      <div className="no-print sticky top-0 z-10 bg-white/90 backdrop-blur border-b border-gray-200">
+      <div className={`no-print sticky top-0 z-10 bg-white/90 backdrop-blur border-b border-gray-200 ${embed ? "hidden" : ""}`}>
         <div className="max-w-[210mm] mx-auto px-4 py-2.5 flex flex-wrap items-center gap-2">
           <p className="text-sm font-semibold text-gray-900 mr-auto">{doc.title} <span className="font-mono text-gray-500 font-normal">{doc.doc_no}</span>{doc.internal ? <span className="ml-2 text-[11px] text-red-600">เอกสารภายใน</span> : null}</p>
           <Btn onClick={() => void pdf()} icon={busy ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />} label="ดาวน์โหลด PDF" primary />
@@ -59,7 +76,7 @@ export default function DocPage() {
         </div>
       </div>
 
-      <div className="py-6 print:py-0 px-2">
+      <div ref={zoomBox} className={`print:py-0 ${embed ? "py-3 px-3" : "py-6 px-2"}`} style={embed ? { zoom: scale } : undefined}>
         <div ref={paper} className="sheet relative mx-auto bg-white text-gray-900 shadow-xl w-[210mm] min-h-[297mm] px-[16mm] py-[14mm] text-[11.5px] leading-relaxed" style={{ fontFamily: "'Sarabun','Noto Sans Thai','Prompt',system-ui,sans-serif" }}>
           {doc.watermark ? <div className="pointer-events-none absolute inset-0 grid place-items-center overflow-hidden"><span className="text-[110px] font-bold text-red-500/10 -rotate-[30deg] whitespace-nowrap">{doc.watermark}</span></div> : null}
 
