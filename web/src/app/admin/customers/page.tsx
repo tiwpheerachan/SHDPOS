@@ -10,12 +10,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Search, Phone, Mail, Star, Wallet, Contact, ShoppingBag, CalendarClock,
-  TrendingUp, Clock, Loader2, MapPin, Combine, ShieldCheck, UserPlus,
+  TrendingUp, Clock, Loader2, MapPin, Combine, ShieldCheck, UserPlus, Cake,
 } from "lucide-react";
 import { listBranches } from "@/lib/data/repo";
 import { useScopeFilter } from "@/lib/store/scope-filter";
 import type { Branch } from "@/lib/types";
-import { Drawer, EmptyState, Modal, Table, Th, Td, Avatar } from "@/components/ui";
+import { Drawer, EmptyState, Modal, Table, Th, Td, Avatar, Button } from "@/components/ui";
 import { ExportShareBar } from "@/components/admin/export-share";
 import { CustomerDashboard } from "@/components/admin/customer-dashboard";
 import { CustomerFollowups } from "@/components/admin/customer-followups";
@@ -203,6 +203,18 @@ export default function AdminCustomersPage() {
     } finally {
       setConsentSaving(false);
     }
+  }
+
+  // วันเกิด (แก้ได้ที่หลังบ้านเท่านั้น)
+  const [birthDraft, setBirthDraft] = useState<string | null>(null), [birthMsg, setBirthMsg] = useState("");
+  async function saveBirth() {
+    if (!openId || birthDraft === null) return;
+    setBirthMsg("");
+    const res = await fetch("/api/admin/customers", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "set_birth_date", customer_id: openId, birth_date: birthDraft || null }) });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) { setBirthMsg(j.error ?? "บันทึกไม่สำเร็จ"); return; }
+    setBirthDraft(null); setBirthMsg(L("บันทึกแล้ว · แต้มวันเกิดเริ่มนับหลัง 30 วัน", "Saved · birthday points apply after 30 days", "已保存"));
+    await loadDetail(openId);
   }
 
   // สร้างลูกค้าใหม่ (ไม่ต้องมีการซื้อ)
@@ -786,6 +798,19 @@ export default function AdminCustomersPage() {
                   })}
                 </ul>
               )}
+            </div>
+
+            {/* วันเกิด + ระดับสมาชิก */}
+            <div>
+              <h3 className="text-sm font-semibold mb-2 flex items-center gap-2"><Cake size={15} /> {L("วันเกิดและระดับสมาชิก", "Birthday & tier", "生日与等级")}</h3>
+              <div className="p-3.5 rounded-2xl border border-line bg-surface2/40 space-y-2.5 text-xs">
+                <div className="flex flex-wrap items-center gap-2">
+                  <input type="date" min="1900-01-01" max={new Date().toISOString().slice(0, 10)} value={birthDraft ?? String(detail.customer.birth_date ?? "")} onChange={(e) => { setBirthDraft(e.target.value); setBirthMsg(""); }} className="h-9 px-2.5 rounded-lg border border-line bg-surface text-sm" />
+                  {birthDraft !== null && birthDraft !== String(detail.customer.birth_date ?? "") ? <Button size="sm" variant="primary" onClick={() => void saveBirth()}>{L("บันทึก", "Save", "保存")}</Button> : null}
+                  {birthMsg ? <span className="text-muted">{birthMsg}</span> : null}
+                </div>
+                <p className="text-muted">{L("ระดับปัจจุบัน", "Current tier", "当前等级")}: <b className="text-ink">{String(detail.customer.tier ?? "—") === "normal" ? L("ยังไม่จัดระดับ", "Not ranked", "未分级") : String(detail.customer.tier ?? "—")}</b> · {L("ปรับอัตโนมัติทุกครั้งที่ซื้อ", "updates on each purchase", "每次购买自动更新")}</p>
+              </div>
             </div>
 
             {/* ความยินยอมติดต่อ (PDPA) */}

@@ -176,6 +176,7 @@ export async function testLineCampaignsLoyalty(db) {
     await db.query("insert into loyalty_tiers(brand_id,code,name,min_spend,multiplier) values(null,'member','Member',0,1),(null,'gold','Gold',1000,1.5)");
     const Y = U(710), Z = U(711);
     await db.query("insert into customers(id,name,points,birth_date) values($1,'Tier Y',0,'1990-11-28'),($2,'Tier Z',0,'1990-03-03')", [Y, Z]);
+    await db.query("update customers set birth_date_set_at = now() - interval '60 days' where id in ($1,$2)", [Y, Z]); // วันเกิดอยู่ในระบบนานแล้ว
     await db.query(`insert into orders(id,client_uuid,order_no,branch_id,customer_id,status,channel,subtotal,grand_total,created_at) values($1,$1,'TIER-1',$2,$3,'completed','offline',1200,1200,$4::timestamptz - interval '10 days')`, [U(712), BR, Y, SAT]);
     const y = await calc({ customer: Y, net: 1000 });
     eq(y.tier.code, 'gold', 'Y = Gold'); eq(y.points, 75, '50 + Gold 25');
@@ -196,6 +197,20 @@ export async function testLineCampaignsLoyalty(db) {
     eq((await calc({ net: 1000, sim: { first_purchase: true } })).points, 90, 'จำลองซื้อครั้งแรก');
     eq((await calc({ net: 1000 })).points, 50, 'ไม่มีลูกค้า = ไม่เข้าเงื่อนไข');
     await off(a); await off(b); await off(c);
+  });
+  await t('กันโกงวันเกิด: ตั้งวันเกิดใหม่ยังไม่นับ 30 วัน · หน้าร้านเติมได้แต่เขียนทับไม่ได้ · วันที่ผิดถูกปฏิเสธ', async () => {
+    const a = await rule({ kind: 'bonus', bonus_points: 100, customer_condition: 'birthday_day' });
+    const N = U(720);
+    const up = (p) => db.query('select pos_customer_upsert($1) r', [p]).then((x) => x.rows[0].r);
+    await up({ id: N, name: 'New Bday', birth_date: '1995-11-28' });
+    const nb = (await db.query('select birth_date_set_at from customers where id=$1', [N])).rows[0].birth_date_set_at;
+    assert(nb, 'ต้องบันทึกเวลาที่ตั้งวันเกิด');
+    eq((await calc({ customer: N, net: 1000 })).points, 50 + 40 * 0, 'วันเกิดเพิ่งตั้ง → ยังไม่ได้โบนัส');
+    await up({ id: N, name: 'New Bday', birth_date: '1999-01-01' });
+    eq(String((await db.query("select to_char(birth_date,'YYYY-MM-DD') d from customers where id=$1", [N])).rows[0].d), '1995-11-28', 'หน้าร้านเขียนทับวันเกิดไม่ได้');
+    await rejects(up({ name: 'Future', birth_date: '2999-01-01' }), 'birth_date_invalid');
+    await rejects(up({ name: 'Bad', birth_date: 'abc' }), 'birth_date_invalid');
+    await off(a);
   });
   await t('บันทึกบิลจริง: ระดับล่าสุดเขียนลง customers.tier', async () => {
     const Z = U(711);

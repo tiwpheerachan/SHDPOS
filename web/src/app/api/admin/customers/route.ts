@@ -291,6 +291,7 @@ export async function POST(req: NextRequest) {
         action?: string; customer_id?: string; points?: number; credit?: number; kind?: string; note?: string; brand_id?: string;
         name?: string; phone?: string; email?: string; tax_id?: string;
         consent?: { contact_consent?: boolean; consent_channels?: string[]; consent_note?: string };
+        birth_date?: string | null;
       }
     | null;
   if (!b) return NextResponse.json({ error: "bad body" }, { status: 400 });
@@ -318,6 +319,17 @@ export async function POST(req: NextRequest) {
   }
 
   if (!b.customer_id) return NextResponse.json({ error: "customer_id required" }, { status: 400 });
+
+  // แก้วันเกิด (หลังบ้านเท่านั้น — หน้าร้านเติมได้ครั้งเดียว) · กฎแต้มวันเกิดเริ่มนับหลังตั้ง 30 วัน (กันโกง)
+  if (b.action === "set_birth_date") {
+    const d = b.birth_date ? String(b.birth_date) : null;
+    const today = new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10);
+    if (d && (!/^\d{4}-\d{2}-\d{2}$/.test(d) || d < "1900-01-01" || d > today || Number.isNaN(new Date(d).getTime()))) return NextResponse.json({ error: "วันเกิดไม่ถูกต้อง" }, { status: 400 });
+    const { error } = await supabaseAdmin().from("customers").update({ birth_date: d, updated_at: new Date().toISOString() }).eq("id", b.customer_id);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    await supabaseAdmin().from("audit_logs").insert({ action: "customer_birth_date", actor_id: ctx.authz.employee_id ?? null, ref_table: "customers", ref_id: b.customer_id, after_data: { birth_date: d } });
+    return NextResponse.json({ ok: true });
+  }
 
   // อัปเดตความยินยอมติดต่อ (PDPA)
   if (b.consent) {

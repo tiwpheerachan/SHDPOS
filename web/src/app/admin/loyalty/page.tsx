@@ -103,7 +103,7 @@ export default function LoyaltyPage() {
   const activeRules = rules.filter((r) => ruleState(r).group === 0).length;
 
   return (
-    <div className="space-y-5">
+    <div className="p-4 sm:p-6 space-y-5 w-full">
       <header className="flex flex-wrap items-end gap-3">
         <span className="h-11 w-11 grid place-items-center rounded-2xl bg-amber-500/12 text-amber-600"><Star size={20} /></span>
         <div className="min-w-0 flex-1">

@@ -8,7 +8,7 @@
 // =====================================================================
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Search, UserPlus, X, Phone, Star, Check, Loader2, IdCard } from "lucide-react";
+import { Search, UserPlus, X, Phone, Star, Check, Loader2, IdCard, Cake } from "lucide-react";
 import { searchCustomers, createCustomer } from "@/lib/data/repo";
 import { useI18n } from "@/lib/i18n/provider";
 import { Avatar } from "@/components/ui";
@@ -114,7 +114,7 @@ export function CustomerPicker({
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState<"search" | "create">("search");
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ name: "", phone: "", email: "", tax_id: "" });
+  const [form, setForm] = useState({ name: "", phone: "", email: "", tax_id: "", birth_date: "" });
   const searchRef = useRef<HTMLInputElement>(null);
 
   // รีเซ็ตทุกครั้งที่เปิด
@@ -123,7 +123,7 @@ export function CustomerPicker({
       setQ(initialQuery);
       setMode("search");
       setResults([]);
-      setForm({ name: "", phone: "", email: "", tax_id: "" });
+      setForm({ name: "", phone: "", email: "", tax_id: "", birth_date: "" });
       setTimeout(() => searchRef.current?.focus(), 120);
     }
   }, [open, initialQuery]);
@@ -164,12 +164,15 @@ export function CustomerPicker({
       phone: phoneLike ? term.replace(/\s/g, "") : "",
       email: "",
       tax_id: "",
+      birth_date: "",
     });
     setMode("create");
   }
 
+  const today = new Date().toISOString().slice(0, 10);
+  const birthOk = !form.birth_date || (form.birth_date >= "1900-01-01" && form.birth_date <= today);
   async function submitCreate() {
-    if (!form.name.trim()) return;
+    if (!form.name.trim() || !birthOk) return;
     setSaving(true);
     try {
       const c = await createCustomer({
@@ -177,6 +180,7 @@ export function CustomerPicker({
         phone: form.phone,
         email: form.email,
         tax_id: form.tax_id,
+        birth_date: birthOk ? form.birth_date || null : null,
         first_branch_id: branchId ?? null,
       });
       onPick(c);
@@ -266,6 +270,11 @@ export function CustomerPicker({
               <div className="cxp-field">
                 <input className="cxp-inp" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder={L("อีเมล (ไม่บังคับ)", "Email (optional)", "邮箱(选填)")} inputMode="email" />
               </div>
+              <label className="cxp-field" style={{ display: "block" }}>
+                <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, opacity: 0.7, margin: "0 0 4px 4px" }}><Cake size={13} />{L("วันเกิด (ไม่บังคับ · รับแต้มพิเศษวันเกิด)", "Birthday (optional · birthday points)", "生日(选填·生日积分)")}</span>
+                <input className="cxp-inp" type="date" min="1900-01-01" max={today} value={form.birth_date} onChange={(e) => setForm({ ...form, birth_date: e.target.value })} />
+                {!birthOk ? <span style={{ color: "#dc2626", fontSize: 12, marginLeft: 4 }}>{L("วันเกิดไม่ถูกต้อง", "Invalid birthday", "生日无效")}</span> : null}
+              </label>
               <div className="cxp-field">
                 <IdCard size={16} className="cxp-inp-ic" />
                 <input className="cxp-inp cxp-inp2" value={form.tax_id} onChange={(e) => setForm({ ...form, tax_id: e.target.value })} placeholder={L("เลขผู้เสียภาษี (ไม่บังคับ)", "Tax ID (optional)", "纳税人识别号(选填)")} inputMode="numeric" />
@@ -273,7 +282,7 @@ export function CustomerPicker({
             </div>
             <div className="cxp-foot">
               <button className="cxp-btn cxp-btn-ghost" onClick={() => setMode("search")}>{L("ย้อนกลับ", "Back", "返回")}</button>
-              <button className="cxp-btn cxp-btn-primary" disabled={!form.name.trim() || saving} onClick={submitCreate}>
+              <button className="cxp-btn cxp-btn-primary" disabled={!form.name.trim() || !birthOk || saving} onClick={submitCreate}>
                 {saving ? <Loader2 size={18} className="animate-spin" /> : <Check size={18} />}
                 {L("บันทึกและเลือก", "Save & select", "保存并选择")}
               </button>

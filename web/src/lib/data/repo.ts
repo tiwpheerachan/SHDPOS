@@ -2015,6 +2015,8 @@ export interface NewCustomerInput {
   source?: string;
   first_branch_id?: string | null;
   note?: string;
+  /** YYYY-MM-DD (ไม่บังคับ) — ใช้กับกฎแต้มวันเกิด */
+  birth_date?: string | null;
 }
 
 /** สร้างลูกค้าใหม่ — เขียนลงเครื่องทันที + ซิงก์ขึ้น server (idempotent ด้วย id) */
@@ -2049,6 +2051,7 @@ export async function createCustomer(input: NewCustomerInput): Promise<Customer>
       source: customer.source,
       first_branch_id: input.first_branch_id ?? null,
       note: customer.note,
+      birth_date: input.birth_date || null,
     });
   }
   return customer;
