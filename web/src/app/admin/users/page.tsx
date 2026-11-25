@@ -18,6 +18,7 @@ const SCOPES: DataScope[] = ["own", "branch", "brand", "company"];
 // NOTE: th/en/zh labels rendered via L() at point of use (locale not available at module scope)
 const PERM_LABEL: Record<string, { th: string; en: string; zh: string }> = {
   "pos.sell": { th: "ขายสินค้า", en: "Sell", zh: "销售" },
+  "pickup.handover": { th: "ส่งมอบของที่ลูกค้ามารับ", en: "Hand over pickups", zh: "交付取货" },
   "pos.discount": { th: "ให้ส่วนลด", en: "Give discount", zh: "折扣" },
   "pos.price_override": { th: "แก้ราคา", en: "Override price", zh: "改价" },
   "pos.void": { th: "ยกเลิกบิล", en: "Void bill", zh: "作废单据" },

@@ -7,7 +7,7 @@ import clsx from "clsx";
 import {
   ShoppingCart, ReceiptText, RotateCcw, Boxes, FileText, ClipboardList,
   Settings, ShieldCheck, LogOut, Wifi, WifiOff, RefreshCw, Sun, Moon, Monitor, Languages, Clock, Home,
-  LayoutDashboard, PauseCircle, SlidersHorizontal, Search, ArrowLeftRight, PackagePlus,
+  LayoutDashboard, PauseCircle, SlidersHorizontal, Search, ArrowLeftRight, PackagePlus, PackageCheck,
 } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { useTheme } from "@/lib/theme";
@@ -30,6 +30,7 @@ const NAV = [
   { href: "/pos/orders", icon: ReceiptText, key: "orders" },
   { href: "/pos/holds", icon: PauseCircle, key: "holds" },
   { href: "/pos/returns", icon: RotateCcw, key: "returns" },
+  { href: "/pos/pickups", icon: PackageCheck, key: "pickups" },
   { href: "/pos/stock", icon: Boxes, key: "stock" },
   { href: "/pos/transfers", icon: ArrowLeftRight, key: "transfers" },
   { href: "/pos/receive", icon: PackagePlus, key: "receive" },
@@ -75,6 +76,7 @@ export function PosTopBar() {
     recovery: locale === "th" ? "ตรวจรายการรับชำระ" : "Checkout recovery",
     holds: t.cmd.heldOrders,
     returns: t.returns.title,
+    pickups: locale === "th" ? "รอรับของ" : locale === "zh" ? "待取货" : "Pickups",
     stock: t.inventory.title,
     transfers: t.transfer.title,
     receive: t.cmd.goodsReceipt,

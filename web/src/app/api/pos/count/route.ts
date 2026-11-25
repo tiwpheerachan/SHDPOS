@@ -93,16 +93,19 @@ export async function GET(req: NextRequest) {
     const names = Object.fromEntries(emps.map((e) => [e.id, [e.first_name, e.last_name].filter(Boolean).join(" ") || e.nickname]));
     let meta: unknown = undefined;
     if (req.nextUrl.searchParams.get("meta") === "1") {
-      const [cats, brands, staff, link] = await Promise.all([
+      const [cats, brands, staff, link, pk] = await Promise.all([
         sb.from("categories").select("id,name_th").eq("is_active", true).order("name_th"),
         sb.from("brands").select("id,name").order("name"),
         sb.from("employees").select("id,first_name,last_name,nickname").eq("status", "active").eq("home_branch_id", branch).order("first_name").limit(200),
         sb.from("pos_warehouse_links").select("warehouse_id").eq("branch_id", branch).limit(1),
+        sb.from("pos_order_pickups").select("items").eq("branch_id", branch).in("status", ["pending", "partial"]),
       ]);
+      // ของที่ลูกค้าจ่ายแล้วรอมารับ (ตัดสต๊อกแล้วแต่ยังอยู่ในร้าน) — ต้องแยกไว้ ไม่นับ
+      const pickupUnits = (pk.data ?? []).reduce((s, p) => s + (p.items as { qty: number; picked_qty: number; returned_qty: number }[]).reduce((a, i) => a + Number(i.qty) - Number(i.picked_qty) - Number(i.returned_qty), 0), 0);
       meta = {
         categories: (cats.data ?? []).map((c) => ({ id: c.id, name: c.name_th })), brands: brands.data ?? [],
         staff: (staff.data ?? []).map((e) => ({ id: e.id, name: [e.first_name, e.last_name].filter(Boolean).join(" ") || e.nickname })),
-        ow_linked: !!link.data?.length,
+        ow_linked: !!link.data?.length, pickup_units: pickupUnits, pickup_bills: (pk.data ?? []).length,
       };
     }
     return reply({ sessions: list.data ?? [], progress, names, meta });

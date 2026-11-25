@@ -88,6 +88,8 @@ export default function SellPage() {
   const [printError, setPrintError] = useState<string | null>(null);
   const [holds, setHolds] = useState<HeldBill[]>([]);
   const [reserveMode, setReserveMode] = useState(false); // ส่งทีหลัง (จองของ)
+  // โหมดจริง: ลูกค้าจ่ายเต็มแล้วมารับของทีหลัง (ไม่รับมัดจำ) — บิลปิดปกติ + รายการรอรับ (0077)
+  const [pickupLater, setPickupLater] = useState(false), [pickupDue, setPickupDue] = useState("");
   const [resvOpen, setResvOpen] = useState(false); const [resvOrders, setResvOrders] = useState<Order[]>([]);
   const [holdOpen, setHoldOpen] = useState(false);
   const [customerOpen, setCustomerOpen] = useState(false);
@@ -694,7 +696,12 @@ export default function SellPage() {
       let centralOrderNo: string | null = null;
       if (isLiveMode()) {
         if (!checkoutId.current) throw new Error("ไม่พบการจองกลาง กรุณาตรวจรายการก่อนรับเงินซ้ำ");
-        const committed = await checkoutRequest("commit", operationId, branchId, {payments});
+        const committed = await checkoutRequest("commit", operationId, branchId, {payments, ...(pickupLater ? { pickup: { due: pickupDue || null } } : {})});
+        if (pickupLater) {
+          if (committed?.pickup?.ok) toast.push({ tone: "ok", title: L("บันทึกเป็น “รอลูกค้ามารับ” แล้ว", "Saved as awaiting pickup", "已登记待取货"), body: pickupDue ? L(`นัดรับ ${new Date(pickupDue).toLocaleDateString("th-TH", { day: "numeric", month: "short" })}`, `Pickup by ${pickupDue}`, pickupDue) : undefined });
+          else toast.push({ tone: "warn", title: L("ขายสำเร็จ แต่ยังไม่ได้ตั้งรอรับของ", "Sold, but pickup not recorded", "已售但未登记取货"), body: L("ไปที่เมนู “รอรับของ” แล้วกดตั้งจากเลขบิล", "Open Pickups and add it from the bill number", "请在取货页补登") });
+          setPickupLater(false); setPickupDue("");
+        }
         // เลขบิลกลาง (เช่น UAT-33856-261124-0003) — ใช้บนใบเสร็จให้ค้นในระบบกลาง/คลังกลาง/JST ได้ตรงกัน
         centralOrderNo = typeof committed?.order_no === "string" ? committed.order_no : null;
       }
@@ -1285,8 +1292,14 @@ export default function SellPage() {
           {isLiveMode()?<label className={`flex gap-2 text-xs p-3 rounded-xl border ${deferredMode?'border-warn/40 bg-warn/10 text-ink':'border-line text-muted'}`}><input type="checkbox" checked={deferredMode} onChange={e=>{setDeferredMode(e.target.checked);if(e.target.checked)setReserveMode(false)}}/>ขายก่อน · รอเติม SN / ข้อมูล แล้วปิดบิลภายหลัง</label>:null}
           <div className="flex items-center justify-between gap-2 px-0.5">
             <label className="flex items-center gap-2 cursor-pointer text-xs select-none">
-              <input type="checkbox" disabled={isLiveMode()} title={isLiveMode() ? "รอกระบวนการส่งมอบส่วนกลาง" : undefined} checked={reserveMode} onChange={(e) => setReserveMode(e.target.checked)} className="w-4 h-4 accent-[rgb(var(--c-brand))]" />
+              {isLiveMode() ? (<>
+                <input type="checkbox" checked={pickupLater} disabled={deferredMode} onChange={(e) => setPickupLater(e.target.checked)} className="w-4 h-4 accent-[rgb(var(--c-brand))]" />
+                <span className={pickupLater ? "text-brand font-medium" : "text-muted"}>{L("ลูกค้ามารับของภายหลัง", "Customer picks up later", "顾客稍后取货")}</span>
+                {pickupLater ? <input type="date" value={pickupDue} min={new Date().toISOString().slice(0, 10)} onChange={(e) => setPickupDue(e.target.value)} onClick={(e) => e.stopPropagation()} className="h-7 px-1.5 rounded-md border border-line bg-surface text-[11px]" title={L("วันนัดรับ (ไม่บังคับ)", "Pickup date (optional)", "取货日期")} /> : null}
+              </>) : (<>
+              <input type="checkbox" checked={reserveMode} onChange={(e) => setReserveMode(e.target.checked)} className="w-4 h-4 accent-[rgb(var(--c-brand))]" />
               <span className={reserveMode ? "text-brand font-medium" : "text-muted"}>{L("ส่งทีหลัง (จองของ)", "Deliver later (reserve)", "延后交付")}</span>
+              </>)}
             </label>
             <button onClick={() => setResvOpen(true)} className="text-xs text-muted hover:text-brand inline-flex items-center gap-1">{L("ออเดอร์จอง", "Reserved", "预留单")}{resvOrders.length ? <span className="min-w-[16px] h-4 px-1 grid place-items-center rounded-full bg-brand/15 text-brand text-[10px] font-bold">{resvOrders.length}</span> : null}</button>
           </div>

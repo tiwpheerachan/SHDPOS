@@ -212,6 +212,13 @@ export async function POST(req: NextRequest) {
         throw new PosError(`รายการรับชำระต้องตรวจสอบ: ${r.error.message}`, 409);
       // บิลเข้าคิวแล้ว (trigger ใน transaction เดียวกับ commit) → ส่งไป OneWarehouse/JST ทันทีแบบไม่รอ
       kickSaleOutbox();
+      // ลูกค้าจ่ายเต็มแล้วมารับของทีหลัง (0077) — สร้างรายการรอรับต่อจากบิล · ล้มเหลว = บิลยังสำเร็จ แจ้งให้ตั้งจากหน้า "รอลูกค้ารับของ"
+      if (body.pickup && typeof body.pickup === "object") {
+        const pu = object(body.pickup);
+        const due = typeof pu.due === "string" && /^\d{4}-\d{2}-\d{2}$/.test(pu.due) ? pu.due : null;
+        const p = await sb.rpc("pos_pickup_create", { p_actor: ctx.actorId, p_order_client: body.id, p_due: due, p_contact: {}, p_note: typeof pu.note === "string" ? pu.note.slice(0, 500) : null });
+        return NextResponse.json({ ...(r.data as object), pickup: p.error ? { ok: false, error: p.error.message } : { ok: true, ...(p.data as object) } });
+      }
       return NextResponse.json(r.data);
     }
     throw new PosError("ไม่รองรับคำสั่งนี้");

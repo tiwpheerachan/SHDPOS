@@ -7,7 +7,7 @@ export type FourState = "inherit" | PermissionEffect;
 
 export const PERM_GROUPS: { th: string; en: string; zh: string; keys: PermissionKey[] }[] = [
   { th: "เมนูหลังบ้าน", en: "Back-office menus", zh: "后台菜单", keys: ["dashboard.view", "work.view", "sales.view", "sales.trace", "product.view", "document.view", "approval.view"] },
-  { th: "ขายหน้าร้าน", en: "Store sales", zh: "门店销售", keys: ["pos.sell", "pos.discount", "pos.price_override", "pos.void", "pos.reprint", "pos.open_drawer", "pos.quotation", "deferred_sale.manage"] },
+  { th: "ขายหน้าร้าน", en: "Store sales", zh: "门店销售", keys: ["pos.sell", "pos.discount", "pos.price_override", "pos.void", "pos.reprint", "pos.open_drawer", "pos.quotation", "deferred_sale.manage", "pickup.handover"] },
   { th: "คืนสินค้า", en: "Returns", zh: "退货", keys: ["return.create", "return.approve"] },
   { th: "สต็อก", en: "Stock", zh: "库存", keys: ["inventory.view", "inventory.adjust", "inventory.count", "inventory.count_approve"] },
   { th: "โอนย้าย", en: "Transfers", zh: "调货", keys: ["transfer.request", "transfer.approve", "transfer.receive"] },
@@ -38,6 +38,7 @@ export const PERM_LABEL: Record<PermissionKey, { th: string; en: string; zh: str
   "integration.manage": { th: "เชื่อมคลังกลาง (OneWarehouse)", en: "OneWarehouse integration", zh: "中央仓对接" },
   "integration.reconcile": { th: "ตรวจความตรงกัน POS↔คลังกลาง↔JST", en: "POS↔OW↔JST reconciliation", zh: "POS↔中央仓↔JST 核对" },
   "pos.sell": { th: "ขายสินค้า", en: "Sell", zh: "销售" },
+  "pickup.handover": { th: "ส่งมอบสินค้าที่ลูกค้ามารับภายหลัง", en: "Hand over pickup orders", zh: "交付待取货订单" },
   "pos.price_override": { th: "แก้ราคา", en: "Override price", zh: "改价" },
   "pos.void": { th: "ยกเลิกบิล", en: "Void bill", zh: "作废单据" },
   "pos.reprint": { th: "พิมพ์ซ้ำ", en: "Reprint", zh: "重新打印" },

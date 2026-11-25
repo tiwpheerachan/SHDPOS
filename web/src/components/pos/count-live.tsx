@@ -32,7 +32,7 @@ type Line = {
 type SnVerdict = "match" | "missing" | "sold" | "other_branch" | "wrong_product" | "not_sellable" | "unknown";
 type SnCheck = { sn: string; verdict: SnVerdict; status?: string; ref?: string; other_sku?: string };
 type ListRow = Pick<Sess, "id" | "count_no" | "scope_type" | "scope" | "zone" | "mode" | "blind" | "status" | "ow_linked" | "posted" | "created_by" | "created_at" | "result">;
-type Meta = { categories: { id: string; name: string }[]; brands: { id: string; name: string }[]; staff: { id: string; name: string }[]; ow_linked: boolean };
+type Meta = { categories: { id: string; name: string }[]; brands: { id: string; name: string }[]; staff: { id: string; name: string }[]; ow_linked: boolean; pickup_units?: number; pickup_bills?: number };
 type Edit = { qty?: string; sns?: string[]; skip?: string };
 
 const baht = (n: number) => n.toLocaleString("th-TH", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
@@ -139,6 +139,12 @@ export function CountLive() {
           <div className="rounded-xl border border-info/30 bg-info/5 px-4 py-3 text-[12.5px] leading-relaxed">
             {L("สาขานี้ใช้สต๊อกจากคลังกลาง OneWarehouse — นับและอนุมัติได้ตามปกติ แต่ผลนับจะเป็น “รายงานผลต่าง” ให้ไปปรับยอดใน OneWarehouse (ระบบจะไม่แก้ยอดใน POS เอง)",
               "This branch uses OneWarehouse stock — approved counts become a variance report to adjust in OneWarehouse (POS stock is not changed).", "本门店使用中央仓库存 — 审批后仅生成差异报告")}
+          </div>
+        ) : null}
+        {meta?.pickup_units ? (
+          <div className="rounded-xl border border-warn/40 bg-warn/8 px-4 py-3 text-[12.5px] leading-relaxed">
+            {L(`มีของที่ลูกค้าจ่ายแล้วรอมารับ ${meta.pickup_units} ชิ้น (${meta.pickup_bills} บิล) — ระบบตัดสต๊อกไปแล้ว ให้แยกเก็บและไม่ต้องนับรวม (ดูรายการที่เมนู “รอรับของ”)`,
+              `${meta.pickup_units} paid unit(s) awaiting customer pickup — already deducted; set aside and do not count them`, `${meta.pickup_units} 件待取货 — 已扣库存，勿盘点`)}
           </div>
         ) : null}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">

@@ -6,7 +6,7 @@
 import type { Employee, EmployeeRole, PermissionEffect } from "./types";
 
 export const PERMISSION_KEYS = [
-  "pos.sell", "pos.discount", "pos.price_override", "pos.void", "pos.reprint",
+  "pos.sell", "pos.discount", "pos.price_override", "pos.void", "pos.reprint", "pickup.handover",
   "pos.open_drawer", "pos.quotation",
   "return.create", "return.approve",
   "inventory.view", "inventory.adjust", "inventory.count", "inventory.count_approve",
@@ -40,6 +40,7 @@ export const ROLE_MATRIX: Record<EmployeeRole, Partial<Record<PermissionKey, Rul
     "product.view": { effect: "allow" },
     "deferred_sale.manage": { effect: "allow" },
     "pos.sell": { effect: "allow" },
+    "pickup.handover": { effect: "allow" },
     "pos.discount": { effect: "allow", limit: 5 },
     "pos.void": { effect: "approval" },
     "pos.reprint": { effect: "approval" },
@@ -63,6 +64,7 @@ export const ROLE_MATRIX: Record<EmployeeRole, Partial<Record<PermissionKey, Rul
     "deferred_sale.manage": { effect: "allow" },
     "approval.view": { effect: "allow" },
     "pos.sell": { effect: "allow" },
+    "pickup.handover": { effect: "allow" },
     "pos.discount": { effect: "allow", limit: 10 },
     "pos.price_override": { effect: "approval" },
     "pos.void": { effect: "allow" },
@@ -97,6 +99,7 @@ export const ROLE_MATRIX: Record<EmployeeRole, Partial<Record<PermissionKey, Rul
     "loyalty.manage": { effect: "allow" },
     "display.manage": { effect: "allow" },
     "pos.sell": { effect: "allow" },
+    "pickup.handover": { effect: "allow" },
     "pos.discount": { effect: "allow", limit: 20 },
     "pos.price_override": { effect: "allow" },
     "pos.void": { effect: "allow" },
