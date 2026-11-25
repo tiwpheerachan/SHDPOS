@@ -37,4 +37,5 @@ await (await import('./test-line-campaigns-loyalty.mjs')).testLineCampaignsLoyal
 await (await import('./test-documents.mjs')).testDocuments(db,ids);
 await (await import('./test-stock-count.mjs')).testStockCount(db,ids);
 await (await import('./test-credit-notes.mjs')).testCreditNotes(db,ids);
+await (await import('./test-period-close.mjs')).testPeriodClose(db,ids);
 await db.close();

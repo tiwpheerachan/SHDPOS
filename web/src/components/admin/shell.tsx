@@ -10,6 +10,7 @@ import {
   ShieldCheck, ScrollText, Settings2, Store, Sun, Moon, Languages, Menu, X, Bell,
   Search, PanelLeftClose, PanelLeftOpen, ChevronDown, Command, Home, Activity, FileText, LogOut, Contact, CalendarClock, Ticket, Network, Landmark, Wand2, CreditCard, MonitorPlay, Cloud,
   BadgePercent, Star, CloudDownload, UserCog, History,
+  CalendarCheck,
 } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { useTheme } from "@/lib/theme";
@@ -43,6 +44,7 @@ const NAV: NavGroup[] = [
       { hub: "money", icon: Landmark, children: [
         { href: "/admin/finance", icon: Landmark, key: "finance", perm: "finance.view" },
         { href: "/admin/payments", icon: CreditCard, key: "payments", perm: "finance.view" },
+        { href: "/admin/periods", icon: CalendarCheck, key: "periods", perm: "period.close" },
       ] },
     ],
   },
@@ -205,6 +207,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
     payments: L("รับชำระ / EDC", "Payments / EDC", "收款/EDC"),
     org: L("ผังสาขา", "Branch map", "门店地图"),
     finance: L("การเงิน", "Finance", "财务"),
+    periods: L("ปิดงวด", "Period close", "结账"),
     insights: L("ผู้ช่วย AI", "AI assistant", "AI 助手"),
     onewarehouse: L("เชื่อมคลังกลาง", "OneWarehouse", "中央仓"),
     catalogsync: L("นำเข้าแคตตาล็อก", "Catalog import", "目录导入"),
