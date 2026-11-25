@@ -36,4 +36,5 @@ await (await import('./test-work-center.mjs')).testWorkCenter(db,ids);
 await (await import('./test-line-campaigns-loyalty.mjs')).testLineCampaignsLoyalty(db);
 await (await import('./test-documents.mjs')).testDocuments(db,ids);
 await (await import('./test-stock-count.mjs')).testStockCount(db,ids);
+await (await import('./test-credit-notes.mjs')).testCreditNotes(db,ids);
 await db.close();

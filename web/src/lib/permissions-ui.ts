@@ -15,7 +15,7 @@ export const PERM_GROUPS: { th: string; en: string; zh: string; keys: Permission
   { th: "การตลาด & ลูกค้า", en: "Marketing & customers", zh: "营销与客户", keys: ["customer.manage", "campaign.manage", "loyalty.manage", "display.manage"] },
   { th: "รายงาน & การเงิน", en: "Reports & finance", zh: "报表与财务", keys: ["report.employee_perf", "report.cost", "report.gross_profit", "report.discount", "finance.view"] },
   { th: "แอดมิน", en: "Admin", zh: "管理", keys: ["admin.employee_manage", "admin.permission_manage", "admin.product_manage", "admin.branch_manage", "admin.settings", "integration.manage", "integration.reconcile", "audit.view"] },
-  { th: "เอกสารภาษี", en: "Tax documents", zh: "税务单据", keys: ["tax.issue_full"] },
+  { th: "เอกสารภาษี", en: "Tax documents", zh: "税务单据", keys: ["tax.issue_full", "tax.credit_note"] },
 ];
 
 // Record<PermissionKey,…> → ถ้าเพิ่มคีย์ใหม่ใน permissions.ts แต่ลืมใส่ป้ายตรงนี้ TypeScript จะ error ทันที
@@ -66,6 +66,7 @@ export const PERM_LABEL: Record<PermissionKey, { th: string; en: string; zh: str
   "audit.view": { th: "ดู audit log", en: "View audit log", zh: "查看审计日志" },
   "customer.manage": { th: "จัดการลูกค้า", en: "Manage customers", zh: "管理客户" },
   "tax.issue_full": { th: "ออกใบกำกับเต็มรูป", en: "Issue full tax invoice", zh: "开具增值税专用发票" },
+  "tax.credit_note": { th: "ออกใบลดหนี้ (ลดราคา/คืนเงินหลังขาย)", en: "Issue credit note", zh: "开具红字发票" },
 };
 
 export const STATE_META: Record<FourState, { th: string; en: string; zh: string; glyph: string }> = {

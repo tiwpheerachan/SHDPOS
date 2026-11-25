@@ -1,6 +1,7 @@
 // /api/pos/order-docs — เอกสารทั้งหมดของบิล (จัดตามขั้น) + ออกใบกำกับภาษีเต็มรูป
 //   GET  ?client_uuid= | ?order_no=  → { docs, buyer_prefill, can_issue_tax }   (ผู้ใช้ที่เห็นสาขาของบิล)
 //   POST { action:"issue_tax_invoice", client_uuid, buyer:{name,tax_id,branch_no,address,phone}, replace_reason? }  (สิทธิ์ tax.issue_full)
+//   POST { action:"issue_credit_note", client_uuid, request_id(uuid กันส่งซ้ำ), amount, reason, refund_method }  (สิทธิ์ tax.credit_note · 0074)
 import { NextRequest, NextResponse } from "next/server";
 import { SSO_COOKIE, readSession } from "@/lib/sso/session-cookie";
 import { resolveAuthz } from "@/lib/sso/grants";
@@ -17,6 +18,9 @@ const reply = (d: unknown, s = 200) => NextResponse.json(d, { status: s, headers
 const ERR: Record<string, string> = {
   tax_invoice_order_not_eligible: "บิลถูกยกเลิก/คืนครบแล้ว ออกใบกำกับภาษีไม่ได้", tax_invoice_branch_forbidden: "ไม่มีสิทธิ์ในสาขาของบิลนี้",
   tax_invoice_buyer_name: "กรุณากรอกชื่อผู้ซื้อ", tax_invoice_buyer_tax_id: "เลขประจำตัวผู้เสียภาษีต้องมี 13 หลัก", tax_invoice_buyer_address: "กรุณากรอกที่อยู่ผู้ซื้อให้ครบ",
+  credit_note_reason_required: "กรุณาระบุเหตุที่ลดหนี้", credit_note_invalid_amount: "จำนวนเงินไม่ถูกต้อง", credit_note_order_not_eligible: "บิลถูกยกเลิก/คืนครบแล้ว ลดหนี้ไม่ได้",
+  credit_note_refund_method: "เลือกช่องทางคืนเงิน (เงินสด/โอน/พร้อมเพย์/บัตร)", credit_note_no_open_shift: "คืนเป็นเงินสดต้องมีกะที่เปิดอยู่ในสาขา — เปิดกะก่อน หรือเลือกโอนเงิน",
+  credit_note_branch_forbidden: "ไม่มีสิทธิ์ในสาขาของบิลนี้",
   tax_invoice_exists: "บิลนี้ออกใบกำกับภาษีแล้ว — ถ้าต้องการแก้ไข ให้ระบุเหตุผลเพื่อยกเลิกใบเดิมและออกใบใหม่", tax_invoice_order_not_found: "ไม่พบบิล",
 };
 
@@ -44,6 +48,9 @@ export async function GET(req: NextRequest) {
     return reply({
       order: { order_no: o.order_no, client_uuid: o.client_uuid, status: o.status },
       docs, can_issue_tax: hasPerm(c.profile.email, c.authz, "tax.issue_full"),
+      can_credit_note: hasPerm(c.profile.email, c.authz, "tax.credit_note"),
+      cn_remaining: ["completed", "partially_refunded"].includes(o.status) ? Number((await supabaseAdmin().rpc("pos_cn_capacity", { p_order: o.id })).data ?? 0) : 0,
+      order_total: Number(o.grand_total),
       tax_request: rq ? { contact: rq.contact, created_at: rq.created_at } : null,
       buyer_prefill: rq ? { name: rq.buyer.name ?? "", tax_id: rq.buyer.tax_id ?? "", branch_no: rq.buyer.branch_no ?? "", address: rq.buyer.address ?? "", phone: rq.buyer.phone ?? "" } : cust ? { name: cust.tax_name || cust.name, tax_id: cust.tax_id ?? "", branch_no: cust.tax_branch_no ?? "", address: cust.tax_address ?? "", phone: cust.phone ?? "" } : null,
     });
@@ -55,6 +62,7 @@ export async function POST(req: NextRequest) {
   const c = await ctx(req);
   if (!c || !c.authz.employee_id) return reply({ error: "กรุณาเข้าสู่ระบบ" }, 401);
   const b = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+  if (b?.action === "issue_credit_note") return issueCreditNote(c, b);
   if (b?.action !== "issue_tax_invoice") return reply({ error: "คำสั่งไม่ถูกต้อง" }, 400);
   if (!hasPerm(c.profile.email, c.authz, "tax.issue_full")) return reply({ error: "ไม่มีสิทธิ์ออกใบกำกับภาษีเต็มรูป" }, 403);
   if (!UUID.test(String(b.client_uuid))) return reply({ error: "ระบุบิลไม่ถูกต้อง" }, 400);
@@ -82,4 +90,26 @@ export async function POST(req: NextRequest) {
     }
   }
   return reply({ ...out, url: docUrl("tax_invoice", out.id) });
+}
+
+// ── ใบลดหนี้ส่วนลด (ไม่มีสินค้าคืน) · CN จากการรับคืนออกอัตโนมัติเมื่อบิลมีใบกำกับเต็มรูป ──
+async function issueCreditNote(c: NonNullable<Awaited<ReturnType<typeof ctx>>>, b: Record<string, unknown>) {
+  if (!hasPerm(c.profile.email, c.authz, "tax.credit_note")) return reply({ error: "ไม่มีสิทธิ์ออกใบลดหนี้" }, 403);
+  if (!UUID.test(String(b.client_uuid)) || !UUID.test(String(b.request_id))) return reply({ error: "ระบุบิลไม่ถูกต้อง" }, 400);
+  const amount = Number(b.amount);
+  if (!Number.isFinite(amount) || amount <= 0 || amount > 10_000_000) return reply({ error: "จำนวนเงินไม่ถูกต้อง" }, 400);
+  const o = await loadOrder({ client_uuid: String(b.client_uuid) });
+  if (!o) return reply({ error: "ไม่พบบิล" }, 404);
+  if (c.allowed !== null && !c.allowed.includes(o.branch_id)) return reply({ error: "ไม่มีสิทธิ์ในสาขาของบิลนี้" }, 403);
+  const r = await supabaseAdmin().rpc("pos_issue_credit_note", { p_actor: c.authz.employee_id, p_payload: {
+    client_uuid: b.request_id, kind: "discount", order_id: o.id, amount: Math.round(amount * 100) / 100,
+    reason: String(b.reason ?? "").slice(0, 500), refund_method: String(b.refund_method ?? ""),
+  } });
+  if (r.error) {
+    const m = /credit_note_exceeds: ([\d.]+)/.exec(r.error.message);
+    if (m) return reply({ error: `ลดหนี้เกินยอดที่เหลือ — ลดได้อีกไม่เกิน ${Number(m[1]).toLocaleString("th-TH", { minimumFractionDigits: 2 })} บาท (รวมคืนเงิน/ลดหนี้ก่อนหน้าแล้ว)` }, 409);
+    return reply({ error: ERR[r.error.message] ?? r.error.message }, 409);
+  }
+  const out = r.data as { id: string; cn_no: string; amount: number; refund: number; remaining: number; replay?: boolean };
+  return reply({ ...out, url: docUrl("credit_note", out.id) });
 }

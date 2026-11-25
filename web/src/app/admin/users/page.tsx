@@ -48,6 +48,7 @@ const PERM_LABEL: Record<string, { th: string; en: string; zh: string }> = {
   "audit.view": { th: "ดู audit log", en: "View audit log", zh: "查看审计日志" },
   "customer.manage": { th: "จัดการลูกค้า", en: "Manage customers", zh: "管理客户" },
   "tax.issue_full": { th: "ออกใบกำกับเต็มรูป", en: "Issue full tax invoice", zh: "开具增值税专用发票" },
+  "tax.credit_note": { th: "ออกใบลดหนี้", en: "Issue credit note", zh: "开具红字发票" },
 };
 
 export default function AdminUsersPage() {

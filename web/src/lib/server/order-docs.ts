@@ -2,7 +2,8 @@
 //   receipt     ใบเสร็จรับเงิน/ใบกำกับภาษีอย่างย่อ        (ขั้น ชำระเงิน)
 //   tax_invoice ใบกำกับภาษีเต็มรูป (ออกตามคำขอ · 0068)     (ขั้น ชำระเงิน)
 //   warranty    ใบรับประกันสินค้า (SN + วันหมดประกัน)       (ขั้น สต๊อก/SN)
-//   return      ใบรับคืน/ใบคืนเงิน · ใบลดหนี้ · ใบยกเลิกบิล  (ขั้น หลังการขาย)
+//   return      ใบรับคืน/ใบคืนเงิน · ใบยกเลิกบิล · ใบรับเคลม (ขั้น หลังการขาย)
+//   credit_note ใบลดหนี้ เลข CN รันต่อเนื่อง (0074)          (ขั้น หลังการขาย)
 //   trace       รายงานที่มาของบิล (ภายใน ต้องล็อกอิน)       (ทุกขั้น)
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { buildOrderTrace, loadOrder, baht, fmt, type Row } from "./order-trace";
@@ -33,10 +34,11 @@ export function docUrl(kind: DocKind, id: string): string { return `/doc/${signD
 /** รายการเอกสารทั้งหมดของบิล จัดตามขั้นในแผนภาพ */
 export async function listOrderDocs(o: Row): Promise<OrderDocItem[]> {
   const sb = supabaseAdmin();
-  const [tis, rets, items] = await Promise.all([
+  const [tis, rets, items, cns] = await Promise.all([
     sb.from("tax_invoices").select("id,invoice_no,status,issued_at,cancel_reason").eq("order_id", o.id).order("issued_at"),
     sb.from("returns").select("id,return_no,kind,type,status,created_at").eq("order_id", o.id).order("created_at"),
     sb.from("order_items").select("kind,order_item_serials(serial_no)").eq("order_id", o.id),
+    sb.from("credit_notes").select("id,cn_no,kind,amount_total,issued_at,return_id").eq("order_id", o.id).order("issued_at"),
   ]);
   const out: OrderDocItem[] = [];
   out.push({ kind: "receipt", key: `receipt:${o.client_uuid}`, title: "ใบเสร็จรับเงิน / ใบกำกับภาษีอย่างย่อ", doc_no: o.order_no, stage: "payment", available: true, url: docUrl("receipt", o.client_uuid), status: o.status, at: o.created_at });
@@ -47,10 +49,11 @@ export async function listOrderDocs(o: Row): Promise<OrderDocItem[]> {
   const goods = ((items.data ?? []) as Row[]).filter((i) => i.kind !== "service" && i.kind !== "fee");
   out.push({ kind: "warranty", key: `warranty:${o.client_uuid}`, title: "ใบรับประกันสินค้า", doc_no: o.order_no, stage: "stock", available: goods.length > 0 && o.status !== "voided",
     reason: !goods.length ? "บิลนี้ไม่มีสินค้าที่รับประกัน" : o.status === "voided" ? "บิลถูกยกเลิก" : `${goods.reduce((n, i) => n + ((i.order_item_serials ?? []) as Row[]).length, 0)} SN`, url: goods.length && o.status !== "voided" ? docUrl("warranty", o.client_uuid) : null });
-  const hasTi = tiRows.some((t) => t.status === "issued");
   for (const r of (rets.data ?? []) as Row[]) out.push({ kind: "return", key: `return:${r.id}`, stage: "after", available: true, url: docUrl("return", r.id), doc_no: r.return_no, status: r.status, at: r.created_at,
-    title: r.kind === "void" ? "ใบยกเลิกบิล" : hasTi ? "ใบลดหนี้" : r.type === "claim" ? "ใบรับเคลมสินค้า" : "ใบรับคืนสินค้า / ใบคืนเงิน",
+    title: r.kind === "void" ? "ใบยกเลิกบิล" : r.type === "claim" ? "ใบรับเคลมสินค้า" : "ใบรับคืนสินค้า / ใบคืนเงิน",
     reason: r.status === "pending_approval" ? "รออนุมัติ" : r.status === "rejected" ? "ไม่อนุมัติ" : null });
+  for (const c of (cns.data ?? []) as Row[]) out.push({ kind: "credit_note", key: `cn:${c.id}`, title: "ใบลดหนี้", doc_no: c.cn_no, stage: "after", available: true, url: docUrl("credit_note", c.id), status: "issued", at: c.issued_at,
+    reason: `${c.kind === "return" ? "จากการรับคืน" : "ลดราคาหลังขาย"} · ${num(c.amount_total)} บาท` });
   out.push({ kind: "trace", key: `trace:${o.client_uuid}`, title: "รายงานที่มาของบิล (ภายใน)", doc_no: o.order_no, stage: "all", available: true, internal: true, url: docUrl("trace", o.client_uuid) });
   return out;
 }
@@ -79,6 +82,44 @@ export async function buildDoc(kind: DocKind, id: string): Promise<{ doc: DocPay
       signatures: ["ผู้รับเงิน", "ผู้มีอำนาจลงนาม"], issued_by: t.raw.who(ti.issued_by),
     } };
   }
+  if (kind === "credit_note") {
+    const { data: c } = await sb.from("credit_notes").select("*").eq("id", id).maybeSingle();
+    if (!c) return null;
+    const o = await loadOrder({ id: c.order_id }); if (!o) return null;
+    const t = await buildOrderTrace(o, false);
+    const [ti, r] = await Promise.all([
+      c.tax_invoice_id ? sb.from("tax_invoices").select("invoice_no,issued_at,buyer").eq("id", c.tax_invoice_id).maybeSingle().then((x) => x.data) : null,
+      c.return_id ? sb.from("returns").select("return_no,return_items(sku,name,qty,line_total,serials)").eq("id", c.return_id).maybeSingle().then((x) => x.data) : null,
+    ]);
+    const b = ti?.buyer as Row | undefined;
+    // ใบลดหนี้ตามประมวลรัษฎากร ม.86/10: อ้างใบกำกับเดิม · มูลค่าเดิม · มูลค่าที่ถูกต้อง · ผลต่าง · VAT ของผลต่าง · เหตุผล
+    const before = await sb.from("credit_notes").select("amount_total").eq("order_id", o.id).lt("issued_at", c.issued_at);
+    const prevCn = (before.data ?? []).reduce((s2, x) => s2 + Number(x.amount_total), 0);
+    const original = Number(c.original_total) - prevCn, amt = Number(c.amount_total);
+    return { branch_id: o.branch_id, doc: {
+      kind, title: "ใบลดหนี้", title_en: "CREDIT NOTE", subtitle: "ต้นฉบับ",
+      doc_no: c.cn_no, date: day(c.issued_at),
+      seller: seller(t.raw.branch),
+      party: b ? { label: "ผู้ซื้อ", name: b.name, tax_id: b.tax_id, branch_label: branchLabel(b.branch_no), address: b.address, phone: b.phone ?? null } : customerParty(t.raw.customer, o, true),
+      refs: [{ label: "เลขที่", value: c.cn_no }, { label: "วันที่", value: day(c.issued_at) },
+        ...(ti ? [{ label: "อ้างอิงใบกำกับภาษี", value: String(ti.invoice_no) }, { label: "ลงวันที่", value: day(ti.issued_at) }] : []),
+        { label: "อ้างอิงบิลขาย", value: o.order_no }, ...(r ? [{ label: "อ้างอิงใบรับคืน", value: String(r.return_no) }] : []),
+        { label: "เหตุที่ลดหนี้", value: c.reason }],
+      table: r ? { columns: [{ label: "รายการที่รับคืน" }, { label: "SN" }, { label: "จำนวน", align: "right", width: "70px" }, { label: "มูลค่า", align: "right", width: "110px" }],
+        rows: ((r.return_items ?? []) as Row[]).map((i) => ({ cells: [`${i.name}`, (i.serials ?? []).join(", ") || "—", String(Number(i.qty)), num(i.line_total)], sub: i.sku })) }
+        : { columns: [{ label: "รายการ" }, { label: "จำนวนเงิน", align: "right", width: "140px" }], rows: [{ cells: [`ลดราคา/ลดหนี้ — ${c.reason}`, num(amt)] }] },
+      totals: [
+        { label: "มูลค่าสินค้าตามใบกำกับภาษีเดิม", value: num(original) },
+        { label: "มูลค่าที่ถูกต้อง", value: num(original - amt) },
+        { label: "ผลต่าง (ไม่รวม VAT)", value: num(c.amount_before_vat) },
+        { label: "ภาษีมูลค่าเพิ่มของผลต่าง", value: num(c.amount_vat) },
+        { label: "รวมลดหนี้ทั้งสิ้น", value: num(amt), strong: true }],
+      payments: Number(c.refund_amount) > 0 ? [{ label: `คืนเงินทาง ${METHOD[c.refund_method] ?? c.refund_method}`, value: num(c.refund_amount) }]
+        : c.return_id ? [{ label: "คืนเงินแล้วตามใบรับคืน (ไม่คืนซ้ำ)", value: num(amt) }] : [],
+      notes: ["เอกสารนี้ออกโดยระบบคอมพิวเตอร์"],
+      signatures: ["ผู้ออกใบลดหนี้", "ผู้รับใบลดหนี้"], issued_by: t.raw.who(c.issued_by),
+    } };
+  }
   if (kind === "return") {
     const { data: r } = await sb.from("returns").select("*,return_items(sku,name,qty,line_total,condition,serials)").eq("id", id).maybeSingle();
     if (!r) return null;
@@ -86,16 +127,18 @@ export async function buildDoc(kind: DocKind, id: string): Promise<{ doc: DocPay
     const t = await buildOrderTrace(o, false);
     const ti = (await sb.from("tax_invoices").select("invoice_no,amount_total").eq("order_id", o.id).eq("status", "issued").maybeSingle()).data;
     const isVoid = r.kind === "void";
-    const title = isVoid ? "ใบยกเลิกบิล" : ti ? "ใบลดหนี้" : r.type === "claim" ? "ใบรับเคลมสินค้า" : "ใบรับคืนสินค้า / ใบคืนเงิน";
+    const title = isVoid ? "ใบยกเลิกบิล" : r.type === "claim" ? "ใบรับเคลมสินค้า" : "ใบรับคืนสินค้า / ใบคืนเงิน";
+    const cnOf = (await sb.from("credit_notes").select("cn_no").eq("return_id", r.id).maybeSingle()).data;
     const amt = Number(r.refund_amount), vat = Math.round((amt - amt / 1.07) * 100) / 100;
     return { branch_id: o.branch_id, doc: {
-      kind, title, title_en: isVoid ? "VOID NOTE" : ti ? "CREDIT NOTE" : r.type === "claim" ? "CLAIM RECEIPT" : "RETURN / REFUND NOTE",
+      kind, title, title_en: isVoid ? "VOID NOTE" : r.type === "claim" ? "CLAIM RECEIPT" : "RETURN / REFUND NOTE",
       doc_no: r.return_no, date: day(r.approved_at ?? r.created_at),
       watermark: r.status === "pending_approval" ? "รออนุมัติ" : r.status === "rejected" ? "ไม่อนุมัติ" : null,
       seller: seller(t.raw.branch),
       party: customerParty(t.raw.customer, o, true),
       refs: [{ label: "เลขที่", value: r.return_no }, { label: "อ้างอิงบิลขาย", value: o.order_no }, { label: "วันที่ขาย", value: day(o.sale_occurred_at ?? o.created_at) },
         ...(ti ? [{ label: "อ้างอิงใบกำกับภาษี", value: String(ti.invoice_no) }] : []),
+        ...(cnOf ? [{ label: "ใบลดหนี้", value: String(cnOf.cn_no) }] : []),
         { label: "เหตุผล", value: [r.reason_code, r.reason_note].filter(Boolean).join(" · ") || "—" }],
       table: { columns: [{ label: "รายการ" }, { label: "SN" }, { label: "จำนวน", align: "right", width: "70px" }, { label: "สภาพ", width: "90px" }, { label: "มูลค่าคืน", align: "right", width: "110px" }],
         rows: ((r.return_items ?? []) as Row[]).map((i) => ({ cells: [`${i.name}`, (i.serials ?? []).join(", ") || "—", String(Number(i.qty)), i.condition === "defective" ? "ชำรุด" : "ขายได้", num(i.line_total)], sub: i.sku })) },

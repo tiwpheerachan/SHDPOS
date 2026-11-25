@@ -3,11 +3,11 @@
 //   แสดงหน้า /doc/[token]?embed=1 ใน iframe (โดเมนเดียวกัน) แล้วสั่ง PDF/พิมพ์ผ่าน window.__docActions ของหน้านั้น
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { X, Download, Printer, Link2, Check, ExternalLink, ChevronLeft, ChevronRight, Loader2, ReceiptText, FileText, ShieldCheck, RotateCcw, GitBranch, Lock, Truck, PackageCheck, AlertTriangle } from "lucide-react";
+import { X, Download, Printer, Link2, Check, ExternalLink, ChevronLeft, ChevronRight, Loader2, ReceiptText, FileText, ShieldCheck, RotateCcw, GitBranch, Lock, Truck, PackageCheck, AlertTriangle, FileMinus } from "lucide-react";
 import type { OrderDocItem } from "@/lib/doc-types";
 
-const ICON: Record<OrderDocItem["kind"], typeof FileText> = { receipt: ReceiptText, tax_invoice: FileText, warranty: ShieldCheck, return: RotateCcw, trace: GitBranch, transfer_out: Truck, transfer_in: PackageCheck, transfer_diff: AlertTriangle };
-const TINT: Record<OrderDocItem["kind"], string> = { receipt: "bg-emerald-500/12 text-emerald-600", tax_invoice: "bg-sky-500/12 text-sky-600", warranty: "bg-violet-500/12 text-violet-600", return: "bg-amber-500/14 text-amber-600", trace: "bg-slate-500/12 text-slate-600", transfer_out: "bg-indigo-500/12 text-indigo-600", transfer_in: "bg-emerald-500/12 text-emerald-600", transfer_diff: "bg-rose-500/12 text-rose-600" };
+const ICON: Record<OrderDocItem["kind"], typeof FileText> = { receipt: ReceiptText, tax_invoice: FileText, credit_note: FileMinus, warranty: ShieldCheck, return: RotateCcw, trace: GitBranch, transfer_out: Truck, transfer_in: PackageCheck, transfer_diff: AlertTriangle };
+const TINT: Record<OrderDocItem["kind"], string> = { receipt: "bg-emerald-500/12 text-emerald-600", tax_invoice: "bg-sky-500/12 text-sky-600", credit_note: "bg-orange-500/12 text-orange-600", warranty: "bg-violet-500/12 text-violet-600", return: "bg-amber-500/14 text-amber-600", trace: "bg-slate-500/12 text-slate-600", transfer_out: "bg-indigo-500/12 text-indigo-600", transfer_in: "bg-emerald-500/12 text-emerald-600", transfer_diff: "bg-rose-500/12 text-rose-600" };
 const STAGE: Record<string, string> = { payment: "ชำระเงิน", stock: "สต๊อก / SN", after: "หลังการขาย", all: "ทั้งโฟลว์", ship: "ส่งสินค้า", receive: "รับสินค้า" };
 
 export function DocViewer({ docs, startKey, onClose }: { docs: OrderDocItem[]; startKey: string; onClose: () => void }) {

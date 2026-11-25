@@ -1,16 +1,17 @@
 "use client";
 // เอกสารของบิล จัดตามขั้นของแผนภาพ — เปิด / PDF / คัดลอกลิงก์ / แชร์ · ออกใบกำกับภาษีเต็มรูปได้ (สิทธิ์ tax.issue_full)
 import { useEffect, useState } from "react";
-import { ReceiptText, FileText, ShieldCheck, RotateCcw, GitBranch, ExternalLink, Link2, Check, Loader2, Plus, Lock, Truck, PackageCheck, AlertTriangle } from "lucide-react";
+import { ReceiptText, FileText, ShieldCheck, RotateCcw, GitBranch, ExternalLink, Link2, Check, Loader2, Plus, Lock, Truck, PackageCheck, AlertTriangle, FileMinus } from "lucide-react";
 import type { OrderDocItem } from "@/lib/doc-types";
 import { DocViewer } from "@/components/doc-viewer";
 
-const ICON: Record<OrderDocItem["kind"], typeof FileText> = { receipt: ReceiptText, tax_invoice: FileText, warranty: ShieldCheck, return: RotateCcw, trace: GitBranch, transfer_out: Truck, transfer_in: PackageCheck, transfer_diff: AlertTriangle };
+const ICON: Record<OrderDocItem["kind"], typeof FileText> = { receipt: ReceiptText, tax_invoice: FileText, credit_note: FileMinus, warranty: ShieldCheck, return: RotateCcw, trace: GitBranch, transfer_out: Truck, transfer_in: PackageCheck, transfer_diff: AlertTriangle };
 const STAGE: Record<string, string> = { payment: "ชำระเงิน", stock: "สต๊อก / SN", after: "หลังการขาย", all: "ทั้งโฟลว์", ship: "ส่งสินค้า", receive: "รับสินค้า" };
 type Buyer = { name: string; tax_id: string; branch_no: string; address: string; phone: string };
 
 export function OrderDocsPanel({ clientUuid, orderNo }: { clientUuid?: string | null; orderNo?: string | null }) {
-  const [data, setData] = useState<{ docs: OrderDocItem[]; can_issue_tax: boolean; buyer_prefill: Buyer | null; tax_request: { contact: string | null; created_at: string } | null; order: { client_uuid: string } } | null>(null);
+  const [data, setData] = useState<{ docs: OrderDocItem[]; can_issue_tax: boolean; buyer_prefill: Buyer | null; tax_request: { contact: string | null; created_at: string } | null; order: { client_uuid: string }; can_credit_note?: boolean; cn_remaining?: number; order_total?: number } | null>(null);
+  const [cn, setCn] = useState<{ amount: string; reason: string; method: string; rid: string } | null>(null);
   const [err, setErr] = useState(""), [copied, setCopied] = useState(""), [issue, setIssue] = useState<{ buyer: Buyer; reason: string; replace: boolean } | null>(null);
   const [busy, setBusy] = useState(false), [issueErr, setIssueErr] = useState("");
   const [viewKey, setViewKey] = useState<string | null>(null);
@@ -33,6 +34,16 @@ export function OrderDocsPanel({ clientUuid, orderNo }: { clientUuid?: string | 
       const j = await r.json(); if (!r.ok) throw Error(j.error);
       setIssue(null); await load(); setViewKey(`ti:${j.id}`);
     } catch (e) { setIssueErr(e instanceof Error ? e.message : "ออกใบกำกับไม่สำเร็จ"); } finally { setBusy(false); }
+  }
+
+  async function submitCn() {
+    if (!cn || !data) return;
+    setBusy(true); setIssueErr("");
+    try {
+      const r = await fetch("/api/pos/order-docs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "issue_credit_note", client_uuid: data.order.client_uuid, request_id: cn.rid, amount: Number(cn.amount), reason: cn.reason, refund_method: cn.method }) });
+      const j = await r.json(); if (!r.ok) throw Error(j.error);
+      setCn(null); await load(); setViewKey(`cn:${j.id}`);
+    } catch (e) { setIssueErr(e instanceof Error ? e.message : "ออกใบลดหนี้ไม่สำเร็จ"); } finally { setBusy(false); }
   }
 
   if (err) return <p className="rounded-xl bg-red-500/8 text-red-600 text-xs px-3 py-2">{err}</p>;
@@ -77,6 +88,30 @@ export function OrderDocsPanel({ clientUuid, orderNo }: { clientUuid?: string | 
         </section>
       ))}
       {activeTi && data.can_issue_tax && !issue ? <button onClick={() => { setIssue({ buyer: data.buyer_prefill ?? blank, reason: "", replace: true }); setIssueErr(""); }} className="text-[11px] text-muted hover:text-ink underline">แก้ข้อมูลผู้ซื้อ (ยกเลิกใบกำกับเดิมแล้วออกใบใหม่)</button> : null}
+
+      {data.can_credit_note && (data.cn_remaining ?? 0) > 0 && !cn && !issue ? (
+        <button onClick={() => { setCn({ amount: "", reason: "", method: "bank_transfer", rid: crypto.randomUUID() }); setIssueErr(""); }} className="text-[11px] text-muted hover:text-ink underline ml-3">ออกใบลดหนี้ (ลดราคา/ชดเชยหลังขาย โดยไม่รับคืนสินค้า)</button>
+      ) : null}
+      {cn ? (
+        <section className="rounded-2xl border border-orange-500/40 bg-orange-500/5 p-4 space-y-2.5 text-xs">
+          <p className="text-sm font-semibold flex items-center gap-1.5"><FileMinus size={15} /> ออกใบลดหนี้ — ลดราคาหลังขาย (ไม่มีสินค้าคืน)</p>
+          <p className="text-muted">สต๊อกไม่เปลี่ยน · คืนเงินลูกค้าตามช่องทางที่เลือก · ลดได้อีกไม่เกิน <b className="text-ink">{(data.cn_remaining ?? 0).toLocaleString("th-TH", { minimumFractionDigits: 2 })}</b> บาท (ยอดบิล {(data.order_total ?? 0).toLocaleString("th-TH", { minimumFractionDigits: 2 })} หักที่คืน/ลดไปแล้ว) · ถ้าลูกค้าคืนสินค้า ให้ทำที่หน้า “คืน / เปลี่ยนสินค้า” — ระบบออกใบลดหนี้ให้เอง</p>
+          <div className="grid sm:grid-cols-3 gap-2">
+            <Inp label="จำนวนเงินลดหนี้ (รวม VAT) *" v={cn.amount} on={(v) => setCn({ ...cn, amount: v.replace(/[^\d.]/g, "") })} mono />
+            <label className="block space-y-1"><span className="text-muted">คืนเงินทาง *</span>
+              <select value={cn.method} onChange={(e) => setCn({ ...cn, method: e.target.value })} className="w-full h-9 px-2 rounded-lg border border-line bg-surface text-sm">
+                <option value="bank_transfer">โอนเงิน</option><option value="qr_promptpay">พร้อมเพย์</option><option value="cash">เงินสด (ออกจากลิ้นชักกะ)</option><option value="credit_card">คืนเข้าบัตรเครดิต</option><option value="debit_card">คืนเข้าบัตรเดบิต</option>
+              </select></label>
+            <Inp label="เหตุที่ลดหนี้ *" v={cn.reason} on={(v) => setCn({ ...cn, reason: v })} />
+          </div>
+          {Number(cn.amount) > (data.cn_remaining ?? 0) ? <p className="text-danger">เกินยอดที่ลดได้</p> : null}
+          {issueErr ? <p role="alert" className="text-danger">{issueErr}</p> : null}
+          <div className="flex justify-end gap-2">
+            <button onClick={() => setCn(null)} className="h-9 px-3 rounded-lg border border-line">ยกเลิก</button>
+            <button disabled={busy || !(Number(cn.amount) > 0) || Number(cn.amount) > (data.cn_remaining ?? 0) || cn.reason.trim().length < 3} onClick={() => void submitCn()} className="h-9 px-4 rounded-lg bg-orange-600 text-white font-medium inline-flex items-center gap-1.5 disabled:opacity-50">{busy ? <Loader2 size={13} className="animate-spin" /> : <FileMinus size={13} />}ออกใบลดหนี้และคืนเงิน</button>
+          </div>
+        </section>
+      ) : null}
 
       {viewKey ? <DocViewer docs={data.docs} startKey={viewKey} onClose={() => setViewKey(null)} /> : null}
       {issue ? (
