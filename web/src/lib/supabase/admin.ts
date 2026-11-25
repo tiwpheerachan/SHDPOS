@@ -17,6 +17,8 @@ export function supabaseAdmin(): SupabaseClient {
   if (!_admin) {
     _admin = createClient(url, key, {
       auth: { persistSession: false, autoRefreshToken: false },
+      // Next 14 แคช fetch ของ route handler โดยปริยาย → ข้อมูลค้าง (เช่น ลิงก์ที่ยกเลิกแล้วยังเปิดได้) — บังคับอ่านสดเสมอ
+      global: { fetch: (input: RequestInfo | URL, init?: RequestInit) => fetch(input, { ...init, cache: "no-store" }) },
     });
   }
   return _admin;
