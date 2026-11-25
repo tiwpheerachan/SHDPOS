@@ -1,5 +1,6 @@
 const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict'),ts=require('typescript');
-const money={exports:{}};vm.createContext(money);vm.runInContext(ts.transpile(fs.readFileSync('src/lib/money.ts','utf8'),{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}),money);
+const taxMod={exports:{}};vm.createContext(taxMod);vm.runInContext(ts.transpile(fs.readFileSync('src/lib/tax.ts','utf8'),{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}),taxMod);
+const money={exports:{},require:n=>{if(n==='./tax')return taxMod.exports;throw Error(n)}};vm.createContext(money);vm.runInContext(ts.transpile(fs.readFileSync('src/lib/money.ts','utf8'),{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}),money);
 let state,uid=0;const deps={zustand:{create:init=>{state=init(update=>{state={...state,...(typeof update==='function'?update(state):update)}},()=>state);return {getState:()=>state}}},nanoid:{nanoid:()=>`line-${++uid}`},'../money':money.exports,'../loyalty':{pointsToBaht:x=>x}};
 const context={exports:{},require:n=>{if(!deps[n])throw Error(n);return deps[n]}};vm.createContext(context);vm.runInContext(ts.transpile(fs.readFileSync('src/lib/store/cart.ts','utf8'),{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}),context);
 const cart=context.exports.useCart, s=()=>cart.getState();
