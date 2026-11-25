@@ -182,8 +182,8 @@ function AiSummary({ clientUuid, orderNo, stages, onJump }: { clientUuid?: strin
       <div aria-hidden className="pointer-events-none absolute -left-16 -top-20 h-56 w-56 rounded-full bg-violet-500/15 blur-3xl" />
       <div aria-hidden className="pointer-events-none absolute left-24 -bottom-24 h-48 w-64 rounded-full bg-cyan-400/10 blur-3xl" />
       <div className="relative flex gap-4 p-4">
-        <div className="relative h-[72px] w-[72px] shrink-0 rounded-full bg-[radial-gradient(circle_at_50%_40%,#1e1b4b,#0b1026_70%)] shadow-[0_10px_28px_-10px_rgba(99,102,241,.75),inset_0_0_0_1px_rgba(255,255,255,.06)] overflow-hidden">
-          <VoicePoweredOrb active={busy} className="!absolute inset-[4%]" />
+        <div className="relative h-11 w-11 shrink-0 mt-0.5">
+          <VoicePoweredOrb active={busy} className="!absolute inset-0" />
         </div>
         <div className="min-w-0 flex-1 space-y-2">
           <div className="flex items-center gap-2">
