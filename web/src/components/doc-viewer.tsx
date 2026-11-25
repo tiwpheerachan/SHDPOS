@@ -3,12 +3,12 @@
 //   แสดงหน้า /doc/[token]?embed=1 ใน iframe (โดเมนเดียวกัน) แล้วสั่ง PDF/พิมพ์ผ่าน window.__docActions ของหน้านั้น
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { X, Download, Printer, Link2, Check, ExternalLink, ChevronLeft, ChevronRight, Loader2, ReceiptText, FileText, ShieldCheck, RotateCcw, GitBranch, Lock } from "lucide-react";
+import { X, Download, Printer, Link2, Check, ExternalLink, ChevronLeft, ChevronRight, Loader2, ReceiptText, FileText, ShieldCheck, RotateCcw, GitBranch, Lock, Truck, PackageCheck, AlertTriangle } from "lucide-react";
 import type { OrderDocItem } from "@/lib/doc-types";
 
-const ICON: Record<OrderDocItem["kind"], typeof FileText> = { receipt: ReceiptText, tax_invoice: FileText, warranty: ShieldCheck, return: RotateCcw, trace: GitBranch };
-const TINT: Record<OrderDocItem["kind"], string> = { receipt: "bg-emerald-500/12 text-emerald-600", tax_invoice: "bg-sky-500/12 text-sky-600", warranty: "bg-violet-500/12 text-violet-600", return: "bg-amber-500/14 text-amber-600", trace: "bg-slate-500/12 text-slate-600" };
-const STAGE: Record<string, string> = { payment: "ชำระเงิน", stock: "สต๊อก / SN", after: "หลังการขาย", all: "ทั้งโฟลว์" };
+const ICON: Record<OrderDocItem["kind"], typeof FileText> = { receipt: ReceiptText, tax_invoice: FileText, warranty: ShieldCheck, return: RotateCcw, trace: GitBranch, transfer_out: Truck, transfer_in: PackageCheck, transfer_diff: AlertTriangle };
+const TINT: Record<OrderDocItem["kind"], string> = { receipt: "bg-emerald-500/12 text-emerald-600", tax_invoice: "bg-sky-500/12 text-sky-600", warranty: "bg-violet-500/12 text-violet-600", return: "bg-amber-500/14 text-amber-600", trace: "bg-slate-500/12 text-slate-600", transfer_out: "bg-indigo-500/12 text-indigo-600", transfer_in: "bg-emerald-500/12 text-emerald-600", transfer_diff: "bg-rose-500/12 text-rose-600" };
+const STAGE: Record<string, string> = { payment: "ชำระเงิน", stock: "สต๊อก / SN", after: "หลังการขาย", all: "ทั้งโฟลว์", ship: "ส่งสินค้า", receive: "รับสินค้า" };
 
 export function DocViewer({ docs, startKey, onClose }: { docs: OrderDocItem[]; startKey: string; onClose: () => void }) {
   const list = docs.filter((d) => d.available && d.url);
@@ -34,7 +34,7 @@ export function DocViewer({ docs, startKey, onClose }: { docs: OrderDocItem[]; s
   async function pdf() { const a = actions(); if (!a) return; setPdfBusy(true); try { await a.pdf(); } finally { setPdfBusy(false); } }
   async function copy() { try { await navigator.clipboard.writeText(new URL(d.url!, window.location.origin).href); setCopied(true); setTimeout(() => setCopied(false), 1800); } catch { /* */ } }
   const I = ICON[d.kind];
-  const groups = ["payment", "stock", "after", "all"].map((s) => [s, list.map((x, idx) => ({ x, idx })).filter(({ x }) => x.stage === s)] as const).filter(([, l]) => l.length);
+  const groups = ["payment", "stock", "after", "all", "ship", "receive"].map((s) => [s, list.map((x, idx) => ({ x, idx })).filter(({ x }) => x.stage === s)] as const).filter(([, l]) => l.length);
 
   return createPortal(
     <div className="fixed inset-0 z-[95] flex items-center justify-center p-2 sm:p-5" role="dialog" aria-modal="true" aria-label={d.title}>

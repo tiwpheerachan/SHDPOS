@@ -26,6 +26,8 @@ import {
 import { TransferStepper, ItemJourney, TransferTimeline } from "@/components/admin/transfer-ui";
 import { SerialScanDrawer } from "@/components/admin/serial-scan-drawer";
 import { printTransferCO } from "@/lib/transfer/print-co";
+import { TransferDocsButton } from "@/components/transfer-docs-button";
+import { AiBrief } from "@/components/ai-brief";
 import type { Branch, Product, Transfer, TransferStatus, TransferAttachment, AuditEntry, Employee, StockLevel, SerialLocated } from "@/lib/types";
 import { Button, Card, Input, Field, Select, Table, Th, Td, Badge, EmptyState, Drawer, DrawerTabs, DetailRow, Avatar } from "@/components/ui";
 import { can, visibleBranchIds, ROLE_LABEL, isSuperadmin } from "@/lib/permissions";
@@ -579,6 +581,7 @@ export default function AdminTransfersPage() {
         footer={detail ? (
           <div className="flex gap-2 w-full items-center flex-wrap">
             <Button variant="soft" onClick={() => printCO(detail)}><Printer size={15} /> {L("พิมพ์ใบ CO", "Print CO", "打印CO")}</Button>
+            {isLiveMode() ? <TransferDocsButton transferId={detail.id} /> : null}
             <div className="relative">
               <Button variant="soft" onClick={() => setShareOpen((v) => !v)}><Share2 size={15} /> {L("แชร์ฟอร์ม", "Share", "分享")}</Button>
               {shareOpen ? <>
@@ -625,6 +628,7 @@ export default function AdminTransfersPage() {
         {detail ? (
           <>
             <DrawerTabs<Tab> value={tab} onChange={setTab} options={[{ value: "overview", label: L("ภาพรวม", "Overview", "概览") }, { value: "timeline", label: <span className="inline-flex items-center gap-1"><Clock size={12} />Timeline</span> }]} />
+            {isLiveMode() ? <div className="px-5 pt-4"><AiBrief key={detail.id + ":" + detail.status + ":" + (detail.version ?? 0)} endpoint={`/api/pos/transfer-summary?id=${encodeURIComponent(detail.id)}`} title="AI สรุปใบโอน" /></div> : null}
             {tab === "overview" ? (
               <div className="p-5 space-y-4">
                 <TransferStepper status={detail.status} locale={locale} L={L} />

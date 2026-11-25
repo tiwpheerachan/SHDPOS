@@ -2,7 +2,7 @@
 export type DocParty = { label: string; name: string; tax_id?: string | null; branch_label?: string | null; address?: string | null; phone?: string | null };
 export type DocTable = { columns: { label: string; align?: "left" | "right" | "center"; width?: string }[]; rows: { cells: string[]; sub?: string | null; muted?: boolean }[] };
 export type DocPayload = {
-  kind: "receipt" | "tax_invoice" | "return" | "warranty" | "trace";
+  kind: "receipt" | "tax_invoice" | "return" | "warranty" | "trace" | "transfer_out" | "transfer_in" | "transfer_diff";
   title: string; title_en: string; subtitle?: string | null;
   doc_no: string; date: string;
   watermark?: string | null;

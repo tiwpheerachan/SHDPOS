@@ -162,7 +162,7 @@ export default function DocPage() {
           <footer className="mt-8 pt-3 border-t border-gray-200 flex items-end gap-4 text-[10px] text-gray-500 avoid-break">
             <div className="flex-1">
               <p>เลขที่เอกสาร {doc.doc_no} · {doc.date}{doc.issued_by ? ` · ออกโดย ${doc.issued_by}` : ""}</p>
-              <p>เอกสารนี้สร้างจากระบบ SHD POS · สแกน QR เพื่อเปิดต้นฉบับออนไลน์{exp ? ` (ลิงก์ใช้ได้ถึง ${new Date(exp).toLocaleDateString("th-TH", { dateStyle: "medium" })})` : ""}</p>
+              <p>{doc.internal ? "เอกสารภายใน — เปิดได้เฉพาะพนักงานที่มีสิทธิ์ · สร้างจากระบบ SHD POS" : `เอกสารนี้สร้างจากระบบ SHD POS · สแกน QR เพื่อเปิดต้นฉบับออนไลน์${exp ? ` (ลิงก์ใช้ได้ถึง ${new Date(exp).toLocaleDateString("th-TH", { dateStyle: "medium" })})` : ""}`}</p>
             </div>
             {!doc.internal && url ? <QRCodeSVG value={url} size={64} level="M" /> : null}
           </footer>

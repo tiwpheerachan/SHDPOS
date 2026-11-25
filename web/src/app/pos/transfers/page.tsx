@@ -20,6 +20,8 @@ import { PosPage, TablePanel, StatChip } from "@/components/pos/page-shell";
 import { SerialModal } from "@/components/pos/sale-modals";
 import { TransferStepper, ItemJourney, TransferTimeline } from "@/components/admin/transfer-ui";
 import { printTransferCO } from "@/lib/transfer/print-co";
+import { isLiveMode } from "@/lib/supabase/client";
+import { TransferDocsButton } from "@/components/transfer-docs-button";
 import { can } from "@/lib/permissions";
 
 type Tab = "overview" | "timeline";
@@ -207,6 +209,7 @@ export default function PosTransfersPage() {
         footer={detail ? (
           <div className="flex gap-2 w-full">
             <Button variant="soft" onClick={() => printCO(detail)}><Printer size={15} /> {L("พิมพ์ใบ CO", "Print CO", "打印CO")}</Button>
+            {isLiveMode() ? <TransferDocsButton transferId={detail.id} /> : null}
             {canScanOut(detail) ? <Button variant="primary" className="ml-auto" loading={busy} disabled={!scanOutReady(detail) || hasBlocked(detail)} onClick={() => void scanOut(detail)}><ScanLine size={15} /> {L("ยืนยันสแกนออก", "Confirm scan-out", "确认扫出")}</Button> : null}
             {canDispatch(detail) ? <Button variant="primary" className="ml-auto" loading={busy} onClick={() => void dispatch(detail)}><Truck size={15} /> {t.transfer.ship}</Button> : null}
             {canReceive(detail) ? <Button variant="ok" className="ml-auto" loading={busy} onClick={() => void receive(detail)}><PackageCheck size={15} /> {t.transfer.receive}</Button> : null}

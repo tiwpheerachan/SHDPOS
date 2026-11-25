@@ -8,6 +8,7 @@ import { hasPerm } from "@/lib/sso/guard";
 import { visibleBranchIds } from "@/lib/sso/scope";
 import { verifyDocToken, INTERNAL_KINDS } from "@/lib/server/doc-token";
 import { buildDoc, docUrl } from "@/lib/server/order-docs";
+import { buildTransferDoc } from "@/lib/server/transfer-docs";
 import { loadOrder } from "@/lib/server/order-trace";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
@@ -20,15 +21,18 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
   try { p = verifyDocToken(decodeURIComponent(params.token)); } catch (e) { return reply({ error: e instanceof Error ? e.message : "ตั้งค่าไม่ครบ" }, 503); }
   if (!p) return reply({ error: "ลิงก์เอกสารไม่ถูกต้องหรือหมดอายุแล้ว — ขอลิงก์ใหม่จากสาขา" }, 404);
   try {
-    const built = await buildDoc(p.k, p.id);
+    const isTransfer = p.k === "transfer_out" || p.k === "transfer_in" || p.k === "transfer_diff";
+    const tb = isTransfer ? await buildTransferDoc(p.k as "transfer_out", p.id) : null;
+    const built = isTransfer ? (tb ? { doc: tb.doc, branch_id: "", branch_ids: tb.branch_ids } : null) : await buildDoc(p.k, p.id);
     if (!built) return reply({ error: "ไม่พบเอกสาร" }, 404);
     if (INTERNAL_KINDS.includes(p.k)) {
       const profile = readSession(req.cookies.get(SSO_COOKIE)?.value);
       if (!profile) return reply({ error: "เอกสารภายใน — กรุณาเข้าสู่ระบบก่อน", login: true }, 401);
       const authz = await resolveAuthz(profile);
-      if (!authz.allowed || !hasPerm(profile.email, authz, "sales.trace")) return reply({ error: "ไม่มีสิทธิ์ดูเอกสารภายใน" }, 403);
+      if (!authz.allowed || !hasPerm(profile.email, authz, isTransfer ? "transfer.request" : "sales.trace")) return reply({ error: "ไม่มีสิทธิ์ดูเอกสารภายใน" }, 403);
       const allowed = await visibleBranchIds(authz);
-      if (allowed !== null && !allowed.includes(built.branch_id)) return reply({ error: "ไม่มีสิทธิ์ในสาขาของบิลนี้" }, 403);
+      const ids = "branch_ids" in built ? built.branch_ids : [built.branch_id];
+      if (allowed !== null && !ids.some((b) => allowed.includes(b))) return reply({ error: "ไม่มีสิทธิ์ในสาขาของเอกสารนี้" }, 403);
     }
     // ใบเสร็จ: บอกลูกค้าว่าออกใบกำกับเต็มรูปแล้วหรือยัง / มีคำขอค้างไหม
     let tax: unknown = null;

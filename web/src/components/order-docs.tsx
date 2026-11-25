@@ -1,12 +1,12 @@
 "use client";
 // เอกสารของบิล จัดตามขั้นของแผนภาพ — เปิด / PDF / คัดลอกลิงก์ / แชร์ · ออกใบกำกับภาษีเต็มรูปได้ (สิทธิ์ tax.issue_full)
 import { useEffect, useState } from "react";
-import { ReceiptText, FileText, ShieldCheck, RotateCcw, GitBranch, ExternalLink, Link2, Check, Loader2, Plus, Lock } from "lucide-react";
+import { ReceiptText, FileText, ShieldCheck, RotateCcw, GitBranch, ExternalLink, Link2, Check, Loader2, Plus, Lock, Truck, PackageCheck, AlertTriangle } from "lucide-react";
 import type { OrderDocItem } from "@/lib/doc-types";
 import { DocViewer } from "@/components/doc-viewer";
 
-const ICON: Record<OrderDocItem["kind"], typeof FileText> = { receipt: ReceiptText, tax_invoice: FileText, warranty: ShieldCheck, return: RotateCcw, trace: GitBranch };
-const STAGE: Record<string, string> = { payment: "ชำระเงิน", stock: "สต๊อก / SN", after: "หลังการขาย", all: "ทั้งโฟลว์" };
+const ICON: Record<OrderDocItem["kind"], typeof FileText> = { receipt: ReceiptText, tax_invoice: FileText, warranty: ShieldCheck, return: RotateCcw, trace: GitBranch, transfer_out: Truck, transfer_in: PackageCheck, transfer_diff: AlertTriangle };
+const STAGE: Record<string, string> = { payment: "ชำระเงิน", stock: "สต๊อก / SN", after: "หลังการขาย", all: "ทั้งโฟลว์", ship: "ส่งสินค้า", receive: "รับสินค้า" };
 type Buyer = { name: string; tax_id: string; branch_no: string; address: string; phone: string };
 
 export function OrderDocsPanel({ clientUuid, orderNo }: { clientUuid?: string | null; orderNo?: string | null }) {
@@ -37,7 +37,7 @@ export function OrderDocsPanel({ clientUuid, orderNo }: { clientUuid?: string | 
 
   if (err) return <p className="rounded-xl bg-red-500/8 text-red-600 text-xs px-3 py-2">{err}</p>;
   if (!data) return <p className="text-xs text-muted py-6 text-center inline-flex items-center gap-2 w-full justify-center"><Loader2 size={14} className="animate-spin" />กำลังโหลดเอกสาร…</p>;
-  const groups = ["payment", "stock", "after", "all"].map((s) => [s, data.docs.filter((d) => d.stage === s)] as const).filter(([, l]) => l.length);
+  const groups = ["payment", "stock", "after", "all", "ship", "receive"].map((s) => [s, data.docs.filter((d) => d.stage === s)] as const).filter(([, l]) => l.length);
   const activeTi = data.docs.some((d) => d.kind === "tax_invoice" && d.available && d.status === "issued");
   const blank: Buyer = { name: "", tax_id: "", branch_no: "", address: "", phone: "" };
 
