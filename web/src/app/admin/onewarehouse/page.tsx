@@ -6,6 +6,7 @@ import { SyncControlPanel } from "@/components/admin/sync-control-panel";
 import { OwDataPanel } from "@/components/admin/ow-data-panel";
 import { OwSalesPanel } from "@/components/admin/ow-sales-panel";
 import { OwLinksPanel } from "@/components/admin/ow-links-panel";
+import { OwSalesmenPanel } from "@/components/admin/ow-salesmen-panel";
 import { OwReconPanel } from "@/components/admin/ow-recon-panel";
 
 // =====================================================================
@@ -53,11 +54,11 @@ export default function AdminOneWarehousePage() {
   const [view, setView] = useState<"all" | "matched" | "missing">("all");
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
-  const [tab, setTab] = useState<"match" | "sales" | "recon" | "links" | "sku" | "source" | "auto">("match");
+  const [tab, setTab] = useState<"match" | "sales" | "recon" | "links" | "salesmen" | "sku" | "source" | "auto">("match");
   // เปิดแท็บตามลิงก์ ?tab=… (อ่านใน effect กัน hydration ไม่ตรง)
   useEffect(() => {
     const q = new URLSearchParams(window.location.search).get("tab");
-    if (q && ["match", "sales", "recon", "links", "sku", "source", "auto"].includes(q)) setTab(q as typeof tab);
+    if (q && ["match", "sales", "recon", "links", "salesmen", "sku", "source", "auto"].includes(q)) setTab(q as typeof tab);
   }, []);
 
   // โหลดฐานของเรา + สถานะ OW
@@ -174,6 +175,7 @@ export default function AdminOneWarehousePage() {
             ["sales", L("ส่งบิลขาย", "Sales to OW", "销售推送")],
             ["recon", L("ตรวจความตรงกัน", "Reconciliation", "核对")],
             ["links", L("ผูกสาขา", "Branch links", "门店绑定")],
+            ["salesmen", L("พนักงานขาย JST", "JST salespeople", "JST销售员")],
             ["sku", L("ตรวจ SKU รายตัว", "SKU lookup", "SKU查询")],
             ["source", L("ข้อมูลต้นทาง", "Source data", "源数据")],
             ["auto", L("ซิงก์อัตโนมัติ", "Auto sync", "自动同步")],
@@ -311,6 +313,8 @@ export default function AdminOneWarehousePage() {
         <OwReconPanel />
       ) : tab === "links" ? (
         <OwLinksPanel warehouses={warehouses} />
+      ) : tab === "salesmen" ? (
+        <OwSalesmenPanel />
       ) : tab === "source" ? (
         <OwDataPanel />
       ) : (

@@ -13,7 +13,7 @@ import { owCall, opKey as makeOpKey, isRetryable, bkkIso, type OwApiError } from
 
 export interface OwSaleLine { sku: string; qty: number; unitPrice: number; lineDiscount?: number; isFreebie?: boolean; serials?: string[] }
 export interface OwSaleBody {
-  opKey: string; branchId: string; orderTime: string; salesperson?: string | null;
+  opKey: string; branchId: string; orderTime: string; salespersonId?: string;
   customer?: { name: string; phone: string } | null; lines: OwSaleLine[]; billDiscount?: number;
   payments: { method: string; amount: number }[]; remark?: string | null;
 }
@@ -21,6 +21,8 @@ export interface OwSale { id: string; saleNo: string; status: "draft" | "submitt
 
 export interface PosSaleInput {
   orderNo: string; saleAt: string; owBranchId: string;
+  /** JST UserId ของพนักงานขาย (จากตารางผูก 0063) — ไม่มี = ไม่ส่ง */
+  salespersonId?: string | null;
   customer?: { name?: string | null; phone?: string | null } | null;
   items: { sku: string; qty: number; unitPrice: number; lineDiscount: number; isGift: boolean; serials: string[] }[];
   grandTotal: number;
@@ -59,6 +61,7 @@ export function buildSaleBody(input: PosSaleInput, key: string): OwSaleBody {
     opKey: key,
     branchId: input.owBranchId,
     orderTime: bkkIso(input.saleAt),
+    ...(input.salespersonId ? { salespersonId: input.salespersonId } : {}),
     customer: name || phone ? { name: name || "-", phone: phone || "-" } : null,
     lines,
     ...(billDiscount > 0.009 ? { billDiscount } : {}),
@@ -130,7 +133,7 @@ export function holdReasonForOrderStatus(status: string | null | undefined): str
 async function loadSaleInput(holdId: string, owBranchId: string): Promise<{ input: PosSaleInput; orderId: string; itemIds: string[]; channel: string | null; status: string | null }> {
   const sb = supabaseAdmin();
   const { data: o, error } = await sb.from("orders")
-    .select("id,order_no,channel,status,grand_total,discount_total,promo_snapshot,customer_name,customer_phone,created_at,sale_occurred_at,order_items(id,sku,qty,unit_price,discount_amount,is_gift,gift_source,gift_campaign_id,sort_order,order_item_serials(serial_no)),order_payments(method,amount)")
+    .select("id,order_no,branch_id,cashier_id,salesperson_id,channel,status,grand_total,discount_total,promo_snapshot,customer_name,customer_phone,created_at,sale_occurred_at,order_items(id,sku,qty,unit_price,discount_amount,is_gift,gift_source,gift_campaign_id,sort_order,order_item_serials(serial_no)),order_payments(method,amount)")
     .eq("client_uuid", holdId).maybeSingle();
   if (error) throw new Error("อ่านบิลไม่สำเร็จ");
   if (!o) throw new Error("ยังไม่พบบิลของรายการนี้");
@@ -141,11 +144,14 @@ async function loadSaleInput(holdId: string, owBranchId: string): Promise<{ inpu
   const campIds = [...new Set([snap?.coupon?.campaign_id, ...items.map((i) => i.gift_campaign_id)].filter(Boolean) as string[])];
   const camps = campIds.length ? (await sb.from("campaigns").select("id,name,code").in("id", campIds)).data ?? [] : [];
   const cname = (id: string | null | undefined) => { const c = camps.find((x) => x.id === id); return c ? String(c.name || c.code) : null; };
+  // พนักงานขาย → JST UserId (ผูกไว้รายสาขา) · ไม่ระบุพนักงานขายใช้แคชเชียร์
+  const who = (o.salesperson_id ?? o.cashier_id) as string | null;
+  const sp = who ? (await sb.from("pos_ow_salesperson_map").select("jst_user_id").eq("source", owConfig().source).eq("branch_id", o.branch_id).eq("employee_id", who).maybeSingle()).data : null;
   const note = discountRemark(discountBreakdown({ grand_total: Number(o.grand_total), discount_total: Number(o.discount_total ?? 0), promo_snapshot: snap, items }, cname));
   return {
     orderId: o.id, itemIds: items.map((i) => i.id), channel: (o.channel as string | null) ?? null, status: (o.status as string | null) ?? null,
     input: {
-      orderNo: o.order_no, saleAt: o.sale_occurred_at ?? o.created_at, owBranchId,
+      orderNo: o.order_no, saleAt: o.sale_occurred_at ?? o.created_at, owBranchId, salespersonId: (sp?.jst_user_id as string | undefined) ?? null,
       customer: { name: o.customer_name, phone: o.customer_phone },
       items: items.map((i) => ({ sku: i.sku, qty: Number(i.qty), unitPrice: Number(i.unit_price), lineDiscount: Number(i.discount_amount), isGift: !!i.is_gift, serials: (i.order_item_serials ?? []).map((s) => s.serial_no) })),
       grandTotal: Number(o.grand_total),
