@@ -1556,6 +1556,24 @@ export async function voidOrder(orderId: string, employeeId: string, reason: str
 // ---------------------------------------------------------------------
 // ORDERS / REPORTS
 // ---------------------------------------------------------------------
+/** โหมดจริง: ดึงสถานะบิลจากระบบกลาง (ยกเลิก/คืนเงิน) มาอัปเดตสำเนาในเครื่อง — คืนจำนวนบิลที่เปลี่ยน */
+export async function refreshServerOrderStatuses(orders: Order[]): Promise<number> {
+  if (!isLiveMode()) return 0;
+  const ids = orders.map((o) => o.client_uuid).filter((x): x is string => !!x).slice(0, 300);
+  if (!ids.length) return 0;
+  try {
+    const r = await fetch(`/api/pos/returns?status_of=${ids.join(",")}`, { cache: "no-store" });
+    if (!r.ok) return 0;
+    const { statuses } = (await r.json()) as { statuses: Record<string, Order["status"]> };
+    let n = 0;
+    for (const o of orders) {
+      const st = o.client_uuid ? statuses[o.client_uuid] : undefined;
+      if (st && st !== o.status) { await db().orders.update(o.id, { status: st }); o.status = st; n++; }
+    }
+    return n;
+  } catch { return 0; }
+}
+
 export async function listOrders(opts: {
   branchIds?: string[];
   from?: Date;

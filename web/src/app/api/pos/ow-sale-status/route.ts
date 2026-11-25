@@ -55,12 +55,20 @@ export async function POST(req: NextRequest) {
   if (ord.error || !ord.data) return reply({ error: "ไม่พบบิล" }, 404);
   const allowed = await visibleBranchIds(authz);
   if (allowed !== null && !allowed.includes(ord.data.branch_id as string)) return reply({ error: "ไม่มีสิทธิ์ในสาขานี้" }, 403);
-  const ev = await sb.from("pos_integration_events").select("id,state,response").eq("event_type", "sale.committed").eq("aggregate_id", id).maybeSingle();
+  const ev = await sb.from("pos_integration_events").select("id,state,reason,response").eq("event_type", "sale.committed").eq("aggregate_id", id).maybeSingle();
   if (ev.error || !ev.data) return reply({ error: "บิลนี้ไม่ได้ส่งคลังกลาง" }, 404);
   if (ev.data.state === "delivered") return reply({ ok: true, already: true });
   if ((ev.data.response as { sale?: { status?: string } } | null)?.sale?.status === "failed") {
     const r = await resubmitFailedSale(ev.data.id as string);
     return r.ok ? reply(r) : reply({ error: `JST ยังไม่รับบิล: ${r.reason ?? r.status}` }, 422);
+  }
+  // พักไว้ถาวร (ออนไลน์/ยกเลิก/คืนก่อนส่ง) = ห้ามส่ง · บอกเหตุผลแทนการตอบว่าสำเร็จ
+  if ((ev.data.reason ?? "").startsWith("พักไว้ไม่ส่ง:")) return reply({ error: String(ev.data.reason).replace("พักไว้ไม่ส่ง:", "ส่งไม่ได้:").trim() }, 409);
+  // blocked/dead ที่ไม่ใช่ OW failed (เช่น เคยผูกสาขาไม่ครบ/ลองซ้ำครบ) → ใส่คิวใหม่จริง (claim รับแค่ queued/retry)
+  if (["blocked", "dead"].includes(ev.data.state as string)) {
+    const up = await sb.from("pos_integration_events").update({ state: "queued", available_at: new Date().toISOString(), attempts: 0, lease_token: null, updated_at: new Date().toISOString() })
+      .eq("id", ev.data.id).in("state", ["blocked", "dead"]).select("id");
+    if (up.error) return reply({ error: "ใส่คิวส่งใหม่ไม่สำเร็จ" }, 503);
   }
   kickSaleOutbox();
   return reply({ ok: true, queued: true });

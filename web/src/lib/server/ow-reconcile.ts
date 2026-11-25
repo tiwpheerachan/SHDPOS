@@ -8,6 +8,7 @@
 //   • ⚠ /v1/stock = ยอด JST ซึ่งอัปเดตช้ากว่าใบโอน (~1 นาที แม้ใบขึ้น synced แล้ว — ทดสอบจริง 2026-11-24)
 //     → สินค้าที่เพิ่งมีการเคลื่อนไหวจากใบโอนในช่วง settleMinutes ข้ามไว้ก่อน ("รอ JST อัปเดต") ไม่ทับด้วยยอดเก่า
 // =====================================================================
+import { HOLD_PREFIX } from "./ow-sales";
 import { isOwSaleDone } from "@/lib/ow/sale-status";
 import { randomUUID } from "node:crypto";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -31,10 +32,20 @@ const SERIAL_STATUS: Record<string, string> = { in_stock: "in_stock", sold: "sol
 export async function pendingSaleQty(branchId: string, source: string): Promise<Map<string, number>> {
   const sb = supabaseAdmin();
   const since = new Date(Date.now() - 30 * 86400_000).toISOString();
-  const ev = await sb.from("pos_integration_events").select("aggregate_id,state,response").eq("source", source).eq("event_type", "sale.committed").gte("created_at", since).limit(2000);
-  if (ev.error) throw new OwTransferError("อ่านคิวบิลขายไม่สำเร็จ", 503, "events_read");
-  const holds = (ev.data ?? []).filter((e) => {
+  // เฉพาะสาขานี้ (payload.branch_id) + แบ่งหน้าครบทุกแถว — เดิม limit 2000 ทุกสาขาแล้วค่อยกรอง = นับขาดเมื่อบิลเยอะ
+  const rows: { aggregate_id: string; state: string; reason: string | null; response: unknown }[] = [];
+  for (let from = 0; ; from += 1000) {
+    const ev = await sb.from("pos_integration_events").select("aggregate_id,state,reason,response")
+      .eq("source", source).eq("event_type", "sale.committed").eq("payload->>branch_id", branchId).gte("created_at", since)
+      .order("created_at", { ascending: true }).range(from, from + 999);
+    if (ev.error) throw new OwTransferError("อ่านคิวบิลขายไม่สำเร็จ", 503, "events_read");
+    rows.push(...((ev.data ?? []) as typeof rows));
+    if ((ev.data ?? []).length < 1000) break;
+  }
+  const holds = rows.filter((e) => {
     const st = (e.response as { sale?: { status?: string } } | null)?.sale?.status;
+    // บิลที่พักไว้ไม่ส่งถาวร (ออนไลน์/ยกเลิก/คืน) ไม่ใช่ "รอ JST ตัด" — ออนไลน์ JST ตัดจากแพลตฟอร์มเองแล้ว
+    if (e.state === "blocked" && (e.reason ?? "").startsWith(HOLD_PREFIX)) return false;
     return !isOwSaleDone(st) && st !== "void";
   }).map((e) => e.aggregate_id as string);
   const out = new Map<string, number>();
@@ -163,6 +174,10 @@ export async function owSyncReservations(branchId: string): Promise<{ sku: strin
 export async function owSyncAllReservations(): Promise<number> {
   const links = await warehouseLinks();
   let n = 0;
-  for (const branchId of links.keys()) { await owSyncReservations(branchId); n++; }
+  // สาขาหนึ่งล้ม (OW 502) ต้องไม่ทำให้สาขาที่เหลือค้างยอดจองเก่า
+  for (const branchId of links.keys()) {
+    try { await owSyncReservations(branchId); n++; }
+    catch (e) { console.error("[ow-reservations]", branchId, e instanceof Error ? e.message : e); }
+  }
   return n;
 }

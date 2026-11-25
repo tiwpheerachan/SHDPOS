@@ -7,7 +7,9 @@ import { exportCsv, stampFilename } from "@/lib/export";
 import { useI18n } from "@/lib/i18n/provider";
 import { useSession } from "@/lib/store/session";
 import { useToast } from "@/components/toast-host";
-import { listOrders, voidOrder, getBranch } from "@/lib/data/repo";
+import { listOrders, voidOrder, getBranch, refreshServerOrderStatuses } from "@/lib/data/repo";
+import { isLiveMode } from "@/lib/supabase/client";
+import { uuidv4 } from "@/lib/uuid";
 import type { Branch, Order } from "@/lib/types";
 import { Button, Input, Modal, Table, Th, Td, Badge, EmptyState, Field, Segmented, SkeletonTable } from "@/components/ui";
 import { PosPage, TablePanel, StatChip } from "@/components/pos/page-shell";
@@ -52,8 +54,11 @@ export default function PosOrdersPage() {
     const from = new Date();
     if (range === "today") from.setHours(0, 0, 0, 0);
     else from.setDate(from.getDate() - 7);
-    setOrders(await listOrders({ branchIds: [branchId], from }));
+    const list = await listOrders({ branchIds: [branchId], from });
+    setOrders(list);
     setLoading(false);
+    // สถานะยกเลิก/คืนจากระบบกลาง (ทำจากเครื่องอื่น หรือหัวหน้าอนุมัติภายหลัง)
+    if (await refreshServerOrderStatuses(list)) setOrders([...list]);
   }
 
   useEffect(() => {
@@ -111,6 +116,8 @@ export default function PosOrdersPage() {
 
   function askVoid(o: Order) {
     if (!employee) return;
+    // โหมดจริง: ระบบกลางตัดสินสิทธิ์อนุมัติเอง (ไม่เชื่อผู้อนุมัติจากเครื่อง)
+    if (isLiveMode()) { setVoidTarget(o); return; }
     if (needsApproval(employee, "pos.void")) {
       setVoidTarget(o);
       setApprovalReq({
@@ -129,6 +136,19 @@ export default function PosOrdersPage() {
 
   async function doVoid() {
     if (!voidTarget || !employee) return;
+    if (isLiveMode()) {
+      if (!voidTarget.client_uuid) { toast.push({ tone: "warn", title: L("บิลนี้ยังไม่อยู่ในระบบกลาง", "Bill not synced", "未同步") }); return; }
+      try {
+        const r = await fetch("/api/pos/returns", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "request", payload: {
+          client_uuid: uuidv4(), order_client_uuid: voidTarget.client_uuid, kind: "void", type: "refund",
+          refund_method: voidTarget.payments?.[0]?.method ?? "cash", reason_code: "void", reason_note: voidReason || null, shift_id: session.shift?.id ?? null } }) });
+        const j = await r.json(); if (!r.ok) throw Error(j.error);
+        toast.push(j.approved_now
+          ? { tone: "warn", title: L(`ยกเลิกบิลแล้ว · คืนเงิน ${formatTHB(j.refund_amount, false)}`, `Voided · refund ${formatTHB(j.refund_amount, false)}`, "已作废"), body: j.ow_linked ? L("บิลอยู่ใน JST แล้ว — สร้างงานให้ทีมคลังกลางทำรับคืนใน JST", "Task created for JST return", "已建任务") : voidTarget.order_no }
+          : { tone: "info", title: L("ส่งคำขอยกเลิกบิลแล้ว — รอหัวหน้าอนุมัติที่หน้า คืน/เปลี่ยนสินค้า", "Void requested — awaiting approval", "已提交作废申请"), body: voidTarget.order_no });
+      } catch (e) { toast.push({ tone: "danger", title: L("ยกเลิกบิลไม่สำเร็จ", "Void failed", "作废失败"), body: e instanceof Error ? e.message : String(e) }); return; }
+      setVoidTarget(null); setVoidReason(""); await reload(); return;
+    }
     await voidOrder(voidTarget.id, employee.id, voidReason || "-");
     setVoidTarget(null);
     setVoidReason("");
@@ -288,7 +308,9 @@ export default function PosOrdersPage() {
           <p className="text-sm">
             {voidTarget?.order_no} · <span className="tnum font-semibold">{formatTHB(voidTarget?.grand_total ?? 0)}</span>
           </p>
-          <p className="text-xs text-muted">{L("สินค้าจะถูกคืนเข้าสต๊อกอัตโนมัติ และบันทึกลง audit log", "Items are returned to stock automatically and logged to the audit log", "商品将自动退回库存并记入审计日志")}</p>
+          <p className="text-xs text-muted">{isLiveMode()
+            ? L("ระบบกลางคิดยอดคืนเงินจากบิลจริง · ผู้ไม่มีสิทธิ์อนุมัติจะเป็นคำขอรอหัวหน้า · บิลที่เข้า JST แล้ว สินค้าจะกลับเข้าสต๊อกหลังทีมคลังกลางทำรับคืนใน JST · ระบบไม่ได้โอนเงินคืนให้", "Server computes refund; JST-synced bills restock after central team processes the return; no money is sent automatically", "系统计算退款；已入JST的单据需中央仓处理退货后回库")
+            : L("สินค้าจะถูกคืนเข้าสต๊อกอัตโนมัติ และบันทึกลง audit log", "Items are returned to stock automatically and logged to the audit log", "商品将自动退回库存并记入审计日志")}</p>
           <Field label={t.orders.voidReason}>
             <Input autoFocus value={voidReason} onChange={(e) => setVoidReason(e.target.value)} />
           </Field>

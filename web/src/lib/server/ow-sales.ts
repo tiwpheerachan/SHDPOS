@@ -119,10 +119,18 @@ export function holdReasonForChannel(channel: string | null | undefined): string
   return `${HOLD_PREFIX} ช่องทาง ${c} ยังไม่ได้ตกลงวิธีส่งเข้า JST`;
 }
 
-async function loadSaleInput(holdId: string, owBranchId: string): Promise<{ input: PosSaleInput; orderId: string; itemIds: string[]; channel: string | null }> {
+// บิลยกเลิก/คืนก่อนถึง JST (สต๊อก JST ไม่เคยถูกตัด · POS คืนสต๊อกแล้ว) → ห้ามส่งตามไปทีหลัง
+export function holdReasonForOrderStatus(status: string | null | undefined): string | null {
+  if (status === "voided") return `${HOLD_PREFIX} บิลถูกยกเลิกก่อนส่งเข้า JST — ไม่ต้องส่ง`;
+  if (status === "refunded") return `${HOLD_PREFIX} บิลถูกคืนทั้งหมดก่อนส่งเข้า JST — ไม่ต้องส่ง`;
+  if (status === "partially_refunded") return `${HOLD_PREFIX} บิลถูกคืนบางส่วนก่อนส่งเข้า JST — ส่งทั้งบิลจะตัดสต๊อกของที่คืนแล้ว ให้หัวหน้าตรวจและแจ้งทีมคลังกลาง`;
+  return null;
+}
+
+async function loadSaleInput(holdId: string, owBranchId: string): Promise<{ input: PosSaleInput; orderId: string; itemIds: string[]; channel: string | null; status: string | null }> {
   const sb = supabaseAdmin();
   const { data: o, error } = await sb.from("orders")
-    .select("id,order_no,channel,grand_total,discount_total,promo_snapshot,customer_name,customer_phone,created_at,sale_occurred_at,order_items(id,sku,qty,unit_price,discount_amount,is_gift,gift_source,gift_campaign_id,sort_order,order_item_serials(serial_no)),order_payments(method,amount)")
+    .select("id,order_no,channel,status,grand_total,discount_total,promo_snapshot,customer_name,customer_phone,created_at,sale_occurred_at,order_items(id,sku,qty,unit_price,discount_amount,is_gift,gift_source,gift_campaign_id,sort_order,order_item_serials(serial_no)),order_payments(method,amount)")
     .eq("client_uuid", holdId).maybeSingle();
   if (error) throw new Error("อ่านบิลไม่สำเร็จ");
   if (!o) throw new Error("ยังไม่พบบิลของรายการนี้");
@@ -135,7 +143,7 @@ async function loadSaleInput(holdId: string, owBranchId: string): Promise<{ inpu
   const cname = (id: string | null | undefined) => { const c = camps.find((x) => x.id === id); return c ? String(c.name || c.code) : null; };
   const note = discountRemark(discountBreakdown({ grand_total: Number(o.grand_total), discount_total: Number(o.discount_total ?? 0), promo_snapshot: snap, items }, cname));
   return {
-    orderId: o.id, itemIds: items.map((i) => i.id), channel: (o.channel as string | null) ?? null,
+    orderId: o.id, itemIds: items.map((i) => i.id), channel: (o.channel as string | null) ?? null, status: (o.status as string | null) ?? null,
     input: {
       orderNo: o.order_no, saleAt: o.sale_occurred_at ?? o.created_at, owBranchId,
       customer: { name: o.customer_name, phone: o.customer_phone },
@@ -163,10 +171,15 @@ export async function deliverSaleEvent(ev: EventRow) {
   const block = async (reason: string) => { await finish(ev, { state: "blocked", reason }); return { state: "blocked" as const, reason }; };
   if (!owBranchId) return block("สาขานี้ยังไม่ผูกสาขาขาย OneWarehouse");
   let stored = ev.payload.request as StoredRequest | undefined;
+  if (stored) {
+    const cur = await supabaseAdmin().from("orders").select("status").eq("client_uuid", ev.aggregate_id).maybeSingle();
+    const hold = holdReasonForOrderStatus((cur.data?.status as string | undefined) ?? null);
+    if (hold) return block(hold);
+  }
   if (!stored) {
     try {
-      const { input, orderId, itemIds, channel } = await loadSaleInput(ev.aggregate_id, owBranchId);
-      const hold = holdReasonForChannel(channel);
+      const { input, orderId, itemIds, channel, status } = await loadSaleInput(ev.aggregate_id, owBranchId);
+      const hold = holdReasonForChannel(channel) ?? holdReasonForOrderStatus(status);
       if (hold) return block(hold); // ไม่สร้าง request · ไม่ส่ง OW (ปลดได้เมื่อเปิดช่องทางนี้แล้ว กด "ส่งใหม่")
       const body = buildSaleBody(input, makeOpKey("sale", ev.event_key));
       stored = { body, hash: hashOf(body), order_id: orderId, item_ids: itemIds };
@@ -240,6 +253,8 @@ export async function followUpSales(source: string, limit = 20) {
 export async function patchSaleSerials(eventId: string, actor: string, reason: string, serialsByLine: Record<number, string[]>) {
   const sb = supabaseAdmin();
   if (!reason || reason.trim().length < 3) throw new Error("ต้องระบุเหตุผลการแก้ SN");
+  // SN ใน POS เก็บตัวพิมพ์ใหญ่เสมอ (checkout/cart/validateQuote) — ไม่งั้นเช็ก "ขายไปแล้วในบิลอื่น" พลาดและเกิด SN ซ้ำ
+  serialsByLine = Object.fromEntries(Object.entries(serialsByLine).map(([k, v]) => [k, v.map((x) => x.trim().toUpperCase()).filter(Boolean)]));
   const { data: ev, error } = await sb.from("pos_integration_events").select("id,event_key,attempts,response,payload,state").eq("id", eventId).single();
   if (error || !ev) throw new Error("ไม่พบรายการ");
   const resp = (ev.response ?? {}) as { request?: OwSaleBody; sale?: OwSale };
@@ -336,6 +351,9 @@ export async function resubmitFailedSale(eventId: string) {
   if (error || !ev) throw new Error("ไม่พบรายการ");
   const resp = (ev.response ?? {}) as { request?: OwSaleBody; sale?: OwSale };
   if (!resp.sale?.id) throw new Error("รายการนี้ยังไม่มีบิลใน OW");
+  const ord = await sb.from("orders").select("status").eq("client_uuid", (await sb.from("pos_integration_events").select("aggregate_id").eq("id", eventId).single()).data?.aggregate_id ?? "").maybeSingle();
+  const hold = holdReasonForOrderStatus((ord.data?.status as string | undefined) ?? null);
+  if (hold) throw new Error(hold.replace(HOLD_PREFIX, "ส่งใหม่ไม่ได้:"));
   const latest = await owCall<OwSale & { lines?: OwSaleLine[] }>("GET", `sales/${encodeURIComponent(resp.sale.id)}`);
   if (!latest.ok || !latest.data) throw new Error(`อ่านบิลล่าสุดจาก OW ไม่ได้: ${latest.error?.message ?? latest.status}`);
   const sale = latest.data;

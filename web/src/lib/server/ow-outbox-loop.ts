@@ -20,30 +20,40 @@ export function startOwOutboxLoop(): void {
   try { source = owConfig().source; } catch { return; } // ยังไม่ตั้งค่า OW → ไม่เริ่ม
   g.__owOutboxLoop = true;
   let busy = false, tick = 0;
+  // แต่ละงานแยก try ของตัวเอง — งานหนึ่งล้มต้องไม่ทำให้งานอื่นหยุด และ tick ต้องเดินเสมอ (ไม่งั้นงานทุก 2 นาทียิงทุก 30 วิ / recon รายชั่วโมงไม่เคยรัน)
+  const step = async (name: string, fn: () => Promise<void>) => {
+    try { await fn(); } catch (e) { console.error(`[ow-outbox-loop:${name}]`, e instanceof Error ? e.message : e); }
+  };
   const run = async () => {
     if (busy) return;
     busy = true;
+    const t = tick;
     try {
-      const sent = await processSaleOutbox(source, 5);
-      if (sent.length) console.log(JSON.stringify({ at: new Date().toISOString(), ow_outbox: sent.map((x) => `${x.state}${x.reason ? `:${x.reason}` : ""}`) }));
-      if (tick % 4 === 0) {
-        const f = await followUpSales(source, 20);
-        if (f.changed) console.log(JSON.stringify({ at: new Date().toISOString(), ow_followup: f }));
+      await step("outbox", async () => {
+        const sent = await processSaleOutbox(source, 5);
+        if (sent.length) console.log(JSON.stringify({ at: new Date().toISOString(), ow_outbox: sent.map((x) => `${x.state}${x.reason ? `:${x.reason}` : ""}`) }));
+      });
+      if (t % 4 === 0) {
+        await step("followup", async () => {
+          const f = await followUpSales(source, 20);
+          if (f.changed) console.log(JSON.stringify({ at: new Date().toISOString(), ow_followup: f }));
+        });
         // ยอดจองตาม JST (ใบโอนขาออกที่ยังไม่ส่ง) → POS ไม่ขายของที่ JST กันไว้
-        await owSyncAllReservations();
+        await step("reservations", async () => { await owSyncAllReservations(); });
         // ปัญหาบิล → งาน + แจ้งเตือนผู้รับผิดชอบ (ปิดเองเมื่อ JST ยืนยัน)
-        const is = await syncSaleIssues(source);
-        if (is.created || is.updated || is.resolved) console.log(JSON.stringify({ at: new Date().toISOString(), ow_issues: is }));
+        await step("issues", async () => {
+          const is = await syncSaleIssues(source);
+          if (is.created || is.updated || is.resolved) console.log(JSON.stringify({ at: new Date().toISOString(), ow_issues: is }));
+        });
       }
-      if (tick % 120 === 119) {
-        const rc = await runRecon(null);
-        const bad = rc.rows.filter((r) => r.status === "mismatch");
-        if (bad.length) console.warn(JSON.stringify({ at: new Date().toISOString(), ow_recon_mismatch: bad.map((r) => `${r.kind}:${r.ref}`) }));
+      if (t % 120 === 119) {
+        await step("recon", async () => {
+          const rc = await runRecon(null);
+          const bad = rc.rows.filter((r) => r.status === "mismatch");
+          if (bad.length) console.warn(JSON.stringify({ at: new Date().toISOString(), ow_recon_mismatch: bad.map((r) => `${r.kind}:${r.ref}`) }));
+        });
       }
-      tick++;
-    } catch (e) {
-      console.error("[ow-outbox-loop]", e instanceof Error ? e.message : e);
-    } finally { busy = false; }
+    } finally { tick = t + 1; busy = false; }
   };
   setTimeout(() => void run(), 15_000); // รอเซิร์ฟเวอร์พร้อมก่อนรอบแรก
   setInterval(() => void run(), 30_000).unref?.();

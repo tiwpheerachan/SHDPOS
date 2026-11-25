@@ -36,6 +36,8 @@ const fail = (e: unknown) => {
 };
 const strs = (v: unknown, max = 500) => (Array.isArray(v) ? v.map((x) => String(x).trim()).filter(Boolean).slice(0, max) : []);
 
+const inboundPulledAt = new Map<string, number>();
+
 export async function GET(req: NextRequest) {
   try {
     const profile = readSession(req.cookies.get(SSO_COOKIE)?.value);
@@ -79,7 +81,11 @@ export async function GET(req: NextRequest) {
     if (scope && !scope.length) return reply({ configured: true, transfers: [] });
     // ดึงใบขาเข้าจากคลังกลาง — ล้มเหลวไม่ทำให้รายการล้ม แต่แจ้งกลับ (ไม่เงียบ)
     let inbound = 0, inboundError: string | null = null;
-    if (branch && sp.get("sync") !== "0") inbound = await owSyncInbound(branch, authz.employee_id ?? null).catch((e) => { inboundError = e instanceof Error ? e.message : "ดึงใบขาเข้าไม่สำเร็จ"; return 0; });
+    // ดึงใบขาเข้าจาก OW ไม่เกินทุก 30 วิ ต่อสาขา (เดิมทุกครั้งที่เปิด/รีเฟรชรายการ = ยิง OW หลายสิบครั้ง)
+    if (branch && sp.get("sync") !== "0" && Date.now() - (inboundPulledAt.get(branch) ?? 0) > 30_000) {
+      inboundPulledAt.set(branch, Date.now());
+      inbound = await owSyncInbound(branch, authz.employee_id ?? null).catch((e) => { inboundPulledAt.delete(branch); inboundError = e instanceof Error ? e.message : "ดึงใบขาเข้าไม่สำเร็จ"; return 0; });
+    }
     const since = sp.get("since"), before = sp.get("before");
     const rows = await owListCopies(scope, { since: since && !Number.isNaN(Date.parse(since)) ? since : undefined, before: before && !Number.isNaN(Date.parse(before)) ? before : undefined, limit: Number(sp.get("limit")) || 200 });
     return reply({ configured: true, inbound_added: inbound, inbound_error: inboundError, transfers: rows.map((r) => r.transfer), cursor: rows.length ? rows[rows.length - 1].updated_at : null });

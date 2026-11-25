@@ -8,7 +8,7 @@ export function deferredDraft(input:unknown,catalog:any[],branch:string,actor:st
  const products=new Map(catalog.map(p=>[p.id,p])),seen=new Set<string>(),issues:any[]=[];
  const lines=items.map(raw=>{const i=object(raw),p=products.get(i.product_id);if(!p)throw Error('ไม่พบสินค้าในแคตตาล็อก');
  const qty=i.qty,price=i.unit_price;if(!Number.isInteger(qty)||qty<=0||qty>10000||typeof price!=='number'||!Number.isFinite(price)||price<=0||price>1e9||round2(price)!==price)throw Error('กรุณาระบุจำนวนเต็มและราคาขายจริงที่มากกว่าศูนย์ทุกสินค้า');
- const gross=round2(qty*price),discount=i.discount_amount??round2(gross*(i.discount_percent??0)/100);
+ const gross=round2(qty*price),discount=i.discount_amount||round2(gross*(i.discount_percent??0)/100);
  if(typeof discount!=='number'||!Number.isFinite(discount)||discount<0||discount>gross)throw Error('ส่วนลดสินค้าไม่ถูกต้อง');
  const serials=(i.serials??[]);if(!Array.isArray(serials)||serials.length>qty)throw Error('จำนวน SN มากกว่าจำนวนสินค้า');
  const normalized=serials.map((sn:unknown)=>{if(typeof sn!=='string'||!sn.trim()||sn.length>200)throw Error('SN ไม่ถูกต้อง');const n=sn.trim().toUpperCase();if(seen.has(n))throw Error('SN ซ้ำในรายการ');seen.add(n);return n});

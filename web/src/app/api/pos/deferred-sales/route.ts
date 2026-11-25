@@ -52,7 +52,7 @@ export async function POST(req:NextRequest){try{
    const override=d.draft.items.some((i:any)=>Number(products.data?.find(p=>p.id===i.product_id)?.price)!==i.unit_price);
    if(override&&!hasPerm(ctx.profile.email,ctx.authz,'pos.price_override'))throw new PosError('ราคาขายจริงต่างจากราคากลาง ต้องให้หัวหน้าที่มีสิทธิ์แก้ราคาปิดบิล',403);
    const catalog=(products.data??[]).map(p=>({...p,price:override?d.draft.items.find((i:any)=>i.product_id===p.id)?.unit_price:p.price}));
-   const q=validateQuote({...d.draft,client_uuid:d.id,items:d.draft.items.map((i:any,index:number)=>({...i,serials:b.serials[index]}))},catalog,ctx.authz.max_discount_percent);
+   const q=validateQuote({...d.draft,client_uuid:d.id,items:d.draft.items.map((i:any,index:number)=>({...i,serials:b.serials[index]}))},catalog,!ctx.authz.isSuperadmin&&["deny","approval"].includes(ctx.authz.permission_overrides?.["pos.discount"])?0:ctx.authz.max_discount_percent);
    q.cashier_id=ctx.actorId;q.note='ขายก่อนรอปิดบิล: '+d.reason+' · ขายจริง '+new Date(d.occurred_at).toLocaleString('th-TH',{timeZone:'Asia/Bangkok'});q.device_created_at=d.occurred_at;
    result=await sb.rpc('pos_post_deferred_sale',{p_id:b.id,p_actor:ctx.actorId,p_version:b.version,p_quote:q,p_delivered:true});
   }else throw new PosError('คำสั่งไม่ถูกต้อง');
