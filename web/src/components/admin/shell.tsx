@@ -9,7 +9,7 @@ import {
   LayoutDashboard, TrendingUp, Users, Package, Boxes, ArrowLeftRight, ScanLine,
   ShieldCheck, ScrollText, Settings2, Store, Sun, Moon, Languages, Menu, X, Bell,
   Search, PanelLeftClose, PanelLeftOpen, ChevronDown, Command, Home, Activity, FileText, LogOut, Contact, CalendarClock, Ticket, Network, Landmark, Wand2, CreditCard, MonitorPlay, Cloud,
-  BadgePercent, Star,
+  BadgePercent, Star, CloudDownload, UserCog, History,
 } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { useTheme } from "@/lib/theme";
@@ -26,8 +26,12 @@ import { WorkNotifications } from "@/components/work/notifications";
 import { BrandReveal } from "@/components/brand-reveal";
 
 // ทุกเมนูต้องมี perm (กฎ: ทุกฟีเจอร์ต้องติ๊กสิทธิ์ได้ในหน้า ผู้ใช้ & สิทธิ์) — ดู scripts/check-permissions.cjs
+//   เมนูที่เกี่ยวกันรวมเป็น "กลุ่ม" (hub): เมนูซ้ายแสดง 1 รายการ · เข้าไปแล้วมีแท็บย่อยด้านบน · หน้าเดิมยังอยู่ที่ลิงก์เดิม (สิทธิ์แยกรายหน้าเหมือนเดิม)
 type NavItem = { href: string; icon: typeof LayoutDashboard; key: string; perm: PermissionKey };
-type NavGroup = { section: string; items: NavItem[] };
+type NavHub = { hub: string; icon: typeof LayoutDashboard; children: NavItem[] };
+type NavEntry = NavItem | NavHub;
+type NavGroup = { section: string; items: NavEntry[] };
+const isHub = (e: NavEntry): e is NavHub => "hub" in e;
 
 const NAV: NavGroup[] = [
   {
@@ -36,30 +40,40 @@ const NAV: NavGroup[] = [
       { href: "/admin", icon: LayoutDashboard, key: "dashboard", perm: "dashboard.view" },
       { href: "/admin/work", icon: CalendarClock, key: "work", perm: "work.view" },
       { href: "/admin/insights", icon: Wand2, key: "insights", perm: "report.employee_perf" },
-      { href: "/admin/finance", icon: Landmark, key: "finance", perm: "finance.view" },
-      { href: "/admin/payments", icon: CreditCard, key: "payments", perm: "finance.view" },
+      { hub: "money", icon: Landmark, children: [
+        { href: "/admin/finance", icon: Landmark, key: "finance", perm: "finance.view" },
+        { href: "/admin/payments", icon: CreditCard, key: "payments", perm: "finance.view" },
+      ] },
     ],
   },
   {
     section: "sales",
     items: [
       { href: "/admin/sales", icon: TrendingUp, key: "sales", perm: "sales.view" },
-      { href: "/admin/discounts", icon: BadgePercent, key: "discounts", perm: "report.discount" },
-      { href: "/admin/customers", icon: Contact, key: "customers", perm: "customer.manage" },
-      { href: "/admin/campaigns", icon: Ticket, key: "campaigns", perm: "campaign.manage" },
-      { href: "/admin/loyalty", icon: Star, key: "loyalty", perm: "loyalty.manage" },
-      { href: "/admin/display", icon: MonitorPlay, key: "display", perm: "display.manage" },
-      { href: "/admin/employees", icon: Users, key: "employees", perm: "report.employee_perf" },
-      { href: "/admin/org", icon: Network, key: "org", perm: "admin.employee_manage" },
+      { hub: "promo", icon: Ticket, children: [
+        { href: "/admin/campaigns", icon: Ticket, key: "campaigns", perm: "campaign.manage" },
+        { href: "/admin/discounts", icon: BadgePercent, key: "discounts", perm: "report.discount" },
+        { href: "/admin/display", icon: MonitorPlay, key: "display", perm: "display.manage" },
+      ] },
+      { hub: "crm", icon: Contact, children: [
+        { href: "/admin/customers", icon: Contact, key: "customers", perm: "customer.manage" },
+        { href: "/admin/loyalty", icon: Star, key: "loyalty", perm: "loyalty.manage" },
+      ] },
+      { hub: "team", icon: Users, children: [
+        { href: "/admin/employees", icon: Users, key: "employees", perm: "report.employee_perf" },
+        { href: "/admin/org", icon: Network, key: "org", perm: "admin.employee_manage" },
+      ] },
     ],
   },
   {
     section: "operations",
     items: [
-      { href: "/admin/inventory", icon: Boxes, key: "inventory", perm: "inventory.view" },
-      { href: "/admin/movement", icon: Activity, key: "movement", perm: "inventory.view" },
+      { hub: "stock", icon: Boxes, children: [
+        { href: "/admin/inventory", icon: Boxes, key: "inventory", perm: "inventory.view" },
+        { href: "/admin/movement", icon: Activity, key: "movement", perm: "inventory.view" },
+        { href: "/admin/serials", icon: ScanLine, key: "serials", perm: "inventory.view" },
+      ] },
       { href: "/admin/transfers", icon: ArrowLeftRight, key: "transfers", perm: "transfer.request" },
-      { href: "/admin/serials", icon: ScanLine, key: "serials", perm: "inventory.view" },
       { href: "/admin/products", icon: Package, key: "products", perm: "product.view" },
       { href: "/admin/deferred-sales", icon: FileText, key: "deferredsales", perm: "deferred_sale.manage" },
     ],
@@ -73,12 +87,16 @@ const NAV: NavGroup[] = [
   {
     section: "control",
     items: [
-      { href: "/admin/onewarehouse", icon: Cloud, key: "onewarehouse", perm: "integration.manage" },
-      { href: "/admin/catalog-sync", icon: Cloud, key: "catalogsync", perm: "integration.manage" },
+      { hub: "integration", icon: Cloud, children: [
+        { href: "/admin/onewarehouse", icon: Cloud, key: "onewarehouse", perm: "integration.manage" },
+        { href: "/admin/catalog-sync", icon: CloudDownload, key: "catalogsync", perm: "integration.manage" },
+      ] },
       { href: "/admin/approvals", icon: ShieldCheck, key: "approvals", perm: "approval.view" },
-      { href: "/admin/permissions", icon: Users, key: "permissions", perm: "admin.permission_manage" },
-      { href: "/admin/activity", icon: ScrollText, key: "activity", perm: "audit.view" },
-      { href: "/admin/audit", icon: ScrollText, key: "audit", perm: "audit.view" },
+      { hub: "security", icon: UserCog, children: [
+        { href: "/admin/permissions", icon: Users, key: "permissions", perm: "admin.permission_manage" },
+        { href: "/admin/activity", icon: History, key: "activity", perm: "audit.view" },
+        { href: "/admin/audit", icon: ScrollText, key: "audit", perm: "audit.view" },
+      ] },
     ],
   },
 ];
@@ -191,19 +209,43 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
     onewarehouse: L("เชื่อมคลังกลาง", "OneWarehouse", "中央仓"),
     catalogsync: L("นำเข้าแคตตาล็อก", "Catalog import", "目录导入"),
   };
+  const hubLabel: Record<string, string> = {
+    money: L("การเงิน", "Finance", "财务"),
+    promo: L("แคมเปญ & ส่วนลด", "Campaigns & discounts", "活动与折扣"),
+    crm: L("ลูกค้า & แต้ม", "Customers & loyalty", "客户与积分"),
+    team: L("ทีมงาน & สาขา", "Team & branches", "团队与门店"),
+    stock: L("สต๊อก", "Stock", "库存"),
+    integration: L("เชื่อมระบบ", "Integrations", "系统对接"),
+    security: L("ผู้ใช้ & ประวัติ", "Users & logs", "用户与日志"),
+  };
   const sectionLabel: Record<string, string> = {
     overview: t.cmd.secOverview, sales: t.cmd.secSales, operations: t.cmd.secOps,
     documents: t.cmd.secDocuments, control: t.cmd.secControl,
   };
 
+  const allowed = (n: NavItem) => !n.perm || !employee || can(employee, n.perm);
+  // กรองตามสิทธิ์ · กลุ่มที่เหลือหน้าเดียวแสดงเป็นเมนูธรรมดา
   const groups = NAV.map((g) => ({
     ...g,
-    items: g.items.filter((n) => !n.perm || !employee || can(employee, n.perm)),
+    items: g.items.flatMap((e): NavEntry[] => {
+      if (!isHub(e)) return allowed(e) ? [e] : [];
+      const ch = e.children.filter(allowed);
+      return ch.length === 0 ? [] : ch.length === 1 ? [ch[0]] : [{ ...e, children: ch }];
+    }),
   })).filter((g) => g.items.length);
-
-  const currentItem = groups.flatMap((g) => g.items).find((n) => n.href === pathname);
+  const flat = groups.flatMap((g) => g.items.flatMap((e) => (isHub(e) ? e.children : [e])));
+  const currentItem = flat.find((n) => n.href === pathname);
   const currentKey = currentItem?.key ?? "dashboard";
-  const currentSection = groups.find((g) => g.items.some((i) => i.href === pathname))?.section ?? "overview";
+  const currentHub = groups.flatMap((g) => g.items).find((e): e is NavHub => isHub(e) && e.children.some((c) => c.href === pathname)) ?? null;
+  const currentSection = groups.find((g) => g.items.some((e) => (isHub(e) ? e.children.some((c) => c.href === pathname) : e.href === pathname)))?.section ?? "overview";
+  // จำหน้าล่าสุดของแต่ละกลุ่ม (อ่านหลัง mount — ไม่ให้ลิงก์ฝั่งเซิร์ฟเวอร์/เบราว์เซอร์ไม่ตรงกัน)
+  const [hubLast, setHubLast] = useState<Record<string, string>>({});
+  useEffect(() => { try { setHubLast(JSON.parse(localStorage.getItem("shdpos.hub.last") || "{}")); } catch { /* */ } }, []);
+  useEffect(() => {
+    if (!currentHub) return;
+    setHubLast((m) => { if (m[currentHub.hub] === pathname) return m; const n = { ...m, [currentHub.hub]: pathname }; try { localStorage.setItem("shdpos.hub.last", JSON.stringify(n)); } catch { /* */ } return n; });
+  }, [currentHub, pathname]);
+  const lastInHub = (h: NavHub) => (hubLast[h.hub] && h.children.some((c) => c.href === hubLast[h.hub]) ? hubLast[h.hub] : h.children[0].href);
 
   const railW = collapsed ? "lg:w-[74px]" : "lg:w-64";
 
@@ -257,15 +299,18 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
             <div key={g.section}>
               {!collapsed && <p className="eyebrow px-2.5 mb-1.5">{sectionLabel[g.section]}</p>}
               <div className="space-y-0.5">
-                {g.items.map((n) => {
-                  const active = pathname === n.href;
+                {g.items.map((e) => {
+                  const hub = isHub(e) ? e : null;
+                  const n = hub ? { href: lastInHub(hub), icon: hub.icon, key: hub.hub } : (e as NavItem);
+                  const active = hub ? hub.children.some((c) => c.href === pathname) : pathname === n.href;
                   const Icon = n.icon;
-                  const badge = badges[n.key] ?? 0;
+                  const badge = hub ? hub.children.reduce((x, c) => x + (badges[c.key] ?? 0), 0) : badges[n.key] ?? 0;
+                  const text = hub ? hubLabel[hub.hub] : label[n.key];
                   return (
-                    <motion.div key={n.href} whileTap={{ scale: 0.95 }} transition={{ type: "spring", stiffness: 500, damping: 30 }}>
+                    <motion.div key={hub ? `hub:${hub.hub}` : n.href} whileTap={{ scale: 0.95 }} transition={{ type: "spring", stiffness: 500, damping: 30 }}>
                       <Link
                         href={n.href}
-                        title={collapsed ? label[n.key] : undefined}
+                        title={collapsed ? text : hub ? hub.children.map((c) => label[c.key]).join(" · ") : undefined}
                         className={clsx(
                           "relative flex items-center gap-3 h-10 rounded-xl text-sm transition-colors",
                           collapsed ? "lg:justify-center lg:px-0 px-3" : "px-3",
@@ -276,7 +321,8 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
                         <span className="relative z-10 shrink-0">
                           <Icon key={active ? "on" : "off"} size={18} className={clsx("shrink-0", active ? "text-brand shd-nav-draw" : "")} />
                         </span>
-                        {!collapsed && <span className="relative z-10 truncate">{label[n.key]}</span>}
+                        {!collapsed && <span className="relative z-10 truncate">{text}</span>}
+                        {!collapsed && hub && !badge ? <span className="relative z-10 ml-auto text-[10px] tabular-nums text-muted/70">{hub.children.length}</span> : null}
                         {badge > 0 ? (
                           <span className={clsx("relative z-10 inline-flex items-center justify-center", collapsed ? "lg:absolute lg:top-1 lg:right-1" : "ml-auto")}>
                             <span className="absolute inline-flex h-full w-full rounded-full bg-rose-500/60 animate-ping" />
@@ -353,6 +399,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
                 <span className="hidden sm:inline">SHD</span>
                 <span className="hidden sm:inline text-line">/</span>
                 <span className="truncate">{sectionLabel[currentSection] ?? "SHD"}</span>
+                {currentHub ? <><span className="text-line">/</span><span className="truncate">{hubLabel[currentHub.hub]}</span></> : null}
               </div>
               <h1 className="text-sm font-semibold leading-tight truncate">{label[currentKey] ?? t.admin.dashboard}</h1>
             </div>
@@ -458,6 +505,25 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
         </header>
+
+        {currentHub ? (
+          <nav aria-label={hubLabel[currentHub.hub]} className="px-3 sm:px-5 pt-3">
+            <div className="flex items-center gap-1 overflow-x-auto rounded-2xl border border-line/70 bg-surface/80 p-1 backdrop-blur w-fit max-w-full">
+              {currentHub.children.map((c) => {
+                const on = c.href === pathname, CI = c.icon, b = badges[c.key] ?? 0;
+                return (
+                  <Link key={c.href} href={c.href} aria-current={on ? "page" : undefined}
+                    className={clsx("relative h-9 px-3.5 rounded-xl text-[13px] inline-flex items-center gap-2 whitespace-nowrap transition-colors", on ? "text-brand font-semibold" : "text-muted font-medium hover:text-ink")}>
+                    {on && <motion.span layoutId={`hubTab:${currentHub.hub}`} className="absolute inset-0 rounded-xl shd-nav-glass" transition={{ type: "spring", stiffness: 480, damping: 36 }} />}
+                    <CI size={15} className="relative z-10" />
+                    <span className="relative z-10">{label[c.key]}</span>
+                    {b > 0 ? <span className="relative z-10 min-w-[16px] h-4 px-1 rounded-full bg-rose-500 text-white text-[9px] font-bold grid place-items-center">{b}</span> : null}
+                  </Link>
+                );
+              })}
+            </div>
+          </nav>
+        ) : null}
 
         <Suspense fallback={null}>
           <WorkspaceTabs baseLabel={label[currentKey] ?? t.admin.dashboard} />
