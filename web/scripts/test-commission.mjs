@@ -51,6 +51,19 @@ export async function testCommission(db, ids) {
   eq(Number((await report()).find((x) => x.rule_id === rc.id && x.employee_id === PC2).sales), 1100, 'บรรทัดของ PC2 นับให้ PC2 · บิลยกเลิกไม่นับ'); n++;
   const b2 = await report([B2]); eq(b2.length, 1, 'กรองสาขา B2'); eq(b2[0].rule_id, rc.id, 'B2 ได้เฉพาะกฎหมวด'); eq(Number(b2[0].commission), 500, '10000 ≥ 1000 → 5%'); n++;
 
+  // ขั้นนับยอดรวมทั้งสาขา (0083): PC1 ขาย 2 + PC2 ขาย 2 ที่สาขา B2 = 4 ≥ ขั้น 4 → ทุกคนได้ 100/ชิ้น (ถ้านับรายคนจะไม่ถึง)
+  const PS = U(12);
+  await db.query("insert into products(id,sku,name_th,price,cost,brand_id) values($1,'CM-S','S',300,100,null)", [PS]);
+  const rb = await save({ name: 'คอมทีมสาขา', scope: 'sku', product_ids: [PS], basis: 'units', calc: 'per_unit', tier_scope: 'branch', tiers: [{ min: 1, rate: 20 }, { min: 4, rate: 100 }], ...win });
+  await bill({ branch: B2, sp: PC1, lines: [{ p: PS, qty: 2, price: 300 }] });
+  await bill({ branch: B2, sp: PC2, lines: [{ p: PS, qty: 2, price: 300 }] });
+  await bill({ branch: B1, sp: PC1, lines: [{ p: PS, qty: 1, price: 300 }] });
+  const tb = (await report()).filter((x) => x.rule_id === rb.id);
+  const at = (emp, br) => tb.find((x) => x.employee_id === emp && x.branch_id === br);
+  eq(Number(at(PC1, B2).tier_units), 4, 'ยอดตัดขั้น = ยอดรวมสาขา B2'); eq(Number(at(PC1, B2).commission), 200, 'PC1 @B2: 2×100'); eq(Number(at(PC2, B2).commission), 200, 'PC2 @B2: 2×100');
+  eq(Number(at(PC1, B1).rate), 20, 'สาขา B1 ยอดรวม 1 → ขั้นแรก'); eq(Number(at(PC1, B1).next_min), 4, 'B1 ต้องถึง 4'); n++;
+  eq((await db.query('select tier_scope from pos_commission_rules where id=$1', [ra.id])).rows[0].tier_scope, 'employee', 'ค่าเริ่มต้น = รายคน'); n++;
+
   // ขั้นไม่ถูกต้อง · version · ปิดจาก anon
   await rejects(save({ name: 'ขั้นซ้ำ', scope: 'sku', product_ids: [PB], basis: 'units', calc: 'per_unit', tiers: [{ min: 1, rate: 1 }, { min: 1, rate: 2 }], ...win }), 'commission_invalid_tiers');
   await rejects(save({ name: 'เกิน 100%', scope: 'sku', product_ids: [PB], basis: 'units', calc: 'percent', tiers: [{ min: 1, rate: 120 }], ...win }), 'commission_invalid_tiers');

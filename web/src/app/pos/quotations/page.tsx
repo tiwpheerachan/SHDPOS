@@ -12,6 +12,7 @@ import { useToast } from "@/components/toast-host";
 import { listProducts } from "@/lib/data/repo";
 import { db } from "@/lib/offline/db";
 import { useCart } from "@/lib/store/cart";
+import { priceOf } from "@/lib/pricing/price-book";
 import type { Product, Quotation } from "@/lib/types";
 import { Button, Input, Field, Select, Table, Th, Td, Badge, EmptyState, Modal, Drawer, DetailRow } from "@/components/ui";
 import { PosPage, TablePanel, StatChip } from "@/components/pos/page-shell";
@@ -84,7 +85,7 @@ export default function QuotationsPage() {
   function addLine() {
     const p = products.find((x) => x.id === pickId);
     if (!p) return;
-    setLines((l) => [...l, { id: nanoid(), product_id: p.id, sku: p.sku, name: p.name_th, qty: 1, unit_price: p.price }]);
+    setLines((l) => [...l, { id: nanoid(), product_id: p.id, sku: p.sku, name: p.name_th, qty: 1, unit_price: priceOf(p) }]);
     setPickId("");
   }
 

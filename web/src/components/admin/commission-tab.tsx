@@ -14,8 +14,8 @@ type BranchRef = { id: string; code: string; name: string; name_th: string | nul
 type Prod = { id: string; sku: string; name_th: string; brand_id: string | null; category_id: string | null; price: number };
 type Tier = { min: number; rate: number };
 type Rule = { id: string; name: string; scope: "sku" | "category" | "brand"; brand_id: string | null; category_id: string | null; product_ids: string[]; branch_ids: string[];
-  basis: "units" | "sales"; calc: "per_unit" | "percent"; tiers: Tier[]; starts_at: string; ends_at: string; status: "active" | "paused" | "cancelled"; note: string | null; version: number };
-type Row = { rule_id: string; employee_id: string; units: number; sales: number; bills: number; tier_min: number | null; rate: number | null; commission: number; next_min: number | null };
+  basis: "units" | "sales"; calc: "per_unit" | "percent"; tier_scope: "employee" | "branch"; tiers: Tier[]; starts_at: string; ends_at: string; status: "active" | "paused" | "cancelled"; note: string | null; version: number };
+type Row = { rule_id: string; employee_id: string; branch_id: string | null; tier_units: number; tier_sales: number; units: number; sales: number; bills: number; tier_min: number | null; rate: number | null; commission: number; next_min: number | null };
 const baht = (n: number) => formatTHB(n, false);
 
 export function CommissionTab({ products, brands, categories, branches, canManage }: { products: Prod[]; brands: Ref[]; categories: Ref[]; branches: BranchRef[]; canManage: boolean }) {
@@ -101,12 +101,14 @@ export function CommissionTab({ products, brands, categories, branches, canManag
                     </button>
                     {open === p.id ? (
                       <div className="px-4 pb-3 space-y-1.5">
-                        {p.rows.map((r) => { const rule = ruleMap.get(r.rule_id); if (!rule) return null; const basisVal = rule.basis === "units" ? Number(r.units) : Number(r.sales); const nextGap = r.next_min != null ? Number(r.next_min) - basisVal : null;
+                        {p.rows.map((r) => { const rule = ruleMap.get(r.rule_id); if (!rule) return null; const basisVal = rule.basis === "units" ? Number(r.tier_units) : Number(r.tier_sales); const nextGap = r.next_min != null ? Number(r.next_min) - basisVal : null;
+                          const brName = r.branch_id ? (branches.find((b) => b.id === r.branch_id)?.name_th ?? branches.find((b) => b.id === r.branch_id)?.name ?? "") : "";
                           return (
-                            <div key={r.rule_id} className="rounded-xl bg-surface2/60 px-3 py-2 text-[12px]">
-                              <p className="flex flex-wrap justify-between gap-2"><b>{rule.name}</b><span className="tnum font-semibold">฿{baht(Number(r.commission))}</span></p>
+                            <div key={`${r.rule_id}:${r.branch_id ?? ""}`} className="rounded-xl bg-surface2/60 px-3 py-2 text-[12px]">
+                              <p className="flex flex-wrap justify-between gap-2"><b>{rule.name}{brName ? <span className="font-normal text-muted"> · {brName}</span> : null}</b><span className="tnum font-semibold">฿{baht(Number(r.commission))}</span></p>
+                              {rule.tier_scope === "branch" ? <p className="text-[11px] text-muted tnum">{L("ยอดรวมสาขาที่ใช้ตัดขั้น", "Branch total for tiers", "门店合计（定档）")}: {rule.basis === "units" ? `${formatInt(Number(r.tier_units))} ${L("ชิ้น", "pcs", "件")}` : `฿${baht(Number(r.tier_sales))}`}</p> : null}
                               <p className="text-muted tnum">{formatInt(Number(r.units))} {L("ชิ้น", "pcs", "件")} · ฿{baht(Number(r.sales))} · {r.rate != null ? (rule.calc === "per_unit" ? L(`${baht(Number(r.rate))}/ชิ้น`, `${baht(Number(r.rate))}/pc`, `${baht(Number(r.rate))}/件`) : `${r.rate}%`) : L("ยังไม่ถึงขั้นแรก", "Below first tier", "未达第一档")}</p>
-                              {nextGap != null ? <p className="text-brand mt-0.5 flex items-center gap-1"><TrendingUp size={12} />{rule.basis === "units" ? L(`อีก ${formatInt(nextGap)} ชิ้น ถึงขั้นถัดไป`, `${formatInt(nextGap)} more pcs to next tier`, `再售 ${formatInt(nextGap)} 件达下一档`) : L(`อีก ฿${baht(nextGap)} ถึงขั้นถัดไป`, `฿${baht(nextGap)} more to next tier`, `再售 ฿${baht(nextGap)} 达下一档`)}</p> : null}
+                              {nextGap != null ? <p className="text-brand mt-0.5 flex items-center gap-1"><TrendingUp size={12} />{rule.tier_scope === "branch" ? L("ทั้งสาขา", "Branch needs", "门店还需") + " " : ""}{rule.basis === "units" ? L(`อีก ${formatInt(nextGap)} ชิ้น ถึงขั้นถัดไป`, `${formatInt(nextGap)} more pcs to next tier`, `再售 ${formatInt(nextGap)} 件达下一档`) : L(`อีก ฿${baht(nextGap)} ถึงขั้นถัดไป`, `฿${baht(nextGap)} more to next tier`, `再售 ฿${baht(nextGap)} 达下一档`)}</p> : null}
                             </div>
                           ); })}
                       </div>
@@ -126,7 +128,7 @@ export function CommissionTab({ products, brands, categories, branches, canManag
                   <div className="flex-1 min-w-[220px]">
                     <p className="text-sm font-semibold flex items-center gap-1.5">{r.name}<Badge tone={r.status === "paused" ? "warn" : live ? "ok" : "neutral"}>{r.status === "paused" ? L("หยุด", "Paused", "已暂停") : live ? L("ใช้อยู่", "Live", "生效中") : Date.parse(r.starts_at) > now ? L("รอเริ่ม", "Upcoming", "待开始") : L("หมดแล้ว", "Ended", "已结束")}</Badge></p>
                     <p className="text-[12px] mt-0.5" translate="no">{target(r)} · {r.branch_ids.length ? L(`${r.branch_ids.length} สาขา`, `${r.branch_ids.length} branches`, `${r.branch_ids.length} 家门店`) : L("ทุกสาขา", "All branches", "所有门店")}</p>
-                    <p className="text-[11.5px] text-muted mt-0.5">{r.tiers.map((t) => tierText(r, t)).join(" · ")}</p>
+                    <p className="text-[11.5px] text-muted mt-0.5">{r.tier_scope === "branch" ? L("ขั้นจากยอดรวมสาขา", "Tiers by branch total", "按门店合计定档") : L("ขั้นจากยอดรายคน", "Tiers by individual sales", "按个人销量定档")} · {r.tiers.map((t) => tierText(r, t)).join(" · ")}</p>
                     <p className="text-[11px] text-muted">{toBkkYmd(r.starts_at)} – {toBkkYmd(r.ends_at, true)}</p>
                   </div>
                   {canManage ? <div className="flex gap-1">
@@ -154,7 +156,7 @@ function RuleDrawer({ initial, products, brands, categories, branches, onClose, 
   const monthEnd = (ymd: string) => { const [y, m] = ymd.split("-").map(Number); return `${y}-${String(m).padStart(2, "0")}-${String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, "0")}`; };
   const [f, setF] = useState({
     name: initial.name ?? "", scope: initial.scope ?? "sku", brand_id: initial.brand_id ?? brands[0]?.id ?? "", category_id: initial.category_id ?? "", product_ids: initial.product_ids ?? [],
-    allBranches: !(initial.branch_ids?.length), branch_ids: initial.branch_ids ?? [], basis: initial.basis ?? "units", calc: initial.calc ?? "per_unit",
+    allBranches: !(initial.branch_ids?.length), branch_ids: initial.branch_ids ?? [], basis: initial.basis ?? "units", calc: initial.calc ?? "per_unit", tier_scope: initial.tier_scope ?? "employee",
     tiers: (initial.tiers ?? [{ min: 1, rate: 0 }]).map((t) => ({ min: String(t.min), rate: String(t.rate || "") })),
     from: initial.starts_at ? toBkkYmd(initial.starts_at) : `${today.slice(0, 7)}-01`, to: initial.ends_at ? toBkkYmd(initial.ends_at, true) : monthEnd(today), note: initial.note ?? "",
   });
@@ -170,7 +172,7 @@ function RuleDrawer({ initial, products, brands, categories, branches, onClose, 
     try {
       const rule = { id: initial.id, version: initial.version, status: initial.status ?? "active", name: f.name.trim(), scope: f.scope,
         brand_id: f.scope === "sku" ? products.find((p) => p.id === f.product_ids[0])?.brand_id ?? null : f.brand_id, category_id: f.scope === "category" ? f.category_id : null,
-        product_ids: f.scope === "sku" ? f.product_ids : [], branch_ids: f.allBranches ? [] : f.branch_ids, basis: f.basis, calc: f.calc, tiers,
+        product_ids: f.scope === "sku" ? f.product_ids : [], branch_ids: f.allBranches ? [] : f.branch_ids, basis: f.basis, calc: f.calc, tier_scope: f.tier_scope, tiers,
         starts_at: bkkStart(f.from), ends_at: bkkEndExclusive(f.to), note: f.note };
       const r = await fetch("/api/admin/commission", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "save_rule", rule }) });
       const j = await r.json(); if (!r.ok) throw Error(j.error);
@@ -219,6 +221,10 @@ function RuleDrawer({ initial, products, brands, categories, branches, onClose, 
             <Field label={L("นับขั้นจาก", "Tiers based on", "档位依据")}><Segmented<Rule["basis"]> value={f.basis} onChange={(v) => set({ basis: v })} options={[{ value: "units", label: L("จำนวนชิ้น", "Units", "件数") }, { value: "sales", label: L("ยอดขาย (บาท)", "Sales (THB)", "销售额") }]} /></Field>
             <Field label={L("จ่ายเป็น", "Pay as", "支付方式")}><Segmented<Rule["calc"]> value={f.calc} onChange={(v) => set({ calc: v })} options={[{ value: "per_unit", label: L("บาท/ชิ้น", "THB/pc", "元/件") }, { value: "percent", label: L("% ของยอด", "% of sales", "销售额%") }]} /></Field>
           </div>
+          <Field label={L("ขั้นยอดนับจากยอดของใคร", "Whose sales count toward tiers", "档位按谁的销量计算")}>
+            <Segmented<Rule["tier_scope"]> value={f.tier_scope} onChange={(v) => set({ tier_scope: v })} options={[{ value: "employee", label: L("ยอดพนักงานรายคน", "Each employee", "员工个人") }, { value: "branch", label: L("ยอดรวมทั้งสาขา", "Whole branch total", "门店合计") }]} />
+          </Field>
+          <p className="text-[11px] text-muted -mt-1">{f.tier_scope === "branch" ? L("ยอดรวมทุกคนในสาขาถึงขั้นไหน ทุกคนในสาขานั้นได้อัตราขั้นนั้น (จ่ายตามยอดของตัวเอง)", "When the branch total reaches a tier, everyone at that branch earns that rate on their own sales", "门店合计达到某档时，该店所有人按该档费率计算各自销量") : L("ยอดของแต่ละคนถึงขั้นไหน คนนั้นได้อัตราขั้นนั้น", "Each person's own sales decide their tier", "每人按自己的销量定档")}</p>
           <div className="space-y-1.5">
             {f.tiers.map((t, i) => (
               <div key={i} className="flex items-center gap-2 text-xs">

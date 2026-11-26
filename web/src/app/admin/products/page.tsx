@@ -5,7 +5,7 @@
 //   • ค่าคอม: ผูกสินค้า/หมวด/แบรนด์ + ขั้นยอดขาย + สาขาที่มีสิทธิ์
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Package, Search, Tag, CalendarRange, Plus, Pencil, Pause, Play, X, Copy, ChevronLeft, ChevronRight, AlertTriangle, Coins, Store, Layers, Boxes, CheckCircle2, ShieldCheck, Loader2, RefreshCw } from "lucide-react";
+import { Package, Search, Tag, CalendarRange, Plus, Pencil, Pause, Play, X, Copy, ChevronLeft, ChevronRight, AlertTriangle, Coins, Store, Layers, Boxes, CheckCircle2, ShieldCheck, RefreshCw, Lock, Unlock } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { isLiveMode } from "@/lib/supabase/client";
 import { ProductsLegacy } from "@/components/admin/products-legacy";
@@ -46,7 +46,12 @@ function ProductsLive() {
     catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
   }, []);
   useEffect(() => { void load(); }, [load]);
-  const [ruleDraft, setRuleDraft] = useState<Partial<PriceRule> | null>(null);
+  const [ruleDraft, setRuleDraft] = useState<(Partial<PriceRule> & { locked?: boolean }) | null>(null);
+  // โหมดแก้ไข: ปกติล็อกไว้กันพลาด — ต้องติ๊กเปิดก่อนจึงจะแก้ราคา/ค่าคอมได้ (ไม่จำค่า · เปิดหน้าใหม่ = ล็อกเสมอ)
+  const [editMode, setEditMode] = useState(false);
+  const canEditAny = !!data && (data.perms.list || data.perms.period || data.perms.commission || data.perms.review);
+  const perms = data ? { ...data.perms, list: editMode && data.perms.list, period: editMode && data.perms.period, commission: editMode && data.perms.commission, review: editMode && data.perms.review } : null;
+  const view = data && perms ? { ...data, perms } : null;
   const [reviewId, setReviewId] = useState<string | null>(null);
   const [listEdit, setListEdit] = useState<P | null>(null);
 
@@ -64,7 +69,13 @@ function ProductsLive() {
         </div>
         <div className="flex items-center gap-2">
           <Button variant="ghost" onClick={() => void load()} title={L("รีเฟรช", "Refresh", "刷新")}><RefreshCw size={15} /></Button>
-          {data?.perms.period ? <Button variant="primary" onClick={() => setRuleDraft({})}><Plus size={15} />{L("ตั้งราคาช่วงเวลา", "New period price", "新建时段价格")}</Button> : null}
+          {canEditAny ? (
+            <label className={`h-9 pl-2 pr-3 rounded-xl border inline-flex items-center gap-2 cursor-pointer text-xs font-medium select-none transition ${editMode ? "border-warn/60 bg-warn/10 text-warn" : "border-line text-muted hover:bg-surface2"}`}>
+              <input type="checkbox" checked={editMode} onChange={(e) => setEditMode(e.target.checked)} className="accent-[rgb(var(--c-warn))] w-4 h-4" />
+              {editMode ? <Unlock size={14} /> : <Lock size={14} />}{L("เปิดโหมดแก้ไข", "Enable editing", "开启编辑")}
+            </label>
+          ) : null}
+          {perms?.period ? <Button variant="primary" onClick={() => setRuleDraft({ scope: "category" })}><Layers size={15} />{L("ตั้งราคารายกลุ่มสินค้า", "Group pricing", "按商品组定价")}</Button> : null}
         </div>
       </div>
 
@@ -81,13 +92,15 @@ function ProductsLive() {
         ...(data?.perms.commission || data?.perms.commission_view ? [{ value: "commission" as Tab, label: <span className="inline-flex items-center gap-1.5"><Coins size={14} />{L("ค่าคอมมิชชัน", "Commission", "佣金")}</span> }] : []),
       ]} />
 
+      {editMode ? <p className="rounded-xl border border-warn/40 bg-warn/8 px-4 py-2.5 text-[12.5px] flex items-center gap-2"><Unlock size={14} className="text-warn shrink-0" />{L("โหมดแก้ไขเปิดอยู่ — การเปลี่ยนราคามีผลกับหน้าร้านทุกสาขาตามช่วงที่ตั้งทันที · ปิดสวิตช์เมื่อแก้เสร็จ", "Editing is on — price changes apply to POS immediately within their window · switch off when done", "编辑模式已开启 — 价格变更将按设定立即在门店生效 · 完成后请关闭")}</p>
+        : canEditAny ? <p className="text-[11.5px] text-muted flex items-center gap-1.5"><Lock size={12} />{L("ล็อกการแก้ไขอยู่ (กันแก้ผิดโดยไม่ตั้งใจ) — ติ๊ก “เปิดโหมดแก้ไข” เมื่อต้องการตั้งราคา", "Editing is locked to prevent mistakes — tick “Enable editing” to change prices", "编辑已锁定以防误操作 — 勾选“开启编辑”后才能改价")}</p> : null}
       {err ? <p className="rounded-xl bg-danger/8 text-danger text-sm px-4 py-2.5">{err}</p> : null}
       {!data && !err ? <div className="space-y-2">{Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-12" />)}</div> : null}
-      {data && tab === "products" ? <ProductsTab data={data} onRule={(ids) => setRuleDraft({ scope: "sku", product_ids: ids })} onReview={setReviewId} onListPrice={setListEdit} /> : null}
-      {data && tab === "prices" ? <PeriodTab data={data} onEdit={(r) => setRuleDraft(r)} onChanged={load} /> : null}
-      {data && tab === "commission" ? <CommissionTab products={data.products} brands={data.brands} categories={data.categories} branches={data.branches} canManage={data.perms.commission} /> : null}
+      {view && tab === "products" ? <ProductsTab data={view} onRule={(ids, locked) => setRuleDraft({ scope: "sku", product_ids: ids, locked })} onReview={setReviewId} onListPrice={setListEdit} /> : null}
+      {view && tab === "prices" ? <PeriodTab data={view} onEdit={(r) => setRuleDraft({ ...r, locked: r.scope === "sku" && r.product_ids?.length === 1 })} onChanged={load} /> : null}
+      {view && tab === "commission" ? <CommissionTab products={view.products} brands={view.brands} categories={view.categories} branches={view.branches} canManage={view.perms.commission} /> : null}
 
-      {ruleDraft && data ? <PriceRuleDrawer data={data} initial={ruleDraft} onClose={() => setRuleDraft(null)} onSaved={() => { setRuleDraft(null); void load(); toast.push({ tone: "ok", title: L("บันทึกราคาช่วงเวลาแล้ว — หน้าร้านจะใช้ราคานี้ตามช่วงที่ตั้ง", "Period price saved — POS will apply it in the set window", "时段价格已保存 — 门店将在设定期间自动使用") }); }} /> : null}
+      {ruleDraft && view ? <PriceRuleDrawer data={view} initial={ruleDraft} onClose={() => setRuleDraft(null)} onSaved={() => { setRuleDraft(null); void load(); toast.push({ tone: "ok", title: L("บันทึกราคาช่วงเวลาแล้ว — หน้าร้านจะใช้ราคานี้ตามช่วงที่ตั้ง", "Period price saved — POS will apply it in the set window", "时段价格已保存 — 门店将在设定期间自动使用") }); }} /> : null}
       {listEdit ? <ListPriceModal p={listEdit} onClose={() => setListEdit(null)} onSaved={() => { setListEdit(null); void load(); }} /> : null}
       <ProductReviewDrawer id={reviewId} onClose={() => { setReviewId(null); void load(); }} />
       <span className="hidden">{locale}</span>
@@ -105,7 +118,7 @@ function Kpi({ icon, tint, label, value, sub }: { icon: React.ReactNode; tint: s
 }
 
 // ═════════════ แท็บสินค้า ═════════════
-function ProductsTab({ data, onRule, onReview, onListPrice }: { data: Data; onRule: (ids: string[]) => void; onReview: (id: string) => void; onListPrice: (p: P) => void }) {
+function ProductsTab({ data, onRule, onReview, onListPrice }: { data: Data; onRule: (ids: string[], locked?: boolean) => void; onReview: (id: string) => void; onListPrice: (p: P) => void }) {
   const { L, locale } = useI18n();
   const [q, setQ] = useState(""), [brand, setBrand] = useState(""), [cat, setCat] = useState(""), [status, setStatus] = useState<"all" | "on" | "off" | "noprice" | "special">("all");
   const [sel, setSel] = useState<Set<string>>(new Set());
@@ -130,7 +143,7 @@ function ProductsTab({ data, onRule, onReview, onListPrice }: { data: Data; onRu
           { value: "all", label: L("ทั้งหมด", "All", "全部") }, { value: "on", label: L("เปิดขาย", "On sale", "在售") }, { value: "off", label: L("ปิดขาย", "Off", "未上架") },
           { value: "noprice", label: L("รอตั้งราคา", "No price", "待定价") }, { value: "special", label: L("ราคาช่วงเวลา", "Period price", "时段价") },
         ]} />
-        {sel.size && data.perms.period ? <Button variant="primary" className="ml-auto h-9" onClick={() => onRule([...sel])}><Tag size={14} />{L(`ตั้งราคาช่วงเวลา ${sel.size} รายการ`, `Set period price for ${sel.size}`, `为 ${sel.size} 项设置时段价`)}</Button> : null}
+        {sel.size && data.perms.period ? <Button variant="primary" className="ml-auto h-9" onClick={() => onRule([...sel], false)}><Tag size={14} />{L(`ตั้งราคาช่วงเวลา ${sel.size} รายการ`, `Set period price for ${sel.size}`, `为 ${sel.size} 项设置时段价`)}</Button> : null}
       </div>
       {rows.length ? (
         <div className="overflow-auto max-h-[68vh]">
@@ -178,7 +191,7 @@ function ProductsTab({ data, onRule, onReview, onListPrice }: { data: Data; onRu
                     {data.perms.cost ? <td className="border-b border-line/70 px-2 py-2 text-right tnum whitespace-nowrap">{p.cost != null ? baht(p.cost) : "—"}{gp != null ? <span className={`block text-[10.5px] ${gp < 0 ? "text-danger" : gp < 10 ? "text-warn" : "text-ok"}`}>GP {gp}%</span> : null}</td> : null}
                     <td className="border-b border-line/70 px-2 py-2 text-center">{p.is_active ? <Badge tone="ok">{L("เปิดขาย", "On sale", "在售")}</Badge> : <Badge tone="neutral">{L("ปิดขาย", "Off sale", "未上架")}</Badge>}</td>
                     <td className="border-b border-line/70 px-3 py-2 text-right whitespace-nowrap">
-                      {data.perms.period ? <button onClick={() => onRule([p.id])} className="h-7 px-2 rounded-lg border border-line text-[11px] inline-flex items-center gap-1 hover:border-brand/50 hover:text-brand"><Tag size={12} />{L("ราคาช่วงเวลา", "Period price", "时段价")}</button> : null}
+                      {data.perms.period ? <button onClick={() => onRule([p.id], true)} className="h-7 px-2 rounded-lg border border-line text-[11px] inline-flex items-center gap-1 hover:border-brand/50 hover:text-brand"><Tag size={12} />{L("ราคาช่วงเวลา", "Period price", "时段价")}</button> : null}
                       {data.perms.review ? <button onClick={() => onReview(p.id)} className="ml-1 h-7 px-2 rounded-lg border border-line text-[11px] inline-flex items-center gap-1 hover:border-brand/50 hover:text-brand"><ShieldCheck size={12} />{L("ตรวจ/เปิดขาย", "Review", "审核")}</button> : null}
                     </td>
                   </tr>
@@ -276,7 +289,8 @@ function IconBtn({ children, title, onClick }: { children: React.ReactNode; titl
 }
 
 // ═════════════ ตั้ง/แก้ราคาช่วงเวลา ═════════════
-function PriceRuleDrawer({ data, initial, onClose, onSaved }: { data: Data; initial: Partial<PriceRule>; onClose: () => void; onSaved: () => void }) {
+function PriceRuleDrawer({ data, initial, onClose, onSaved }: { data: Data; initial: Partial<PriceRule> & { locked?: boolean }; onClose: () => void; onSaved: () => void }) {
+  const locked = !!initial.locked && initial.scope === "sku" && (initial.product_ids?.length ?? 0) === 1;
   const { L, locale } = useI18n();
   const today = toBkkYmd(new Date().toISOString());
   const monthEnd = (ymd: string) => { const [y, m] = ymd.split("-").map(Number); return `${y}-${String(m).padStart(2, "0")}-${String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, "0")}`; };
@@ -332,6 +346,13 @@ function PriceRuleDrawer({ data, initial, onClose, onSaved }: { data: Data; init
         </Step>
 
         <Step n={2} title={L("ใช้กับสินค้าไหน", "Which products", "适用商品")}>
+          {locked && first ? (
+            <div className="rounded-xl border border-line bg-surface2/50 px-3 py-2.5 flex items-center gap-3" translate="no">
+              <span className="w-10 h-10 rounded-lg bg-surface overflow-hidden grid place-items-center shrink-0">{first.image_url ? <img src={first.image_url} alt="" className="w-full h-full object-cover" /> : <Package size={16} className="text-muted/50" />}</span>
+              <span className="min-w-0 flex-1"><span className="block font-medium truncate">{first.name_th}</span><span className="block font-mono text-[11px] text-muted">{first.sku} · {L("ราคาหลัก", "List", "标价")} {baht(Number(first.price))}</span></span>
+              <Lock size={14} className="text-muted shrink-0" aria-label={L("ล็อกเฉพาะสินค้านี้", "Locked to this product", "仅限此商品")} />
+            </div>
+          ) : <>
           <Segmented<PriceScope> value={f.scope} onChange={(v) => set({ scope: v })} options={[
             { value: "sku", label: <span className="inline-flex items-center gap-1"><Package size={13} />{L("เลือกสินค้า", "Pick SKUs", "选择商品")}</span> },
             { value: "category", label: <span className="inline-flex items-center gap-1"><Layers size={13} />{L("ทั้งหมวด", "Category", "整个类别")}</span> },
@@ -349,6 +370,7 @@ function PriceRuleDrawer({ data, initial, onClose, onSaved }: { data: Data; init
               <div className="flex flex-wrap gap-1.5" translate="no">{targets.map((p) => <span key={p.id} className="inline-flex items-center gap-1 h-7 pl-2.5 pr-1 rounded-full bg-surface2 text-[11.5px]"><span className="font-mono">{p.sku}</span><button onClick={() => set({ product_ids: f.product_ids.filter((x) => x !== p.id) })} className="h-5 w-5 grid place-items-center rounded-full hover:bg-line"><X size={11} /></button></span>)}</div>
             </div>
           )}
+          </>}
         </Step>
 
         <Step n={3} title={L("ช่วงเวลา", "Period", "时段")}>
