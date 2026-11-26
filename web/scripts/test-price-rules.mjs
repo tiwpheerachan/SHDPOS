@@ -56,5 +56,29 @@ export async function testPriceRules(db, ids) {
   eq(Number((await eff(B1))[P2].price), 920, '1090 −15% = 926.5 → ปัดลงหลักสิบ 920'); n++;
   eq(Number((await db.query("select count(*) c from audit_logs where action in ('price_rule_create','price_rule_update','list_price_update')")).rows[0].c) >= 8, true, 'audit ครบ'); n++;
   await db.exec('set role anon'); await rejects(eff(B1), 'permission denied'); await db.exec('reset role'); n++;
-  console.log(`PASS: ${n} price-rule regressions (list vs period price, SKU>category>brand, rounding, branch/time window, version, list-price change, private RPC)`);
+
+  // ── 0084 นำเข้าเป็นชุด + ไทม์ไลน์ + ย้อนกลับ ──
+  const imp = (rows, meta = { title: 'นำเข้าทดสอบ', file_name: 'prices.xlsx' }) => db.query('select pos_import_prices($1,$2,$3) r', [ids.actor, JSON.stringify(meta), JSON.stringify(rows)]).then((x) => x.rows[0].r);
+  const P4 = U(13);
+  await db.query("insert into products(id,sku,name_th,price,cost,brand_id) values($1,'PR-D','D',300,100,$2)", [P4, BRAND]);
+  const w2 = win(-1, 10);
+  const res = await imp([{ product_id: P4, list_price: 350, rule: { name: 'โปรไฟล์', mode: 'percent', value: 10, rounding: 'baht', ...w2 } }, { product_id: P3, list_price: 600 }]);
+  eq(res.list_changed, 2, 'นำเข้า: ราคาหลักเปลี่ยน 2'); eq(res.rules_created, 1, 'นำเข้า: สร้างกฎ 1');
+  eq(Number((await eff(B1))[P3].price), 600, 'ราคาหลักใหม่มีผล');
+  eq(Number((await db.query('select price from pos_effective_prices($1,$2)', [B1, [P4]])).rows[0].price), 315, '350 −10% = 315'); n++;
+  const ev = (await db.query('select kind, batch_id, actor_id from pos_price_events where $1 = any(product_ids) order by id', [P4])).rows;
+  eq(ev.map((x) => x.kind).join(), 'list_price,rule_create', 'ไทม์ไลน์ P4'); eq(ev[0].batch_id, res.batch_id, 'ผูกชุด'); eq(ev[0].actor_id, ids.actor, 'ผู้ทำ'); n++;
+  await rejects(imp([{ product_id: P4, rule: { mode: 'percent', value: 150, ...w2 } }]), 'check');   // ทั้งชุดล้ม
+  eq(Number((await db.query('select count(*) c from pos_price_batches')).rows[0].c), 1, 'ชุดที่ล้มไม่ค้าง'); n++;
+  // มีคนแก้ P3 ต่อหลังนำเข้า → ย้อนกลับไม่ทับ แต่แจ้งชนกัน
+  await db.query('select pos_set_list_price($1,$2,$3,$4)', [ids.actor, P3, 650, 'แก้ต่อหน้างาน']);
+  await rejects(db.query('select pos_revert_price_batch($1,$2,$3)', [ids.actor, res.batch_id, '']), 'price_revert_reason_required');
+  const rv = (await db.query('select pos_revert_price_batch($1,$2,$3) r', [ids.actor, res.batch_id, 'นำเข้าผิดไฟล์'])).rows[0].r;
+  eq(rv.list_restored, 1, 'คืนราคาหลัก P4'); eq(rv.rules_cancelled, 1, 'ยกเลิกกฎของชุด'); eq(rv.conflicts.length, 1, 'P3 ชนกัน'); eq(Number(rv.conflicts[0].current), 650, 'ไม่ทับค่าที่แก้ต่อ');
+  eq(Number((await db.query('select price from products where id=$1', [P4])).rows[0].price), 300, 'P4 กลับ 300');
+  eq(Number((await db.query('select price from pos_effective_prices($1,$2)', [B1, [P4]])).rows[0].price), 300, 'กฎของชุดไม่มีผลแล้ว'); n++;
+  eq((await db.query('select pos_revert_price_batch($1,$2,$3) r', [ids.actor, res.batch_id, 'ซ้ำ'])).rows[0].r.duplicate, true, 'ย้อนซ้ำไม่ทำซ้ำ');
+  const kinds = (await db.query('select kind from pos_price_events where $1 = any(product_ids) order by id', [P4])).rows.map((x) => x.kind).join();
+  eq(kinds, 'list_price,rule_create,list_price,rule_status', 'ไทม์ไลน์หลังย้อนกลับ'); n++;
+  console.log(`PASS: ${n} price-rule regressions (list vs period price, SKU>category>brand, rounding, branch/time window, version, list-price change, private RPC, import batch atomic, timeline, revert with conflict detection)`);
 }

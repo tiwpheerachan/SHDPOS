@@ -82,16 +82,16 @@ export async function GET(req: NextRequest) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   const productIds=[...new Set((cprods ?? []).map(p=>p.product_id).filter(Boolean))];
-  const states=new Map<string,boolean>();
+  const states=new Map<string,boolean>(),brandOf=new Map<string,string|null>();
   for(let offset=0;offset<productIds.length;offset+=200){
-    const result=await sb.from("products").select("id,is_active").in("id",productIds.slice(offset,offset+200));
+    const result=await sb.from("products").select("id,is_active,brand_id").in("id",productIds.slice(offset,offset+200));
     if(result.error)return NextResponse.json({error:"อ่านสถานะสินค้าแคมเปญไม่สำเร็จ"},{status:503});
-    for(const product of result.data ?? [])states.set(product.id,product.is_active);
+    for(const product of result.data ?? []){states.set(product.id,product.is_active);brandOf.set(product.id,product.brand_id ?? null);}
   }
   const prodByCamp: Record<string, { eligible: unknown[]; gift: unknown[] }> = {};
   for (const p of cprods ?? []) {
     const g = (prodByCamp[p.campaign_id as string] ??= { eligible: [], gift: [] });
-    (p.role === "gift" ? g.gift : g.eligible).push({ product_id: p.product_id, sku: p.sku, name: p.name, gift_qty: p.gift_qty, is_active: states.get(p.product_id) ?? false });
+    (p.role === "gift" ? g.gift : g.eligible).push({ product_id: p.product_id, sku: p.sku, name: p.name, gift_qty: p.gift_qty, is_active: states.get(p.product_id) ?? false, brand_id: brandOf.get(p.product_id) ?? null });
   }
 
   const stats: Record<string, { uses: number; discount: number; revenue: number; customers: Set<string> }> = {};

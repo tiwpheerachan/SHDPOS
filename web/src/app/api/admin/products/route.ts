@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/sso/guard";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { visibleBrandIds } from "@/lib/sso/scope";
+import { catalogBrandIds } from "@/lib/sso/scope";
 import { catalogSearchFilter } from "@/lib/catalog/search";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,8 +17,9 @@ export async function GET(req: NextRequest) {
     const sb = supabaseAdmin();
     let query = sb.from("products").select("id,sku,name_th,name_en,short_name,brand_id,price,is_active,track_serial,image_url").order("sku").limit(31);
     if (term) query = query.or(catalogSearchFilter(term));
-    const brands = visibleBrandIds(ctx.authz);
-    if (ctx.authz.data_scope === "brand" && brands !== null) {
+    // brand scope → ค้นได้ทุกแบรนด์ที่สาขาของตนขาย (ตั้งของแถมข้ามแบรนด์ในสาขาหลายแบรนด์)
+    const brands = await catalogBrandIds(ctx.authz);
+    if (brands !== null) {
       if (!brands.length) return reply({products:[],has_more:false});
       query = query.in("brand_id",brands);
     }

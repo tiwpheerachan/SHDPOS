@@ -5,7 +5,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { SSO_COOKIE, readSession } from "@/lib/sso/session-cookie";
 import { resolveAuthz } from "@/lib/sso/grants";
-import { visibleBranchIds } from "@/lib/sso/scope";
+import { brandsSoldAtBranches, visibleBranchIds } from "@/lib/sso/scope";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
@@ -27,7 +27,9 @@ export async function GET(req: NextRequest) {
 
   const sb = supabaseAdmin();
   const today = new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10); // วันที่ไทย
-  const br = await sb.from("branches").select("brand_id").eq("id", branch).maybeSingle();
+  // สาขาหลายแบรนด์: แบรนด์หลัก + branch_brands
+  let branchBrands: string[];
+  try { branchBrands = await brandsSoldAtBranches([branch]); } catch { return reply({ error: "อ่านแบรนด์ของสาขาไม่สำเร็จ" }, 503); }
   const cs = await sb.from("campaigns")
     .select("id,code,name,description,discount_type,discount_value,max_discount,min_spend,starts_at,ends_at,branch_ids,brand_ids,channels,usage_limit,eligible_scope,eligible_min_qty,target_segment,is_automatic")
     .eq("active", true).eq("promo_type", "discount").is("archived_at", null).not("code", "is", null);
@@ -37,8 +39,8 @@ export async function GET(req: NextRequest) {
     (!c.starts_at || today >= c.starts_at) && (!c.ends_at || today <= c.ends_at) &&
     (!(c.branch_ids as string[] | null)?.length || (c.branch_ids as string[]).includes(branch)) &&
     (!(c.channels as string[] | null)?.length || !channel || (c.channels as string[]).includes(channel)) &&
-    // แคมเปญผูกแบรนด์: สาขาต้องเป็นแบรนด์นั้น (ถ้าไม่ผูกสาขาไว้ตรง ๆ)
-    (!(c.brand_ids as string[] | null)?.length || (c.branch_ids as string[] | null)?.length || (br.data?.brand_id && (c.brand_ids as string[]).includes(br.data.brand_id as string))));
+    // แคมเปญผูกแบรนด์: สาขาต้องขายแบรนด์ใดแบรนด์หนึ่งของแคมเปญ (ถ้าไม่ผูกสาขาไว้ตรง ๆ)
+    (!(c.brand_ids as string[] | null)?.length || (c.branch_ids as string[] | null)?.length || (c.brand_ids as string[]).some((b) => branchBrands.includes(b))));
   if (!list.length) return reply({ campaigns: [] });
 
   const ids = list.map((c) => c.id as string);

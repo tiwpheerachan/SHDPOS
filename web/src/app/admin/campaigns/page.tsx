@@ -21,7 +21,7 @@ import { SearchSelect } from "@/components/admin/search-select";
 import { formatTHB } from "@/lib/money";
 import { Maximize2, Minimize2, ImagePlus } from "lucide-react";
 
-interface ProdRef { product_id: string | null; sku: string; name: string | null; gift_qty?: number; is_active?: boolean }
+interface ProdRef { product_id: string | null; sku: string; name: string | null; gift_qty?: number; is_active?: boolean; brand_id?: string | null }
 interface Campaign {
   id: string; version: number; name: string; description: string | null; code: string | null;
   discount_type: string; discount_value: number; max_discount: number | null; min_spend: number;
@@ -372,8 +372,8 @@ export default function AdminCampaignsPage() {
             </div>
             {form.eligible_scope === "selected" && (
               <>
-                <ProductPicker onPick={(p) => addProd("eligible", p)} />
-                <ProdList list={form.eligible} onRemove={(sku) => rmProd("eligible", sku)} />
+                <ProductPicker brandName={brandName} onPick={(p) => addProd("eligible", p)} />
+                <ProdList list={form.eligible} brandName={brandName} onRemove={(sku) => rmProd("eligible", sku)} />
                 <div className="grid grid-cols-2 gap-2.5">
                   <Field label={L("จำนวนขั้นต่ำ (สินค้าร่วม)", "Min quantity (eligible)", "最低数量（参与商品）")}><input type="number" value={form.eligible_min_qty} onChange={(e) => setForm({ ...form, eligible_min_qty: e.target.value })} className={inp} placeholder={L("ไม่กำหนด", "Not set", "不限")} /></Field>
                   <label className="flex items-center gap-2 text-sm cursor-pointer pt-5">
@@ -408,8 +408,9 @@ export default function AdminCampaignsPage() {
             ) : (
               <div className="space-y-3">
                 <div className="text-xs text-muted">{L("เลือกสินค้าของแถม (จะถูกเพิ่มในบิลราคา ฿0 แต่ตัดสต๊อก + คิดต้นทุน)", "Select gift products (added to the bill at ฿0 but deducts stock + counts cost)", "选择赠品（以￥0加入单据但扣减库存并计入成本）")}</div>
-                <ProductPicker onPick={(p) => addProd("gifts", p)} />
-                <ProdList list={form.gifts} gift onRemove={(sku) => rmProd("gifts", sku)} onQty={(sku, q) => setForm((f) => ({ ...f, gifts: f.gifts.map((x) => x.sku === sku ? { ...x, gift_qty: q } : x) }))} />
+                <div className="text-[11px] text-muted">{L("ของแถมเลือกได้จากทุกแบรนด์ (เช่น ซื้อกล้อง 70mai แถมอุปกรณ์ Mova) และหลายแบรนด์ในแคมเปญเดียว — สาขาต้องมีสต๊อกของแถมนั้น", "Gifts can come from any brand (e.g. buy a 70mai camera, get a Mova accessory), including several brands in one campaign. The branch must stock the gift.", "赠品可来自任意品牌（如购买70mai摄像头赠送Mova配件），同一活动可含多个品牌；门店需有该赠品库存")}</div>
+                <ProductPicker brandName={brandName} onPick={(p) => addProd("gifts", p)} />
+                <ProdList list={form.gifts} brandName={brandName} gift onRemove={(sku) => rmProd("gifts", sku)} onQty={(sku, q) => setForm((f) => ({ ...f, gifts: f.gifts.map((x) => x.sku === sku ? { ...x, gift_qty: q } : x) }))} />
                 <div className="grid grid-cols-3 gap-2.5">
                   <Field label={L("รูปแบบแถม", "Gift mode", "赠送方式")}>
                     <select value={form.gift_mode} onChange={(e) => setForm({ ...form, gift_mode: e.target.value })} className={inp}>
@@ -483,8 +484,8 @@ function MultiChips({ label, opts, sel, onToggle }: { label: string; opts: { v: 
   );
 }
 
-type ProductHit = { id: string; sku: string; name: string; is_active: boolean; sources: string[] };
-function ProductPicker({ onPick }: { onPick: (p: ProdRef) => void }) {
+type ProductHit = { id: string; sku: string; name: string; is_active: boolean; sources: string[]; brand_id: string | null };
+function ProductPicker({ onPick, brandName }: { onPick: (p: ProdRef) => void; brandName: (id: string) => string }) {
   const { locale } = useI18n();
   const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
   const [q, setQ] = useState("");
@@ -521,8 +522,9 @@ function ProductPicker({ onPick }: { onPick: (p: ProdRef) => void }) {
       {error ? <div role="alert" className="text-xs text-danger">{error} <button type="button" className="underline ml-2" onClick={()=>setRetry(v=>v+1)}>{L("ลองใหม่", "Retry", "重试")}</button></div> : null}
       {showResults && !loading && !error && !hits.length ? <p className="text-xs text-muted">{L("ไม่พบสินค้าในแคตตาล็อก POS ตามคำค้นนี้", "No matching products in POS catalog", "POS目录中无匹配商品")}</p> : null}
       {showResults && hits.length ? <ul className="border border-line rounded-xl overflow-hidden divide-y divide-line/60 max-h-52 overflow-y-auto bg-surface">
-        {hits.map(p=><li key={p.id}><button type="button" onClick={()=>{onPick({product_id:p.id,sku:p.sku,name:p.name,is_active:p.is_active});setQ("");setShowResults(false);}} className="w-full text-left px-3 py-2 hover:bg-surface2 flex items-center gap-2">
+        {hits.map(p=><li key={p.id}><button type="button" onClick={()=>{onPick({product_id:p.id,sku:p.sku,name:p.name,is_active:p.is_active,brand_id:p.brand_id});setQ("");setShowResults(false);}} className="w-full text-left px-3 py-2 hover:bg-surface2 flex items-center gap-2">
           <span className="min-w-0 flex-1"><span className="text-sm block truncate">{p.name}</span><span className="text-[11px] font-mono text-muted">{p.sku}</span></span>
+          {p.brand_id ? <span className="text-[10px] px-2 py-1 rounded-full bg-surface2 text-muted">{brandName(p.brand_id)}</span> : null}
           {p.sources?.length ? <span className="text-[10px] text-brand">{p.sources.some(v=>v.endsWith(":uat")) ? "OW UAT" : "OW"}</span> : null}
           <span className={`text-[10px] px-2 py-1 rounded-full ${p.is_active ? "bg-ok/10 text-ok" : "bg-warn/10 text-warn"}`}>{p.is_active ? L("เปิดใช้งาน", "Active", "已启用") : L("ยังไม่เปิดขาย", "Inactive", "未启用")}</span>
         </button></li>)}
@@ -532,7 +534,7 @@ function ProductPicker({ onPick }: { onPick: (p: ProdRef) => void }) {
   );
 }
 
-function ProdList({ list, gift, onRemove, onQty }: { list: ProdRef[]; gift?: boolean; onRemove: (sku: string) => void; onQty?: (sku: string, q: number) => void }) {
+function ProdList({ list, gift, onRemove, onQty, brandName }: { list: ProdRef[]; gift?: boolean; onRemove: (sku: string) => void; onQty?: (sku: string, q: number) => void; brandName: (id: string) => string }) {
   const { locale } = useI18n();
   const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
   if (list.length === 0) return <p className="text-xs text-muted">{L("ยังไม่เลือกสินค้า", "No products selected", "未选择商品")}</p>;
@@ -544,6 +546,7 @@ function ProdList({ list, gift, onRemove, onQty }: { list: ProdRef[]; gift?: boo
             <span className="text-sm truncate block">{p.name ?? p.sku}</span>
             <span className="text-[11px] font-mono text-muted">{p.sku}</span>
           </span>
+          {p.brand_id ? <span className="text-[10px] px-2 py-0.5 rounded-full bg-surface2 text-muted">{brandName(p.brand_id)}</span> : null}
           {p.is_active === false ? <span className="text-[10px] text-warn">{L("แบบร่าง · ยังไม่เปิดขาย", "Draft · inactive", "草稿 · 未启用")}</span> : null}
           {gift && onQty && (
             <input type="number" min={1} value={p.gift_qty ?? 1} onChange={(e) => onQty(p.sku, Math.max(1, Number(e.target.value) || 1))}

@@ -108,6 +108,9 @@ export default function SellPage() {
   const [giftLoadError,setGiftLoadError]=useState("");
   const [giftReload,setGiftReload]=useState(0);
   const [giftCampaigns, setGiftCampaigns] = useState<GiftCampaign[]>([]);
+  // สินค้าของแถมจากเซิร์ฟเวอร์ (ทุกแบรนด์) + แบรนด์ที่สาขานี้ขาย (branch_brands) — รองรับของแถมข้ามแบรนด์
+  const [giftProducts, setGiftProducts] = useState<Product[]>([]);
+  const [branchBrandIds, setBranchBrandIds] = useState<string[] | null>(null);
   const [giftWarns, setGiftWarns] = useState<string[]>([]);
 
   const employee = session.employee;
@@ -175,9 +178,11 @@ export default function SellPage() {
   // ------------------------------------------------------------------
   const productBySku = useMemo(() => {
     const m = new Map<string, Product>();
+    // ของแถมข้ามแบรนด์ที่ไม่มีในแคตตาล็อกเครื่อง → ใช้แถวจากเซิร์ฟเวอร์ (แคตตาล็อกเครื่องมาก่อนถ้ามี)
+    for (const p of giftProducts) m.set(p.sku, p);
     for (const p of products) m.set(p.sku, p);
     return m;
-  }, [products]);
+  }, [products, giftProducts]);
 
   // โลโก้/ชื่อแบรนด์ของสาขา (ขึ้นบนบิล + จอลูกค้า)
   useEffect(() => {
@@ -212,9 +217,9 @@ export default function SellPage() {
 
   // ดึงแคมเปญของแถมที่ใช้ได้กับสาขา/ช่องทางนี้
   useEffect(() => {
-    if (!branchId) { setGiftCampaigns([]); return; }
+    if (!branchId) { setGiftCampaigns([]); setGiftProducts([]); setBranchBrandIds(null); return; }
     let alive = true;
-    const load=()=>void fetchActiveGiftCampaigns(branchId,session.channel,cart.customerId).then(c=>{if(alive){setGiftCampaigns(c);setGiftLoadError("");}}).catch(error=>{if(alive)setGiftLoadError(error instanceof Error?error.message:L("อ่านสิทธิ์ของแถมไม่สำเร็จ", "Failed to load gift eligibility", "读取赠品资格失败"))});
+    const load=()=>void fetchActiveGiftCampaigns(branchId,session.channel,cart.customerId).then(r=>{if(alive){setGiftCampaigns(r.campaigns);setGiftProducts(r.giftProducts);setBranchBrandIds(r.branchBrandIds);setGiftLoadError("");}}).catch(error=>{if(alive)setGiftLoadError(error instanceof Error?error.message:L("อ่านสิทธิ์ของแถมไม่สำเร็จ", "Failed to load gift eligibility", "读取赠品资格失败"))});
     load();const timer=window.setInterval(()=>{if(!checkoutId.current)load()},30000);
     return () => { alive = false;clearInterval(timer); };
   }, [branchId, session.channel,cart.customerId,giftReload]);
@@ -254,9 +259,10 @@ export default function SellPage() {
       if(deferredMode)return true;
       if (!p.is_active) return false;
       if (p.kind === "service" || p.kind === "fee") return true;
-      return stock.has(p.id) || p.brand_id === branch.brand_id;
+      // สาขาหลายแบรนด์: แสดงสินค้าทุกแบรนด์ที่สาขาขาย (แบรนด์หลัก + branch_brands)
+      return stock.has(p.id) || p.brand_id === branch.brand_id || (!!p.brand_id && !!branchBrandIds?.includes(p.brand_id));
     });
-  }, [products, branch, stock,deferredMode]);
+  }, [products, branch, stock,deferredMode,branchBrandIds]);
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();

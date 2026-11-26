@@ -33,3 +33,29 @@ export function visibleBrandIds(authz: AppAuthz): string[] | null {
   if (authz.isSuperadmin || authz.data_scope === "company") return null;
   return authz.brand_ids;
 }
+
+/** แบรนด์ที่สาขาเหล่านี้ขาย = branches.brand_id (แบรนด์หลัก) ∪ branch_brands (สาขาหลายแบรนด์) */
+export async function brandsSoldAtBranches(branchIds: string[]): Promise<string[]> {
+  if (!branchIds.length) return [];
+  const sb = supabaseAdmin();
+  const [primary, mapped] = await Promise.all([
+    sb.from("branches").select("brand_id").in("id", branchIds),
+    sb.from("branch_brands").select("brand_id").in("branch_id", branchIds),
+  ]);
+  if (primary.error || mapped.error) throw Error("branch_brands_read_failed");
+  const set = new Set<string>();
+  for (const r of [...(primary.data ?? []), ...(mapped.data ?? [])]) if (r.brand_id) set.add(r.brand_id as string);
+  return [...set];
+}
+
+/**
+ * แบรนด์สินค้าที่พนักงานใช้ขาย/วางแผนแคมเปญได้ — null = ทุกแบรนด์
+ *   brand scope: แบรนด์ของตัวเอง ∪ ทุกแบรนด์ที่สาขาที่ตนเห็นขาย (สาขาหลายแบรนด์ → ของแถมข้ามแบรนด์ได้)
+ *   branch/own scope: ไม่จำกัดแบรนด์สินค้า (เหมือนเดิม)
+ */
+export async function catalogBrandIds(authz: AppAuthz): Promise<string[] | null> {
+  const own = visibleBrandIds(authz);
+  if (own === null || authz.data_scope !== "brand") return null;
+  const branches = (await visibleBranchIds(authz)) ?? [];
+  return [...new Set([...own, ...(await brandsSoldAtBranches(branches))])];
+}

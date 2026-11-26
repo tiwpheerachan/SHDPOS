@@ -5,7 +5,9 @@
 //   • ค่าคอม: ผูกสินค้า/หมวด/แบรนด์ + ขั้นยอดขาย + สาขาที่มีสิทธิ์
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Package, Search, Tag, CalendarRange, Plus, Pencil, Pause, Play, X, Copy, ChevronLeft, ChevronRight, AlertTriangle, Coins, Store, Layers, Boxes, CheckCircle2, ShieldCheck, RefreshCw, Lock, Unlock } from "lucide-react";
+import { Package, Search, Tag, CalendarRange, Plus, Pencil, Pause, Play, X, Copy, ChevronLeft, ChevronRight, AlertTriangle, Coins, Store, Layers, Boxes, CheckCircle2, ShieldCheck, RefreshCw, Lock, Unlock, FileDown, FileUp, History, Warehouse } from "lucide-react";
+import { BranchStockTab } from "@/components/admin/branch-stock-tab";
+import { ExportTemplateModal, ImportPricesModal, PriceHistoryTab, ProductPriceTimeline } from "@/components/admin/price-import";
 import { useI18n } from "@/lib/i18n/provider";
 import { isLiveMode } from "@/lib/supabase/client";
 import { ProductsLegacy } from "@/components/admin/products-legacy";
@@ -21,7 +23,7 @@ type P = { id: string; sku: string; name_th: string; name_en: string | null; bra
 type Ref = { id: string; name: string };
 type BranchRef = { id: string; code: string; name: string; name_th: string | null; brand_id: string | null };
 type Data = { products: P[]; brands: Ref[]; categories: Ref[]; branches: BranchRef[]; perms: { list: boolean; period: boolean; cost: boolean; review: boolean; commission: boolean; commission_view: boolean } };
-type Tab = "products" | "prices" | "commission";
+type Tab = "products" | "prices" | "stock" | "history" | "commission";
 const baht = (n: number) => formatTHB(n, false);
 const pct = (list: number, price: number) => (list > 0 ? Math.round(((list - price) / list) * 1000) / 10 : 0);
 
@@ -53,7 +55,8 @@ function ProductsLive() {
   const perms = data ? { ...data.perms, list: editMode && data.perms.list, period: editMode && data.perms.period, commission: editMode && data.perms.commission, review: editMode && data.perms.review } : null;
   const view = data && perms ? { ...data, perms } : null;
   const [reviewId, setReviewId] = useState<string | null>(null);
-  const [listEdit, setListEdit] = useState<P | null>(null);
+  const [listEdit, setListEdit] = useState<(P & { presetPrice?: number; presetReason?: string }) | null>(null);
+  const [exportOpen, setExportOpen] = useState(false), [importOpen, setImportOpen] = useState(false), [timeline, setTimeline] = useState<P | null>(null);
 
   const kpi = useMemo(() => {
     const p = data?.products ?? [];
@@ -75,7 +78,9 @@ function ProductsLive() {
               {editMode ? <Unlock size={14} /> : <Lock size={14} />}{L("เปิดโหมดแก้ไข", "Enable editing", "开启编辑")}
             </label>
           ) : null}
-          {perms?.period ? <Button variant="primary" onClick={() => setRuleDraft({ scope: "category" })}><Layers size={15} />{L("ตั้งราคารายกลุ่มสินค้า", "Group pricing", "按商品组定价")}</Button> : null}
+          {data ? <Button variant="ghost" onClick={() => setExportOpen(true)}><FileDown size={15} />{L("ดาวน์โหลดเทมเพลต", "Download template", "下载模板")}</Button> : null}
+          {perms && (perms.period || perms.list) ? <Button variant="soft" onClick={() => setImportOpen(true)}><FileUp size={15} />{L("นำเข้าราคา", "Import prices", "导入价格")}</Button> : null}
+          {perms?.period ? <Button variant="primary" onClick={() => setRuleDraft({ scope: "sku" })}><Layers size={15} />{L("ตั้งราคารายกลุ่มสินค้า", "Group pricing", "按商品组定价")}</Button> : null}
         </div>
       </div>
 
@@ -89,6 +94,8 @@ function ProductsLive() {
       <Segmented<Tab> value={tab} onChange={setTab} options={[
         { value: "products", label: <span className="inline-flex items-center gap-1.5"><Package size={14} />{L("สินค้า", "Products", "商品")}</span> },
         { value: "prices", label: <span className="inline-flex items-center gap-1.5"><CalendarRange size={14} />{L("ราคาช่วงเวลา", "Period prices", "时段价格")}</span> },
+        { value: "stock", label: <span className="inline-flex items-center gap-1.5"><Warehouse size={14} />{L("สต๊อกสาขา", "Branch stock", "门店库存")}</span> },
+        { value: "history", label: <span className="inline-flex items-center gap-1.5"><History size={14} />{L("ประวัติราคา", "Price history", "价格历史")}</span> },
         ...(data?.perms.commission || data?.perms.commission_view ? [{ value: "commission" as Tab, label: <span className="inline-flex items-center gap-1.5"><Coins size={14} />{L("ค่าคอมมิชชัน", "Commission", "佣金")}</span> }] : []),
       ]} />
 
@@ -96,11 +103,19 @@ function ProductsLive() {
         : canEditAny ? <p className="text-[11.5px] text-muted flex items-center gap-1.5"><Lock size={12} />{L("ล็อกการแก้ไขอยู่ (กันแก้ผิดโดยไม่ตั้งใจ) — ติ๊ก “เปิดโหมดแก้ไข” เมื่อต้องการตั้งราคา", "Editing is locked to prevent mistakes — tick “Enable editing” to change prices", "编辑已锁定以防误操作 — 勾选“开启编辑”后才能改价")}</p> : null}
       {err ? <p className="rounded-xl bg-danger/8 text-danger text-sm px-4 py-2.5">{err}</p> : null}
       {!data && !err ? <div className="space-y-2">{Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-12" />)}</div> : null}
-      {view && tab === "products" ? <ProductsTab data={view} onRule={(ids, locked) => setRuleDraft({ scope: "sku", product_ids: ids, locked })} onReview={setReviewId} onListPrice={setListEdit} /> : null}
+      {view && tab === "products" ? <ProductsTab data={view} onRule={(ids, locked) => setRuleDraft({ scope: "sku", product_ids: ids, locked })} onReview={setReviewId} onListPrice={setListEdit} onHistory={setTimeline} /> : null}
       {view && tab === "prices" ? <PeriodTab data={view} onEdit={(r) => setRuleDraft({ ...r, locked: r.scope === "sku" && r.product_ids?.length === 1 })} onChanged={load} /> : null}
+      {tab === "stock" ? <BranchStockTab /> : null}
+      {tab === "history" ? <PriceHistoryTab canEdit={!!perms && (perms.period || perms.list)} onChanged={() => void load()} /> : null}
       {view && tab === "commission" ? <CommissionTab products={view.products} brands={view.brands} categories={view.categories} branches={view.branches} canManage={view.perms.commission} /> : null}
 
       {ruleDraft && view ? <PriceRuleDrawer data={view} initial={ruleDraft} onClose={() => setRuleDraft(null)} onSaved={() => { setRuleDraft(null); void load(); toast.push({ tone: "ok", title: L("บันทึกราคาช่วงเวลาแล้ว — หน้าร้านจะใช้ราคานี้ตามช่วงที่ตั้ง", "Period price saved — POS will apply it in the set window", "时段价格已保存 — 门店将在设定期间自动使用") }); }} /> : null}
+      {exportOpen && data ? <ExportTemplateModal data={data} onClose={() => setExportOpen(false)} /> : null}
+      {importOpen && view ? <ImportPricesModal data={view} onClose={() => setImportOpen(false)} onDone={() => { setImportOpen(false); void load(); setTab("history"); }} /> : null}
+      {timeline && view ? <ProductPriceTimeline product={timeline} canEdit={{ list: view.perms.list, period: view.perms.period }} onClose={() => setTimeline(null)}
+        onRestoreList={(price) => { const p = timeline; setTimeline(null); setListEdit({ ...p, presetPrice: price, presetReason: L("นำราคาเดิมกลับมาใช้", "Restore previous price", "恢复原价") }); }}
+        onReuseRule={(r) => { const p = timeline; setTimeline(null); setRuleDraft({ name: String(r.name ?? ""), price_type: r.price_type as PriceType, scope: (r.scope as PriceScope) ?? "sku", brand_id: (r.brand_id as string) ?? null, category_id: (r.category_id as string) ?? null,
+          product_ids: (r.scope === "sku" ? (r.product_ids as string[]) : []) ?? [p.id], mode: r.mode as PriceMode, value: Number(r.value), rounding: r.rounding as Rounding, branch_ids: (r.branch_ids as string[]) ?? [] }); }} /> : null}
       {listEdit ? <ListPriceModal p={listEdit} onClose={() => setListEdit(null)} onSaved={() => { setListEdit(null); void load(); }} /> : null}
       <ProductReviewDrawer id={reviewId} onClose={() => { setReviewId(null); void load(); }} />
       <span className="hidden">{locale}</span>
@@ -118,7 +133,7 @@ function Kpi({ icon, tint, label, value, sub }: { icon: React.ReactNode; tint: s
 }
 
 // ═════════════ แท็บสินค้า ═════════════
-function ProductsTab({ data, onRule, onReview, onListPrice }: { data: Data; onRule: (ids: string[], locked?: boolean) => void; onReview: (id: string) => void; onListPrice: (p: P) => void }) {
+function ProductsTab({ data, onRule, onReview, onListPrice, onHistory }: { data: Data; onRule: (ids: string[], locked?: boolean) => void; onReview: (id: string) => void; onListPrice: (p: P) => void; onHistory: (p: P) => void }) {
   const { L, locale } = useI18n();
   const [q, setQ] = useState(""), [brand, setBrand] = useState(""), [cat, setCat] = useState(""), [status, setStatus] = useState<"all" | "on" | "off" | "noprice" | "special">("all");
   const [sel, setSel] = useState<Set<string>>(new Set());
@@ -191,6 +206,7 @@ function ProductsTab({ data, onRule, onReview, onListPrice }: { data: Data; onRu
                     {data.perms.cost ? <td className="border-b border-line/70 px-2 py-2 text-right tnum whitespace-nowrap">{p.cost != null ? baht(p.cost) : "—"}{gp != null ? <span className={`block text-[10.5px] ${gp < 0 ? "text-danger" : gp < 10 ? "text-warn" : "text-ok"}`}>GP {gp}%</span> : null}</td> : null}
                     <td className="border-b border-line/70 px-2 py-2 text-center">{p.is_active ? <Badge tone="ok">{L("เปิดขาย", "On sale", "在售")}</Badge> : <Badge tone="neutral">{L("ปิดขาย", "Off sale", "未上架")}</Badge>}</td>
                     <td className="border-b border-line/70 px-3 py-2 text-right whitespace-nowrap">
+                      <button onClick={() => onHistory(p)} title={L("ประวัติราคา", "Price history", "价格历史")} className="mr-1 h-7 w-7 inline-grid place-items-center rounded-lg border border-line text-muted hover:text-brand hover:border-brand/50 align-middle"><History size={13} /></button>
                       {data.perms.period ? <button onClick={() => onRule([p.id], true)} className="h-7 px-2 rounded-lg border border-line text-[11px] inline-flex items-center gap-1 hover:border-brand/50 hover:text-brand"><Tag size={12} />{L("ราคาช่วงเวลา", "Period price", "时段价")}</button> : null}
                       {data.perms.review ? <button onClick={() => onReview(p.id)} className="ml-1 h-7 px-2 rounded-lg border border-line text-[11px] inline-flex items-center gap-1 hover:border-brand/50 hover:text-brand"><ShieldCheck size={12} />{L("ตรวจ/เปิดขาย", "Review", "审核")}</button> : null}
                     </td>
@@ -312,7 +328,9 @@ function PriceRuleDrawer({ data, initial, onClose, onSaved }: { data: Data; init
   const bad = preview.filter((x) => x.v == null && val > 0).length;
   const belowCost = data.perms.cost ? preview.filter((x) => x.v != null && x.p.cost != null && x.v / 1.07 < (x.p.cost ?? 0)).length : 0;
   const search = q.trim().toLowerCase();
-  const pickList = search ? data.products.filter((p) => (p.sku.toLowerCase().includes(search) || p.name_th.toLowerCase().includes(search)) && !f.product_ids.includes(p.id)).slice(0, 30) : [];
+  const [pb, setPb] = useState(""), [pc, setPc] = useState("");
+  // ตัวเลือกสินค้าแบบติ๊กได้หลายรายการ — กรองด้วยคำค้น/แบรนด์/หมวด (ไม่ต้องพิมพ์ก็เห็นรายการ)
+  const pickList = data.products.filter((p) => (!search || p.sku.toLowerCase().includes(search) || p.name_th.toLowerCase().includes(search)) && (!pb || p.brand_id === pb) && (!pc || p.category_id === pc)).slice(0, 200);
   const brandBranches = data.branches.filter((b) => !f.brand_id || !b.brand_id || b.brand_id === f.brand_id);
   // ตั้งราคาเลยกับสินค้า 1 รายการ → โชว์ว่าเท่ากับลดกี่บาท/กี่ %
   const single = targets.length === 1 ? targets[0] : null;
@@ -366,7 +384,25 @@ function PriceRuleDrawer({ data, initial, onClose, onSaved }: { data: Data; init
           ) : (
             <div className="mt-2 space-y-2">
               <div className="relative"><Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" /><Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={L("ค้นหา SKU / ชื่อ เพื่อเพิ่ม", "Search SKU / name to add", "搜索 SKU / 名称以添加")} className="pl-9" /></div>
-              {pickList.length ? <div className="max-h-40 overflow-auto rounded-xl border border-line divide-y divide-line" translate="no">{pickList.map((p) => <button key={p.id} type="button" onClick={() => { set({ product_ids: [...f.product_ids, p.id] }); setQ(""); }} className="w-full text-left px-3 py-1.5 text-xs hover:bg-surface2 flex justify-between"><span><span className="font-mono text-muted">{p.sku}</span> · {p.name_th}</span><span className="tnum">{baht(Number(p.price))}</span></button>)}</div> : null}
+              <div className="grid grid-cols-2 gap-2">
+                <Select value={pb} onChange={(e) => setPb(e.target.value)} className="h-9"><option value="">{L("ทุกแบรนด์", "All brands", "全部品牌")}</option>{data.brands.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</Select>
+                <Select value={pc} onChange={(e) => setPc(e.target.value)} className="h-9"><option value="">{L("ทุกหมวด", "All categories", "全部类别")}</option>{data.categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</Select>
+              </div>
+              <div className="flex items-center justify-between text-[11px] text-muted px-0.5">
+                <span>{L(`พบ ${pickList.length} รายการ · เลือกแล้ว ${f.product_ids.length}`, `${pickList.length} found · ${f.product_ids.length} selected`, `找到 ${pickList.length} · 已选 ${f.product_ids.length}`)}</span>
+                <span className="flex gap-3">
+                  <button type="button" className="text-brand" onClick={() => set({ product_ids: [...new Set([...f.product_ids, ...pickList.map((p) => p.id)])] })}>{L("เลือกทั้งหมดที่พบ", "Select all found", "全选结果")}</button>
+                  <button type="button" className="hover:text-ink" onClick={() => set({ product_ids: f.product_ids.filter((id) => !pickList.some((p) => p.id === id)) })}>{L("ล้างที่พบ", "Clear found", "清除结果")}</button>
+                </span>
+              </div>
+              <div className="max-h-56 overflow-auto rounded-xl border border-line divide-y divide-line" translate="no">
+                {pickList.map((p) => { const on = f.product_ids.includes(p.id); return (
+                  <label key={p.id} className={`flex items-center gap-2.5 px-3 py-1.5 text-xs cursor-pointer ${on ? "bg-brand/[0.06]" : "hover:bg-surface2"}`}>
+                    <input type="checkbox" checked={on} onChange={() => set({ product_ids: on ? f.product_ids.filter((x) => x !== p.id) : [...f.product_ids, p.id] })} className="accent-[rgb(var(--c-brand))]" />
+                    <span className="flex-1 min-w-0 truncate"><span className="font-mono text-muted">{p.sku}</span> · {p.name_th}</span><span className="tnum shrink-0">{baht(Number(p.price))}</span>
+                  </label>); })}
+                {!pickList.length ? <p className="px-3 py-3 text-xs text-muted">{L("ไม่พบสินค้า", "No products", "没有商品")}</p> : null}
+              </div>
               <div className="flex flex-wrap gap-1.5" translate="no">{targets.map((p) => <span key={p.id} className="inline-flex items-center gap-1 h-7 pl-2.5 pr-1 rounded-full bg-surface2 text-[11.5px]"><span className="font-mono">{p.sku}</span><button onClick={() => set({ product_ids: f.product_ids.filter((x) => x !== p.id) })} className="h-5 w-5 grid place-items-center rounded-full hover:bg-line"><X size={11} /></button></span>)}</div>
             </div>
           )}
@@ -443,10 +479,10 @@ function Chip({ children, onClick }: { children: React.ReactNode; onClick: () =>
 }
 
 // ═════════════ แก้ราคาหลัก ═════════════
-function ListPriceModal({ p, onClose, onSaved }: { p: P; onClose: () => void; onSaved: () => void }) {
+function ListPriceModal({ p, onClose, onSaved }: { p: P & { presetPrice?: number; presetReason?: string }; onClose: () => void; onSaved: () => void }) {
   const { L } = useI18n();
   const toast = useToast();
-  const [price, setPrice] = useState(String(p.price || "")), [reason, setReason] = useState(""), [busy, setBusy] = useState(false), [err, setErr] = useState("");
+  const [price, setPrice] = useState(String(p.presetPrice ?? (p.price || ""))), [reason, setReason] = useState(p.presetReason ?? ""), [busy, setBusy] = useState(false), [err, setErr] = useState("");
   async function save() {
     setBusy(true); setErr("");
     const r = await fetch("/api/admin/pricing", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "set_list_price", product_id: p.id, price: Number(price), reason }) });

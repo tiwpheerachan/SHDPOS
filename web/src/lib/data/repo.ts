@@ -1903,14 +1903,27 @@ export interface GiftCampaign {
   eligible_skus: string[]; gift_skus: { sku: string; gift_qty: number }[];
 }
 
+export interface GiftCampaignBundle {
+  campaigns: GiftCampaign[];
+  /** สินค้าของแถมทุกแบรนด์ (ของแถมข้ามแบรนด์อาจไม่อยู่ในแคตตาล็อกเครื่อง) */
+  giftProducts: Product[];
+  /** แบรนด์ที่สาขานี้ขาย (แบรนด์หลัก + branch_brands) — null = ไม่ทราบ (โหมดเดโม/ออฟไลน์) */
+  branchBrandIds: string[] | null;
+}
+
 /** แคมเปญของแถมอัตโนมัติที่ใช้ได้กับสาขา/ช่องทางนี้ (live เท่านั้น) */
-export async function fetchActiveGiftCampaigns(branchId: string, channel: string, customerId?: string|null): Promise<GiftCampaign[]> {
-  if (!isLiveMode() || (typeof navigator !== "undefined" && !navigator.onLine)) return [];
+export async function fetchActiveGiftCampaigns(branchId: string, channel: string, customerId?: string|null): Promise<GiftCampaignBundle> {
+  if (!isLiveMode() || (typeof navigator !== "undefined" && !navigator.onLine)) return { campaigns: [], giftProducts: [], branchBrandIds: null };
   const params=new URLSearchParams({branch_id:branchId,channel});if(customerId)params.set("customer_id",customerId);
   const response=await fetch("/api/pos/gift-campaigns?"+params,{cache:"no-store"});
   const data=await response.json();
-  if(!response.ok||!Array.isArray(data))throw Error(data.error||tl("อ่านสิทธิ์ของแถมไม่สำเร็จ", "Failed to read gift entitlements", "读取赠品权益失败"));
-  return data.map((r: unknown) => {
+  const list=Array.isArray(data)?data:data?.campaigns;
+  if(!response.ok||!Array.isArray(list))throw Error(data.error||tl("อ่านสิทธิ์ของแถมไม่สำเร็จ", "Failed to read gift entitlements", "读取赠品权益失败"));
+  const giftProducts=(Array.isArray(data?.gift_products)?data.gift_products:[]) as Product[];
+  const branchBrandIds=Array.isArray(data?.branch_brand_ids)?(data.branch_brand_ids as string[]):null;
+  // เก็บของแถมข้ามแบรนด์ที่เครื่องยังไม่มีลงแคตตาล็อกเครื่อง (เพิ่มอย่างเดียว ไม่ทับแถวเดิม) — ให้ตัดสต๊อก/คืนบิลในเครื่องหาเจอ
+  if(giftProducts.length){try{const have=await db().products.bulkGet(giftProducts.map(p=>p.id));const missing=giftProducts.filter((_,i)=>!have[i]);if(missing.length)await db().products.bulkPut(missing);}catch{/* แคชเครื่องเป็น best-effort */}}
+  return { giftProducts, branchBrandIds, campaigns: list.map((r: unknown) => {
     const c = r as Record<string, unknown>;
     return {
       id: String(c.id), name: String(c.name ?? ""),
@@ -1925,7 +1938,7 @@ export async function fetchActiveGiftCampaigns(branchId: string, channel: string
       eligible_skus: (c.eligible_skus as string[]) ?? [],
       gift_skus: ((c.gift_skus as { sku: string; gift_qty: number }[]) ?? []).map((g) => ({ sku: g.sku, gift_qty: Number(g.gift_qty ?? 1) })),
     };
-  });
+  }) };
 }
 
 export interface CouponResult {

@@ -20,6 +20,7 @@ const ERR: [string, string][] = [
   ["price_rule_version_conflict", "มีคนแก้กฎนี้ไปก่อนแล้ว — รีเฟรชแล้วลองใหม่"], ["price_rule_products_required", "เลือกสินค้าอย่างน้อย 1 รายการ"],
   ["price_rule_product_not_found", "ไม่พบสินค้าบางรายการ"], ["price_rule_not_found", "ไม่พบกฎราคา"],
   ["pos_price_rules_check", "ข้อมูลกฎไม่ถูกต้อง (ช่วงวันที่/ค่าที่ลด/ขอบเขต)"], ["violates check constraint", "ข้อมูลกฎไม่ถูกต้อง (ช่วงวันที่ต้องถูกลำดับ · ลด % ต้องน้อยกว่า 100 · ต้องเลือกขอบเขต)"],
+  ["price_revert_reason_required", "กรุณาระบุเหตุผลที่ย้อนกลับ"], ["price_import_", "ข้อมูลนำเข้าไม่ถูกต้อง"],
   ["list_price_reason_required", "กรุณาระบุเหตุผลที่เปลี่ยนราคาหลัก"], ["list_price_invalid", "ราคาไม่ถูกต้อง"], ["employee_access_revoked", "บัญชีถูกระงับ"],
 ];
 const friendly = (m: string) => ERR.find(([k]) => m.includes(k))?.[1] ?? m;
@@ -39,6 +40,29 @@ export async function GET(req: NextRequest) {
   const sb = supabaseAdmin();
   const view = req.nextUrl.searchParams.get("view") ?? "products";
   try {
+    if (view === "history") {
+      // ไทม์ไลน์ราคาของสินค้า 1 ตัว (ราคาหลัก + กฎที่ครอบ) ล่าสุดก่อน
+      const pid = req.nextUrl.searchParams.get("product_id") ?? "";
+      if (!UUID.test(pid)) return reply({ error: "ระบุสินค้าไม่ถูกต้อง" }, 400);
+      const prod = (await sb.from("products").select("id,brand_id").eq("id", pid).maybeSingle()).data;
+      if (!prod || (c.brands !== null && !c.brands.includes(prod.brand_id as string))) return reply({ error: "ไม่มีสิทธิ์ดูสินค้านี้" }, 403);
+      const { data, error } = await sb.from("pos_price_events").select("id,kind,rule_id,batch_id,before,after,actor_id,at").contains("product_ids", [pid]).order("id", { ascending: false }).limit(300);
+      if (error) throw Error("อ่านประวัติราคาไม่สำเร็จ — ตรวจ migration 0084");
+      const ids = [...new Set((data ?? []).map((e) => e.actor_id).filter(Boolean))] as string[];
+      const bids = [...new Set((data ?? []).map((e) => e.batch_id).filter(Boolean))] as string[];
+      const [emps, batches] = await Promise.all([
+        ids.length ? sb.from("employees").select("id,first_name,last_name,nickname").in("id", ids) : Promise.resolve({ data: [] as { id: string; first_name: string; last_name: string | null; nickname: string | null }[] }),
+        bids.length ? sb.from("pos_price_batches").select("id,title,file_name,status").in("id", bids) : Promise.resolve({ data: [] as { id: string; title: string; file_name: string | null; status: string }[] }),
+      ]);
+      return reply({ events: data ?? [], names: Object.fromEntries((emps.data ?? []).map((e) => [e.id, [e.first_name, e.last_name].filter(Boolean).join(" ") || e.nickname])), batches: Object.fromEntries((batches.data ?? []).map((b) => [b.id, b])) });
+    }
+    if (view === "batches") {
+      const { data, error } = await sb.from("pos_price_batches").select("*").order("created_at", { ascending: false }).limit(100);
+      if (error) throw Error("อ่านประวัติการนำเข้าไม่สำเร็จ — ตรวจ migration 0084");
+      const ids = [...new Set((data ?? []).flatMap((b) => [b.created_by, b.reverted_by]).filter(Boolean))] as string[];
+      const emps = ids.length ? ((await sb.from("employees").select("id,first_name,last_name,nickname").in("id", ids)).data ?? []) : [];
+      return reply({ batches: data ?? [], names: Object.fromEntries(emps.map((e) => [e.id, [e.first_name, e.last_name].filter(Boolean).join(" ") || e.nickname])) });
+    }
     if (view === "rules") {
       const from = req.nextUrl.searchParams.get("from"), to = req.nextUrl.searchParams.get("to");
       let q = sb.from("pos_price_rules").select("*").neq("status", "cancelled").order("starts_at", { ascending: false }).limit(500);
@@ -109,6 +133,43 @@ export async function POST(req: NextRequest) {
     const { data, error } = await sb.rpc("pos_save_price_rule", { p_actor: c.authz.employee_id, p_rule: { ...r, product_ids: ids } });
     if (error) return reply({ error: friendly(error.message) }, 409);
     return reply({ rule: data });
+  }
+  if (b?.action === "import") {
+    // นำเข้าราคาจากไฟล์ (ตรวจแล้วที่หน้าพรีวิว) — เซิร์ฟเวอร์ตรวจซ้ำ: สิทธิ์ + แบรนด์ + ค่า · ทั้งชุดหรือไม่มีเลย
+    const rows = Array.isArray(b.rows) ? (b.rows as Record<string, unknown>[]) : [];
+    if (!rows.length || rows.length > 5000) return reply({ error: "ไม่มีรายการที่จะนำเข้า (สูงสุด 5,000 แถว)" }, 400);
+    const wantsList = rows.some((r) => typeof r.list_price === "number"), wantsRule = rows.some((r) => r.rule && typeof r.rule === "object");
+    if (wantsList && !hasPerm(c.profile.email, c.authz, "price.list")) return reply({ error: "ไฟล์มีการเปลี่ยนราคาหลัก แต่คุณไม่มีสิทธิ์ตั้งราคาหลัก" }, 403);
+    if (wantsRule && !hasPerm(c.profile.email, c.authz, "price.period")) return reply({ error: "ไฟล์มีราคาช่วงเวลา แต่คุณไม่มีสิทธิ์ตั้งราคาช่วงเวลา" }, 403);
+    const ids = rows.map((r) => String(r.product_id));
+    if (ids.some((id) => !UUID.test(id)) || new Set(ids).size !== ids.length) return reply({ error: "สินค้าในไฟล์ซ้ำหรือไม่ถูกต้อง" }, 400);
+    if (!(await inScope(null, ids))) return reply({ error: "มีสินค้านอกแบรนด์ที่คุณดูแลในไฟล์" }, 403);
+    const clean = rows.map((r) => {
+      const out: Record<string, unknown> = { product_id: r.product_id };
+      if (typeof r.list_price === "number" && r.list_price > 0) out.list_price = Math.round(r.list_price * 100) / 100;
+      const x = r.rule as Record<string, unknown> | undefined;
+      if (x && ["price", "amount", "percent"].includes(String(x.mode)) && Number(x.value) > 0) out.rule = {
+        name: String(x.name ?? "").slice(0, 120), price_type: ["monthly", "launch", "clearance", "event", "member", "other"].includes(String(x.price_type)) ? x.price_type : "monthly",
+        mode: x.mode, value: Number(x.value), rounding: ["none", "baht", "down10", "end9"].includes(String(x.rounding)) ? x.rounding : "baht",
+        starts_at: x.starts_at, ends_at: x.ends_at, branch_ids: Array.isArray(x.branch_ids) ? (x.branch_ids as unknown[]).filter((v) => typeof v === "string" && UUID.test(v)) : [],
+      };
+      return out;
+    }).filter((r) => r.list_price != null || r.rule);
+    if (!clean.length) return reply({ error: "ไม่มีการเปลี่ยนแปลงในไฟล์" }, 400);
+    const { data, error } = await sb.rpc("pos_import_prices", { p_actor: c.authz.employee_id, p_meta: { title: String(b.title ?? "").slice(0, 200), file_name: String(b.file_name ?? "").slice(0, 200) }, p_rows: clean });
+    if (error) return reply({ error: friendly(error.message) }, 409);
+    return reply(data);
+  }
+  if (b?.action === "revert_batch") {
+    if (!hasPerm(c.profile.email, c.authz, "price.period") && !hasPerm(c.profile.email, c.authz, "price.list")) return reply({ error: "ไม่มีสิทธิ์" }, 403);
+    if (!UUID.test(String(b.batch_id))) return reply({ error: "ระบุชุดไม่ถูกต้อง" }, 400);
+    if (c.brands !== null) {
+      const pids = [...new Set(((await sb.from("pos_price_events").select("product_ids").eq("batch_id", b.batch_id)).data ?? []).flatMap((e) => e.product_ids as string[]))];
+      if (pids.length && !(await inScope(null, pids))) return reply({ error: "ชุดนี้มีสินค้านอกแบรนด์ที่คุณดูแล" }, 403);
+    }
+    const { data, error } = await sb.rpc("pos_revert_price_batch", { p_actor: c.authz.employee_id, p_batch: b.batch_id, p_reason: String(b.reason ?? "").slice(0, 500) });
+    if (error) return reply({ error: friendly(error.message) }, 409);
+    return reply(data);
   }
   if (b?.action === "set_list_price") {
     if (!hasPerm(c.profile.email, c.authz, "price.list")) return reply({ error: "ไม่มีสิทธิ์ตั้งราคาหลัก" }, 403);

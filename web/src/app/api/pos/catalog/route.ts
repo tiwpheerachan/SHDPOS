@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { SSO_COOKIE, readSession } from "@/lib/sso/session-cookie";
 import { resolveAuthz } from "@/lib/sso/grants";
 import { hasPerm } from "@/lib/sso/guard";
-import { visibleBrandIds } from "@/lib/sso/scope";
+import { catalogBrandIds } from "@/lib/sso/scope";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
@@ -23,8 +23,9 @@ export async function GET(req: NextRequest) {
       .order("id")
       .limit(500);
     if (cursor) q = q.gt("id", cursor);
-    const brands = visibleBrandIds(authz);
-    if (brands !== null && authz.data_scope === "brand") {
+    // brand scope → รวมทุกแบรนด์ที่สาขาของตนขาย (branch_brands) ให้ขาย/แถมข้ามแบรนด์ได้
+    const brands = await catalogBrandIds(authz);
+    if (brands !== null) {
       if (!brands.length)
         return NextResponse.json({
           items: [],
