@@ -2,7 +2,7 @@
 // เทมเพลตราคา (ดาวน์โหลด → แก้ใน Excel → นำเข้า) + ประวัติการนำเข้า/ย้อนกลับ + ไทม์ไลน์ราคารายสินค้า
 //   ดาวน์โหลด: ป๊อปอัปกรองสินค้า (แบรนด์/หมวด/สถานะ/เลือก SKU/เฉพาะที่มีสต๊อกในสาขา — รวมทุกสาขาที่เลือก) + เติมค่าตั้งต้นให้ทุกแถว (กรอกน้อยสุด)
 //   นำเข้า: อ่าน .xlsx/.csv → จับคอลัมน์อัตโนมัติ → พรีวิวทีละแถว (ผ่าน/เตือน/ผิด + ก่อน→หลัง) → ยืนยัน → เป็น 1 ชุด ย้อนกลับได้
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FileDown, FileUp, X, Check, AlertTriangle, XCircle, Loader2, Undo2, History, RotateCcw, Search, Filter, ShieldCheck, Sparkle } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { Badge, Button, EmptyState, Field, Input, Modal, Segmented, Select, Skeleton } from "@/components/ui";
@@ -14,7 +14,7 @@ import { PRICE_TYPE, ROUNDING, bkkEndExclusive, bkkStart, describeRule, ruleValu
 import { detectHeader, parseBranches, parseDateCell, parsePriceType, parsePriceValue, parseRounding, shortLabel, templateHeads, type ColKey } from "@/lib/pricing/import-parse";
 
 type Ref = { id: string; name: string };
-type BranchRef = { id: string; code: string; name: string; name_th: string | null; brand_id: string | null };
+type BranchRef = { id: string; code: string; name: string; name_th: string | null; brand_id: string | null; brand_ids?: string[] };
 export type PProd = { id: string; sku: string; name_th: string; brand_id: string | null; category_id: string | null; price: number; cost: number | null; is_active: boolean; current_price: number };
 export type PData = { products: PProd[]; brands: Ref[]; categories: Ref[]; branches: BranchRef[]; perms: { list: boolean; period: boolean; cost: boolean } };
 const baht = (n: number) => formatTHB(n, false);
@@ -28,15 +28,30 @@ export function ExportTemplateModal({ data, onClose }: { data: PData; onClose: (
   const [brands, setBrands] = useState<string[]>([]), [cats, setCats] = useState<string[]>([]), [status, setStatus] = useState<"all" | "on" | "off">("all");
   const [stockBranches, setStockBranches] = useState<string[]>([]), [onlyStock, setOnlyStock] = useState(false), [stockCols, setStockCols] = useState(true);
   const [picked, setPicked] = useState<string[]>([]);
+  const [branchBrandSel, setBranchBrandSel] = useState<Record<string, string[]>>({}); // สาขาหลายแบรนด์ → เอาแบรนด์ไหน (ไม่ตั้ง = ทุกแบรนด์ของสาขา)
   const [prefill, setPrefill] = useState({ action: "none" as "none" | "percent" | "amount" | "price_list", value: "", from: todayYmd(), to: monthEnd(todayYmd()), branches: [] as string[], type: "monthly" as PriceType, promo: "", rounding: "baht" as Rounding });
   const [stock, setStock] = useState<{ rows: { branch_id: string; product_id: string; available: number }[] } | null>(null), [busy, setBusy] = useState(false);
   useEffect(() => { void fetch("/api/admin/branch-stock", { cache: "no-store" }).then((r) => r.json()).then((j) => setStock(j.rows ? j : { rows: [] })).catch(() => setStock({ rows: [] })); }, []);
   const stockBy = useMemo(() => { const m = new Map<string, Map<string, number>>(); for (const r of stock?.rows ?? []) { const x = m.get(r.product_id) ?? new Map(); x.set(r.branch_id, Number(r.available)); m.set(r.product_id, x); } return m; }, [stock]);
   // ไม่เลือกสาขา = ทุกสาขา
-  const scopeBranches = stockBranches.length ? stockBranches : data.branches.map((b) => b.id);
+  const scopeBranches = useMemo(() => (stockBranches.length ? stockBranches : data.branches.map((b) => b.id)), [stockBranches, data.branches]);
+  // แบรนด์ที่สาขาขาย ([] = ไม่ได้ระบุ → ไม่จำกัด) และแบรนด์ที่ผู้ใช้เลือกเอาสำหรับสาขานั้น
+  const branchById = useMemo(() => new Map(data.branches.map((b) => [b.id, b])), [data.branches]);
+  const soldAt = useCallback((bid: string) => branchById.get(bid)?.brand_ids ?? (branchById.get(bid)?.brand_id ? [branchById.get(bid)!.brand_id!] : []), [branchById]);
+  const takeAt = useCallback((bid: string) => branchBrandSel[bid] ?? soldAt(bid), [branchBrandSel, soldAt]);
+  /** สินค้าแบรนด์นี้นับว่าอยู่ในสาขานี้ไหม (สาขาที่ไม่ระบุแบรนด์ / สินค้าไม่มีแบรนด์ = นับ) */
+  const branchTakes = useCallback((bid: string, brandId: string | null) => { const sold = soldAt(bid); if (!sold.length || !brandId) return true; return takeAt(bid).includes(brandId); }, [soldAt, takeAt]);
+  const brandOpts = useMemo(() => {
+    if (!stockBranches.length || stockBranches.some((b) => !soldAt(b).length)) return data.brands;
+    const u = new Set(stockBranches.flatMap(soldAt));
+    return data.brands.filter((b) => u.has(b.id));
+  }, [stockBranches, soldAt, data.brands]);
+  // เปลี่ยนสาขาแล้วแบรนด์ที่เลือกไว้ไม่มีขายในสาขาเหล่านั้น → ตัดออก (กันกรองด้วยค่าที่มองไม่เห็น)
+  useEffect(() => { setBrands((cur) => { const ok = cur.filter((id) => brandOpts.some((b) => b.id === id)); return ok.length === cur.length ? cur : ok; }); }, [brandOpts]);
   const list = useMemo(() => data.products.filter((p) => (!brands.length || brands.includes(p.brand_id ?? "")) && (!cats.length || cats.includes(p.category_id ?? ""))
     && (status === "all" || (status === "on" ? p.is_active : !p.is_active)) && (!picked.length || picked.includes(p.id))
-    && (!onlyStock || scopeBranches.some((b) => (stockBy.get(p.id)?.get(b) ?? 0) > 0))), [data.products, brands, cats, status, picked, onlyStock, scopeBranches, stockBy]);
+    && (!stockBranches.length || stockBranches.some((b) => branchTakes(b, p.brand_id)))
+    && (!onlyStock || scopeBranches.some((b) => branchTakes(b, p.brand_id) && (stockBy.get(p.id)?.get(b) ?? 0) > 0))), [data.products, brands, cats, status, picked, onlyStock, scopeBranches, stockBy, stockBranches, branchTakes]);
   // คอลัมน์สต๊อก: สาขาที่เลือก หรือ (ไม่เลือก) เฉพาะสาขาที่มีของของสินค้าในไฟล์จริง — ไม่ใส่ครบทุกสาขา
   const stockBranchList = useMemo(() => data.branches.filter((b) => stockBranches.length ? stockBranches.includes(b.id) : list.some((p) => (stockBy.get(p.id)?.get(b.id) ?? 0) !== 0)), [data.branches, stockBranches, list, stockBy]);
   const names = (ids: string[], src: { id: string; name: string }[]) => src.filter((x) => ids.includes(x.id)).map((x) => x.name);
@@ -61,11 +76,14 @@ export function ExportTemplateModal({ data, onClose }: { data: PData; onClose: (
       ws.mergeCells(1, 1, 1, head.length); ws.getRow(1).font = { bold: true, color: { argb: "FF7950D8" } }; ws.getRow(1).height = 22;
       ws.addRow(head);
       const fromD = prefill.from ? new Date(`${prefill.from}T00:00:00Z`) : null, toD = prefill.to ? new Date(`${prefill.to}T00:00:00Z`) : null;
-      const branchCell = prefill.branches.length ? data.branches.filter((b) => prefill.branches.includes(b.id)).map((b) => b.code).join(", ") : ""; // ว่าง = ทุกสาขา
+      // ว่าง = ทุกสาขา · ระบุสาขา → ใส่เฉพาะสาขาที่ขายแบรนด์ของสินค้านั้น (สาขาหลายแบรนด์เลือกแบรนด์เองได้)
+      const branchCellFor = (brandId: string | null) => data.branches.filter((b) => prefill.branches.includes(b.id) && branchTakes(b.id, brandId)).map((b) => b.code).join(", ");
       for (const p of list) {
-        const perBranch = stockBranchList.map((b) => stockBy.get(p.id)?.get(b.id) ?? 0);
-        const total = [...(stockBy.get(p.id)?.entries() ?? [])].filter(([b]) => scopeBranches.includes(b)).reduce((a, [, v]) => a + v, 0);
-        const special = prefill.action === "price_list" ? Number(p.price) || "" : pfVal;
+        const perBranch = stockBranchList.map((b) => (branchTakes(b.id, p.brand_id) ? stockBy.get(p.id)?.get(b.id) ?? 0 : ""));
+        const total = [...(stockBy.get(p.id)?.entries() ?? [])].filter(([b]) => scopeBranches.includes(b) && branchTakes(b, p.brand_id)).reduce((a, [, v]) => a + v, 0);
+        const branchCell = prefill.branches.length ? branchCellFor(p.brand_id) : "";
+        // ระบุสาขาไว้แต่ไม่มีสาขาไหนขายแบรนด์นี้ → ไม่เติม (กันกลายเป็น "ทุกสาขา")
+        const special = prefill.branches.length && !branchCell ? "" : prefill.action === "price_list" ? Number(p.price) || "" : pfVal;
         const has = special !== "";
         ws.addRow([p.sku, p.name_th, bn.get(p.brand_id ?? "") ?? "", cn.get(p.category_id ?? "") ?? "", total, ...(stockCols ? perBranch : []),
           Number(p.price), Number(p.current_price), "", special, has ? fromD : "", has ? toD : "", has ? branchCell : "",
@@ -114,7 +132,7 @@ export function ExportTemplateModal({ data, onClose }: { data: PData; onClose: (
         <section className="space-y-2">
           <p className="text-[13px] font-semibold flex items-center gap-1.5"><Filter size={14} />{L("สินค้าที่จะอยู่ในไฟล์", "Products in the file", "文件包含的商品")}</p>
           <div className="grid sm:grid-cols-2 gap-2">
-            <MultiSelect label={L("แบรนด์", "Brand", "品牌")} placeholder={L("ทุกแบรนด์", "All brands", "全部品牌")} options={data.brands.map((b) => ({ value: b.id, label: b.name }))} value={brands} onChange={setBrands} noTranslate />
+            <MultiSelect label={L("แบรนด์", "Brand", "品牌")} placeholder={L("ทุกแบรนด์", "All brands", "全部品牌")} options={brandOpts.map((b) => ({ value: b.id, label: b.name }))} value={brands} onChange={setBrands} noTranslate />
             <MultiSelect label={L("หมวด", "Category", "类别")} placeholder={L("ทุกหมวด", "All categories", "全部类别")} options={data.categories.map((c) => ({ value: c.id, label: c.name }))} value={cats} onChange={setCats} />
             <MultiSelect label={L("เฉพาะบาง SKU (ไม่บังคับ)", "Specific SKUs (optional)", "特定 SKU（可选）")} placeholder={L("ทุก SKU ตามตัวกรอง", "All SKUs in filter", "筛选内全部 SKU")} options={data.products.map((p) => ({ value: p.id, label: p.sku, sub: p.name_th }))} value={picked} onChange={setPicked} noTranslate />
             <div><span className="block text-[11px] text-muted mb-1">{L("สถานะ", "Status", "状态")}</span><Segmented size="sm" value={status} onChange={setStatus} options={[{ value: "all", label: L("ทั้งหมด", "All", "全部") }, { value: "on", label: L("เปิดขาย", "On sale", "在售") }, { value: "off", label: L("ปิดขาย", "Off", "未上架") }]} /></div>
@@ -123,6 +141,22 @@ export function ExportTemplateModal({ data, onClose }: { data: PData; onClose: (
         <section className="rounded-xl border border-line p-3 space-y-2">
           <p className="text-[13px] font-semibold">{L("สต๊อกสาขา", "Branch stock", "门店库存")}</p>
           <MultiSelect placeholder={L("ทุกสาขา (ไม่ต้องเลือก)", "All branches (no need to pick)", "所有门店（无需选择）")} options={brOpts} value={stockBranches} onChange={setStockBranches} noTranslate />
+          {stockBranches.length ? (
+            <div className="space-y-1.5">
+              <p className="text-[11px] text-muted">{L("แบรนด์ที่จะเอาในแต่ละสาขา (สาขาหลายแบรนด์กดเลือกได้)", "Brands to include per branch (tap to choose at multi-brand branches)", "每家门店包含的品牌（多品牌门店可点选）")}</p>
+              {stockBranches.map((bid) => { const b = branchById.get(bid); const sold = soldAt(bid); const take = takeAt(bid); return (
+                <div key={bid} className="flex flex-wrap items-center gap-1.5 text-[12px]">
+                  <span className="font-mono text-[11px] min-w-[110px]" translate="no">{b?.code}</span>
+                  {!sold.length ? <span className="text-muted text-[11px]">{L("ไม่ได้ระบุแบรนด์ — ใช้ทุกแบรนด์", "No brands set — all brands", "未设置品牌 — 全部品牌")}</span>
+                    : sold.map((br) => { const on = take.includes(br); const name = data.brands.find((x) => x.id === br)?.name ?? "—"; return (
+                      <button key={br} type="button" disabled={sold.length === 1} translate="no"
+                        onClick={() => { const next = on ? take.filter((x) => x !== br) : [...take, br]; if (next.length) setBranchBrandSel({ ...branchBrandSel, [bid]: next }); }}
+                        className={`px-2 h-6 rounded-full border text-[11px] inline-flex items-center gap-1 ${on ? "border-brand bg-brand/10 text-brand" : "border-line text-muted line-through"} disabled:opacity-80`}>
+                        {on ? <Check size={10} /> : null}{name}</button>); })}
+                  {sold.length > 1 ? <span className="text-[10.5px] text-muted">{L(`${take.length}/${sold.length} แบรนด์`, `${take.length}/${sold.length} brands`, `${take.length}/${sold.length} 个品牌`)}</span> : null}
+                </div>); })}
+            </div>
+          ) : null}
           <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={onlyStock} onChange={(e) => setOnlyStock(e.target.checked)} className="accent-[rgb(var(--c-brand))]" />{L("เอาเฉพาะสินค้าที่มีสต๊อก (รวมทุกสาขาข้างบน — สาขาไหนมีอะไรรวมกันหมด)", "Only products in stock (union of the branches above)", "仅有库存的商品（合并上述门店）")}</label>
           <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={stockCols} onChange={(e) => setStockCols(e.target.checked)} className="accent-[rgb(var(--c-brand))]" />{L(`ใส่คอลัมน์สต๊อกแยกรายสาขา (${stockBranchList.length} สาขาที่มีของ)`, `Per-branch stock columns (${stockBranchList.length} branches with stock)`, `分门店库存列（${stockBranchList.length} 家有库存）`)}</label>
         </section>

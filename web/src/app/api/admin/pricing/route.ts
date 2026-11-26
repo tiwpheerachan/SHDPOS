@@ -11,6 +11,7 @@ import { visibleBrandIds, visibleBranchIds } from "@/lib/sso/scope";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { effectivePrices } from "@/lib/server/effective-prices";
 import { aiJson } from "@/lib/server/ai-text";
+import { branchBrandMap } from "@/lib/server/branch-brands";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -87,7 +88,10 @@ export async function GET(req: NextRequest) {
     if (prods.error) throw Error("อ่านสินค้าไม่สำเร็จ");
     let bq = sb.from("branches").select("id,code,name,name_th,brand_id").eq("is_active", true).order("code");
     if (branchesAllowed !== null) bq = bq.in("id", branchesAllowed.length ? branchesAllowed : [NO_BRANCH]);
-    const branches = (await bq).data ?? [];
+    const branchRows = (await bq).data ?? [];
+    // แบรนด์ที่แต่ละสาขาขาย — ใช้เลือก "สาขานี้เอาแบรนด์ไหน" ตอนดาวน์โหลดเทมเพลต
+    const bbm = await branchBrandMap(branchRows.map((b) => b.id));
+    const branches = branchRows.map((b) => ({ ...b, brand_ids: bbm.map[b.id] ?? (b.brand_id ? [b.brand_id] : []) }));
     const eff = await effectivePrices(sb, NO_BRANCH, (prods.data ?? []).map((p) => p.id));
     // กฎที่จำกัดเฉพาะบางสาขา (ไม่โชว์ในราคากลาง) → บอกจำนวนไว้
     const now = new Date().toISOString();

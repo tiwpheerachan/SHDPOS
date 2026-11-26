@@ -6,6 +6,8 @@
 import { useEffect, useState } from "react";
 import { MapPin, Loader2, Check, X, Store, Warehouse } from "lucide-react";
 import { Drawer } from "@/components/ui";
+import { MultiSelect } from "@/components/ui/multi-select";
+import { isLiveMode } from "@/lib/supabase/client";
 import { useI18n } from "@/lib/i18n/provider";
 import { createBranch, updateBranch, logActivity, diffFields } from "@/lib/data/repo";
 import type { Branch, Brand, Employee } from "@/lib/types";
@@ -37,12 +39,25 @@ export function BranchDetailDrawer({ open, onClose, branch, brands, employees, a
   const [form, setForm] = useState({ ...EMPTY });
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
+  // แบรนด์ที่สาขาขาย (สาขาหลายแบรนด์) — เก็บที่เซิร์ฟเวอร์ (branch_brands) · null = ยังโหลดไม่ได้/โหมดสาธิต
+  const [sold, setSold] = useState<string[] | null>(null), [soldBefore, setSoldBefore] = useState<string[]>([]);
+  const liveBranch = !!branch && isLiveMode() && /^[0-9a-f-]{36}$/i.test(branch.id);
 
   useEffect(() => {
     if (!open) return;
     setErr("");
     if (branch) setForm({ code: branch.code, name: branch.name, name_th: branch.name_th ?? "", brand_id: branch.brand_id ?? "", branch_type: branch.branch_type, province: branch.province ?? "", lat: branch.lat != null ? String(branch.lat) : "", lng: branch.lng != null ? String(branch.lng) : "", phone: branch.phone ?? "", email: branch.email ?? "", address: branch.address ?? "", district: branch.district ?? "", postcode: branch.postcode ?? "", open_time: branch.open_time ?? "", close_time: branch.close_time ?? "", manager_id: branch.manager_id ?? "", note: branch.note ?? "", is_active: branch.is_active });
     else setForm({ ...EMPTY });
+    setSold(null); setSoldBefore([]);
+    if (branch && isLiveMode() && /^[0-9a-f-]{36}$/i.test(branch.id)) {
+      let alive = true;
+      void fetch("/api/admin/branch-brands", { cache: "no-store" }).then((r) => r.json()).then((j) => {
+        if (!alive || !j.map) return;
+        const ids: string[] = j.map[branch.id] ?? (branch.brand_id ? [branch.brand_id] : []);
+        setSold(ids); setSoldBefore(ids);
+      }).catch(() => undefined);
+      return () => { alive = false; };
+    }
   }, [open, branch]);
 
   const typeLabel = (v: string) => { const o = TYPE_OPTS.find((x) => x.v === v); return o ? L(o.th, o.en, o.zh) : v; };
@@ -68,6 +83,18 @@ export function BranchDetailDrawer({ open, onClose, branch, brands, employees, a
         await updateBranch(branch.id, nextBranch);
         const changes = diffFields(snap(branch), snap(nextBranch), labels);
         if (changes.length) await logActivity({ ...actorMeta, op: "update", entity: "branch", entityLabel: nextBranch.name_th, entityId: branch.id, branchId: branch.id, changes });
+        if (liveBranch && sold) {
+          const want = [...new Set([...(form.brand_id ? [form.brand_id] : []), ...sold])];
+          const key = (a: string[]) => [...a].sort().join(",");
+          if (key(want) !== key(soldBefore)) {
+            const r = await fetch("/api/admin/branch-brands", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ branch_id: branch.id, brand_ids: want }) });
+            const j = await r.json().catch(() => ({}));
+            if (!r.ok) throw Error(`${L("บันทึกแบรนด์ที่ขายไม่สำเร็จ", "Couldn't save brands sold", "保存在售品牌失败")}${j.error ? ` — ${j.error}` : ""}`);
+            const names = (ids: string[]) => ids.map((id) => brandName(id)).sort().join(", ");
+            await logActivity({ ...actorMeta, op: "update", entity: "branch", entityLabel: nextBranch.name_th, entityId: branch.id, branchId: branch.id,
+              changes: diffFields({ brands: names(soldBefore) }, { brands: names(j.brand_ids ?? want) }, { brands: L("แบรนด์ที่ขาย", "Brands sold", "在售品牌") }) });
+          }
+        }
       } else {
         const created = await createBranch({ code: form.code, name: form.name, name_th: form.name_th, brand_id: form.brand_id || null, branch_type: form.branch_type, province: form.province, lat, lng, ...detail, is_active: form.is_active });
         await logActivity({ ...actorMeta, op: "create", entity: "branch", entityLabel: created.name_th || created.name, entityId: created.id, branchId: created.id, changes: diffFields(null, snap(created), labels) });
@@ -100,6 +127,19 @@ export function BranchDetailDrawer({ open, onClose, branch, brands, employees, a
           </label>
           <label className="text-xs text-muted block">{L("จังหวัด", "Province", "省份")}<input value={form.province} onChange={(e) => setForm({ ...form, province: e.target.value })} className={inp} /></label>
         </div>
+        {/* สาขาหลายแบรนด์ — แบรนด์ที่ขายในสาขานี้ (หน้าร้านแสดงสินค้า/ของแถม/ตัวกรองตามนี้ · หลังบ้านใช้เลือกราคา/สต๊อกรายสาขา) */}
+        {liveBranch ? (
+          <div className="rounded-xl border border-line p-3 space-y-1.5">
+            {sold === null ? <p className="text-[11.5px] text-muted inline-flex items-center gap-1.5"><Loader2 size={12} className="animate-spin" />{L("กำลังโหลดแบรนด์ที่ขาย…", "Loading brands sold…", "正在加载在售品牌…")}</p> : (
+              <MultiSelect label={L("แบรนด์ที่ขายในสาขานี้ (สาขาหลายแบรนด์เลือกได้หลายแบรนด์)", "Brands sold at this branch (multi-brand branches can pick several)", "本门店在售品牌（多品牌门店可多选）")}
+                placeholder={L("เฉพาะแบรนด์หลัก", "Main brand only", "仅主品牌")} noTranslate
+                options={brands.map((b) => ({ value: b.id, label: b.name, sub: b.id === form.brand_id ? L("แบรนด์หลัก", "main", "主品牌") : undefined }))}
+                value={[...new Set([...(form.brand_id ? [form.brand_id] : []), ...sold])]}
+                onChange={(v) => setSold(form.brand_id && !v.includes(form.brand_id) ? [form.brand_id, ...v] : v)} />
+            )}
+            <p className="text-[10.5px] text-muted">{L("หน้าร้านจะแสดงสินค้า ของแถม และตัวกรองแบรนด์ตามนี้ · แบรนด์หลักรวมเสมอ", "POS shows products, gifts and brand filters from this · the main brand is always included", "前台按此显示商品、赠品与品牌筛选 · 主品牌始终包含")}</p>
+          </div>
+        ) : null}
 
         {/* พิกัด */}
         <div className="rounded-xl border border-line bg-surface2/40 p-2.5 space-y-2">

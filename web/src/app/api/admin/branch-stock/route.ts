@@ -8,6 +8,7 @@ import { resolveAuthz } from "@/lib/sso/grants";
 import { hasPerm } from "@/lib/sso/guard";
 import { visibleBrandIds, visibleBranchIds } from "@/lib/sso/scope";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { branchBrandMap } from "@/lib/server/branch-brands";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -55,7 +56,8 @@ export async function GET(req: NextRequest) {
     if (branchScope !== null) bq = bq.in("id", branchScope);
     const br = await bq;
     if (br.error) throw Error("อ่านสาขาไม่สำเร็จ");
-    const branches = br.data ?? [];
+    const bbm = await branchBrandMap((br.data ?? []).map((b) => b.id as string));
+    const branches = (br.data ?? []).map((b) => ({ ...b, brand_ids: bbm.map[b.id as string] ?? (b.brand_id ? [b.brand_id] : []) })); // แบรนด์ที่สาขาขาย
     const branchIds = branches.map((b) => b.id as string);
     if (!branchIds.length) return reply(empty);
 

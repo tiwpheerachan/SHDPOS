@@ -7,7 +7,7 @@ import { useI18n } from "@/lib/i18n/provider";
 import { formatInt } from "@/lib/money";
 import { downloadExcel } from "@/lib/export";
 
-interface Branch { id: string; code: string | null; name: string | null; name_th: string | null; brand_id: string | null; branch_type: string | null; province: string | null }
+interface Branch { id: string; code: string | null; name: string | null; name_th: string | null; brand_id: string | null; branch_type: string | null; province: string | null; brand_ids?: string[] }
 interface Product { id: string; sku: string; name_th: string | null; brand_id: string | null; category_id: string | null; price: number | null; is_active: boolean; track_serial: boolean; image_url: string | null }
 interface Row { branch_id: string; product_id: string; on_hand: number; available: number; reserved: number; quarantine: number; serials: number }
 interface Payload { branches: Branch[]; products: Product[]; brands: { id: string; name: string }[]; categories: { id: string; name: string }[]; rows: Row[]; ow_branch_ids: string[] }
@@ -198,6 +198,12 @@ export function BranchStockTab() {
                 <div><p className="text-muted">{L("SKU มีของ", "SKUs in stock", "有货 SKU")}</p><p className="text-base font-semibold tnum">{nf.format(s.skus)}</p></div>
                 <div><p className="text-muted">{L("รวม (ชิ้น)", "Units", "件数")}</p><p className="text-base font-semibold tnum">{nf.format(s.units)}</p></div>
               </div>
+              {(b.brand_ids ?? []).length ? (
+                <p className="mt-2 text-[10.5px] text-muted truncate"><span>{L("ขายแบรนด์", "Sells", "在售品牌")}: </span><span className="text-ink font-medium" translate="no">{(b.brand_ids ?? []).map((id) => idx.brandName.get(id) ?? "—").join(", ")}</span></p>
+              ) : null}
+              {s.brands.some(([id]) => id && (b.brand_ids ?? []).length && !(b.brand_ids ?? []).includes(id)) ? (
+                <p className="mt-1 text-[10.5px] text-warn">{L("มีสต๊อกแบรนด์ที่สาขานี้ไม่ได้ขาย", "Holds stock of a brand this branch doesn't sell", "持有本店不销售品牌的库存")}</p>
+              ) : null}
               {s.brands.length ? (
                 <div className="mt-2 flex flex-wrap gap-1">
                   {s.brands.slice(0, 5).map(([id, n]) => (

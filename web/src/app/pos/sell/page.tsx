@@ -6,6 +6,7 @@ import { nanoid } from "nanoid";
 import {
   Search, Plus, Minus, Trash2, Percent, Barcode, Inbox, PauseCircle, PlayCircle,
   UserRound, AlertTriangle, PackageX, Tag, UserPlus, Phone, ChevronRight, X, Star, Wallet, Ticket, Gift, Package, Maximize2, Minimize2, Store, Sparkles, CheckCircle2,
+  Loader2,
 } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { useSession } from "@/lib/store/session";
@@ -67,6 +68,10 @@ export default function SellPage() {
   const [branch, setBranch] = useState<Branch>();
   const [query, setQuery] = useState("");
   const [categoryId, setCategoryId] = useState<string>("all");
+  // สาขาหลายแบรนด์: กรองตามแบรนด์ + ชื่อแบรนด์บนการ์ด (แบรนด์มาจากสินค้า — สแกน SN ก็รู้ว่าแบรนด์อะไร)
+  const [brandFilter, setBrandFilter] = useState<string>("all");
+  const [brandNames, setBrandNames] = useState<Map<string, string>>(new Map());
+  const [snBusy, setSnBusy] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
 
   const [deferredMode,setDeferredMode]=useState(false);
@@ -197,6 +202,12 @@ export default function SellPage() {
     return () => { alive = false; };
   }, [branch?.brand_id, pick]);
 
+  useEffect(() => {
+    let alive = true;
+    void listBrands().then((bs) => { if (alive) setBrandNames(new Map(bs.map((b) => [b.id, pick({ th: b.name_th, en: b.name, zh: b.name_zh ?? b.name })]))); });
+    return () => { alive = false; };
+  }, [pick]);
+
   // แบนเนอร์จอลูกค้า (ตามแบรนด์ของสาขา) — public read
   useEffect(() => {
     let alive = true;
@@ -264,9 +275,18 @@ export default function SellPage() {
     });
   }, [products, branch, stock,deferredMode,branchBrandIds]);
 
+  // แบรนด์ที่มีสินค้าในสาขานี้ (แสดงชิปเมื่อมี ≥ 2 แบรนด์)
+  const branchBrandList = useMemo(() => {
+    const ids = [...new Set(branchProducts.map((p) => p.brand_id).filter((x): x is string => !!x))];
+    return ids.map((id) => ({ id, name: brandNames.get(id) ?? "—", n: branchProducts.filter((p) => p.brand_id === id).length })).sort((a, b) => b.n - a.n);
+  }, [branchProducts, brandNames]);
+  const multiBrand = branchBrandList.length > 1;
+  useEffect(() => { if (brandFilter !== "all" && !branchBrandList.some((b) => b.id === brandFilter)) setBrandFilter("all"); }, [branchBrandList, brandFilter]);
+
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
     return branchProducts
+      .filter((p) => (brandFilter === "all" ? true : p.brand_id === brandFilter))
       .filter((p) => (categoryId === "all" ? true : p.category_id === categoryId))
       .filter((p) => {
         if (!q) return true;
@@ -279,7 +299,7 @@ export default function SellPage() {
         );
       })
       .slice(0, 120);
-  }, [branchProducts, query, categoryId]);
+  }, [branchProducts, query, categoryId, brandFilter]);
 
   // SKU ที่อยู่ในแคมเปญของแถม (ร่วมรายการ/ของแถม) → แสดงป้าย "โปร"
   const promoSkus = useMemo(() => {
@@ -320,7 +340,40 @@ export default function SellPage() {
     if (visible.length === 1) {
       addProduct(visible[0]);
       setQuery("");
+      return;
     }
+    // ไม่ตรง SKU/บาร์โค้ด → ลองเป็น SN: รู้เลยว่าสินค้าอะไร แบรนด์อะไร แล้วใส่ตะกร้าพร้อม SN
+    if (!visible.length && isLiveMode() && branchId && q.length >= 4) void addBySerial(q);
+  }
+
+  async function addBySerial(sn: string) {
+    if (cart.lines.some((l) => (l.serials ?? []).some((x) => x.toUpperCase() === sn.toUpperCase()))) {
+      toast.push({ tone: "warn", title: L(`SN ${sn} อยู่ในตะกร้าแล้ว`, `SN ${sn} is already in the cart`, `SN ${sn} 已在购物车中`) }); return;
+    }
+    setSnBusy(true);
+    try {
+      const r = await fetch(`/api/pos/serial-lookup?branch_id=${encodeURIComponent(branchId!)}&sn=${encodeURIComponent(sn)}`, { cache: "no-store" });
+      const j = await r.json();
+      if (!r.ok) throw Error(j.error);
+      if (!j.found) { toast.push({ tone: "warn", title: L(`ไม่พบสินค้า/SN “${sn}”`, `No product or SN “${sn}”`, `未找到商品或 SN “${sn}”`) }); return; }
+      const label = `${j.sku ?? ""}${j.brand_name ? ` · ${j.brand_name}` : ""}`;
+      if (j.status === "sold") { toast.push({ tone: "danger", title: L(`SN ${sn} ขายออกไปแล้ว`, `SN ${sn} already sold`, `${sn} 已售出`), body: label }); return; }
+      if (!j.brand_sold_here) { toast.push({ tone: "danger", title: L(`SN ${sn} เป็นสินค้าแบรนด์ ${j.brand_name ?? "—"} ซึ่งสาขานี้ไม่ได้ขาย`, `SN ${sn} is a ${j.brand_name ?? "—"} product, not sold at this branch`, `SN ${sn} 属于 ${j.brand_name ?? "—"}，本门店不销售`), body: label }); return; }
+      if (!j.at_branch) { toast.push({ tone: "danger", title: L(`SN ${sn} ไม่ได้อยู่ที่สาขานี้`, `SN ${sn} is not at this branch`, `SN ${sn} 不在本门店`), body: `${label}${j.branch_label ? ` — ${j.branch_label}` : ""}` }); return; }
+      if (j.status && j.status !== "in_stock") {
+        const st: Record<string, string> = { reserved: L("ถูกจองอยู่", "reserved", "已预留"), returned: L("รับคืนแล้ว รอตรวจ", "returned, pending check", "已退回待检"), transferred: L("โอนออกแล้ว", "transferred out", "已调出"), defective: L("ชำรุด/พักตรวจ", "defective / quarantined", "损坏/暂扣"), scrapped: L("ตัดจำหน่ายแล้ว", "written off", "已报废"), missing: L("สูญหาย", "missing", "丢失") };
+        toast.push({ tone: "danger", title: L(`SN ${sn} ขายไม่ได้ — ${st[j.status] ?? j.status}`, `SN ${sn} can't be sold — ${st[j.status] ?? j.status}`, `SN ${sn} 不可销售 — ${st[j.status] ?? j.status}`), body: label }); return;
+      }
+      const p = products.find((x) => x.id === j.product_id);
+      if (!p) { toast.push({ tone: "warn", title: L("สินค้านี้ยังไม่อยู่ในเครื่อง — ซิงก์แคตตาล็อกแล้วลองใหม่", "Product not on this device yet — sync the catalog and retry", "商品尚未同步到本机 — 请同步目录后重试"), body: label }); return; }
+      addProduct(p);
+      const line = useCart.getState().lines.find((l) => l.product_id === p.id && !l.is_gift);
+      if (line && p.track_serial && (line.serials ?? []).length < line.qty) useCart.getState().setLineSerials(line.lineId, [...(line.serials ?? []), j.serial_no]);
+      setQuery("");
+      toast.push({ tone: "ok", title: L(`เพิ่มจาก SN: ${p.sku}`, `Added from SN: ${p.sku}`, `已按 SN 添加：${p.sku}`), body: `${j.serial_no}${j.brand_name ? ` · ${j.brand_name}` : ""}` });
+    } catch (e) {
+      toast.push({ tone: "danger", title: L("ค้นหา SN ไม่สำเร็จ", "SN lookup failed", "SN 查询失败"), body: e instanceof Error ? e.message : String(e) });
+    } finally { setSnBusy(false); }
   }
 
   useEffect(() => {
@@ -867,7 +920,7 @@ export default function SellPage() {
       <section className="flex flex-col min-h-0 min-w-0 border-r border-line">
         <div className="p-3 sm:p-4 border-b border-line flex gap-2">
           <div className="relative flex-1">
-            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+            {snBusy ? <Loader2 size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-brand animate-spin" /> : <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />}
             <Input
               ref={searchRef}
               autoFocus
@@ -884,6 +937,17 @@ export default function SellPage() {
           </Button>
         </div>
 
+        {multiBrand ? (
+          <div className="px-3 sm:px-4 pt-2 flex items-center gap-1.5 overflow-x-auto" translate="no">
+            <span className="text-[11px] text-muted shrink-0" translate="yes">{L("แบรนด์", "Brand", "品牌")}</span>
+            <button onClick={() => setBrandFilter("all")} className={`chip shrink-0 ${brandFilter === "all" ? "border-brand text-brand bg-brand/8" : ""}`}><span translate="yes">{t.common.all}</span></button>
+            {branchBrandList.map((b) => (
+              <button key={b.id} onClick={() => setBrandFilter(b.id)} className={`chip shrink-0 ${brandFilter === b.id ? "border-brand text-brand bg-brand/8" : ""}`}>
+                {b.name} <span className="text-[10px] text-muted tnum">{b.n}</span>
+              </button>
+            ))}
+          </div>
+        ) : null}
         <div className="px-3 sm:px-4 py-2 flex gap-1.5 overflow-x-auto border-b border-line">
           <button
             onClick={() => setCategoryId("all")}
@@ -939,7 +1003,8 @@ export default function SellPage() {
 
                     {/* ชื่อ + ราคา + สต๊อกปกติ */}
                     {!p.is_active?<span className="text-[10px] text-warn mt-1">{L("รอตรวจข้อมูล · ขายก่อนเท่านั้น", "Pending review · sell-now only", "待审核资料 · 仅限先售")}</span>:null}
-                    <p className="text-[11.5px] font-medium leading-snug line-clamp-2 mt-1.5 flex-1" translate="no">{name}</p>
+                    {multiBrand && p.brand_id ? <p className="text-[9.5px] font-semibold uppercase tracking-wide text-brand/80 mt-1.5 truncate" translate="no">{brandNames.get(p.brand_id) ?? ""}</p> : null}
+                    <p className={`text-[11.5px] font-medium leading-snug line-clamp-2 ${multiBrand && p.brand_id ? "mt-0.5" : "mt-1.5"} flex-1`} translate="no">{name}</p>
                     <div className="flex items-center justify-between gap-1 mt-1">
                       {(() => { const pe = priceBook.branchId === branchId ? priceEntry(p.id) : null; return pe ? (
                         <p className="tnum leading-tight" title={`${pe.rule_name ?? ""}${pe.ends_at ? ` · ${L("ถึง", "until", "至")} ${new Date(pe.ends_at).toLocaleDateString(locale === "th" ? "th-TH" : locale === "zh" ? "zh-CN" : "en-GB", { day: "numeric", month: "short" })}` : ""}`}>
