@@ -1,6 +1,7 @@
 "use client";
 
 import { create } from "zustand";
+import { priceOf } from "@/lib/pricing/price-book";
 import { nanoid } from "nanoid";
 import type { CartLine, LineCampaign, Product } from "../types";
 import { computeTotals, round2, type CartTotals } from "../money";
@@ -117,7 +118,7 @@ export const useCart = create<CartState>((set, get) => ({
         image_url: p.image_url ?? null,
         kind: p.kind === "service" ? "service" : p.kind === "fee" ? "fee" : "goods",
         qty,
-        unit_price: p.price,
+        unit_price: priceOf(p),        // ราคาช่วงเวลา (ถ้ามี) ทับราคาหลัก — 0081
         list_price: p.price,
         discount_amount: 0,
         discount_percent: 0,

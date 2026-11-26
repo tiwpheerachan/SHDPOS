@@ -187,7 +187,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
 
   const label: Record<string, string> = {
     dashboard: t.admin.dashboard, sales: t.admin.sales, employees: t.admin.employees,
-    inventory: t.admin.inventory, transfers: t.admin.transfers, products: t.admin.products,
+    inventory: t.admin.inventory, transfers: t.admin.transfers, products: L("สินค้าและราคา", "Products & pricing", "商品与价格"),
     approvals: t.admin.approvals, users: t.admin.users, audit: t.admin.audit, settings: t.admin.settings,
     movement: t.cmd.stockMovement, documents: t.cmd.documentCenter,
     serials: L("ตามรอย SN", "Serial tracking", "序列追踪"),

@@ -2,6 +2,7 @@ import { enrichEdcPayments } from "@/lib/server/edc";
 import { legacyUuid } from "@/lib/server/legacy-ids";
 import { kickSaleOutbox } from "@/lib/server/ow-sales";
 import { owWarehouseOf } from "@/lib/server/ow-branch";
+import { withEffectivePrices } from "@/lib/server/effective-prices";
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import {
@@ -55,6 +56,8 @@ export async function POST(req: NextRequest) {
         )
         .in("id", ids);
       if (error) throw new PosError("อ่านแคตตาล็อกกลางไม่สำเร็จ", 503);
+      // ราคาที่ใช้ขาย = ราคาช่วงเวลา (ถ้ามี) ทับราคาหลัก — ตัวคิดเดียวกับหน้าร้าน (0081)
+      const priced = await withEffectivePrices(sb, body.branch_id, data ?? []).catch(() => { throw new PosError("อ่านราคาขายไม่สำเร็จ", 503); });
       const gifts=draft.items.filter((i:any)=>i.is_gift);
       if(gifts.some((i:any)=>i.gift_source!=="campaign"))throw new PosError("ของแถมที่เพิ่มเองต้องผ่านการอนุมัติส่วนกลางก่อน",409);
       const manual=draft.manual_discount_total ?? ((!draft.coupon_code&&!draft.redeem_points)?draft.discount_total:NaN);
@@ -66,7 +69,7 @@ export async function POST(req: NextRequest) {
       if (draft.shift_id) draft.shift_id = legacyUuid("shift", draft.shift_id);
       const quote = validateQuote(
         { ...draft, items:draft.items.filter((i:any)=>!i.is_gift),discount_total:manual,grand_total:Math.round((draft.subtotal-manual)*100)/100,coupon_code:null,redeem_points:0,client_uuid: body.id, branch_id: body.branch_id },
-        data ?? [],
+        priced,
         !ctx.authz.isSuperadmin && ["deny", "approval"].includes(ctx.authz.permission_overrides["pos.discount"]) ? 0 : ctx.authz.max_discount_percent,
         {preview:body.action==="preview", allowVatModes: !(await owWarehouseOf(body.branch_id))},
       );

@@ -1,4 +1,5 @@
 import {NextRequest,NextResponse} from 'next/server';
+import {withEffectivePrices} from '@/lib/server/effective-prices';
 import {posContext,PosError,requireSameOrigin} from '@/lib/server/pos-context';
 import {supabaseAdmin} from '@/lib/supabase/admin';
 import {object,UUID,validatePayments,validateQuote} from '@/lib/server/sale-validation';
@@ -23,7 +24,8 @@ export async function POST(req:NextRequest){try{
   const input=object(b.draft);if(!Array.isArray(input.items)||!input.items.length||input.items.length>200)throw new PosError('รายการสินค้าไม่ถูกต้อง');
   const ids=[...new Set(input.items.map((i:any)=>object(i).product_id))];if(ids.some(id=>!UUID.test(id)))throw new PosError('รหัสสินค้าไม่ถูกต้อง');
   const p=await sb.from('products').select('*').in('id',ids);if(p.error)throw new PosError('อ่านข้อมูลสินค้าไม่สำเร็จ',503);
-  const {draft,issues}=deferredDraft(input,p.data??[],b.branch_id,ctx.actorId);
+  const pricedP=await withEffectivePrices(sb,b.branch_id,p.data??[],new Date(occurred).toISOString()); // ราคาช่วงเวลา ณ เวลาขายจริง (0081)
+  const {draft,issues}=deferredDraft(input,pricedP,b.branch_id,ctx.actorId);
   if(draft.salesperson_id!==ctx.actorId){
    const [person,assignment]=await Promise.all([sb.from('employees').select('status,home_branch_id').eq('id',draft.salesperson_id).maybeSingle(),sb.from('employee_branches').select('branch_id').eq('employee_id',draft.salesperson_id).eq('branch_id',b.branch_id).maybeSingle()]);
    if(person.error||assignment.error)throw new PosError('ตรวจพนักงานขายไม่สำเร็จ',503);
@@ -49,9 +51,10 @@ export async function POST(req:NextRequest){try{
    if(b.delivered!==true)throw new PosError('กรุณายืนยันว่าส่งมอบสินค้าแล้ว');
    if(!Array.isArray(b.serials)||b.serials.length!==d.draft.items.length)throw new PosError('ข้อมูล SN ไม่ครบทุกบรรทัด');
    const products=await sb.from('products').select('*').in('id',d.draft.items.map((i:any)=>i.product_id));if(products.error)throw new PosError('อ่านข้อมูลสินค้าไม่สำเร็จ',503);
-   const override=d.draft.items.some((i:any)=>Number(products.data?.find(p=>p.id===i.product_id)?.price)!==i.unit_price);
+   const pricedData=await withEffectivePrices(sb,d.branch_id,products.data??[],d.occurred_at);
+   const override=d.draft.items.some((i:any)=>Number(pricedData.find((p:any)=>p.id===i.product_id)?.price)!==i.unit_price);
    if(override&&!hasPerm(ctx.profile.email,ctx.authz,'pos.price_override'))throw new PosError('ราคาขายจริงต่างจากราคากลาง ต้องให้หัวหน้าที่มีสิทธิ์แก้ราคาปิดบิล',403);
-   const catalog=(products.data??[]).map(p=>({...p,price:override?d.draft.items.find((i:any)=>i.product_id===p.id)?.unit_price:p.price}));
+   const catalog=pricedData.map((p:any)=>({...p,price:override?d.draft.items.find((i:any)=>i.product_id===p.id)?.unit_price:p.price}));
    const q=validateQuote({...d.draft,client_uuid:d.id,items:d.draft.items.map((i:any,index:number)=>({...i,serials:b.serials[index]}))},catalog,!ctx.authz.isSuperadmin&&["deny","approval"].includes(ctx.authz.permission_overrides?.["pos.discount"])?0:ctx.authz.max_discount_percent);
    q.cashier_id=ctx.actorId;q.note='ขายก่อนรอปิดบิล: '+d.reason+' · ขายจริง '+new Date(d.occurred_at).toLocaleString('th-TH',{timeZone:'Asia/Bangkok'});q.device_created_at=d.occurred_at;
    result=await sb.rpc('pos_post_deferred_sale',{p_id:b.id,p_actor:ctx.actorId,p_version:b.version,p_quote:q,p_delivered:true});

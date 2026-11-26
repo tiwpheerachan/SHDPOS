@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { useSession } from "@/lib/store/session";
+import { usePriceBook, priceEntry, priceOf, refreshPriceBook } from "@/lib/pricing/price-book";
 import { useCart } from "@/lib/store/cart";
 import { useToast } from "@/components/toast-host";
 import {
@@ -56,6 +57,7 @@ export default function SellPage() {
   const toast = useToast();
   const session = useSession();
   const cart = useCart();
+  const priceBook = usePriceBook(); // อ่านเพื่อให้การ์ดสินค้าแสดงราคาช่วงเวลาล่าสุด
   const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
 
   const [products, setProducts] = useState<Product[]>([]);
@@ -448,7 +450,17 @@ export default function SellPage() {
       }
       checkoutId.current=id;
       setPayOpen(true);
-    } catch(error) { toast.push({tone:"danger",title:L("ยังไม่พร้อมรับชำระ","Checkout unavailable","暂时无法结账"),body:error instanceof Error?error.message:String(error)}); }
+    } catch(error) {
+      const msg=error instanceof Error?error.message:String(error);
+      // ราคาเปลี่ยนระหว่างวัน (ราคาช่วงเวลาเริ่ม/หมด) → โหลดสมุดราคาใหม่ + ปรับราคาในตะกร้าให้ตรงเซิร์ฟเวอร์ แล้วให้ตรวจยอดอีกครั้ง
+      if(/โหลดราคาใหม่|reload prices|price/i.test(msg)&&isLiveMode()){
+        await refreshPriceBook(true);
+        let changed=0;
+        for(const l of useCart.getState().lines){ if(!l.product_id||l.is_gift)continue; const np=priceOf({id:l.product_id,price:l.list_price}); if(np!==l.unit_price){useCart.getState().setLinePrice(l.lineId,np);changed++;} }
+        if(changed){toast.push({tone:"warn",title:L(`ราคาเปลี่ยน — อัปเดต ${changed} รายการในตะกร้าแล้ว`,`Prices changed — updated ${changed} cart line(s)`,`价格已变动 — 已更新 ${changed} 项`),body:L("ตรวจยอดกับลูกค้าแล้วกดชำระอีกครั้ง","Confirm the total with the customer and pay again","请与顾客确认金额后再次结账")});setCheckoutPreparing(false);return;}
+      }
+      toast.push({tone:"danger",title:L("ยังไม่พร้อมรับชำระ","Checkout unavailable","暂时无法结账"),body:msg});
+    }
     finally { setCheckoutPreparing(false); }
   }
 
@@ -923,7 +935,11 @@ export default function SellPage() {
                     {!p.is_active?<span className="text-[10px] text-warn mt-1">{L("รอตรวจข้อมูล · ขายก่อนเท่านั้น", "Pending review · sell-now only", "待审核资料 · 仅限先售")}</span>:null}
                     <p className="text-[11.5px] font-medium leading-snug line-clamp-2 mt-1.5 flex-1" translate="no">{name}</p>
                     <div className="flex items-center justify-between gap-1 mt-1">
-                      <p className="text-sm font-bold tnum">{formatTHB(p.price, false)}</p>
+                      {(() => { const pe = priceBook.branchId === branchId ? priceEntry(p.id) : null; return pe ? (
+                        <p className="tnum leading-tight" title={`${pe.rule_name ?? ""}${pe.ends_at ? ` · ${L("ถึง", "until", "至")} ${new Date(pe.ends_at).toLocaleDateString(locale === "th" ? "th-TH" : locale === "zh" ? "zh-CN" : "en-GB", { day: "numeric", month: "short" })}` : ""}`}>
+                          <span className="text-sm font-bold text-danger">{formatTHB(pe.price, false)}</span>
+                          <span className="ml-1 text-[10px] text-muted line-through">{formatTHB(pe.list_price, false)}</span>
+                        </p>) : <p className="text-sm font-bold tnum">{formatTHB(p.price, false)}</p>; })()}
                       {p.is_stocked && !out && !low && <span className="text-[10px] text-muted tnum">{L("เหลือ", "Left", "剩")} {qty}</span>}
                     </div>
                   </button>
