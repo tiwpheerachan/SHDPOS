@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { UserRound, RefreshCw, Wand2 } from "lucide-react";
 import { Badge, Button } from "@/components/ui";
+import { useL } from "@/lib/i18n/provider";
 
 type Emp = { id: string; employee_code: string | null; first_name: string | null; last_name: string | null; nickname: string | null; job_title: string | null; status: string | null; bills_90d: number };
 type Data = { linked: boolean; ow_branch_id?: string; employees: Emp[]; map: { employee_id: string; jst_user_id: string; jst_name: string | null }[]; jst: { id: string; name: string }[]; jst_error: string | null };
@@ -12,6 +13,7 @@ const norm = (s: string) => s.toLowerCase().replace(/\s+/g, "").replace(/^(น�
 const empName = (e: Emp) => [e.first_name, e.last_name].filter(Boolean).join(" ") || e.nickname || e.employee_code || e.id.slice(0, 8);
 
 export function OwSalesmenPanel() {
+  const L = useL();
   const [branches, setBranches] = useState<Br[]>([]), [linked, setLinked] = useState<Set<string>>(new Set());
   const [branch, setBranch] = useState(""), [data, setData] = useState<Data | null>(null);
   const [draft, setDraft] = useState<Record<string, string>>({}), [busy, setBusy] = useState<string | null>(null), [msg, setMsg] = useState<{ ok: boolean; t: string } | null>(null);
@@ -47,7 +49,7 @@ export function OwSalesmenPanel() {
       if (hit.length === 1) next[e.id] = hit[0].id;
     }
     setDraft((d) => ({ ...d, ...next }));
-    setMsg({ ok: true, t: `จับคู่จากชื่อได้ ${Object.keys(next).length} คน — ตรวจแล้วกดบันทึก` });
+    setMsg({ ok: true, t: L(`จับคู่จากชื่อได้ ${Object.keys(next).length} คน — ตรวจแล้วกดบันทึก`, `Matched ${Object.keys(next).length} people by name — review, then save`, `按姓名匹配了 ${Object.keys(next).length} 人 — 请核对后保存`) });
   }
 
   async function saveAll() {
@@ -57,8 +59,8 @@ export function OwSalesmenPanel() {
         const r = await fetch("/api/admin/ow-salesmen", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ branch_id: branch, employee_id: id, jst_user_id: v || null, jst_name: v ? jstName(v) : null }) });
         const j = await r.json(); if (!r.ok) throw Error(j.error);
       }
-      setMsg({ ok: true, t: `บันทึก ${dirty.length} รายการแล้ว — บิลถัดไปจะส่งพนักงานขายเข้า JST` }); await load();
-    } catch (e) { setMsg({ ok: false, t: e instanceof Error ? e.message : "บันทึกไม่สำเร็จ" }); } finally { setBusy(null); }
+      setMsg({ ok: true, t: L(`บันทึก ${dirty.length} รายการแล้ว — บิลถัดไปจะส่งพนักงานขายเข้า JST`, `Saved ${dirty.length} items — next bills will send the salesperson to JST`, `已保存 ${dirty.length} 项 — 之后的单据将把销售员发送至 JST`) }); await load();
+    } catch (e) { setMsg({ ok: false, t: e instanceof Error ? e.message : L("บันทึกไม่สำเร็จ", "Save failed", "保存失败") }); } finally { setBusy(null); }
   }
 
   const mappedCount = data ? data.employees.filter((e) => current(e.id)).length : 0;
@@ -66,24 +68,24 @@ export function OwSalesmenPanel() {
     <section className="rounded-2xl border border-line/70 bg-surface overflow-hidden">
       <div className="p-3 border-b border-line flex flex-wrap items-center gap-2">
         <UserRound size={15} className="text-brand" />
-        <p className="text-sm font-semibold mr-2">พนักงานขาย JST</p>
+        <p className="text-sm font-semibold mr-2">{L("พนักงานขาย JST", "JST salespeople", "JST 销售员")}</p>
         <select value={branch} onChange={(e) => setBranch(e.target.value)} className="h-8 rounded-lg bg-surface2/70 border border-line text-xs px-2">
           {branches.map((b) => <option key={b.id} value={b.id}>{b.code} · {b.name_th || b.name}</option>)}
         </select>
-        <Button size="sm" variant="ghost" onClick={() => void load()}><RefreshCw size={13} /> โหลดใหม่</Button>
-        <Button size="sm" variant="soft" disabled={!data?.jst.length} onClick={autoMatch}><Wand2 size={13} /> จับคู่จากชื่อ</Button>
-        <Button size="sm" variant="primary" disabled={!dirty.length} loading={busy === "all"} onClick={() => void saveAll()}>บันทึก {dirty.length ? `(${dirty.length})` : ""}</Button>
-        <span className="text-[11px] text-muted ml-auto">บิลส่ง <code>salespersonId</code> = พนักงานขายของบิล (ไม่ระบุใช้แคชเชียร์) · ไม่ผูก = ไม่ส่ง</span>
+        <Button size="sm" variant="ghost" onClick={() => void load()}><RefreshCw size={13} /> {L("โหลดใหม่", "Reload", "刷新")}</Button>
+        <Button size="sm" variant="soft" disabled={!data?.jst.length} onClick={autoMatch}><Wand2 size={13} /> {L("จับคู่จากชื่อ", "Match by name", "按姓名匹配")}</Button>
+        <Button size="sm" variant="primary" disabled={!dirty.length} loading={busy === "all"} onClick={() => void saveAll()}>{L("บันทึก", "Save", "保存")} {dirty.length ? `(${dirty.length})` : ""}</Button>
+        <span className="text-[11px] text-muted ml-auto">{L("บิลส่ง", "Bills send", "单据发送")} <code>salespersonId</code> = {L("พนักงานขายของบิล (ไม่ระบุใช้แคชเชียร์) · ไม่ผูก = ไม่ส่ง", "the bill's salesperson (cashier if not set) · not linked = not sent", "单据销售员（未指定则用收银员）· 未绑定 = 不发送")}</span>
       </div>
-      {!linked.size ? <p className="px-4 py-6 text-xs text-muted">ยังไม่มีสาขาที่ผูกสาขาขาย OneWarehouse — ผูกที่แท็บ "ผูกสาขา" ก่อน</p> : null}
+      {!linked.size ? <p className="px-4 py-6 text-xs text-muted">{L('ยังไม่มีสาขาที่ผูกสาขาขาย OneWarehouse — ผูกที่แท็บ "ผูกสาขา" ก่อน', 'No branches linked to a OneWarehouse sales branch yet — link them in the "Link branches" tab first', '尚无绑定 OneWarehouse 销售门店的门店 — 请先在“绑定门店”标签页绑定')}</p> : null}
       {msg ? <p role={msg.ok ? undefined : "alert"} className={`px-4 py-2 text-xs ${msg.ok ? "text-ok bg-ok/5" : "text-danger bg-danger/5"}`}>{msg.t}</p> : null}
       {data?.jst_error ? <p className="px-4 py-2 text-xs text-warn bg-warn/5">{data.jst_error}</p> : null}
       {data ? (
         <div className="max-h-[calc(100vh-300px)] overflow-auto">
           <table className="w-full text-xs">
             <thead className="bg-surface2 text-muted sticky top-0"><tr>
-              <th className="text-left font-semibold px-4 py-2">พนักงาน POS</th><th className="text-right font-semibold px-3 py-2">บิล 90 วัน</th>
-              <th className="text-left font-semibold px-3 py-2">พนักงานขาย JST ({data.jst.length})</th><th className="text-left font-semibold px-3 py-2">สถานะ</th>
+              <th className="text-left font-semibold px-4 py-2">{L("พนักงาน POS", "POS staff", "POS 员工")}</th><th className="text-right font-semibold px-3 py-2">{L("บิล 90 วัน", "Bills (90d)", "90 天单据")}</th>
+              <th className="text-left font-semibold px-3 py-2">{L("พนักงานขาย JST", "JST salesperson", "JST 销售员")} ({data.jst.length})</th><th className="text-left font-semibold px-3 py-2">{L("สถานะ", "Status", "状态")}</th>
             </tr></thead>
             <tbody>
               {data.employees.map((e) => { const v = current(e.id), changed = draft[e.id] !== undefined && dirty.some(([id]) => id === e.id); return (
@@ -93,22 +95,22 @@ export function OwSalesmenPanel() {
                   <td className="px-3 py-2">
                     {data.jst.length ? (
                       <select value={v} onChange={(x) => setDraft((d) => ({ ...d, [e.id]: x.target.value }))} className="h-8 w-64 rounded-lg bg-surface2/70 border border-line px-2">
-                        <option value="">— ไม่ผูก —</option>
-                        {v && !data.jst.some((j) => j.id === v) ? <option value={v}>{v} (ไม่พบในรายชื่อปัจจุบัน)</option> : null}
+                        <option value="">{L("— ไม่ผูก —", "— Not linked —", "— 不绑定 —")}</option>
+                        {v && !data.jst.some((j) => j.id === v) ? <option value={v}>{v} ({L("ไม่พบในรายชื่อปัจจุบัน", "not in current list", "当前名单中未找到")})</option> : null}
                         {data.jst.map((j) => <option key={j.id} value={j.id}>{j.name} · {j.id}</option>)}
                       </select>
                     ) : (
                       <input value={v} onChange={(x) => setDraft((d) => ({ ...d, [e.id]: x.target.value.trim() }))} placeholder="JST UserId" className="h-8 w-48 rounded-lg bg-surface2/70 border border-line px-2 font-mono" />
                     )}
                   </td>
-                  <td className="px-3 py-2">{v ? <Badge tone="ok">ผูกแล้ว{jstName(v) ? ` · ${jstName(v)}` : ""}</Badge> : e.bills_90d ? <Badge tone="warn">ยังไม่ผูก</Badge> : <Badge tone="neutral">ยังไม่ผูก</Badge>}</td>
+                  <td className="px-3 py-2">{v ? <Badge tone="ok">{L("ผูกแล้ว", "Linked", "已绑定")}{jstName(v) ? ` · ${jstName(v)}` : ""}</Badge> : e.bills_90d ? <Badge tone="warn">{L("ยังไม่ผูก", "Not linked", "未绑定")}</Badge> : <Badge tone="neutral">{L("ยังไม่ผูก", "Not linked", "未绑定")}</Badge>}</td>
                 </tr>); })}
-              {!data.employees.length ? <tr><td colSpan={4} className="px-4 py-6 text-center text-muted">ไม่พบพนักงานของสาขานี้</td></tr> : null}
+              {!data.employees.length ? <tr><td colSpan={4} className="px-4 py-6 text-center text-muted">{L("ไม่พบพนักงานของสาขานี้", "No staff found for this branch", "未找到该门店员工")}</td></tr> : null}
             </tbody>
           </table>
-          <p className="px-4 py-2 text-[11px] text-muted border-t border-line">ผูกแล้ว {mappedCount}/{data.employees.length} คน · สาขาขาย OW {data.ow_branch_id ?? "—"}</p>
+          <p className="px-4 py-2 text-[11px] text-muted border-t border-line">{L(`ผูกแล้ว ${mappedCount}/${data.employees.length} คน`, `Linked ${mappedCount}/${data.employees.length} people`, `已绑定 ${mappedCount}/${data.employees.length} 人`)} · {L("สาขาขาย OW", "OW sales branch", "OW 销售门店")} <span translate="no">{data.ow_branch_id ?? "—"}</span></p>
         </div>
-      ) : branch ? <p className="px-4 py-6 text-xs text-muted">กำลังโหลด…</p> : null}
+      ) : branch ? <p className="px-4 py-6 text-xs text-muted">{L("กำลังโหลด…", "Loading…", "加载中…")}</p> : null}
     </section>
   );
 }

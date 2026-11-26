@@ -215,7 +215,7 @@ export default function AdminCustomersPage() {
     setBirthMsg("");
     const res = await fetch("/api/admin/customers", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "set_birth_date", customer_id: openId, birth_date: birthDraft || null }) });
     const j = await res.json().catch(() => ({}));
-    if (!res.ok) { setBirthMsg(j.error ?? "บันทึกไม่สำเร็จ"); return; }
+    if (!res.ok) { setBirthMsg(j.error ?? L("บันทึกไม่สำเร็จ", "Save failed", "保存失败")); return; }
     setBirthDraft(null); setBirthMsg(L("บันทึกแล้ว · แต้มวันเกิดเริ่มนับหลัง 30 วัน", "Saved · birthday points apply after 30 days", "已保存"));
     await loadDetail(openId);
   }

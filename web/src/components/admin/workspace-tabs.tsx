@@ -6,8 +6,10 @@ import { useEffect } from "react";
 import clsx from "clsx";
 import { X, FileText, Layers } from "lucide-react";
 import { useWorkspaceTabs } from "@/lib/store/workspace-tabs";
+import { useL } from "@/lib/i18n/provider";
 
-export function WorkspaceTabs({ baseLabel }: { baseLabel: string }) {
+export function WorkspaceTabs({ baseLabel, labelFor }: { baseLabel: string; labelFor?: (href: string) => string | undefined }) {
+  const L = useL();
   const pathname = usePathname();
   const sp = useSearchParams();
   const router = useRouter();
@@ -39,7 +41,7 @@ export function WorkspaceTabs({ baseLabel }: { baseLabel: string }) {
               )}
               onClick={() => { if (!active) router.push(tb.href); }}>
               {tb.kind === "doc" ? <FileText size={12} className="shrink-0" /> : null}
-              <span className="truncate font-mono">{tb.label}</span>
+              {tb.kind === "doc" ? <span className="truncate font-mono" translate="no">{tb.label}</span> : <span className="truncate">{labelFor?.(tb.href) ?? tb.label}</span>}
               <button
                 onClick={(e) => {
                   e.stopPropagation();
@@ -54,7 +56,7 @@ export function WorkspaceTabs({ baseLabel }: { baseLabel: string }) {
           );
         })}
         {tabs.length > 1 ? (
-          <button onClick={closeAll} className="text-[11px] text-muted hover:text-danger px-2 h-8 shrink-0">ปิดทั้งหมด</button>
+          <button onClick={closeAll} className="text-[11px] text-muted hover:text-danger px-2 h-8 shrink-0">{L("ปิดทั้งหมด", "Close all", "全部关闭")}</button>
         ) : null}
       </div>
     </div>

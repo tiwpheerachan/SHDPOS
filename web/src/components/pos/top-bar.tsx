@@ -6,14 +6,14 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import clsx from "clsx";
 import {
   ShoppingCart, ReceiptText, RotateCcw, Boxes, FileText, ClipboardList,
-  Settings, ShieldCheck, LogOut, Wifi, WifiOff, RefreshCw, Sun, Moon, Monitor, Languages, Clock, Home,
+  Settings, ShieldCheck, LogOut, Wifi, WifiOff, RefreshCw, Sun, Moon, Monitor, Clock, Home,
   LayoutDashboard, PauseCircle, SlidersHorizontal, Search, ArrowLeftRight, PackagePlus, PackageCheck,
 } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { useTheme } from "@/lib/theme";
 import { useSession } from "@/lib/store/session";
 import { subscribeSync, flush, type SyncState } from "@/lib/offline/sync";
-import { LOCALES, LOCALE_LABEL } from "@/lib/i18n/dict";
+import { LanguageMenu } from "@/components/i18n/auto-translate";
 import { Badge } from "@/components/ui";
 import { Clock as LiveClock } from "@/components/clock";
 import { BrandReveal } from "@/components/brand-reveal";
@@ -40,13 +40,12 @@ const NAV = [
 ] as const;
 
 export function PosTopBar() {
-  const { t, locale, setLocale } = useI18n();
+  const { t, locale } = useI18n();
   const { mode, setMode } = useTheme();
   const router = useRouter();
   const pathname = usePathname();
   const { employee, shift, logout } = useSession();
   const [sync, setSync] = useState<SyncState | null>(null);
-  const [langOpen, setLangOpen] = useState(false);
 
   useEffect(() => subscribeSync(setSync), []);
 
@@ -70,10 +69,10 @@ export function PosTopBar() {
 
   const label: Record<string, string> = {
     dashboard: t.admin.dashboard,
-    work: locale === "th" ? "งานของฉัน" : "My work",
+    work: locale === "th" ? "งานของฉัน" : locale === "zh" ? "我的工作" : "My work",
     sell: t.pos.sell,
     orders: t.orders.title,
-    recovery: locale === "th" ? "ตรวจรายการรับชำระ" : "Checkout recovery",
+    recovery: locale === "th" ? "ตรวจรายการรับชำระ" : locale === "zh" ? "收款核查" : "Checkout recovery",
     holds: t.cmd.heldOrders,
     returns: t.returns.title,
     pickups: locale === "th" ? "รอรับของ" : locale === "zh" ? "待取货" : "Pickups",
@@ -191,30 +190,7 @@ export function PosTopBar() {
             <Monitor size={16} />
           </button>
 
-          <div className="relative hidden lg:block">
-            <button onClick={() => setLangOpen((v) => !v)} className="p-2 rounded-lg hover:bg-surface2 text-muted" title={t.settings.language}>
-              <Languages size={16} />
-            </button>
-            {langOpen ? (
-              <div className="absolute right-0 mt-1 bg-surface border border-line rounded-xl shadow-pop py-1 w-28 z-50">
-                {LOCALES.map((l) => (
-                  <button
-                    key={l}
-                    onClick={() => {
-                      setLocale(l);
-                      setLangOpen(false);
-                    }}
-                    className={clsx(
-                      "w-full text-left px-3 py-1.5 text-xs hover:bg-surface2",
-                      locale === l && "text-brand font-medium"
-                    )}
-                  >
-                    {LOCALE_LABEL[l]}
-                  </button>
-                ))}
-              </div>
-            ) : null}
-          </div>
+          <LanguageMenu className="hidden lg:block" />
 
           <button
             onClick={() => setMode(mode === "light" ? "dark" : "light")}

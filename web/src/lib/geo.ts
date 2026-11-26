@@ -4,6 +4,7 @@
 //   หรือแก้ตารางนี้เมื่อได้พิกัดจริง (เจ้าของจะส่งพิกัดให้ภายหลัง)
 // =====================================================================
 import type { Branch } from "@/lib/types";
+import { tr } from "@/lib/i18n/tr";
 
 export interface LatLng { lat: number; lng: number }
 
@@ -65,6 +66,6 @@ export function branchDistanceKm(a?: Branch | null, b?: Branch | null): number |
 /** รูปแบบระยะทางอ่านง่าย */
 export function fmtKm(km: number | null): string {
   if (km == null) return "—";
-  if (km < 1) return `${Math.round(km * 1000)} ม.`;
-  return `${km < 10 ? km.toFixed(1) : Math.round(km)} กม.`;
+  if (km < 1) return `${Math.round(km * 1000)} ${tr("ม.", "m", "米")}`;
+  return `${km < 10 ? km.toFixed(1) : Math.round(km)} ${tr("กม.", "km", "公里")}`;
 }

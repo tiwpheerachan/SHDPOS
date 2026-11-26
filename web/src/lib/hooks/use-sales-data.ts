@@ -3,6 +3,7 @@
 //   โหมดสาธิต = ข้อมูลในเครื่อง (Dexie) · สาขา/แบรนด์/พนักงาน มาจากแหล่งเดียวกับบิล (ไม่ปน id สาธิต)
 import { useEffect, useMemo, useState } from "react";
 import { isLiveMode } from "@/lib/supabase/client";
+import { tr } from "@/lib/i18n/tr";
 import { listOrders, listEmployees } from "@/lib/data/repo";
 import { useAdminScope } from "@/components/admin/filters";
 import type { Branch, Brand, Employee, Order } from "@/lib/types";
@@ -32,7 +33,7 @@ export function useSalesData(range: { from: Date; to: Date }): SalesData {
           const [o, e] = await Promise.all([listOrders(), listEmployees()]);
           if (alive) setState({ orders: o, branches: [], brands: [], employees: e, positions: null, adjustments: [], prev: [], loading: false, error: "", truncated: false });
         }
-      } catch (e) { if (alive) setState((s) => ({ ...s, loading: false, error: e instanceof Error ? e.message : "โหลดไม่สำเร็จ" })); }
+      } catch (e) { if (alive) setState((s) => ({ ...s, loading: false, error: e instanceof Error ? e.message : tr("โหลดไม่สำเร็จ", "Failed to load", "加载失败") })); }
     })();
     return () => { alive = false; };
   }, [key, live]); // eslint-disable-line react-hooks/exhaustive-deps

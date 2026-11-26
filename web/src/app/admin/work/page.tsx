@@ -1,11 +1,9 @@
 import { Suspense } from "react";
-import { WorkWorkspace } from "@/components/work/workspace";
+import { WorkWorkspace, WorkLoading } from "@/components/work/workspace";
 export default function WorkPage() {
   return (
     <Suspense
-      fallback={
-        <p className="p-6 text-sm text-muted">กำลังเตรียมพื้นที่ทำงาน…</p>
-      }
+      fallback={<WorkLoading />}
     >
       <WorkWorkspace admin={true} />
     </Suspense>

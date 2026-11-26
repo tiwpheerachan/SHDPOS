@@ -3,6 +3,7 @@
 //   รองรับรูปแบบที่พบในไฟล์จริง: ชีทแยกตามธนาคาร (SCB/KBANK/UOB/krungsri/card x scb) · คอลัมน์ A = สาขา (ว่าง = ต่อจากแถวบน)
 //   หัวคอลัมน์: TID · NEW TID · MID · MID UNIONPAY · MID QR CREDIT · MID TH QR · MID ALIPAY · MID WECHAT · TID / 0% Nmonth · MID / 0% Nmonth
 import { unzipSync, strFromU8 } from "fflate";
+import { tr } from "@/lib/i18n/tr";
 
 export type ImportMid = { service: string; installment_months: number; mid: string; tid?: string | null; merchant_no?: string | null };
 export type ImportRow = { sheet: string; row: number; acquirer: string; label: string; tid: string; status: "active" | "no_txn" | "retired"; note: string | null; mids: ImportMid[]; sim_no?: string | null; replaced_by_tid?: string | null; branch_id?: string | null };
@@ -47,7 +48,7 @@ export function cleanNo(raw: string, warn?: (m: string) => void): string | null 
     const n = Number(s);
     if (!Number.isFinite(n)) return null;
     const digits = BigInt(Math.round(n)).toString();
-    if (digits.length > 15) warn?.(`เลข ${digits.slice(0, 2)}…${digits.slice(-3)} ยาว ${digits.length} หลัก ถูกเก็บเป็นตัวเลขในไฟล์ อาจคลาดเคลื่อน — ตรวจกับเอกสารธนาคาร`);
+    if (digits.length > 15) warn?.(tr(`เลข ${digits.slice(0, 2)}…${digits.slice(-3)} ยาว ${digits.length} หลัก ถูกเก็บเป็นตัวเลขในไฟล์ อาจคลาดเคลื่อน — ตรวจกับเอกสารธนาคาร`, `Number ${digits.slice(0, 2)}…${digits.slice(-3)} has ${digits.length} digits and was stored as a number in the file — may be inaccurate, check against bank documents`, `号码 ${digits.slice(0, 2)}…${digits.slice(-3)} 共 ${digits.length} 位，文件中以数字存储，可能有误 — 请与银行文件核对`));
     return digits;
   }
   return /^[0-9A-Za-z-]{4,32}$/.test(s) ? s : null;
@@ -83,7 +84,7 @@ export function parseEdcWorkbook(sheets: { name: string; grid: string[][] }[]): 
   for (const { name, grid } of sheets) {
     const acquirer = SHEET_ACQ.find(([re]) => re.test(name))?.[1] ?? null;
     const hi = grid.findIndex((r) => r.some((c) => /^TID$/i.test(c.trim())));
-    if (!acquirer || hi < 0) { summary.push({ name, acquirer, rows: 0, skipped: !acquirer ? "ไม่รู้ว่าเป็นธนาคารไหน" : "ไม่พบหัวคอลัมน์ TID" }); continue; }
+    if (!acquirer || hi < 0) { summary.push({ name, acquirer, rows: 0, skipped: !acquirer ? tr("ไม่รู้ว่าเป็นธนาคารไหน", "Unknown bank", "无法识别银行") : tr("ไม่พบหัวคอลัมน์ TID", "TID column header not found", "未找到 TID 列标题") }); continue; }
     const header = grid[hi];
     const roles = header.map(roleOf);
     const isCardX = acquirer === "CARDX";
@@ -94,7 +95,7 @@ export function parseEdcWorkbook(sheets: { name: string; grid: string[][] }[]): 
     for (let ri = hi + 1; ri < grid.length; ri++) {
       const r = grid[ri];
       if (!r.some((c) => c)) continue;
-      const w = (m: string) => warnings.push(`${name} แถว ${ri + 1}: ${m}`);
+      const w = (m: string) => warnings.push(`${name} ${tr("แถว", "row", "行")} ${ri + 1}: ${m}`);
       if (!isCardX && r[0]) label = r[0];
       // ข้อความหมายเหตุในช่องที่ไม่ใช่หัวคอลัมน์ที่รู้จัก (ภายในช่วงตาราง) เช่น "ไม่มียอดชำระ", "ตัวเดียวกัน"
       const notes = r.map((c, i) => (i > 0 && i <= lastRoleCol && !roles[i] && c && !/^[0-9.E+-]+$/i.test(c) ? c : "")).filter(Boolean);
@@ -125,13 +126,13 @@ export function parseEdcWorkbook(sheets: { name: string; grid: string[][] }[]): 
           if (t && !tidPart && t.length > 10) target.mid = t; else if (t) target.tid = t;
         }
       });
-      if (!tids.length && !newTids.length) { if (mids.length) w("มี MID แต่ไม่มี TID — ข้าม"); continue; }
+      if (!tids.length && !newTids.length) { if (mids.length) w(tr("มี MID แต่ไม่มี TID — ข้าม", "Has MID but no TID — skipped", "有 MID 但无 TID — 已跳过")); continue; }
       const key = isCardX ? cardLabel : label;
       const own = mids.find((m) => m.service === "card")?.mid;
       if (own) cardMidOf.set(key, own);
       const card = own ?? cardMidOf.get(key);
       // แผน/บริการที่มีแต่ TID (ไม่มี MID แยก) → ใช้ MID บัตรปกติของเครื่อง
-      for (const m of mids) if (!m.mid) { if (card) m.mid = card; else w(`${m.service}${m.installment_months ? ` ${m.installment_months} เดือน` : ""} มีแต่ TID ไม่มี MID — ข้ามบริการนี้`); }
+      for (const m of mids) if (!m.mid) { if (card) m.mid = card; else w(`${m.service}${m.installment_months ? ` ${m.installment_months} ${tr("เดือน", "months", "个月")}` : ""} ${tr("มีแต่ TID ไม่มี MID — ข้ามบริการนี้", "has TID but no MID — service skipped", "只有 TID 没有 MID — 已跳过此服务")}`); }
       if (merNo) for (const m of mids) m.merchant_no = merNo;
       const good = mids.filter((m) => m.mid);
       const status = notes.some((n) => /ไม่มียอด/.test(n)) ? "no_txn" : "active";

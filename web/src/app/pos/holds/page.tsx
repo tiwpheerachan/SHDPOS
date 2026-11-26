@@ -51,10 +51,10 @@ export default function HeldOrdersPage() {
     <PosPage
       title={t.cmd.heldOrders}
       icon={<PauseCircle size={18} />}
-      actions={view==='deferred'?<Badge tone="info">รายการบนเซิร์ฟเวอร์</Badge>:<Badge tone={holds.length ? "warn" : "neutral"}>{holds.length} {L("บิลที่พัก", "held", "挂单")}</Badge>}
+      actions={view==='deferred'?<Badge tone="info">{L("รายการบนเซิร์ฟเวอร์", "On server", "服务器上的项目")}</Badge>:<Badge tone={holds.length ? "warn" : "neutral"}>{holds.length} {L("บิลที่พัก", "held", "挂单")}</Badge>}
     >
       <div className="p-4 sm:p-6">
-        {isLiveMode()?<div className="mb-5"><Segmented value={view} onChange={setView} options={[{value:"deferred",label:"ขายก่อน · รอปิดบิล"},{value:"held",label:`พักตะกร้าทั่วไป (${holds.length})`}]}/></div>:null}
+        {isLiveMode()?<div className="mb-5"><Segmented value={view} onChange={setView} options={[{value:"deferred",label:L("ขายก่อน · รอปิดบิล", "Sell now · close later", "先售 · 待结单")},{value:"held",label:L(`พักตะกร้าทั่วไป (${holds.length})`, `Held carts (${holds.length})`, `挂单购物车 (${holds.length})`)}]}/></div>:null}
         {view==='deferred'&&branchId?<DeferredSalesPanel key={branchId} branchId={branchId}/>:loading ? (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-40 rounded-[22px]" />)}

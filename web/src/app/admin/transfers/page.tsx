@@ -603,7 +603,7 @@ export default function AdminTransfersPage() {
 
       {/* detail drawer (monitor + approve) */}
       <Drawer open={Boolean(detail)} onClose={closeDoc} width="xl"
-        title={detail ? <span className="font-mono">{detail.transfer_no}</span> : ""}
+        title={detail ? <span className="font-mono" translate="no">{detail.transfer_no}</span> : ""}
         subtitle={detail ? `${detail.from_kind === "warehouse" ? "" : ""}${bName(detail.from_branch_id)} → ${bName(detail.to_branch_id)}` : ""}
         badge={detail ? <Badge tone={displayStatus(detail).tone}>{displayStatus(detail).label}</Badge> : null}
         footer={detail ? (
@@ -656,7 +656,7 @@ export default function AdminTransfersPage() {
         {detail ? (
           <>
             <DrawerTabs<Tab> value={tab} onChange={setTab} options={[{ value: "overview", label: L("ภาพรวม", "Overview", "概览") }, { value: "timeline", label: <span className="inline-flex items-center gap-1"><Clock size={12} />Timeline</span> }]} />
-            {isLiveMode() ? <div className="px-5 pt-4"><AiBrief key={detail.id + ":" + detail.status + ":" + (detail.version ?? 0)} endpoint={`/api/pos/transfer-summary?id=${encodeURIComponent(detail.id)}`} title="AI สรุปใบโอน" /></div> : null}
+            {isLiveMode() ? <div className="px-5 pt-4"><AiBrief key={detail.id + ":" + detail.status + ":" + (detail.version ?? 0)} endpoint={`/api/pos/transfer-summary?id=${encodeURIComponent(detail.id)}`} title={L("AI สรุปใบโอน", "AI transfer summary", "AI 调拨单摘要")} /></div> : null}
             {tab === "overview" ? (
               <div className="p-5 space-y-4">
                 <TransferStepper status={detail.status} locale={locale} L={L} />
@@ -686,7 +686,7 @@ export default function AdminTransfersPage() {
                     <DetailRow label="OneWarehouse">
                       <span className="inline-flex flex-wrap items-center gap-1.5">
                         <span className={`text-[10px] px-1.5 py-0.5 rounded-md ${detail.sync_state === "synced" ? "bg-ok/12 text-ok" : detail.sync_state === "failed" ? "bg-danger/12 text-danger" : "bg-warn/12 text-warn"}`}>
-                          {detail.sync_state === "synced" ? "ซิงก์ JST แล้ว" : detail.sync_state === "failed" ? "ซิงก์ JST ล้มเหลว" : "รอซิงก์ JST"}
+                          {detail.sync_state === "synced" ? L("ซิงก์ JST แล้ว", "Synced to JST", "已同步 JST") : detail.sync_state === "failed" ? L("ซิงก์ JST ล้มเหลว", "JST sync failed", "JST 同步失败") : L("รอซิงก์ JST", "Pending JST sync", "等待同步 JST")}
                         </span>
                         <span className="font-mono text-[11px]">{Object.values(detail.ow_state ?? {}).map((s) => `${s.orderNo} (${s.status})`).join(" · ") || "—"}</span>
                       </span>
@@ -696,15 +696,15 @@ export default function AdminTransfersPage() {
                   {detail.ow_owned && (detail.ow_link_state && detail.ow_link_state !== "ok" || detail.ow_error) ? (
                     <div className="rounded-xl border border-warn/30 bg-warn/8 p-3 text-xs space-y-2">
                       <p className="text-warn font-medium">
-                        {detail.ow_link_state === "checking" ? "กำลังตรวจสอบผลจาก OneWarehouse (อาจทำสำเร็จแล้ว) — โหลดสถานะล่าสุดก่อนกดซ้ำ"
-                          : detail.ow_link_state === "partially_created" ? "สร้างใบใน OneWarehouse ได้บางส่วน"
-                          : detail.ow_link_state === "recovery_required" ? "ต้องดำเนินการต่อให้ OneWarehouse ครบ"
-                          : "คำสั่งล่าสุดกับ OneWarehouse ไม่สำเร็จ"}
+                        {detail.ow_link_state === "checking" ? L("กำลังตรวจสอบผลจาก OneWarehouse (อาจทำสำเร็จแล้ว) — โหลดสถานะล่าสุดก่อนกดซ้ำ", "Checking result from OneWarehouse (may already have succeeded) — refresh status before retrying", "正在核对 OneWarehouse 结果（可能已成功）— 请先刷新状态再重试")
+                          : detail.ow_link_state === "partially_created" ? L("สร้างใบใน OneWarehouse ได้บางส่วน", "Document partially created in OneWarehouse", "已在 OneWarehouse 部分创建单据")
+                          : detail.ow_link_state === "recovery_required" ? L("ต้องดำเนินการต่อให้ OneWarehouse ครบ", "OneWarehouse needs to be completed", "需继续完成 OneWarehouse 操作")
+                          : L("คำสั่งล่าสุดกับ OneWarehouse ไม่สำเร็จ", "Last OneWarehouse command failed", "最近一次 OneWarehouse 操作失败")}
                       </p>
                       {detail.ow_error ? <p className="text-muted break-words">{detail.ow_error}</p> : null}
                       <div className="flex gap-2">
-                        <button className="h-8 px-3 rounded-lg bg-brand text-brandInk text-xs font-medium" onClick={() => void act(() => owResume(detail), "ดำเนินการต่อแล้ว")}>ดำเนินการต่อเฉพาะส่วนที่ค้าง</button>
-                        <button className="h-8 px-3 rounded-lg border border-line text-xs" onClick={() => void act(() => owRefresh(detail), "โหลดสถานะล่าสุดแล้ว")}>โหลดสถานะล่าสุด</button>
+                        <button className="h-8 px-3 rounded-lg bg-brand text-brandInk text-xs font-medium" onClick={() => void act(() => owResume(detail), L("ดำเนินการต่อแล้ว", "Resumed", "已继续"))}>{L("ดำเนินการต่อเฉพาะส่วนที่ค้าง", "Resume pending steps only", "仅继续未完成部分")}</button>
+                        <button className="h-8 px-3 rounded-lg border border-line text-xs" onClick={() => void act(() => owRefresh(detail), L("โหลดสถานะล่าสุดแล้ว", "Status refreshed", "已刷新状态"))}>{L("โหลดสถานะล่าสุด", "Refresh status", "刷新状态")}</button>
                       </div>
                     </div>
                   ) : null}
@@ -806,7 +806,7 @@ export default function AdminTransfersPage() {
                           )}
                           <div className="min-w-0">
                             <p className="font-medium text-sm truncate">{it.name}{it.isSerialized === null ? <Badge tone="danger" className="ml-1">{L("ยังไม่จัดประเภท", "Unclassified", "未分类")}</Badge> : it.isSerialized ? <Barcode size={12} className="inline ml-1 text-brand" /> : null}</p>
-                            <p className="font-mono text-[10px] text-muted">{it.sku}</p>
+                            <p className="font-mono text-[10px] text-muted" translate="no">{it.sku}</p>
                           </div>
                         </div>
                         {it.isSerialized && (canScanOut(detail) || canReceive(detail)) ? (
@@ -863,7 +863,7 @@ export default function AdminTransfersPage() {
                         })}
                       </div>
                       {canOut && atSource(detail) && next ? (
-                        <Button variant="soft" className="mt-2.5" loading={busy} onClick={() => doShipStage(detail, next.key)}><Truck size={14} /> {L(`อัปเดตเป็น “${next.th}”`, `Mark “${next.en}”`, next.zh)}</Button>
+                        <Button variant="soft" className="mt-2.5" loading={busy} onClick={() => doShipStage(detail, next.key)}><Truck size={14} /> {L(`อัปเดตเป็น “${next.th}”`, `Mark “${next.en}”`, `更新为“${next.zh}”`)}</Button>
                       ) : null}
                     </div>
                   );
@@ -935,7 +935,7 @@ export default function AdminTransfersPage() {
                               <div key={dc.id} className="flex items-start justify-between gap-2 text-[11px] flex-wrap">
                                 <span className="min-w-0 flex-1">
                                   <b className="text-ink/80">{DISC_LABEL[dc.kind]}</b> · {pName(dc.product_id)} × {dc.qty}
-                                  {dc.serialNo ? <code className="ml-1 px-1 py-0.5 rounded bg-surface border border-line font-mono text-[10px]">{dc.serialNo}</code> : null}
+                                  {dc.serialNo ? <code className="ml-1 px-1 py-0.5 rounded bg-surface border border-line font-mono text-[10px]" translate="no">{dc.serialNo}</code> : null}
                                   {dc.kind === "unexpected_sn" && dc.located ? <span className="ml-1 text-muted">· {L("ที่มา", "origin", "来源")}: {locWhere(dc.located.where)}{dc.located.branchId ? ` (${bName(dc.located.branchId)})` : ""}</span> : null}
                                   {dc.handled_by_return ? <span className="ml-1 text-sky-600">· {L("กำลังส่งคืน", "returning via", "退回")} {dc.handled_by_return}</span> : null}
                                   {dc.replacement_no ? <span className="ml-1 text-brand">· {L("ส่งทดแทน", "replacement", "替代")} {dc.replacement_no}</span> : null}
@@ -1223,7 +1223,7 @@ export default function AdminTransfersPage() {
                 {products.filter((p) => p.kind !== "service").filter((p) => { const q = reqQ.trim().toLowerCase(); return !q || p.name_th.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q); }).slice(0, 30).map((p) => (
                   <button key={p.id} onClick={() => { setReqProductId(p.id); setReqSource(""); setReqQty(1); }} className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-brand/5 text-left">
                     {p.image_url ? <img src={p.image_url} alt="" className="w-9 h-9 rounded-lg object-cover border border-line bg-white shrink-0" /> : <div className="w-9 h-9 rounded-lg border border-line bg-surface grid place-items-center shrink-0 text-muted/40"><Boxes size={15} /></div>}
-                    <div className="min-w-0 flex-1"><p className="text-sm font-medium truncate">{p.name_th}</p><p className="font-mono text-[10px] text-muted">{p.sku}</p></div>
+                    <div className="min-w-0 flex-1"><p className="text-sm font-medium truncate">{p.name_th}</p><p className="font-mono text-[10px] text-muted" translate="no">{p.sku}</p></div>
                     <span className="text-[11px] text-muted">{L("มี", "in", "")} {branches.filter((b) => availAt(b.id, p.id) > 0).length} {L("สาขา", "branches", "店")}</span>
                   </button>
                 ))}
@@ -1235,7 +1235,7 @@ export default function AdminTransfersPage() {
               {/* สินค้าที่เลือก */}
               <div className="flex items-center gap-3 rounded-xl border border-line p-3">
                 {reqProduct.image_url ? <img src={reqProduct.image_url} alt="" className="w-12 h-12 rounded-lg object-cover border border-line bg-white" /> : <div className="w-12 h-12 rounded-lg border border-line bg-surface grid place-items-center text-muted/40"><Boxes size={18} /></div>}
-                <div className="min-w-0 flex-1"><p className="text-sm font-semibold truncate">{reqProduct.name_th}</p><p className="font-mono text-[10px] text-muted">{reqProduct.sku}</p></div>
+                <div className="min-w-0 flex-1"><p className="text-sm font-semibold truncate">{reqProduct.name_th}</p><p className="font-mono text-[10px] text-muted" translate="no">{reqProduct.sku}</p></div>
                 <button onClick={() => { setReqProductId(""); setReqSource(""); }} className="text-xs text-brand hover:underline">{L("เปลี่ยน", "Change", "更换")}</button>
               </div>
               {/* สาขาที่มีของ — เรียงใกล้สุด */}
@@ -1351,7 +1351,7 @@ export default function AdminTransfersPage() {
         return (
           <div className="fixed inset-0 z-[70] bg-black/85 backdrop-blur-sm flex flex-col" onClick={() => setLbIdx(null)}>
             <div className="flex items-center gap-2 p-3 text-white/90" onClick={(e) => e.stopPropagation()}>
-              <span className="font-mono text-sm">{detail?.transfer_no}</span>
+              <span className="font-mono text-sm" translate="no">{detail?.transfer_no}</span>
               <span className="text-white/45 text-xs truncate hidden sm:block">· {a.name}</span>
               <span className="ml-auto text-xs tabular-nums text-white/60">{i + 1}/{atts.length}</span>
               <button onClick={() => setLbIdx(null)} className="w-9 h-9 rounded-full hover:bg-white/10 grid place-items-center text-white"><X size={18} /></button>

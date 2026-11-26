@@ -941,13 +941,17 @@ export function Td({
   children,
   align = "left",
   className,
+  translate,
 }: {
   children?: React.ReactNode;
   align?: "left" | "right" | "center";
   className?: string;
+  /** "no" = กันตัวแปลอัตโนมัติ (ชื่อสินค้า/SKU/SN/เลขเอกสาร) */
+  translate?: "yes" | "no";
 }) {
   return (
     <td
+      translate={translate}
       className={clsx(
         "px-3 py-2.5 border-b border-line/70 align-middle",
         align === "right" && "text-right tnum",

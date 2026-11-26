@@ -5,6 +5,7 @@
 // =====================================================================
 import { listAllTransfers, listOrders, listProducts } from "./repo";
 import type { SerialLocated } from "../types";
+import { tr as trL } from "../i18n/tr";
 
 export type SerialEventKind = "received" | "shipped" | "sold" | "returned" | "quarantined" | "return_in" | "flagged";
 export interface SerialEvent {
@@ -51,13 +52,13 @@ function computeSerial(snRaw: string, { transfers, orders, pMap }: Ctx): SerialI
       const received = (it.receivedSerials ?? []).find((s) => eq(s.serialNo, sn));
       if (received) { events.push({ kind: "received", at: received.at, branchId: tr.to_branch_id, refNo: tr.transfer_no, actor: received.by ?? null }); productId = it.product_id; sku = it.sku; name = it.name; }
       const quar = (it.quarantinedSerials ?? []).find((s) => eq(s.serialNo, sn));
-      if (quar) { events.push({ kind: "quarantined", at: quar.at, branchId: tr.to_branch_id, refNo: tr.transfer_no, detail: "นอกใบโอน · พักตรวจ", actor: quar.by ?? null }); productId = it.product_id; sku = it.sku; name = it.name; }
+      if (quar) { events.push({ kind: "quarantined", at: quar.at, branchId: tr.to_branch_id, refNo: tr.transfer_no, detail: trL("นอกใบโอน · พักตรวจ", "Not on transfer · quarantined", "不在调拨单 · 暂扣"), actor: quar.by ?? null }); productId = it.product_id; sku = it.sku; name = it.name; }
     }
     // ผลต่างที่ผูก SN (ขาด/ชำรุด/SN ผิด/นอกใบโอน) — จุดเปิดเคส + ผลสรุป
     for (const d of tr.discrepancies ?? []) {
       if (!d.serialNo || !eq(d.serialNo, sn)) continue;
-      const kindTh = d.kind === "short" ? "ขาด" : d.kind === "lost" ? "สูญหาย" : d.kind === "damaged" ? "ชำรุด" : d.kind === "wrong_sn" ? "SN ผิด" : d.kind === "unexpected_sn" ? "นอกใบโอน" : d.kind;
-      const outTh = d.sn_outcome === "accept" ? "ยอมรับที่ปลายทาง" : d.sn_outcome === "return_source" ? "ส่งคืนต้นทาง" : d.sn_outcome === "dispose" ? "ตัดจำหน่าย" : d.sn_outcome === "found_source" ? "พบที่ต้นทาง" : d.sn_outcome === "tracking" ? "กำลังติดตาม" : d.sn_outcome === "confirmed_lost" ? "ยืนยันสูญหาย" : d.sn_outcome === "replaced" ? "ส่งทดแทนแล้ว" : d.status === "resolved" ? "ปิดเคสแล้ว" : "รอตรวจสอบ";
+      const kindTh = d.kind === "short" ? trL("ขาด", "Short", "短缺") : d.kind === "lost" ? trL("สูญหาย", "Lost", "丢失") : d.kind === "damaged" ? trL("ชำรุด", "Damaged", "损坏") : d.kind === "wrong_sn" ? trL("SN ผิด", "Wrong SN", "SN 错误") : d.kind === "unexpected_sn" ? trL("นอกใบโอน", "Not on transfer", "不在调拨单") : d.kind;
+      const outTh = d.sn_outcome === "accept" ? trL("ยอมรับที่ปลายทาง", "Accepted at destination", "目的地接收") : d.sn_outcome === "return_source" ? trL("ส่งคืนต้นทาง", "Returned to source", "退回来源") : d.sn_outcome === "dispose" ? trL("ตัดจำหน่าย", "Written off", "已核销") : d.sn_outcome === "found_source" ? trL("พบที่ต้นทาง", "Found at source", "在来源找到") : d.sn_outcome === "tracking" ? trL("กำลังติดตาม", "Tracking", "追踪中") : d.sn_outcome === "confirmed_lost" ? trL("ยืนยันสูญหาย", "Confirmed lost", "确认丢失") : d.sn_outcome === "replaced" ? trL("ส่งทดแทนแล้ว", "Replacement sent", "已补发") : d.status === "resolved" ? trL("ปิดเคสแล้ว", "Case closed", "已结案") : trL("รอตรวจสอบ", "Pending review", "待核查");
       events.push({ kind: "flagged", at: d.resolved_at ?? d.at, branchId: d.kind === "short" || d.kind === "lost" ? tr.to_branch_id : tr.to_branch_id, refNo: tr.transfer_no, detail: `${kindTh} · ${outTh}`, actor: d.resolved_by ?? d.by ?? null });
       productId = d.product_id; const p = tr.items.find((x) => x.product_id === d.product_id); if (p) { sku = p.sku; name = p.name; }
     }
@@ -66,8 +67,8 @@ function computeSerial(snRaw: string, { transfers, orders, pMap }: Ctx): SerialI
       for (const l of r.lines ?? []) {
         const sns = [...(l.sns_found ?? []), ...(l.sns_expected ?? []), ...(l.sns_received_back ?? [])];
         if (!sns.some((x) => eq(x, sn))) continue;
-        if (r.shipped_at) events.push({ kind: "returned", at: r.shipped_at, branchId: tr.to_branch_id, refNo: r.return_no ?? tr.transfer_no, detail: r.outcome === "repair" ? "ส่งซ่อม" : "ส่งคืนต้นทาง", actor: r.shipped_by ?? null });
-        if (r.received_at) events.push({ kind: "return_in", at: r.received_at, branchId: tr.from_branch_id, refNo: r.return_no ?? tr.transfer_no, detail: l.close_outcome === "release" ? "รับคืน · ปล่อยขาย" : l.close_outcome === "dispose" ? "รับคืน · ตัดจำหน่าย" : l.close_outcome === "repair" ? "รับคืน · ส่งซ่อม" : "รับคืน · พักตรวจ", actor: r.received_by ?? null });
+        if (r.shipped_at) events.push({ kind: "returned", at: r.shipped_at, branchId: tr.to_branch_id, refNo: r.return_no ?? tr.transfer_no, detail: r.outcome === "repair" ? trL("ส่งซ่อม", "Sent for repair", "送修") : trL("ส่งคืนต้นทาง", "Returned to source", "退回来源"), actor: r.shipped_by ?? null });
+        if (r.received_at) events.push({ kind: "return_in", at: r.received_at, branchId: tr.from_branch_id, refNo: r.return_no ?? tr.transfer_no, detail: l.close_outcome === "release" ? trL("รับคืน · ปล่อยขาย", "Received back · released for sale", "已收回 · 放行销售") : l.close_outcome === "dispose" ? trL("รับคืน · ตัดจำหน่าย", "Received back · written off", "已收回 · 核销") : l.close_outcome === "repair" ? trL("รับคืน · ส่งซ่อม", "Received back · sent for repair", "已收回 · 送修") : trL("รับคืน · พักตรวจ", "Received back · quarantined", "已收回 · 暂扣"), actor: r.received_by ?? null });
         productId = l.product_id; const p = tr.items.find((x) => x.product_id === l.product_id); if (p) { sku = p.sku; name = p.name; }
       }
     }

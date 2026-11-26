@@ -2,6 +2,7 @@
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { DICTS, LOCALES, type Dict, type Locale } from "./dict";
+import { setCurrentLocale } from "./tr";
 
 const STORAGE_KEY = "shdpos.locale";
 
@@ -9,6 +10,8 @@ interface I18nValue {
   locale: Locale;
   setLocale: (l: Locale) => void;
   t: Dict;
+  /** แปลข้อความ inline: L("ไทย","English","中文") */
+  L: (th: string, en: string, zh: string) => string;
   /** แปลชื่อสินค้า/สาขาตามภาษา โดย fallback เป็นไทย */
   pick: (v: { th?: string | null; en?: string | null; zh?: string | null }) => string;
 }
@@ -39,10 +42,13 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
 
   const value = useMemo<I18nValue>(() => {
     const t = DICTS[locale];
+    setCurrentLocale(locale);
+    if (typeof document !== "undefined") document.documentElement.lang = locale === "zh" ? "zh-CN" : locale;
     return {
       locale,
       setLocale,
       t,
+      L: (th, en, zh) => (locale === "en" ? en : locale === "zh" ? zh : th),
       pick: (v) => {
         if (locale === "en") return v.en || v.th || v.zh || "";
         if (locale === "zh") return v.zh || v.th || v.en || "";
@@ -58,4 +64,9 @@ export function useI18n(): I18nValue {
   const ctx = useContext(I18nContext);
   if (!ctx) throw new Error("useI18n must be used inside <I18nProvider>");
   return ctx;
+}
+
+/** ตัวช่วยแปล inline สำหรับหน้า/คอมโพเนนต์: const L = useL(); L("ไทย","English","中文") */
+export function useL() {
+  return useI18n().L;
 }

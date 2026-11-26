@@ -1,3 +1,5 @@
+import { tr } from "@/lib/i18n/tr";
+
 export type WorkStatus =
   | "todo"
   | "in_progress"
@@ -33,23 +35,23 @@ export interface WorkItem {
   updated_at: string;
 }
 export const workStatus: Record<WorkStatus, string> = {
-  todo: "รอทำ",
-  in_progress: "กำลังทำ",
-  blocked: "ติดขัด",
-  done: "เสร็จแล้ว",
-  cancelled: "ยกเลิก",
+  get todo() { return tr("รอทำ", "To do", "待办"); },
+  get in_progress() { return tr("กำลังทำ", "In progress", "进行中"); },
+  get blocked() { return tr("ติดขัด", "Blocked", "受阻"); },
+  get done() { return tr("เสร็จแล้ว", "Done", "已完成"); },
+  get cancelled() { return tr("ยกเลิก", "Cancelled", "已取消"); },
 };
 export const workPriority = {
-  low: "ต่ำ",
-  normal: "ปกติ",
-  high: "สูง",
-  urgent: "เร่งด่วน",
+  get low() { return tr("ต่ำ", "Low", "低"); },
+  get normal() { return tr("ปกติ", "Normal", "普通"); },
+  get high() { return tr("สูง", "High", "高"); },
+  get urgent() { return tr("เร่งด่วน", "Urgent", "紧急"); },
 };
 export const personName = (p?: WorkPerson) =>
   p?.name ||
   p?.nickname ||
   [p?.first_name, p?.last_name].filter(Boolean).join(" ") ||
-  "ไม่ระบุ";
+  tr("ไม่ระบุ", "Unassigned", "未指定");
 export const isWorkOpen = (t: WorkItem) =>
   !["done", "cancelled"].includes(t.status);
 export function thaiDay(value: string | Date) {
@@ -77,7 +79,7 @@ export async function workRead(params: Record<string, string> = {}) {
     signal: AbortSignal.timeout(20000),
   });
   const j = await r.json();
-  if (!r.ok) throw Error(j.error || "อ่านงานไม่สำเร็จ");
+  if (!r.ok) throw Error(j.error || tr("อ่านงานไม่สำเร็จ", "Failed to load tasks", "读取任务失败"));
   return j;
 }
 export async function workList(params: Record<string, string> = {}) {
@@ -91,7 +93,7 @@ export async function workList(params: Record<string, string> = {}) {
     if (!j.has_more)
       return { ...j, items: [...items.values()], truncated: false };
     if (!j.next_cursor || seen.has(j.next_cursor))
-      throw Error("จุดอ่านงานซ้ำ กรุณาโหลดใหม่");
+      throw Error(tr("จุดอ่านงานซ้ำ กรุณาโหลดใหม่", "Duplicate read cursor — please reload", "读取游标重复，请重新加载"));
     seen.add(j.next_cursor);
     params = { ...params, cursor: j.next_cursor };
   }
@@ -105,7 +107,7 @@ export async function workWrite(body: Record<string, unknown>) {
     signal: AbortSignal.timeout(20000),
   });
   const j = await r.json();
-  if (!r.ok) throw Error(j.error || "บันทึกงานไม่สำเร็จ");
+  if (!r.ok) throw Error(j.error || tr("บันทึกงานไม่สำเร็จ", "Failed to save task", "保存任务失败"));
   window.dispatchEvent(new Event("shd:work-changed"));
   return j;
 }

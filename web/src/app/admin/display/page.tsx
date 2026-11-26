@@ -129,7 +129,7 @@ export default function AdminDisplayPage() {
                   <img src={b.media_url} alt="" className="w-full h-full" style={{ objectFit: b.fit, objectPosition: `${b.pos_x}% ${b.pos_y}%` }} />
                 )}
                 <span className="absolute top-2 left-2 text-[10px] font-bold px-2 py-0.5 rounded-full bg-black/55 text-white inline-flex items-center gap-1">
-                  {b.media_type === "video" ? <><Film size={10} /> วิดีโอ</> : <><ImagePlus size={10} /> รูป</>} · #{i + 1}
+                  {b.media_type === "video" ? <><Film size={10} /> {L("วิดีโอ", "Video", "视频")}</> : <><ImagePlus size={10} /> {L("รูป", "Image", "图片")}</>} · #{i + 1}
                 </span>
               </div>
 

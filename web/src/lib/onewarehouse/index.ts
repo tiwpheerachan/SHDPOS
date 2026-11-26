@@ -31,6 +31,7 @@ export { owList, owListAll, owCreate, owApprove, owReject, owScanOut, owDispatch
 export * from "./reconcile";
 export * from "./status";
 export { owErrorMessage } from "./errors";
+import { tr } from "@/lib/i18n/tr";
 export type { Carrier } from "./types";
 
 /** มี REST จริงให้ต่อหรือยัง (base + auth pinned) — ตอนนี้ false ใช้ local engine */
@@ -39,12 +40,13 @@ export function isOneWarehouseLive(): boolean {
 }
 
 /** รายชื่อขนส่ง (GET /carriers) — ตอนนี้ mock จนกว่า API จริงจะพร้อม */
-const MOCK_CARRIERS = [
-  { id: "self", name: "รถบริษัท/รับเอง", enabled: true },
+const selfCarrier = () => ({ id: "self", name: tr("รถบริษัท/รับเอง", "Company vehicle / pickup", "公司车辆/自提"), enabled: true });
+const MOCK_CARRIERS = () => [
+  selfCarrier(),
   { id: "kerry", name: "Kerry Express", enabled: true },
   { id: "flash", name: "Flash Express", enabled: true },
   { id: "jt", name: "J&T Express", enabled: true },
-  { id: "thaipost", name: "ไปรษณีย์ไทย", enabled: true },
+  { id: "thaipost", name: tr("ไปรษณีย์ไทย", "Thailand Post", "泰国邮政"), enabled: true },
 ];
 export async function owCarriers(): Promise<{ id: string; name: string; enabled: boolean }[]> {
   // ดึงรายชื่อขนส่งจริงจาก OW (/v1/carriers ผ่าน proxy) — client เท่านั้น · ไม่ได้/ยังไม่เชื่อม = ใช้ mock
@@ -56,10 +58,10 @@ export async function owCarriers(): Promise<{ id: string; name: string; enabled:
         if (Array.isArray(j) && j.length) {
           const live = j.filter((c) => c.enabled).map((c) => ({ id: c.id, name: c.name, enabled: true }));
           // คงตัวเลือก "รับเอง/รถบริษัท" ไว้ (ไม่มีในรายการ OW)
-          return [{ id: "self", name: "รถบริษัท/รับเอง", enabled: true }, ...live];
+          return [selfCarrier(), ...live];
         }
       }
     } catch { /* fallback mock */ }
   }
-  return MOCK_CARRIERS.filter((c) => c.enabled);
+  return MOCK_CARRIERS().filter((c) => c.enabled);
 }

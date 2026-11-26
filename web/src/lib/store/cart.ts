@@ -5,6 +5,7 @@ import { nanoid } from "nanoid";
 import type { CartLine, LineCampaign, Product } from "../types";
 import { computeTotals, round2, type CartTotals } from "../money";
 import { pointsToBaht } from "../loyalty";
+import { tr } from "../i18n/tr";
 
 /** Combine equivalent sale rows while retaining every scanned physical unit. */
 export function coalesceCartLines(lines: CartLine[]): CartLine[] {
@@ -185,7 +186,7 @@ export const useCart = create<CartState>((set, get) => ({
       const used = new Set(s.lines.filter(l => l.lineId !== lineId).flatMap(l => l.serials.map(sn => sn.trim().toUpperCase())));
       if ((!line.track_serial && normalized.length) || normalized.length > line.qty ||
           normalized.some(sn => !sn || used.has(sn)) || new Set(normalized).size !== normalized.length)
-        throw new Error("SN ซ้ำ ไม่ถูกต้อง หรือเกินจำนวนสินค้า");
+        throw new Error(tr("SN ซ้ำ ไม่ถูกต้อง หรือเกินจำนวนสินค้า", "SN duplicate, invalid, or exceeds quantity", "SN 重复、无效或超过数量"));
       return { lines: s.lines.map(l => l.lineId === lineId ? { ...l, serials: normalized } : l) };
     }),
 

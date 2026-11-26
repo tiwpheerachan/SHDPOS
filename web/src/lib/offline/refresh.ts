@@ -2,6 +2,7 @@ import { db, stockKey, kvSet, kvGet } from "./db";
 import { isLiveMode } from "../supabase/client";
 import { useSession } from "../store/session";
 import type { Order, StockLevel, Shift } from "../types";
+import { tr } from "../i18n/tr";
 let running = false;
 export async function refreshBranchSnapshot() {
   const { employee, branchId } = useSession.getState();
@@ -15,7 +16,7 @@ export async function refreshBranchSnapshot() {
       { cache: "no-store", signal: AbortSignal.timeout(20_000) },
     );
     const data = await r.json();
-    if (!r.ok) throw Error(data.error || "อ่านข้อมูลกลางไม่สำเร็จ");
+    if (!r.ok) throw Error(data.error || tr("อ่านข้อมูลกลางไม่สำเร็จ", "Failed to load central data", "读取中心数据失败"));
     if (
       useSession.getState().branchId !== branchId ||
       useSession.getState().employee?.id !== data.actor_id

@@ -8,6 +8,7 @@ import { can } from "../permissions";
 // =====================================================================
 
 import { nanoid } from "nanoid";
+import { tr as tl } from "../i18n/tr";
 import { uuidv4 } from "../uuid";
 import { db, kvGet, kvSet, stockKey, type HeldBill } from "../offline/db";
 import { enqueue, refreshCounts, flush } from "../offline/sync";
@@ -220,7 +221,7 @@ async function loadCatalogFromSupabase(replaceCatalog = false): Promise<void> {
   ]);
 
   for (const result of [brands, branches, terminals, employees, products, categories, stock]) {
-    if (result.error || !result.data) throw new Error("โหลดแคตตาล็อกไม่ครบ เก็บข้อมูลเดิมไว้ก่อน");
+    if (result.error || !result.data) throw new Error(tl("โหลดแคตตาล็อกไม่ครบ เก็บข้อมูลเดิมไว้ก่อน", "Catalog load incomplete — keeping existing data", "目录加载不完整 — 暂保留原有数据"));
   }
   const pendingWrites = await d.pending.where("status").notEqual("done").count();
   // ใบโอน OneWarehouse (ow_owned) เซิร์ฟเวอร์เป็นเจ้าของ — sync_state คือสถานะ JST ไม่ใช่งานค้างในเครื่อง → ไม่นับ
@@ -301,7 +302,7 @@ export async function createBranch(input: {
   const d = db();
   const code = input.code.trim().toUpperCase();
   const existing = (await d.branches.toArray()).find((b) => b.code.toUpperCase() === code);
-  if (existing) throw new Error(`รหัสสาขา "${code}" มีอยู่แล้ว`);
+  if (existing) throw new Error(tl(`รหัสสาขา "${code}" มีอยู่แล้ว`, `Branch code "${code}" already exists`, `门店代码 "${code}" 已存在`));
   const branch: Branch = {
     id: `br-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
     code,
@@ -510,7 +511,7 @@ export async function reserveOrderStock(branchId: string, productId: string, del
 
 /** รัน read-write transaction คลุม transfers+stock+audit — ปรับยอด+ใบโอนสำเร็จพร้อมกัน (error ใดๆ → rollback ทั้งหมด) */
 function txTransfer<T>(fn: () => Promise<T>): Promise<T> {
-  if (isLiveMode()) throw new Error("การโอนจริงรอ API รับ/ส่งเหตุการณ์จาก OneWarehouse ระบบจะไม่เปลี่ยนยอดเฉพาะในเครื่องให้คลาดกับคลังกลาง");
+  if (isLiveMode()) throw new Error(tl("การโอนจริงรอ API รับ/ส่งเหตุการณ์จาก OneWarehouse ระบบจะไม่เปลี่ยนยอดเฉพาะในเครื่องให้คลาดกับคลังกลาง", "Live transfers await the OneWarehouse event API — local stock will not be changed out of sync with the central warehouse", "正式调拨需等待 OneWarehouse 事件 API — 系统不会仅在本机修改库存以免与中央仓不一致"));
   return db().transaction("rw", db().transfers, db().stock, db().audit, fn);
 }
 /** อ่านยอดปัจจุบันของ (สาขา, สินค้า) เพื่อตรวจก่อนจอง/ส่ง */
@@ -535,7 +536,7 @@ export async function importTransferSnapshot(tr: Transfer): Promise<boolean> {
 }
 
 async function freshOrThrow(tr: Transfer): Promise<Transfer> {
-  if (isLiveMode()) throw new Error("การโอนจริงรอ API รับ/ส่งเหตุการณ์จาก OneWarehouse");
+  if (isLiveMode()) throw new Error(tl("การโอนจริงรอ API รับ/ส่งเหตุการณ์จาก OneWarehouse", "Live transfers await the OneWarehouse event API", "正式调拨需等待 OneWarehouse 事件 API"));
   const fresh = await db().transfers.get(tr.id);
   if (!fresh) throw new Error("transfer_not_found");
   if ((fresh.version ?? 1) !== (tr.version ?? 1)) throw new Error("transfer_version_conflict");
@@ -1159,7 +1160,7 @@ export async function approveCountSession(session: StockCountSession, approverId
       if (l.counted == null) continue;
       if (!Number.isFinite(l.counted) || l.counted < 0) throw new Error("count_invalid_quantity");
       const current = (await d.stock.get(stockKey(fresh.branch_id, l.product_id)))?.qty_on_hand ?? 0;
-      if (current !== l.expected) throw new Error("count_stock_changed: สต๊อกเปลี่ยนระหว่างนับ กรุณาตรวจสอบรอบนับใหม่");
+      if (current !== l.expected) throw new Error("count_stock_changed: " + tl("สต๊อกเปลี่ยนระหว่างนับ กรุณาตรวจสอบรอบนับใหม่", "Stock changed during the count — please review and recount", "盘点期间库存发生变化 — 请核对后重新盘点"));
       const delta = round2(l.counted - l.expected);
       if (!delta) continue;
       await adjustStock(fresh.branch_id, l.product_id, delta);
@@ -1185,7 +1186,7 @@ export async function recordGoodsReceipt(
   branchId: string, employeeId: string, supplier: string, poRef: string, note: string,
   lines: { productId: string; sku: string; name: string; qty: number }[]
 ): Promise<string> {
-  if (isLiveMode()) throw new Error("การรับเข้าจริงต้องอ้างใบส่งจาก OneWarehouse กรุณารอการเชื่อมรายการรอรับ ห้ามเพิ่มยอดด้วยการกรอกจำนวนเอง");
+  if (isLiveMode()) throw new Error(tl("การรับเข้าจริงต้องอ้างใบส่งจาก OneWarehouse กรุณารอการเชื่อมรายการรอรับ ห้ามเพิ่มยอดด้วยการกรอกจำนวนเอง", "Live receiving must reference a OneWarehouse delivery — wait for the pending-receipt link; do not add stock by typing quantities", "正式收货须关联 OneWarehouse 发货单 — 请等待待收货清单对接，禁止手动输入数量加库存"));
   const grNo = `GR-${new Date().toISOString().slice(2, 10).replace(/-/g, "")}-${nanoid(4).toUpperCase()}`;
   for (const l of lines) {
     if (l.qty <= 0) continue;
@@ -1522,7 +1523,7 @@ export async function listReservedOrders(branchIds?: string[]): Promise<Order[]>
 }
 
 export async function voidOrder(orderId: string, employeeId: string, reason: string): Promise<void> {
-  if (isLiveMode()) throw new Error("บิลจริงต้องผ่านการตรวจรายการชำระและกระบวนการยกเลิก/คืนเงินส่วนกลาง ไม่สามารถคืนสต๊อกหรือถือว่าคืนเงินแล้วจากปุ่มนี้");
+  if (isLiveMode()) throw new Error(tl("บิลจริงต้องผ่านการตรวจรายการชำระและกระบวนการยกเลิก/คืนเงินส่วนกลาง ไม่สามารถคืนสต๊อกหรือถือว่าคืนเงินแล้วจากปุ่มนี้", "Live bills must go through payment verification and the central void/refund process — this button cannot restore stock or mark a refund", "正式账单须经过付款核对及中央作废/退款流程 — 此按钮无法恢复库存或视为已退款"));
   const order = await db().orders.get(orderId);
   if (!order || order.status === "voided") return;
 
@@ -1750,7 +1751,7 @@ export async function removeHold(id: string): Promise<void> {
 // RETURNS
 // ---------------------------------------------------------------------
 export async function createReturn(doc: ReturnDoc, employeeId: string): Promise<void> {
-  if (isLiveMode()) throw new Error("รายการจริงต้องผ่านคำขอคืนเงินและตรวจรับสินค้าคืนส่วนกลางก่อน ระบบจะไม่เพิ่มสต๊อกหรือบันทึกคืนเงินสำเร็จอัตโนมัติ");
+  if (isLiveMode()) throw new Error(tl("รายการจริงต้องผ่านคำขอคืนเงินและตรวจรับสินค้าคืนส่วนกลางก่อน ระบบจะไม่เพิ่มสต๊อกหรือบันทึกคืนเงินสำเร็จอัตโนมัติ", "Live transactions require a refund request and central return inspection first — stock and refunds are not recorded automatically", "正式交易须先提交退款申请并经中央验收退货 — 系统不会自动增加库存或记录退款成功"));
   await db().returns.put(doc);
   if (doc.status === "completed" || doc.status === "approved") {
     for (const it of doc.items) {
@@ -1908,7 +1909,7 @@ export async function fetchActiveGiftCampaigns(branchId: string, channel: string
   const params=new URLSearchParams({branch_id:branchId,channel});if(customerId)params.set("customer_id",customerId);
   const response=await fetch("/api/pos/gift-campaigns?"+params,{cache:"no-store"});
   const data=await response.json();
-  if(!response.ok||!Array.isArray(data))throw Error(data.error||"อ่านสิทธิ์ของแถมไม่สำเร็จ");
+  if(!response.ok||!Array.isArray(data))throw Error(data.error||tl("อ่านสิทธิ์ของแถมไม่สำเร็จ", "Failed to read gift entitlements", "读取赠品权益失败"));
   return data.map((r: unknown) => {
     const c = r as Record<string, unknown>;
     return {
@@ -1990,19 +1991,19 @@ export function promoDiscount(p: PromoCampaign, subtotal: number): number {
 
 /** ตรวจคูปองก่อนใช้ — live: RPC, demo/offline: ใช้ไม่ได้ */
 export async function validateCoupon(code: string, customerId: string | null, subtotal: number): Promise<CouponResult> {
-  if (!code.trim()) return { valid: false, reason: "กรอกรหัสคูปอง" };
+  if (!code.trim()) return { valid: false, reason: tl("กรอกรหัสคูปอง", "Enter a coupon code", "请输入优惠券代码") };
   if (!isLiveMode() || (typeof navigator !== "undefined" && !navigator.onLine)) {
-    return { valid: false, reason: "ใช้คูปองได้เมื่อออนไลน์" };
+    return { valid: false, reason: tl("ใช้คูปองได้เมื่อออนไลน์", "Coupons can be used only when online", "优惠券仅可在联网时使用") };
   }
   const sb = supabase();
-  if (!sb) return { valid: false, reason: "ใช้คูปองได้เมื่อออนไลน์" };
+  if (!sb) return { valid: false, reason: tl("ใช้คูปองได้เมื่อออนไลน์", "Coupons can be used only when online", "优惠券仅可在联网时使用") };
   const { data, error } = await sb.rpc("pos_validate_coupon", {
     p_code: code.trim(),
     p_customer_id: customerId,
     p_subtotal: subtotal,
   });
   if (error) return { valid: false, reason: error.message };
-  return (data ?? { valid: false, reason: "ไม่พบคูปอง" }) as CouponResult;
+  return (data ?? { valid: false, reason: tl("ไม่พบคูปอง", "Coupon not found", "未找到优惠券") }) as CouponResult;
 }
 
 export interface NewCustomerInput {

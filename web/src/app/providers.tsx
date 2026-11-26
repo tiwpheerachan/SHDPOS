@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { I18nProvider, useI18n } from "@/lib/i18n/provider";
+import { AutoTranslateMount } from "@/components/i18n/auto-translate";
 import { ThemeProvider } from "@/lib/theme";
 import { ToastHost } from "@/components/toast-host";
 import { bootstrap } from "@/lib/data/repo";
@@ -81,6 +82,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
       <I18nProvider>
         <BootGate ready={ready} error={error}>{children}</BootGate>
         <ToastHost />
+        <AutoTranslateMount />
       </I18nProvider>
     </ThemeProvider>
   );

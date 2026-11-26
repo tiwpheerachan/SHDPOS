@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { Network, Plus, Pencil, Trash2, UserPlus, Search, Check, ChevronDown, RefreshCw, Sparkles, ShieldCheck, ChevronLeft, Users, GripVertical, ArrowLeftRight, Store, SlidersHorizontal } from "lucide-react";
 import clsx from "clsx";
 import { useI18n } from "@/lib/i18n/provider";
+import { tr } from "@/lib/i18n/tr";
 import { useSession } from "@/lib/store/session";
 import { Card, CardHeader, Avatar, Button, Select, Field, Modal, Drawer, EmptyState, Badge } from "@/components/ui";
 import { useAdminScope } from "@/components/admin/filters";
@@ -640,19 +641,19 @@ function OrgLevel({ nodes, onEdit, onPick, roleLabel, posLabel }: { nodes: TreeN
               onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onPick(n.emp.id); } }}
               role="button"
               tabIndex={0}
-              title={n.virtual ? "หัวหน้าตาม SSO (ไม่ได้ประจำสาขานี้)" : posLabel(n.pos?.title) || roleLabel(n.emp.role)}
+              title={n.virtual ? tr("หัวหน้าตาม SSO (ไม่ได้ประจำสาขานี้)", "Manager per SSO (not based at this branch)", "SSO 上级（不在本门店）") : posLabel(n.pos?.title) || roleLabel(n.emp.role)}
               className={clsx(
                 "group relative inline-flex flex-col items-center gap-1.5 w-44 rounded-2xl border px-3 py-3 transition-all cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-brand/40 hover:border-brand hover:shadow-pop",
                 n.virtual ? "border-dashed border-line bg-surface2/70" : "border-line bg-surface",
               )}
             >
               <Avatar name={n.emp.name} src={n.emp.photo_url} size={44} />
-              <p className="text-sm font-semibold leading-tight text-center line-clamp-1">{n.emp.name}</p>
+              <p className="text-sm font-semibold leading-tight text-center line-clamp-1" translate="no">{n.emp.name}</p>
               {title ? <p className="text-[11px] text-brand font-medium text-center line-clamp-2 leading-snug">{title}</p> : null}
-              {n.virtual ? <Badge tone="neutral">นอกสาขา · SSO</Badge> : <Badge tone="brand">{roleLabel(n.emp.role)}</Badge>}
+              {n.virtual ? <Badge tone="neutral">{tr("นอกสาขา · SSO", "Off-branch · SSO", "非本门店 · SSO")}</Badge> : <Badge tone="brand">{roleLabel(n.emp.role)}</Badge>}
               {n.virtual ? null : <button
                 onClick={(e) => { e.stopPropagation(); onEdit(n.emp.id); }}
-                title="แก้ตำแหน่ง / สายบังคับบัญชา"
+                title={tr("แก้ตำแหน่ง / สายบังคับบัญชา", "Edit position / reporting line", "编辑职位 / 汇报线")}
                 className="absolute top-1.5 right-1.5 p-1 rounded-lg text-muted opacity-0 group-hover:opacity-100 hover:bg-surface2 hover:text-brand transition-all"
               >
                 <Pencil size={13} />

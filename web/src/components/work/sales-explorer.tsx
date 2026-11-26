@@ -11,6 +11,8 @@ import {
 } from "lucide-react";
 import { Avatar } from "@/components/ui";
 import { formatTHB, formatCompact } from "@/lib/money";
+import { useL } from "@/lib/i18n/provider";
+import { tr } from "@/lib/i18n/tr";
 
 // ── ชนิดข้อมูลจาก API ──
 interface ApiItem { sku: string; name: string; qty: number; total: number; gift: boolean }
@@ -36,18 +38,19 @@ const thDate = (s: string, opt: Intl.DateTimeFormatOptions = { day: "numeric", m
   new Date(s + "T12:00:00+07:00").toLocaleDateString("th-TH", opt);
 
 const PRESETS: { k: string; label: string; range: () => [string, string] }[] = [
-  { k: "today", label: "วันนี้", range: () => [todayBkk(), todayBkk()] },
-  { k: "yesterday", label: "เมื่อวาน", range: () => { const y = addDays(todayBkk(), -1); return [y, y]; } },
-  { k: "7d", label: "7 วัน", range: () => [addDays(todayBkk(), -6), todayBkk()] },
-  { k: "month", label: "เดือนนี้", range: () => [todayBkk().slice(0, 8) + "01", todayBkk()] },
-  { k: "lastmonth", label: "เดือนก่อน", range: () => {
+  { k: "today", get label() { return tr("วันนี้", "Today", "今天"); }, range: () => [todayBkk(), todayBkk()] },
+  { k: "yesterday", get label() { return tr("เมื่อวาน", "Yesterday", "昨天"); }, range: () => { const y = addDays(todayBkk(), -1); return [y, y]; } },
+  { k: "7d", get label() { return tr("7 วัน", "7 days", "7 天"); }, range: () => [addDays(todayBkk(), -6), todayBkk()] },
+  { k: "month", get label() { return tr("เดือนนี้", "This month", "本月"); }, range: () => [todayBkk().slice(0, 8) + "01", todayBkk()] },
+  { k: "lastmonth", get label() { return tr("เดือนก่อน", "Last month", "上月"); }, range: () => {
       const first = todayBkk().slice(0, 8) + "01"; const end = addDays(first, -1); return [end.slice(0, 8) + "01", end];
     } },
-  { k: "year", label: "ปีนี้", range: () => [todayBkk().slice(0, 4) + "-01-01", todayBkk()] },
+  { k: "year", get label() { return tr("ปีนี้", "This year", "今年"); }, range: () => [todayBkk().slice(0, 4) + "-01-01", todayBkk()] },
 ];
 const PALETTE = ["#7950D8", "#FF725E", "#22B8A7", "#F5A524", "#3B82F6", "#E05297", "#8B5CF6", "#10B981"];
 
 export function SalesExplorer({ admin = true }: { admin?: boolean }) {
+  const L = useL();
   const [preset, setPreset] = useState("month");
   const [[from, to], setRange] = useState<[string, string]>(PRESETS[3].range());
   const [hourFrom, setHourFrom] = useState(0);
@@ -70,10 +73,10 @@ export function SalesExplorer({ admin = true }: { admin?: boolean }) {
         const r = await fetch(`/api/work/sales/explore?from=${from}&to=${to}`, { cache: "no-store", signal: AbortSignal.timeout(30000) });
         const j = await r.json();
         if (!alive) return;
-        if (!r.ok) throw new Error(j.error || "อ่านข้อมูลขายไม่สำเร็จ");
+        if (!r.ok) throw new Error(j.error || L("อ่านข้อมูลขายไม่สำเร็จ", "Failed to load sales data", "读取销售数据失败"));
         setData(j as ApiData); setError("");
       } catch (e) {
-        if (alive) setError(e instanceof Error ? e.message : "อ่านข้อมูลขายไม่สำเร็จ");
+        if (alive) setError(e instanceof Error ? e.message : L("อ่านข้อมูลขายไม่สำเร็จ", "Failed to load sales data", "读取销售数据失败"));
       } finally {
         if (alive) setLoading(false);
       }
@@ -90,12 +93,12 @@ export function SalesExplorer({ admin = true }: { admin?: boolean }) {
     const person = new Map((data?.people ?? []).map((p) => [p.id, p]));
     return { branch, brand, person };
   }, [data]);
-  const brandName = (id: string) => (id === NONE ? "ไม่ระบุแบรนด์" : ref.brand.get(id)?.name_th || ref.brand.get(id)?.name || "แบรนด์");
-  const branchName = (id: string) => ref.branch.get(id)?.name_th || ref.branch.get(id)?.name || "สาขา";
+  const brandName = (id: string) => (id === NONE ? L("ไม่ระบุแบรนด์", "No brand", "未指定品牌") : ref.brand.get(id)?.name_th || ref.brand.get(id)?.name || L("แบรนด์", "Brand", "品牌"));
+  const branchName = (id: string) => ref.branch.get(id)?.name_th || ref.branch.get(id)?.name || L("สาขา", "Branch", "门店");
   const personName = (id: string) => {
-    if (id === NONE) return "ไม่ระบุพนักงาน";
+    if (id === NONE) return L("ไม่ระบุพนักงาน", "No staff", "未指定员工");
     const p = ref.person.get(id);
-    return p ? (p.nickname || [p.first_name, p.last_name].filter(Boolean).join(" ") || "พนักงาน") : "พนักงาน";
+    return p ? (p.nickname || [p.first_name, p.last_name].filter(Boolean).join(" ") || L("พนักงาน", "Staff", "员工")) : L("พนักงาน", "Staff", "员工");
   };
 
   // ── แถวที่ผ่านตัวกรองเวลา/คำค้น (ยังไม่กรองชั้นเจาะ) ──
@@ -193,14 +196,14 @@ export function SalesExplorer({ admin = true }: { admin?: boolean }) {
   const hourFiltered = hourFrom !== 0 || hourTo !== 23;
 
   const crumbs: { label: string; icon: typeof Tag; go: () => void }[] = [
-    { label: data?.scope === "own" ? "ยอดของฉัน" : "ทุกแบรนด์", icon: Tag, go: () => setPath({}) },
+    { label: data?.scope === "own" ? L("ยอดของฉัน", "My sales", "我的销售额") : L("ทุกแบรนด์", "All brands", "全部品牌"), icon: Tag, go: () => setPath({}) },
   ];
   if (path.brand) crumbs.push({ label: brandName(path.brand), icon: Tag, go: () => setPath({ brand: path.brand }) });
   if (path.branch) crumbs.push({ label: branchName(path.branch), icon: Store, go: () => setPath({ brand: path.brand, branch: path.branch }) });
   if (path.person) crumbs.push({ label: personName(path.person), icon: User, go: () => {} });
 
-  const levelTitle = level === "brand" ? "ยอดตามแบรนด์" : level === "branch" ? "ยอดตามสาขา" : level === "person" ? "ยอดตามพนักงาน" : "บิลของพนักงาน";
-  const scopeLabel = data?.scope === "all" ? "เห็นทุกแบรนด์/สาขา" : data?.scope === "own" ? "เฉพาะยอดของคุณ" : "ตามสาขาที่ดูแล";
+  const levelTitle = level === "brand" ? L("ยอดตามแบรนด์", "Sales by brand", "按品牌销售额") : level === "branch" ? L("ยอดตามสาขา", "Sales by branch", "按门店销售额") : level === "person" ? L("ยอดตามพนักงาน", "Sales by staff", "按员工销售额") : L("บิลของพนักงาน", "Staff bills", "员工单据");
+  const scopeLabel = data?.scope === "all" ? L("เห็นทุกแบรนด์/สาขา", "All brands/branches", "全部品牌/门店") : data?.scope === "own" ? L("เฉพาะยอดของคุณ", "Your sales only", "仅您的销售额") : L("ตามสาขาที่ดูแล", "Branches you manage", "您管理的门店");
   const bill = openBill ? scoped.find((r) => r.id === openBill) ?? null : null;
 
   return (
@@ -218,31 +221,31 @@ export function SalesExplorer({ admin = true }: { admin?: boolean }) {
           </div>
           <div className="flex items-center gap-1.5 rounded-xl bg-surface2/70 px-2 h-9">
             <CalendarRange size={14} className="text-muted" />
-            <input type="date" value={from} max={to} onChange={(e) => e.target.value && setCustom(e.target.value, to)} className="bg-transparent text-xs outline-none tnum" aria-label="ตั้งแต่วันที่" />
+            <input type="date" value={from} max={to} onChange={(e) => e.target.value && setCustom(e.target.value, to)} className="bg-transparent text-xs outline-none tnum" aria-label={L("ตั้งแต่วันที่", "From date", "开始日期")} />
             <span className="text-muted text-xs">–</span>
-            <input type="date" value={to} min={from} onChange={(e) => e.target.value && setCustom(from, e.target.value)} className="bg-transparent text-xs outline-none tnum" aria-label="ถึงวันที่" />
+            <input type="date" value={to} min={from} onChange={(e) => e.target.value && setCustom(from, e.target.value)} className="bg-transparent text-xs outline-none tnum" aria-label={L("ถึงวันที่", "To date", "结束日期")} />
           </div>
           <div className="flex items-center gap-1.5 rounded-xl bg-surface2/70 px-2 h-9">
             <Clock3 size={14} className="text-muted" />
-            <select value={hourFrom} onChange={(e) => { const v = +e.target.value; setHourFrom(v); if (v > hourTo) setHourTo(v); }} className="bg-transparent text-xs outline-none tnum" aria-label="ตั้งแต่เวลา">
+            <select value={hourFrom} onChange={(e) => { const v = +e.target.value; setHourFrom(v); if (v > hourTo) setHourTo(v); }} className="bg-transparent text-xs outline-none tnum" aria-label={L("ตั้งแต่เวลา", "From hour", "开始时间")}>
               {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{pad(h)}:00</option>)}
             </select>
             <span className="text-muted text-xs">–</span>
-            <select value={hourTo} onChange={(e) => { const v = +e.target.value; setHourTo(v); if (v < hourFrom) setHourFrom(v); }} className="bg-transparent text-xs outline-none tnum" aria-label="ถึงเวลา">
+            <select value={hourTo} onChange={(e) => { const v = +e.target.value; setHourTo(v); if (v < hourFrom) setHourFrom(v); }} className="bg-transparent text-xs outline-none tnum" aria-label={L("ถึงเวลา", "To hour", "结束时间")}>
               {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{pad(h)}:59</option>)}
             </select>
-            {hourFiltered ? <button onClick={() => { setHourFrom(0); setHourTo(23); }} className="text-muted hover:text-ink" aria-label="ล้างช่วงเวลา"><X size={13} /></button> : null}
+            {hourFiltered ? <button onClick={() => { setHourFrom(0); setHourTo(23); }} className="text-muted hover:text-ink" aria-label={L("ล้างช่วงเวลา", "Clear time range", "清除时间段")}><X size={13} /></button> : null}
           </div>
           <div className="relative flex-1 min-w-[180px]">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
-            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="ค้นสินค้า / SKU / เลขบิล" className="work-field !pl-9 w-full" />
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={L("ค้นสินค้า / SKU / เลขบิล", "Search product / SKU / bill no.", "搜索商品 / SKU / 单号")} className="work-field !pl-9 w-full" />
           </div>
           <div className="inline-flex rounded-xl bg-surface2/70 p-0.5">
-            {([["sales", "ยอดขาย"], ["orders", "บิล"], ["qty", "ชิ้น"]] as const).map(([k, l]) => (
+            {([["sales", L("ยอดขาย", "Sales", "销售额")], ["orders", L("บิล", "Bills", "单据")], ["qty", L("ชิ้น", "Units", "件数")]] as const).map(([k, l]) => (
               <button key={k} onClick={() => setMetric(k)} className={`h-8 px-3 rounded-lg text-xs ${metric === k ? "bg-brand text-brandInk shadow-sm" : "text-muted hover:text-ink"}`}>{l}</button>
             ))}
           </div>
-          <button onClick={() => setTick((t) => t + 1)} className="h-9 w-9 grid place-items-center rounded-xl bg-surface2/70 text-muted hover:text-ink" aria-label="โหลดใหม่">
+          <button onClick={() => setTick((t) => t + 1)} className="h-9 w-9 grid place-items-center rounded-xl bg-surface2/70 text-muted hover:text-ink" aria-label={L("โหลดใหม่", "Reload", "重新加载")}>
             <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
           </button>
         </div>
@@ -271,15 +274,15 @@ export function SalesExplorer({ admin = true }: { admin?: boolean }) {
       </section>
 
       {error ? <p role="alert" className="text-xs text-danger bg-danger/5 rounded-xl p-3">{error}</p> : null}
-      {data?.truncated ? <p className="work-caption text-warn">ข้อมูลเกิน 20,000 บิล แสดงบางส่วน — กรุณาเลือกช่วงวันที่ให้แคบลง</p> : null}
+      {data?.truncated ? <p className="work-caption text-warn">{L("ข้อมูลเกิน 20,000 บิล แสดงบางส่วน — กรุณาเลือกช่วงวันที่ให้แคบลง", "Over 20,000 bills — showing partial data. Please narrow the date range", "超过 20,000 张单据，仅显示部分，请缩小日期范围")}</p> : null}
 
       {/* ── KPI ── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {[
-          ["ยอดขาย", formatTHB(kpi.sales), "รวม VAT · บิลปิดแล้ว", true],
-          ["จำนวนบิล", kpi.orders.toLocaleString("th-TH"), "ไม่รวมบิลยกเลิก/คืนเต็ม", false],
-          ["เฉลี่ยต่อบิล", formatTHB(kpi.avg), "ยอดขาย ÷ บิล", false],
-          ["จำนวนชิ้น", kpi.qty.toLocaleString("th-TH"), "รวมของแถม", false],
+          [L("ยอดขาย", "Sales", "销售额"), formatTHB(kpi.sales), L("รวม VAT · บิลปิดแล้ว", "Incl. VAT · closed bills", "含 VAT · 已结单据"), true],
+          [L("จำนวนบิล", "Bills", "单据数"), kpi.orders.toLocaleString("th-TH"), L("ไม่รวมบิลยกเลิก/คืนเต็ม", "Excl. voided/fully returned", "不含作废/全额退货"), false],
+          [L("เฉลี่ยต่อบิล", "Avg per bill", "客单价"), formatTHB(kpi.avg), L("ยอดขาย ÷ บิล", "Sales ÷ bills", "销售额 ÷ 单据数"), false],
+          [L("จำนวนชิ้น", "Units", "件数"), kpi.qty.toLocaleString("th-TH"), L("รวมของแถม", "Incl. free gifts", "含赠品"), false],
         ].map(([l, v, h, hero]) => (
           <div key={l as string} className={`p-4 sm:p-5 rounded-[22px] ${hero ? "bg-brand text-brandInk shadow-sm" : "work-card"}`}>
             <p className={`text-[11px] ${hero ? "opacity-70" : "text-muted"}`}>{l}</p>
@@ -291,11 +294,11 @@ export function SalesExplorer({ admin = true }: { admin?: boolean }) {
 
       {pending.length ? (
         <a href={admin ? "/admin/deferred-sales" : "/pos/deferred-sales"} className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-2xl border border-warn/30 bg-warn/8 px-4 py-3 text-xs hover:bg-warn/12 transition">
-          <span className="font-semibold text-warn">รอปิดบิล {pending.length} รายการ</span>
-          <span className="text-muted">ยอดตกลง <b className="tnum text-ink">{formatTHB(pendingAgreed)}</b></span>
-          <span className="text-muted">รับเงินแล้ว <b className="tnum text-ink">{formatTHB(pendingReceived)}</b></span>
-          <span className="text-muted">· แสดงแยก ยังไม่รวมในยอดขายจนกว่าจะปิดบิล</span>
-          <span className="ml-auto text-warn font-medium flex items-center gap-1">จัดการบิลรอปิด <ChevronRight size={13} /></span>
+          <span className="font-semibold text-warn">{L(`รอปิดบิล ${pending.length} รายการ`, `${pending.length} pending bills`, `待结单据 ${pending.length} 张`)}</span>
+          <span className="text-muted">{L("ยอดตกลง", "Agreed", "约定金额")} <b className="tnum text-ink">{formatTHB(pendingAgreed)}</b></span>
+          <span className="text-muted">{L("รับเงินแล้ว", "Received", "已收款")} <b className="tnum text-ink">{formatTHB(pendingReceived)}</b></span>
+          <span className="text-muted">{L("· แสดงแยก ยังไม่รวมในยอดขายจนกว่าจะปิดบิล", "· shown separately, not in sales until closed", "· 单独显示，结单前不计入销售额")}</span>
+          <span className="ml-auto text-warn font-medium flex items-center gap-1">{L("จัดการบิลรอปิด", "Manage pending bills", "管理待结单据")} <ChevronRight size={13} /></span>
         </a>
       ) : null}
 
@@ -304,7 +307,7 @@ export function SalesExplorer({ admin = true }: { admin?: boolean }) {
         <section className="work-card p-4 sm:p-5 min-w-0">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-semibold">{levelTitle}</h2>
-            <span className="work-caption">{level === "bills" ? `${scoped.length} บิล` : `${groups.length} รายการ · คลิกเพื่อดูลึกลงไป`}</span>
+            <span className="work-caption">{level === "bills" ? L(`${scoped.length} บิล`, `${scoped.length} bills`, `${scoped.length} 张单据`) : L(`${groups.length} รายการ · คลิกเพื่อดูลึกลงไป`, `${groups.length} items · click to drill down`, `${groups.length} 项 · 点击查看明细`)}</span>
           </div>
 
           {loading && !data ? (
@@ -317,7 +320,7 @@ export function SalesExplorer({ admin = true }: { admin?: boolean }) {
                 const share = total ? (g.value / total) * 100 : 0;
                 const tone = level === "brand" ? (ref.brand.get(g.id)?.tone ?? PALETTE[i % PALETTE.length]) : PALETTE[i % PALETTE.length];
                 const label = level === "brand" ? brandName(g.id) : level === "branch" ? branchName(g.id) : personName(g.id);
-                const sub = level === "branch" ? (ref.branch.get(g.id)?.province ?? "") : level === "brand" ? `${new Set(g.rows.map((r) => r.branch_id)).size} สาขา` : `${new Set(g.rows.map((r) => r.day)).size} วันที่ขาย`;
+                const sub = level === "branch" ? (ref.branch.get(g.id)?.province ?? "") : level === "brand" ? L(`${new Set(g.rows.map((r) => r.branch_id)).size} สาขา`, `${new Set(g.rows.map((r) => r.branch_id)).size} branches`, `${new Set(g.rows.map((r) => r.branch_id)).size} 家门店`) : L(`${new Set(g.rows.map((r) => r.day)).size} วันที่ขาย`, `${new Set(g.rows.map((r) => r.day)).size} selling days`, `${new Set(g.rows.map((r) => r.day)).size} 个销售日`);
                 const p = level === "person" && g.id !== NONE ? ref.person.get(g.id) : null;
                 return (
                   <button key={g.id} onClick={() => drill(g.id)}
@@ -339,7 +342,7 @@ export function SalesExplorer({ admin = true }: { admin?: boolean }) {
                     </div>
                     <div className="mt-3 flex items-end justify-between gap-2">
                       <p className="text-lg font-semibold tnum tracking-tight">{fmt(g.value)}</p>
-                      <p className="text-[11px] text-muted tnum">{g.orders} บิล · {share.toFixed(1)}%</p>
+                      <p className="text-[11px] text-muted tnum">{g.orders} {L("บิล", "bills", "单")} · {share.toFixed(1)}%</p>
                     </div>
                     <div className="mt-2 h-1.5 rounded-full bg-surface2 overflow-hidden">
                       <div className="h-full rounded-full transition-all duration-500" style={{ width: `${Math.max(2, share)}%`, background: tone }} />
@@ -356,10 +359,10 @@ export function SalesExplorer({ admin = true }: { admin?: boolean }) {
         {/* ── ช่วงเวลาที่ขาย ── */}
         <section className="work-card p-4 sm:p-5">
           <div className="flex items-center justify-between mb-1">
-            <h2 className="text-sm font-semibold flex items-center gap-1.5"><Clock3 size={14} /> ขายช่วงเวลาไหน</h2>
-            {hourFiltered ? <button onClick={() => { setHourFrom(0); setHourTo(23); }} className="text-[11px] text-brand">ล้าง</button> : null}
+            <h2 className="text-sm font-semibold flex items-center gap-1.5"><Clock3 size={14} /> {L("ขายช่วงเวลาไหน", "Sales by hour", "各时段销售")}</h2>
+            {hourFiltered ? <button onClick={() => { setHourFrom(0); setHourTo(23); }} className="text-[11px] text-brand">{L("ล้าง", "Clear", "清除")}</button> : null}
           </div>
-          <p className="work-caption mb-3">คลิกแท่งเพื่อกรองชั่วโมงนั้น</p>
+          <p className="work-caption mb-3">{L("คลิกแท่งเพื่อกรองชั่วโมงนั้น", "Click a bar to filter that hour", "点击柱形筛选该小时")}</p>
           <div className="flex items-end gap-[3px] h-36">
             {hours.map(({ h, value }) => {
               const on = h >= hourFrom && h <= hourTo;
@@ -380,7 +383,7 @@ export function SalesExplorer({ admin = true }: { admin?: boolean }) {
             const peak = hours.reduce((a, b) => (b.value > a.value ? b : a), hours[0]);
             return peak && peak.value ? (
               <p className="text-xs mt-3 rounded-xl bg-surface2/70 px-3 py-2">
-                ช่วงขายดีสุด <b className="tnum">{pad(peak.h)}:00–{pad(peak.h)}:59</b> · {fmt(peak.value)}
+                {L("ช่วงขายดีสุด", "Peak hour", "销售高峰")} <b className="tnum">{pad(peak.h)}:00–{pad(peak.h)}:59</b> · {fmt(peak.value)}
               </p>
             ) : null;
           })()}
@@ -390,12 +393,12 @@ export function SalesExplorer({ admin = true }: { admin?: boolean }) {
       {/* ── ปฏิทินรายวัน ── */}
       <section className="work-card p-4 sm:p-5">
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-semibold flex items-center gap-1.5"><CalendarRange size={14} /> ยอดรายวัน</h2>
-          <span className="work-caption">คลิกวันเพื่อดูเฉพาะวันนั้น</span>
+          <h2 className="text-sm font-semibold flex items-center gap-1.5"><CalendarRange size={14} /> {L("ยอดรายวัน", "Daily sales", "每日销售额")}</h2>
+          <span className="work-caption">{L("คลิกวันเพื่อดูเฉพาะวันนั้น", "Click a day to view it only", "点击日期仅查看当天")}</span>
         </div>
         {days.length <= 45 ? (
           <div className="grid grid-cols-7 gap-1.5">
-            {["จ", "อ", "พ", "พฤ", "ศ", "ส", "อา"].map((d) => <p key={d} className="text-[10px] text-muted text-center pb-1">{d}</p>)}
+            {L("จ|อ|พ|พฤ|ศ|ส|อา", "Mon|Tue|Wed|Thu|Fri|Sat|Sun", "一|二|三|四|五|六|日").split("|").map((d) => <p key={d} className="text-[10px] text-muted text-center pb-1">{d}</p>)}
             {Array.from({ length: (new Date(from + "T00:00:00Z").getUTCDay() + 6) % 7 }, (_, i) => <span key={"b" + i} />)}
             {days.map((d) => {
               const a = d.value / dayMax;
@@ -423,7 +426,7 @@ export function SalesExplorer({ admin = true }: { admin?: boolean }) {
       {/* ── สินค้า + บิลล่าสุด ── */}
       <div className="grid xl:grid-cols-2 gap-4">
         <section className="work-card p-4 sm:p-5 min-w-0">
-          <h2 className="text-sm font-semibold flex items-center gap-1.5 mb-3"><Package size={14} /> สินค้าที่ขายได้</h2>
+          <h2 className="text-sm font-semibold flex items-center gap-1.5 mb-3"><Package size={14} /> {L("สินค้าที่ขายได้", "Products sold", "已售商品")}</h2>
           {products.length ? (
             <ol className="space-y-1.5">
               {products.map((p, i) => (
@@ -433,7 +436,7 @@ export function SalesExplorer({ admin = true }: { admin?: boolean }) {
                     <p className="text-xs font-medium truncate">{p.name}</p>
                     <p className="text-[10px] text-muted tnum">{p.sku}</p>
                   </div>
-                  <span className="text-[11px] text-muted tnum">{p.qty.toLocaleString("th-TH")} ชิ้น</span>
+                  <span className="text-[11px] text-muted tnum">{p.qty.toLocaleString("th-TH")} {L("ชิ้น", "pcs", "件")}</span>
                   <span className="text-xs font-semibold tnum w-24 text-right">{formatTHB(p.total)}</span>
                 </li>
               ))}
@@ -441,44 +444,44 @@ export function SalesExplorer({ admin = true }: { admin?: boolean }) {
           ) : <Empty />}
         </section>
         <section className="work-card p-4 sm:p-5 min-w-0">
-          <h2 className="text-sm font-semibold flex items-center gap-1.5 mb-3"><Receipt size={14} /> บิลล่าสุด · ขายอะไรไปบ้าง</h2>
+          <h2 className="text-sm font-semibold flex items-center gap-1.5 mb-3"><Receipt size={14} /> {L("บิลล่าสุด · ขายอะไรไปบ้าง", "Recent bills · what sold", "最新单据 · 售出商品")}</h2>
           {recent.length ? <BillList rows={recent.slice(0, 12)} branchName={branchName} personName={personName} onOpen={setOpenBill} /> : <Empty />}
         </section>
       </div>
 
-      <p className="work-caption">อัปเดตทุก 1 นาที · ยอดรวม VAT ตามบิลปิด · ไม่รวมบิลยกเลิกและคืนเต็ม · ยังไม่หักคืนบางส่วน · เวลาไทย (UTC+7)</p>
+      <p className="work-caption">{L("อัปเดตทุก 1 นาที · ยอดรวม VAT ตามบิลปิด · ไม่รวมบิลยกเลิกและคืนเต็ม · ยังไม่หักคืนบางส่วน · เวลาไทย (UTC+7)", "Updated every minute · incl. VAT on closed bills · excl. voided and fully returned · partial returns not deducted · Thailand time (UTC+7)", "每分钟更新 · 含 VAT 按已结单据 · 不含作废和全额退货 · 未扣除部分退货 · 泰国时间 (UTC+7)")}</p>
 
       {/* ── รายละเอียดบิล ── */}
       {bill ? (
         <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
-          <button className="absolute inset-0 bg-black/30 backdrop-blur-[2px]" onClick={() => setOpenBill(null)} aria-label="ปิด" />
+          <button className="absolute inset-0 bg-black/30 backdrop-blur-[2px]" onClick={() => setOpenBill(null)} aria-label={L("ปิด", "Close", "关闭")} />
           <aside className="relative w-full max-w-md h-full bg-surface shadow-2xl p-5 overflow-y-auto">
             <div className="flex items-start justify-between mb-4">
               <div>
-                <p className="work-caption">บิล</p>
+                <p className="work-caption">{L("บิล", "Bill", "单据")}</p>
                 <h3 className="text-lg font-semibold tnum">{bill.no}</h3>
                 <p className="text-xs text-muted mt-0.5">
-                  {thDate(bill.day, { weekday: "short", day: "numeric", month: "long", year: "numeric" })} · {pad(bill.hour)}:{pad(bkk(bill.at).getUTCMinutes())} น.
+                  {thDate(bill.day, { weekday: "short", day: "numeric", month: "long", year: "numeric" })} · {pad(bill.hour)}:{pad(bkk(bill.at).getUTCMinutes())}{L(" น.", "", "")}
                 </p>
               </div>
-              <button onClick={() => setOpenBill(null)} className="h-8 w-8 grid place-items-center rounded-lg hover:bg-surface2" aria-label="ปิด"><X size={16} /></button>
+              <button onClick={() => setOpenBill(null)} className="h-8 w-8 grid place-items-center rounded-lg hover:bg-surface2" aria-label={L("ปิด", "Close", "关闭")}><X size={16} /></button>
             </div>
             <div className="grid grid-cols-2 gap-2 text-xs mb-4">
-              <div className="rounded-xl bg-surface2/70 p-3"><p className="text-muted text-[10px]">สาขา</p><p className="font-medium truncate">{branchName(bill.branch_id)}</p></div>
-              <div className="rounded-xl bg-surface2/70 p-3"><p className="text-muted text-[10px]">พนักงาน</p><p className="font-medium truncate">{personName(bill.person_id ?? NONE)}</p></div>
+              <div className="rounded-xl bg-surface2/70 p-3"><p className="text-muted text-[10px]">{L("สาขา", "Branch", "门店")}</p><p className="font-medium truncate" translate="no">{branchName(bill.branch_id)}</p></div>
+              <div className="rounded-xl bg-surface2/70 p-3"><p className="text-muted text-[10px]">{L("พนักงาน", "Staff", "员工")}</p><p className="font-medium truncate" translate="no">{personName(bill.person_id ?? NONE)}</p></div>
             </div>
             <ul className="divide-y divide-line">
               {bill.items.map((it, i) => (
                 <li key={i} className="py-2.5 flex items-center gap-3">
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm truncate">{it.name}{it.gift ? <span className="ml-1.5 text-[10px] text-ok">แถม</span> : null}</p>
+                    <p className="text-sm truncate"><span translate="no">{it.name}</span>{it.gift ? <span className="ml-1.5 text-[10px] text-ok">{L("แถม", "Gift", "赠品")}</span> : null}</p>
                     <p className="text-[10px] text-muted tnum">{it.sku} · ×{it.qty}</p>
                   </div>
                   <span className="text-sm tnum">{formatTHB(it.total)}</span>
                 </li>
               ))}
             </ul>
-            <div className="flex justify-between mt-4 pt-3 border-t border-line text-sm font-semibold"><span>รวม</span><span className="tnum">{formatTHB(bill.total)}</span></div>
+            <div className="flex justify-between mt-4 pt-3 border-t border-line text-sm font-semibold"><span>{L("รวม", "Total", "合计")}</span><span className="tnum">{formatTHB(bill.total)}</span></div>
           </aside>
         </div>
       ) : null}
@@ -535,7 +538,7 @@ function Empty() {
   return (
     <div className="py-10 text-center">
       <Receipt size={22} className="mx-auto text-muted/40" />
-      <p className="text-xs text-muted mt-2">ยังไม่มียอดขายในช่วงนี้</p>
+      <p className="text-xs text-muted mt-2">{tr("ยังไม่มียอดขายในช่วงนี้", "No sales in this period", "此期间暂无销售")}</p>
     </div>
   );
 }

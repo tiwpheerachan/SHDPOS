@@ -8,6 +8,7 @@
 
 import { useMemo, useState } from "react";
 import { formatCompact } from "@/lib/money";
+import { useL } from "@/lib/i18n/provider";
 
 const VB = { w: 300, h: 560 };
 const LON = [97.0, 106.0];
@@ -55,6 +56,7 @@ const STATUS_COLOR: Record<MapProvince["status"], string> = {
 };
 
 export function ThaiSalesMap({ data, onPick }: { data: MapProvince[]; onPick?: (province: string) => void }) {
+  const L = useL();
   const [hover, setHover] = useState<number | null>(null);
 
   const borderPath = useMemo(
@@ -77,7 +79,7 @@ export function ThaiSalesMap({ data, onPick }: { data: MapProvince[]; onPick?: (
 
   return (
     <div className="relative w-full h-full min-h-[320px] grid place-items-center">
-      <svg viewBox={`0 0 ${VB.w} ${VB.h}`} className="h-full max-h-[440px] w-auto" role="img" aria-label="แผนที่ยอดขายประเทศไทย">
+      <svg viewBox={`0 0 ${VB.w} ${VB.h}`} className="h-full max-h-[440px] w-auto" role="img" aria-label={L("แผนที่ยอดขายประเทศไทย", "Thailand sales map", "泰国销售地图")}>
         <path d={borderPath} fill="rgb(var(--c-surface-2))" stroke="rgb(var(--c-line))" strokeWidth="1.5" strokeLinejoin="round" />
         {markers.map((m, i) => (
           <g key={m.province} onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)}
@@ -96,14 +98,14 @@ export function ThaiSalesMap({ data, onPick }: { data: MapProvince[]; onPick?: (
       {hover != null && markers[hover] ? (
         <div className="absolute top-3 left-3 bg-surface border border-line rounded-xl shadow-pop px-3 py-2 text-xs pointer-events-none z-10 w-44">
           <div className="font-semibold truncate">{markers[hover].province}</div>
-          <div className="mt-1 flex justify-between"><span className="text-muted">ยอดขาย</span><span className="tnum font-semibold text-coral">฿{formatCompact(markers[hover].sales)}</span></div>
-          <div className="flex justify-between"><span className="text-muted">สาขา</span><span className="tnum">{markers[hover].online}/{markers[hover].branches} ออนไลน์</span></div>
+          <div className="mt-1 flex justify-between"><span className="text-muted">{L("ยอดขาย", "Sales", "销售额")}</span><span className="tnum font-semibold text-coral">฿{formatCompact(markers[hover].sales)}</span></div>
+          <div className="flex justify-between"><span className="text-muted">{L("สาขา", "Branches", "门店")}</span><span className="tnum">{markers[hover].online}/{markers[hover].branches} {L("ออนไลน์", "online", "在线")}</span></div>
         </div>
       ) : null}
 
       {/* legend */}
       <div className="absolute bottom-2 right-2 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-muted bg-surface/80 backdrop-blur rounded-lg px-2 py-1.5">
-        {([["strong", "แข็งแรง"], ["normal", "ปกติ"], ["warn", "เฝ้าระวัง"], ["offline", "ออฟไลน์"]] as const).map(([k, l]) => (
+        {([["strong", L("แข็งแรง", "Strong", "强劲")], ["normal", L("ปกติ", "Normal", "正常")], ["warn", L("เฝ้าระวัง", "Watch", "需关注")], ["offline", L("ออฟไลน์", "Offline", "离线")]] as const).map(([k, l]) => (
           <span key={k} className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: STATUS_COLOR[k as MapProvince["status"]] }} />{l}</span>
         ))}
       </div>

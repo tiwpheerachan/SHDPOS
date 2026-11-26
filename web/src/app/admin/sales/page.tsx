@@ -99,12 +99,12 @@ function AdminSalesPage() {
   const rangeLabel = `${filter.from.toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "2-digit" })} – ${filter.to.toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "2-digit" })}`;
   const filterSummary = useMemo(() => {
     const parts: string[] = [];
-    if (filter.brandIds.length) parts.push(`แบรนด์: ${filter.brandIds.map((id) => brands.find((b) => b.id === id)?.name ?? "?").join(", ")}`);
-    if (filter.branchIds.length) parts.push(`สาขา: ${filter.branchIds.length <= 2 ? filter.branchIds.map((id) => { const b = branches.find((x) => x.id === id); return b ? b.name_th ?? b.name : "?"; }).join(", ") : `${filter.branchIds.length} สาขา`}`);
+    if (filter.brandIds.length) parts.push(`${L("แบรนด์", "Brand", "品牌")}: ${filter.brandIds.map((id) => brands.find((b) => b.id === id)?.name ?? "?").join(", ")}`);
+    if (filter.branchIds.length) parts.push(`${L("สาขา", "Branch", "门店")}: ${filter.branchIds.length <= 2 ? filter.branchIds.map((id) => { const b = branches.find((x) => x.id === id); return b ? b.name_th ?? b.name : "?"; }).join(", ") : `${filter.branchIds.length} ${L("สาขา", "branches", "家门店")}`}`);
     const others = (["salespersonIds", "cashierIds", "categoryIds", "skus", "paymentMethods", "channels", "orderStatuses", "customerTypes", "posIds", "flags", "provinces", "storeTypes"] as const).filter((k) => filter[k].length).length;
-    if (others) parts.push(`+ ตัวกรองอื่น ${others}`);
+    if (others) parts.push(`+ ${L("ตัวกรองอื่น", "other filters", "其他筛选")} ${others}`);
     return parts.join(" · ");
-  }, [filter, brands, branches]);
+  }, [filter, brands, branches, locale]); // eslint-disable-line react-hooks/exhaustive-deps
   const [cats, setCats] = useState<Map<string, string>>(new Map());
   useEffect(() => { void listCategories().then((c) => setCats(new Map(c.map((x) => [x.id, x.name_th])))); }, []);
   const brandName = useMemo(() => new Map(brands.map((b) => [b.id, b.name])), [brands]);
@@ -114,17 +114,17 @@ function AdminSalesPage() {
   const excelRows = () => {
     const m = overview, k = m.kpi, R: { section: string; label: string; value: string | number }[] = [];
     const add = (section: string, label: string, value: string | number) => R.push({ section, label, value });
-    add("ตัวกรอง", "ช่วงวันที่", rangeLabel); if (filterSummary) add("ตัวกรอง", "เงื่อนไข", filterSummary);
-    add("สรุป", "ยอดขาย", k.gross); add("สรุป", "คืนเงิน", k.refunds); add("สรุป", "ใบลดหนี้ส่วนลด", k.cn); add("สรุป", "ยอดสุทธิ", k.net);
-    add("สรุป", "จำนวนบิล", k.bills); add("สรุป", "บิลยกเลิก", k.voids); add("สรุป", "เฉลี่ยต่อบิล", Math.round(k.avg * 100) / 100); add("สรุป", "ชิ้นที่ขาย", k.units); add("สรุป", "ส่วนลด", k.disc);
-    if (k.showCost) add("สรุป", "กำไรขั้นต้น", k.gp);
-    if (k.hasPrev) add("สรุป", "ยอดขายช่วงก่อนหน้า", k.pGross);
-    m.trend.labels.forEach((l, i) => m.trend.cur[i] && add(m.trend.hourly ? "รายชั่วโมง" : "รายวัน", l, m.trend.cur[i]));
-    m.pay.forEach((r) => add("วิธีรับชำระ", r.label, r.value)); m.ch.forEach((r) => add("ช่องทางขาย", r.label, r.value));
-    m.categories.forEach((r) => add(m.catKind === "brand" ? "แบรนด์" : "หมวดสินค้า", r.label, r.value)); m.basket.forEach((r) => add("ขนาดบิล (จำนวนบิล)", r.label, r.value));
-    m.topProducts.forEach((p) => add("สินค้าขายดี", `${p.sku} ${p.name} (${p.qty} ชิ้น)`, p.sales));
-    m.topBranches.forEach((b) => add("สาขาท็อป", b.name, b.value)); m.topStaff.forEach((p) => add("พนักงานท็อป", `${p.name} (${p.bills} บิล)`, p.value));
-    return { title: `รายงานยอดขาย ${rangeLabel}`, rows: R };
+    add(L("ตัวกรอง", "Filters", "筛选"), L("ช่วงวันที่", "Date range", "日期范围"), rangeLabel); if (filterSummary) add(L("ตัวกรอง", "Filters", "筛选"), L("เงื่อนไข", "Conditions", "条件"), filterSummary);
+    add(L("สรุป", "Summary", "汇总"), L("ยอดขาย", "Sales", "销售额"), k.gross); add(L("สรุป", "Summary", "汇总"), L("คืนเงิน", "Refunds", "退款"), k.refunds); add(L("สรุป", "Summary", "汇总"), L("ใบลดหนี้ส่วนลด", "Discount credit notes", "折扣红字发票"), k.cn); add(L("สรุป", "Summary", "汇总"), L("ยอดสุทธิ", "Net sales", "净销售额"), k.net);
+    add(L("สรุป", "Summary", "汇总"), L("จำนวนบิล", "Bills", "单据数"), k.bills); add(L("สรุป", "Summary", "汇总"), L("บิลยกเลิก", "Voided bills", "作废单据"), k.voids); add(L("สรุป", "Summary", "汇总"), L("เฉลี่ยต่อบิล", "Avg per bill", "客单价"), Math.round(k.avg * 100) / 100); add(L("สรุป", "Summary", "汇总"), L("ชิ้นที่ขาย", "Units sold", "销售件数"), k.units); add(L("สรุป", "Summary", "汇总"), L("ส่วนลด", "Discounts", "折扣"), k.disc);
+    if (k.showCost) add(L("สรุป", "Summary", "汇总"), L("กำไรขั้นต้น", "Gross profit", "毛利"), k.gp);
+    if (k.hasPrev) add(L("สรุป", "Summary", "汇总"), L("ยอดขายช่วงก่อนหน้า", "Previous period sales", "上期销售额"), k.pGross);
+    m.trend.labels.forEach((l, i) => m.trend.cur[i] && add(m.trend.hourly ? L("รายชั่วโมง", "Hourly", "每小时") : L("รายวัน", "Daily", "每日"), l, m.trend.cur[i]));
+    m.pay.forEach((r) => add(L("วิธีรับชำระ", "Payment methods", "付款方式"), r.label, r.value)); m.ch.forEach((r) => add(L("ช่องทางขาย", "Sales channels", "销售渠道"), r.label, r.value));
+    m.categories.forEach((r) => add(m.catKind === "brand" ? L("แบรนด์", "Brands", "品牌") : L("หมวดสินค้า", "Categories", "商品类别"), r.label, r.value)); m.basket.forEach((r) => add(L("ขนาดบิล (จำนวนบิล)", "Bill size (bill count)", "单据金额分布（单数）"), r.label, r.value));
+    m.topProducts.forEach((p) => add(L("สินค้าขายดี", "Top products", "畅销商品"), `${p.sku} ${p.name} (${p.qty} ${L("ชิ้น", "pcs", "件")})`, p.sales));
+    m.topBranches.forEach((b) => add(L("สาขาท็อป", "Top branches", "门店排行"), b.name, b.value)); m.topStaff.forEach((p) => add(L("พนักงานท็อป", "Top staff", "员工排行"), `${p.name} (${p.bills} ${L("บิล", "bills", "单")})`, p.value));
+    return { title: `${L("รายงานยอดขาย", "Sales report", "销售报表")} ${rangeLabel}`, rows: R };
   };
 
   function exportCsv() {
@@ -163,9 +163,9 @@ function AdminSalesPage() {
           <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t.common.search} className="pl-9 h-9" />
         </div>
         <ViewsMenu report="sales" current={currentState} onApply={applyState} />
-        <ShareMenu canPublic={can(employee, "report.share")} teamUrl={teamUrl} snapshot={() => ({ model: overview, meta: { range: rangeLabel, filters: filterSummary, generated_at: new Date().toISOString() } })} title={() => `รายงานยอดขาย · ${rangeLabel}${filterSummary ? ` · ${filterSummary}` : ""}`} />
+        <ShareMenu canPublic={can(employee, "report.share")} teamUrl={teamUrl} snapshot={() => ({ model: overview, meta: { range: rangeLabel, filters: filterSummary, generated_at: new Date().toISOString() } })} title={() => `${L("รายงานยอดขาย", "Sales report", "销售报表")} · ${rangeLabel}${filterSummary ? ` · ${filterSummary}` : ""}`} />
         <DownloadMenu target={() => reportRef.current} filename={() => `sales-${tab}-${filter.from.toISOString().slice(0, 10)}_${filter.to.toISOString().slice(0, 10)}`}
-          excel={excelRows} extra={[{ title: "CSV รายการบิล", sub: `${rows.length} บิลตามตัวกรอง`, onClick: exportCsv }]} />
+          excel={excelRows} extra={[{ title: L("CSV รายการบิล", "Bills CSV", "单据列表 CSV"), sub: L(`${rows.length} บิลตามตัวกรอง`, `${rows.length} filtered bills`, `筛选后 ${rows.length} 张单据`), onClick: exportCsv }]} />
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-2">

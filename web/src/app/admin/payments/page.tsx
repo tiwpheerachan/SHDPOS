@@ -19,11 +19,11 @@ import { formatTHB } from "@/lib/money";
 import type { Acquirer, EdcTerminal, EdcService, PaymentTxn, StatementRow } from "@/lib/types";
 
 const SERVICES: EdcService[] = ["card", "unionpay", "thaiqr", "qr_credit", "alipay", "wechat", "installment"];
-const STATUS: { v: EdcTerminal["status"]; th: string; en: string; tone: "ok" | "neutral" | "warn" | "danger" }[] = [
-  { v: "installed", th: "ใช้งาน", en: "Installed", tone: "ok" },
-  { v: "spare", th: "สำรอง", en: "Spare", tone: "neutral" },
-  { v: "repair", th: "ซ่อม", en: "Repair", tone: "warn" },
-  { v: "retired", th: "ปลดระวาง", en: "Retired", tone: "danger" },
+const STATUS: { v: EdcTerminal["status"]; th: string; en: string; zh: string; tone: "ok" | "neutral" | "warn" | "danger" }[] = [
+  { v: "installed", th: "ใช้งาน", en: "Installed", zh: "使用中", tone: "ok" },
+  { v: "spare", th: "สำรอง", en: "Spare", zh: "备用", tone: "neutral" },
+  { v: "repair", th: "ซ่อม", en: "Repair", zh: "维修", tone: "warn" },
+  { v: "retired", th: "ปลดระวาง", en: "Retired", zh: "已停用", tone: "danger" },
 ];
 const inp = "mt-1 w-full h-10 px-3 rounded-xl bg-surface border border-line text-sm text-ink outline-none focus:border-brand/40";
 
@@ -62,7 +62,7 @@ export default function AdminPaymentsPage() {
   const acqName = (id: string | null) => (id ? acquirers.find((a) => a.id === id)?.name ?? id : "—");
   const acqVerified = (id: string) => acquirers.find((a) => a.id === id)?.verified ?? false;
   const branchName = (id: string | null) => (id ? branches.find((b) => b.id === id)?.name_th ?? branches.find((b) => b.id === id)?.name ?? id : "—");
-  const svcLabel = (s: string) => (locale === "th" ? EDC_SERVICE_LABEL[s]?.th : EDC_SERVICE_LABEL[s]?.en) ?? s;
+  const svcLabel = (s: string) => (locale === "th" ? EDC_SERVICE_LABEL[s]?.th : locale === "zh" ? (EDC_SERVICE_LABEL[s] as { zh?: string } | undefined)?.zh ?? EDC_SERVICE_LABEL[s]?.en : EDC_SERVICE_LABEL[s]?.en) ?? s;
   const statusMeta = (v: string) => STATUS.find((s) => s.v === v) ?? STATUS[0];
 
   const filtered = useMemo(() => terminals.filter((t) => {
@@ -112,9 +112,9 @@ export default function AdminPaymentsPage() {
     const ap = txns.filter((t) => t.status === "approved");
     return { approved: ap.length, approvedSum: ap.reduce((s, t) => s + t.amount, 0), recover: txns.filter((t) => t.status === "pending" || t.status === "error").length, declined: txns.filter((t) => t.status === "declined").length, voided: txns.filter((t) => t.status === "voided").length };
   }, [txns]);
-  const TXN_STATUS: Record<string, { th: string; en: string; tone: "ok" | "neutral" | "warn" | "danger" | "brand" }> = {
-    pending: { th: "รอผล", en: "Pending", tone: "warn" }, approved: { th: "อนุมัติ", en: "Approved", tone: "ok" },
-    declined: { th: "ปฏิเสธ", en: "Declined", tone: "danger" }, error: { th: "ต้องตรวจสอบ", en: "Error", tone: "danger" }, voided: { th: "ยกเลิก", en: "Voided", tone: "neutral" },
+  const TXN_STATUS: Record<string, { th: string; en: string; zh: string; tone: "ok" | "neutral" | "warn" | "danger" | "brand" }> = {
+    pending: { th: "รอผล", en: "Pending", zh: "待处理", tone: "warn" }, approved: { th: "อนุมัติ", en: "Approved", zh: "已批准", tone: "ok" },
+    declined: { th: "ปฏิเสธ", en: "Declined", zh: "已拒绝", tone: "danger" }, error: { th: "ต้องตรวจสอบ", en: "Error", zh: "需核查", tone: "danger" }, voided: { th: "ยกเลิก", en: "Voided", zh: "已作废", tone: "neutral" },
   };
   const cashier = () => (actor ? (actor.nickname || actor.first_name || actor.email || null) : null);
   const hhmm = (iso: string) => new Date(iso).toLocaleTimeString(locale === "th" ? "th-TH" : "en-GB", { hour: "2-digit", minute: "2-digit" });
@@ -211,7 +211,7 @@ export default function AdminPaymentsPage() {
                 { key: "at", label: L("เวลา", "Time", "时间"), map: (t) => new Date(t.at).toLocaleString("th-TH", { dateStyle: "short", timeStyle: "short" }) },
                 { key: "order_no", label: L("บิล", "Bill", "单号"), map: (t) => t.order_no ?? "-" }, { key: "terminal", label: L("เครื่อง", "Terminal", "设备"), map: (t) => termLabel(t.terminal_id) },
                 { key: "method", label: L("วิธี", "Method", "方式"), map: (t) => svcLabel(t.method) }, { key: "amount", label: L("ยอด", "Amount", "金额"), map: (t) => nf(t.amount) },
-                { key: "status", label: L("สถานะ", "Status", "状态"), map: (t) => TXN_STATUS[t.status][locale === "th" ? "th" : "en"] },
+                { key: "status", label: L("สถานะ", "Status", "状态"), map: (t) => L(TXN_STATUS[t.status].th, TXN_STATUS[t.status].en, TXN_STATUS[t.status].zh) },
                 { key: "approval_code", label: L("รหัสอนุมัติ", "Approval", "批准码"), map: (t) => t.approval_code ?? "-" }, { key: "ref_no", label: "Ref", map: (t) => t.ref_no ?? "-" },
               ]} />
             <button onClick={() => { setNf2({ terminal_id: "", method: "card", amount: "", order_no: "", months: "", op_key: `op-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}` }); setNewOpen(true); }} className="h-10 px-4 rounded-2xl bg-brand text-brandInk text-sm font-bold inline-flex items-center gap-2 shrink-0"><Plus size={16} /> {L("เริ่มรายการชำระ", "New charge", "新收款")}</button>
@@ -265,9 +265,9 @@ export default function AdminPaymentsPage() {
                 <Td className="text-xs whitespace-nowrap">{new Date(t.at).toLocaleString(locale === "th" ? "th-TH" : "en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</Td>
                 <Td className="font-mono text-[11px] text-muted">{t.order_no ?? "—"}</Td>
                 <Td className="text-xs"><span className="font-mono">{termLabel(t.terminal_id)}</span><span className="block text-[10px] text-muted">{acqName(t.acquirer_id)}</span></Td>
-                <Td className="text-xs">{svcLabel(t.method)}{t.method === "installment" && t.installment_months ? ` ${t.installment_months}ด.` : ""}</Td>
+                <Td className="text-xs">{svcLabel(t.method)}{t.method === "installment" && t.installment_months ? ` ${t.installment_months}${L("ด.", "mo", "期")}` : ""}</Td>
                 <Td align="right" className="tnum font-medium">{nf(t.amount)}</Td>
-                <Td><Badge tone={sm.tone}>{L(sm.th, sm.en, sm.th)}</Badge></Td>
+                <Td><Badge tone={sm.tone}>{L(sm.th, sm.en, sm.zh)}</Badge></Td>
                 <Td className="text-xs text-muted">{t.approval_code ? <span className="font-mono">{t.approval_code}</span> : "—"}{t.ref_no ? <span className="block text-[10px] font-mono">{t.ref_no}</span> : null}</Td>
                 <Td align="right">
                   {canResolve ? <button onClick={() => { setResolveT(t); setRf({ status: "approved", approval_code: "", ref_no: "", note: "" }); }} className="h-7 px-2.5 rounded-lg bg-brand text-brandInk text-[11px] font-bold">{L("บันทึกผล", "Record", "记录")}</button>
@@ -345,7 +345,7 @@ export default function AdminPaymentsPage() {
               <label className="text-xs text-muted block">{L("รุ่น", "Model", "型号")}<input value={form.model ?? ""} onChange={(e) => setForm({ ...form, model: e.target.value })} className={inp} placeholder="PAX A920" /></label>
             </div>
             <label className="text-xs text-muted block">{L("ผู้รับชำระ *", "Acquirer *", "收单行 *")}
-              <select value={form.acquirer_id} onChange={(e) => setForm({ ...form, acquirer_id: e.target.value })} className={inp}>{acquirers.map((a) => <option key={a.id} value={a.id}>{a.code} — {a.name}{a.verified ? "" : " (ยังไม่ยืนยัน)"}</option>)}</select>
+              <select value={form.acquirer_id} onChange={(e) => setForm({ ...form, acquirer_id: e.target.value })} className={inp}>{acquirers.map((a) => <option key={a.id} value={a.id}>{a.code} — {a.name}{a.verified ? "" : ` (${L("ยังไม่ยืนยัน", "unverified", "未确认")})`}</option>)}</select>
             </label>
             <div className="grid grid-cols-2 gap-2.5">
               <label className="text-xs text-muted block">MID<input value={form.mid ?? ""} onChange={(e) => setForm({ ...form, mid: e.target.value || null })} className={`${inp} font-mono`} placeholder="•••• 2187" /></label>
@@ -364,7 +364,7 @@ export default function AdminPaymentsPage() {
             )}
             <div className="grid grid-cols-2 gap-2.5 items-end">
               <label className="text-xs text-muted block">{L("สถานะ", "Status", "状态")}
-                <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as EdcTerminal["status"] })} className={inp}>{STATUS.map((s) => <option key={s.v} value={s.v}>{L(s.th, s.en, s.th)}</option>)}</select>
+                <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as EdcTerminal["status"] })} className={inp}>{STATUS.map((s) => <option key={s.v} value={s.v}>{L(s.th, s.en, s.zh)}</option>)}</select>
               </label>
               <label className="flex items-center gap-2 cursor-pointer h-10"><input type="checkbox" checked={form.verified} onChange={(e) => setForm({ ...form, verified: e.target.checked })} className="w-4 h-4 accent-current" /><span className="text-sm font-medium">{L("ยืนยันแล้ว", "Verified", "已验证")}</span></label>
             </div>

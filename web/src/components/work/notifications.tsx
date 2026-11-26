@@ -3,7 +3,9 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Bell, CheckCheck, ArrowUpRight } from "lucide-react";
 import { Modal, Button } from "@/components/ui";
+import { useL } from "@/lib/i18n/provider";
 export function WorkNotifications({ admin = false }: { admin?: boolean }) {
+  const L = useL();
   const router = useRouter(),
     [open, setOpen] = useState(false),
     [data, setData] = useState<any>({ items: [], unread: 0 }),
@@ -19,7 +21,7 @@ export function WorkNotifications({ admin = false }: { admin?: boolean }) {
       setData(j);
       setError("");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "อ่านแจ้งเตือนไม่สำเร็จ");
+      setError(e instanceof Error ? e.message : L("อ่านแจ้งเตือนไม่สำเร็จ", "Failed to load notifications", "读取通知失败"));
     }
   }
   useEffect(() => {
@@ -40,14 +42,14 @@ export function WorkNotifications({ admin = false }: { admin?: boolean }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(id ? { id } : {}),
     });
-    if (!r.ok) throw Error("บันทึกการอ่านไม่สำเร็จ");
+    if (!r.ok) throw Error(L("บันทึกการอ่านไม่สำเร็จ", "Failed to mark as read", "标记已读失败"));
     await load();
   }
   return (
     <>
       <button
-        aria-label="การแจ้งเตือนงาน"
-        title={error ? "แจ้งเตือนงาน: เชื่อมต่อไม่สำเร็จ" : "การแจ้งเตือนงาน"}
+        aria-label={L("การแจ้งเตือนงาน", "Task notifications", "任务通知")}
+        title={error ? L("แจ้งเตือนงาน: เชื่อมต่อไม่สำเร็จ", "Task notifications: connection failed", "任务通知：连接失败") : L("การแจ้งเตือนงาน", "Task notifications", "任务通知")}
         onClick={() => {
           setOpen(true);
           void load();
@@ -66,7 +68,7 @@ export function WorkNotifications({ admin = false }: { admin?: boolean }) {
       <Modal
         open={open}
         onClose={() => setOpen(false)}
-        title="การแจ้งเตือนงาน"
+        title={L("การแจ้งเตือนงาน", "Task notifications", "任务通知")}
         size="md"
         footer={
           <>
@@ -76,7 +78,7 @@ export function WorkNotifications({ admin = false }: { admin?: boolean }) {
               onClick={() => void read().catch((e) => setError(e.message))}
             >
               <CheckCheck size={13} />
-              อ่านทั้งหมด
+              {L("อ่านทั้งหมด", "Mark all read", "全部已读")}
             </Button>
             <Button
               size="sm"
@@ -86,7 +88,7 @@ export function WorkNotifications({ admin = false }: { admin?: boolean }) {
                 router.push(admin ? "/admin/work" : "/pos/work");
               }}
             >
-              งานของฉัน
+              {L("งานของฉัน", "My work", "我的工作")}
             </Button>
           </>
         }
@@ -126,12 +128,12 @@ export function WorkNotifications({ admin = false }: { admin?: boolean }) {
             ))
           ) : (
             <p className="text-sm text-muted text-center py-10">
-              ยังไม่มีการแจ้งเตือนงาน
+              {L("ยังไม่มีการแจ้งเตือนงาน", "No task notifications yet", "暂无任务通知")}
             </p>
           )}
         </div>
         <p className="work-caption mt-3">
-          แจ้งเตือนในระบบ อัปเดตทุกประมาณ 20 วินาทีขณะเปิดหน้าเว็บ
+          {L("แจ้งเตือนในระบบ อัปเดตทุกประมาณ 20 วินาทีขณะเปิดหน้าเว็บ", "In-app notifications, refreshed about every 20 seconds while the page is open", "系统内通知，页面打开时约每 20 秒更新")}
         </p>
       </Modal>
     </>

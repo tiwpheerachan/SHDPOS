@@ -138,7 +138,7 @@ function LocalCountPage() {
               <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t.common.search} className="pl-9 h-9" />
             </div>
             {s.status === "counting" ? <Button variant="primary" loading={busy} onClick={() => void submit()}><Send size={15} /> {t.inventory.submitCount}</Button> : null}
-            {s.status === "submitted" && canApprove ? <Button variant="ok" loading={busy} disabled={owLink !== "unlinked"} title={owLink === "linked" ? "สาขานี้ใช้สต๊อกจากคลังกลาง — ปรับยอดที่ OneWarehouse" : undefined} onClick={() => void approve()}><CheckCircle2 size={15} /> {L("อนุมัติ & ปรับสต๊อก", "Approve & Adjust", "批准并调整")}</Button> : null}
+            {s.status === "submitted" && canApprove ? <Button variant="ok" loading={busy} disabled={owLink !== "unlinked"} title={owLink === "linked" ? L("สาขานี้ใช้สต๊อกจากคลังกลาง — ปรับยอดที่ OneWarehouse", "This branch uses central warehouse stock — adjust in OneWarehouse", "本门店使用中央仓库存 — 请在 OneWarehouse 调整") : undefined} onClick={() => void approve()}><CheckCircle2 size={15} /> {L("อนุมัติ & ปรับสต๊อก", "Approve & Adjust", "批准并调整")}</Button> : null}
             {s.status !== "completed" && s.status !== "cancelled" ? <Button variant="ghost" onClick={() => void cancel()}><XCircle size={15} /></Button> : null}
           </>
         }

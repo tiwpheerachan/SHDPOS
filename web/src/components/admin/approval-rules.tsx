@@ -182,7 +182,7 @@ export function ApprovalRules({ brands, branches, employees, meId, L }: {
 
       {edit ? (
         <ApproverPicker
-          title={edit.scope === "brand" ? L(`ผู้อนุมัติของแบรนด์ · ${edit.name}`, `Brand approvers · ${edit.name}`, edit.name) : L(`ผู้อนุมัติของสาขา · ${edit.name}`, `Branch approvers · ${edit.name}`, edit.name)}
+          title={edit.scope === "brand" ? L(`ผู้อนุมัติของแบรนด์ · ${edit.name}`, `Brand approvers · ${edit.name}`, `品牌审批人 · ${edit.name}`) : L(`ผู้อนุมัติของสาขา · ${edit.name}`, `Branch approvers · ${edit.name}`, `门店审批人 · ${edit.name}`)}
           scope={edit.scope}
           employees={employees}
           initial={groupRule(edit.scope, edit.ids)?.approver_ids ?? []}

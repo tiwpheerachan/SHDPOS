@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { tr } from "@/lib/i18n/tr";
 import clsx from "clsx";
 
 // AI-style loader (ปรับจาก 21st.dev) — วงแหวนเรืองแสงสีม่วงแบรนด์ + ตัวอักษรเต้น
@@ -36,7 +37,7 @@ const CSS = `
 }
 `;
 
-export function AiLoader({ size = 150, text = "กำลังโหลด", fullscreen = true, className }: AiLoaderProps) {
+export function AiLoader({ size = 150, text = tr("กำลังโหลด", "Loading", "加载中"), fullscreen = true, className }: AiLoaderProps) {
   const letters = Array.from(text);
   const ring = (
     <div className="shd-ldr" style={{ width: size, height: size }}>

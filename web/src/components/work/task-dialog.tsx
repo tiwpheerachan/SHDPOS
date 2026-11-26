@@ -13,6 +13,7 @@ import {
   type WorkPerson,
 } from "@/lib/work";
 import { uuidv4 } from "@/lib/uuid";
+import { useL } from "@/lib/i18n/provider";
 function localInput(iso: string | null) {
   if (!iso) return "";
   const d = new Date(iso);
@@ -35,6 +36,7 @@ export function WorkTaskDialog({
   branches: { id: string; name: string; name_th?: string }[];
   onSaved: () => void;
 }) {
+  const L = useL();
   const path = usePathname(),
     [task, setTask] = useState<WorkItem | null>(null),
     [form, setForm] = useState<any>(null),
@@ -55,7 +57,7 @@ export function WorkTaskDialog({
       const data = await workRead(id ? { id } : {});
       if (!alive) return;
       const t = data.items?.[0];
-      if (id && !t) throw Error("ไม่พบงาน");
+      if (id && !t) throw Error(L("ไม่พบงาน", "Task not found", "未找到任务"));
       setTask(id ? t : null);
       setActivity(data.activity ?? []);
       setForm(
@@ -127,7 +129,7 @@ export function WorkTaskDialog({
       onSaved();
       onClose();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "บันทึกไม่สำเร็จ");
+      setError(e instanceof Error ? e.message : L("บันทึกไม่สำเร็จ", "Save failed", "保存失败"));
     } finally {
       setBusy(false);
     }
@@ -138,12 +140,12 @@ export function WorkTaskDialog({
       onClose={() => {
         if (!busy) onClose();
       }}
-      title={id ? "รายละเอียดงาน / ส่งต่อ" : "สร้างงานใหม่"}
+      title={id ? L("รายละเอียดงาน / ส่งต่อ", "Task details / hand off", "任务详情 / 转派") : L("สร้างงานใหม่", "New task", "新建任务")}
       size="md"
       footer={
         <>
           <Button size="sm" variant="ghost" onClick={onClose} disabled={busy}>
-            ยกเลิก
+            {L("ยกเลิก", "Cancel", "取消")}
           </Button>
           <Button
             size="sm"
@@ -152,7 +154,7 @@ export function WorkTaskDialog({
             disabled={!form?.title?.trim() || !form?.assigned_to}
             onClick={() => void save()}
           >
-            บันทึก
+            {L("บันทึก", "Save", "保存")}
           </Button>
         </>
       }
@@ -166,39 +168,39 @@ export function WorkTaskDialog({
             {error}
           </p>
         ) : null}
-        {!form && !error ? <p className="work-caption">กำลังโหลดงาน…</p> : null}
+        {!form && !error ? <p className="work-caption">{L("กำลังโหลดงาน…", "Loading task…", "正在加载任务…")}</p> : null}
         {form ? (
           <>
             <label className="block text-xs font-medium">
-              ชื่องาน
+              {L("ชื่องาน", "Title", "任务名称")}
               <input
                 className="work-field mt-1.5"
                 value={form.title}
                 maxLength={200}
                 onChange={(e) => change("title", e.target.value)}
-                placeholder="งานที่ต้องทำให้เสร็จ"
+                placeholder={L("งานที่ต้องทำให้เสร็จ", "What needs to be done", "需要完成的工作")}
               />
             </label>
             <label className="block text-xs font-medium">
-              รายละเอียด
+              {L("รายละเอียด", "Details", "详情")}
               <textarea
                 className="work-field mt-1.5 !h-20 py-2 resize-y"
                 value={form.description}
                 onChange={(e) => change("description", e.target.value)}
-                placeholder="บริบท สิ่งที่ขาด และผลลัพธ์ที่ต้องการ"
+                placeholder={L("บริบท สิ่งที่ขาด และผลลัพธ์ที่ต้องการ", "Context, what is missing and the expected outcome", "背景、缺少的内容及期望结果")}
               />
             </label>
             <div className="grid grid-cols-2 gap-3">
               <label className="text-xs">
-                สาขา
+                {L("สาขา", "Branch", "门店")}
                 <select
                   className="work-field mt-1.5"
-                  aria-label="สาขา"
+                  aria-label={L("สาขา", "Branch", "门店")}
                   disabled={!!task}
                   value={form.branch_id}
                   onChange={(e) => change("branch_id", e.target.value)}
                 >
-                  <option value="">เลือกสาขา</option>
+                  <option value="">{L("เลือกสาขา", "Select branch", "选择门店")}</option>
                   {branches.map((b) => (
                     <option key={b.id} value={b.id}>
                       {b.name_th || b.name}
@@ -207,14 +209,14 @@ export function WorkTaskDialog({
                 </select>
               </label>
               <label className="text-xs">
-                ผู้รับผิดชอบ
+                {L("ผู้รับผิดชอบ", "Assignee", "负责人")}
                 <select
                   className="work-field mt-1.5"
-                  aria-label="ผู้รับผิดชอบ"
+                  aria-label={L("ผู้รับผิดชอบ", "Assignee", "负责人")}
                   value={form.assigned_to}
                   onChange={(e) => change("assigned_to", e.target.value)}
                 >
-                  <option value="">เลือกผู้ใช้</option>
+                  <option value="">{L("เลือกผู้ใช้", "Select user", "选择用户")}</option>
                   {people.map((p) => (
                     <option key={p.id} value={p.id}>
                       {personName(p)}
@@ -225,7 +227,7 @@ export function WorkTaskDialog({
                         "supervisor",
                         "brand_admin",
                       ].includes(p.role ?? "")
-                        ? " · หัวหน้า"
+                        ? L(" · หัวหน้า", " · lead", " · 主管")
                         : ""}
                     </option>
                   ))}
@@ -234,7 +236,7 @@ export function WorkTaskDialog({
             </div>
             <div className="grid grid-cols-2 gap-3">
               <label className="text-xs">
-                สถานะ
+                {L("สถานะ", "Status", "状态")}
                 <select
                   disabled={
                     !task ||
@@ -242,7 +244,7 @@ export function WorkTaskDialog({
                       ["done", "cancelled"].includes(task.status))
                   }
                   className="work-field mt-1.5"
-                  aria-label="สถานะงาน"
+                  aria-label={L("สถานะงาน", "Task status", "任务状态")}
                   value={form.status}
                   onChange={(e) => change("status", e.target.value)}
                 >
@@ -254,10 +256,10 @@ export function WorkTaskDialog({
                 </select>
               </label>
               <label className="text-xs">
-                ความสำคัญ
+                {L("ความสำคัญ", "Priority", "优先级")}
                 <select
                   className="work-field mt-1.5"
-                  aria-label="ความสำคัญ"
+                  aria-label={L("ความสำคัญ", "Priority", "优先级")}
                   value={form.priority}
                   onChange={(e) => change("priority", e.target.value)}
                 >
@@ -270,7 +272,7 @@ export function WorkTaskDialog({
               </label>
             </div>
             <label className="block text-xs">
-              กำหนดเสร็จ
+              {L("กำหนดเสร็จ", "Due", "截止时间")}
               <input
                 className="work-field mt-1.5"
                 type="datetime-local"
@@ -280,31 +282,31 @@ export function WorkTaskDialog({
               />
             </label>
             <label className="block text-xs">
-              ข้อความอัปเดต / เหตุผลส่งต่อ
+              {L("ข้อความอัปเดต / เหตุผลส่งต่อ", "Update note / hand-off reason", "更新说明 / 转派原因")}
               <textarea
                 className="work-field mt-1.5 !h-16 py-2"
                 value={form.comment}
                 onChange={(e) => change("comment", e.target.value)}
-                placeholder="ผู้รับงานต่อควรรู้อะไรบ้าง"
+                placeholder={L("ผู้รับงานต่อควรรู้อะไรบ้าง", "What should the next assignee know?", "接手人需要了解什么？")}
               />
             </label>
             {task?.source_kind === "deferred_sale" ? (
               <div className="rounded-xl bg-surface2 p-3">
                 <p className="work-caption mb-2">
-                  ผูกกับบิลรอปิด งานจะเสร็จตามสถานะบิลจริง
+                  {L("ผูกกับบิลรอปิด งานจะเสร็จตามสถานะบิลจริง", "Linked to a pending bill — completes with the actual bill status", "已关联待结单据，任务将随单据实际状态完成")}
                 </p>
                 <Link
                   className="text-xs font-medium underline underline-offset-4"
                   href={`${path.startsWith("/admin") ? "/admin" : "/pos"}/deferred-sales?branch_id=${task.branch_id}&deferred=${task.source_id}`}
                 >
-                  เปิดบิลต้นทาง ↗
+                  {L("เปิดบิลต้นทาง ↗", "Open source bill ↗", "打开来源单据 ↗")}
                 </Link>
               </div>
             ) : null}
             {task?.source_kind === "ow_sale" || task?.source_kind === "ow_transfer" ? (
               <div className="rounded-xl bg-danger/5 p-3">
                 <p className="work-caption mb-2">
-                  ระบบสร้างจากการเชื่อมคลังกลาง/JST · ปิดเองเมื่อ{task.source_kind === "ow_sale" ? " JST ยืนยันบิล" : "ตรวจแล้วตรงกัน"}
+                  {L("ระบบสร้างจากการเชื่อมคลังกลาง/JST · ปิดเองเมื่อ", "Auto-created from central warehouse/JST sync · closes when ", "由中央仓库/JST 对接自动创建 · 自动关闭条件：")}{task.source_kind === "ow_sale" ? L(" JST ยืนยันบิล", "JST confirms the bill", "JST 确认单据") : L("ตรวจแล้วตรงกัน", "reconciled", "核对一致")}
                 </p>
                 <Link
                   className="text-xs font-medium underline underline-offset-4"
@@ -314,14 +316,14 @@ export function WorkTaskDialog({
                       : task.source_kind === "ow_sale" ? "/pos/orders" : "/pos/transfers"
                   }
                 >
-                  {task.source_kind === "ow_sale" ? "เปิดหน้าส่งบิลขาย ↗" : "เปิดหน้าตรวจความตรงกัน ↗"}
+                  {task.source_kind === "ow_sale" ? L("เปิดหน้าส่งบิลขาย ↗", "Open sales sync page ↗", "打开销售单据同步页 ↗") : L("เปิดหน้าตรวจความตรงกัน ↗", "Open reconciliation page ↗", "打开核对页 ↗")}
                 </Link>
               </div>
             ) : null}
             {activity.length ? (
               <details>
                 <summary className="text-xs text-muted cursor-pointer">
-                  ประวัติการทำงาน ({activity.length})
+                  {L(`ประวัติการทำงาน (${activity.length})`, `Activity (${activity.length})`, `操作记录 (${activity.length})`)}
                 </summary>
                 <ol className="mt-3 border-l border-line ml-1 pl-4 space-y-3">
                   {activity.map((a) => (
@@ -330,10 +332,10 @@ export function WorkTaskDialog({
                         {a.body ||
                           (
                             {
-                              created: "สร้างงาน",
-                              updated: "อัปเดตงาน",
-                              handoff: "ส่งต่องาน",
-                              source_closed: "ปิดตามรายการต้นทาง",
+                              created: L("สร้างงาน", "Created", "创建任务"),
+                              updated: L("อัปเดตงาน", "Updated", "更新任务"),
+                              handoff: L("ส่งต่องาน", "Handed off", "转派任务"),
+                              source_closed: L("ปิดตามรายการต้นทาง", "Closed by source", "随来源关闭"),
                             } as any
                           )[a.action] ||
                           a.action}

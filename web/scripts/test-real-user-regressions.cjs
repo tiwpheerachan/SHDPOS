@@ -20,7 +20,7 @@ const d = Object.fromEntries(['stock_counts','stock','audit','pending','employee
 d.transaction = async (...args) => { const before = structuredClone(state); try { return await args.at(-1)(); } catch(e) { state = before; throw e; } };
 const context = {
   isLiveMode: () => false, db: () => d, can: (e, key) => e.permissions.includes(key), round2: x => Math.round(x * 100) / 100,
-  stockKey: (b,p) => `${b}:${p}`, nanoid: () => `id-${++calls}`, Date, Map,
+  stockKey: (b,p) => `${b}:${p}`, tl: (th) => th, tr: (th) => th, trL: (th) => th, nanoid: () => `id-${++calls}`, Date, Map,
   adjustStock: async (b,p,delta) => { state.stock[`${b}:${p}`].qty_on_hand += delta; },
   readStockView: async (b,p) => ({available: state.stock[`${b}:${p}`].qty_on_hand}),
   refreshCounts: async () => {}, flush: async () => {},

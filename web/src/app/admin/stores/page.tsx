@@ -10,6 +10,7 @@ import { Store, Plus, Trash2, Loader2, Pencil, MapPin, Layers } from "lucide-rea
 import { Modal, EmptyState } from "@/components/ui";
 import { useAdminScope } from "@/components/admin/filters";
 import { useI18n } from "@/lib/i18n/provider";
+import { tr } from "@/lib/i18n/tr";
 
 interface BranchRef { id: string; name: string; brand_id: string | null; store_id: string | null }
 interface StoreRow {
@@ -19,7 +20,10 @@ interface StoreRow {
 }
 
 const TYPE_LABEL: Record<string, string> = {
-  brand_shop: "ร้านแบรนด์เดียว", multi_brand: "ร้านรวมหลายแบรนด์", franchise: "แฟรนไชส์", online: "ออนไลน์",
+  get brand_shop() { return tr("ร้านแบรนด์เดียว", "Single-brand store", "单品牌店"); },
+  get multi_brand() { return tr("ร้านรวมหลายแบรนด์", "Multi-brand store", "多品牌店"); },
+  get franchise() { return tr("แฟรนไชส์", "Franchise", "加盟店"); },
+  get online() { return tr("ออนไลน์", "Online", "线上"); },
 };
 const TYPE_OPTS = Object.entries(TYPE_LABEL).map(([v, label]) => ({ v, label }));
 

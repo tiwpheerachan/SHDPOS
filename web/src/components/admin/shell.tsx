@@ -7,7 +7,7 @@ import { motion } from "framer-motion";
 import clsx from "clsx";
 import {
   LayoutDashboard, TrendingUp, Users, Package, Boxes, ArrowLeftRight, ScanLine,
-  ShieldCheck, ScrollText, Settings2, Store, Sun, Moon, Languages, Menu, X, Bell,
+  ShieldCheck, ScrollText, Settings2, Store, Sun, Moon, Menu, X, Bell,
   Search, PanelLeftClose, PanelLeftOpen, ChevronDown, Command, Home, Activity, FileText, LogOut, Contact, CalendarClock, Ticket, Network, Landmark, Wand2, CreditCard, MonitorPlay, Cloud,
   BadgePercent, Star, CloudDownload, UserCog, History,
   CalendarCheck,
@@ -15,7 +15,7 @@ import {
 import { useI18n } from "@/lib/i18n/provider";
 import { useTheme } from "@/lib/theme";
 import { useSession } from "@/lib/store/session";
-import { LOCALES, LOCALE_LABEL } from "@/lib/i18n/dict";
+import { LanguageMenu } from "@/components/i18n/auto-translate";
 import { ROLE_LABEL, can, visibleBranchIds, type PermissionKey } from "@/lib/permissions";
 import { listAllTransfers, listBranches } from "@/lib/data/repo";
 import type { Transfer } from "@/lib/types";
@@ -100,11 +100,13 @@ const NAV: NavGroup[] = [
     ],
   },
 ];
+// href → key ของเมนู (ใช้แปลชื่อแท็บเอกสารตามภาษาปัจจุบัน — ชื่อที่จำไว้ในแท็บเป็นภาษาตอนเปิด)
+const NAV_KEY_BY_HREF: Record<string, string> = Object.fromEntries(NAV.flatMap((g) => g.items.flatMap((e) => (isHub(e) ? e.children : [e]))).map((n) => [n.href, n.key]));
 
 const COLLAPSE_KEY = "shdpos.nav.collapsed";
 
 export function AdminShell({ children }: { children: React.ReactNode }) {
-  const { t, locale, setLocale } = useI18n();
+  const { t, locale } = useI18n();
   const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
   const { mode, setMode } = useTheme();
   const pathname = usePathname();
@@ -205,7 +207,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
     payments: L("รับชำระ / EDC", "Payments / EDC", "收款/EDC"),
     org: L("ผังสาขา", "Branch map", "门店地图"),
     finance: L("การเงิน", "Finance", "财务"),
-    periods: L("ปิดงวด", "Period close", "结账"),
+    periods: L("ปิดงวด", "Period close", "关账"),
     insights: L("ผู้ช่วย AI", "AI assistant", "AI 助手"),
     onewarehouse: L("เชื่อมคลังกลาง", "OneWarehouse", "中央仓"),
     catalogsync: L("นำเข้าแคตตาล็อก", "Catalog import", "目录导入"),
@@ -429,7 +431,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
 
               <WorkNotifications admin/>
               <div className="relative">
-                <button onClick={() => setNotifOpen((v) => !v)} className="relative p-2 rounded-xl hover:bg-surface2 text-muted" aria-label="แจ้งเตือนการโอนย้าย" title={L("แจ้งเตือนการโอนย้าย", "Transfer notifications", "调拨通知")}>
+                <button onClick={() => setNotifOpen((v) => !v)} className="relative p-2 rounded-xl hover:bg-surface2 text-muted" aria-label={L("แจ้งเตือนการโอนย้าย", "Transfer notifications", "调拨通知")} title={L("แจ้งเตือนการโอนย้าย", "Transfer notifications", "调拨通知")}>
                   <motion.span animate={queueCount > 0 && !notifOpen ? { rotate: [0, -12, 12, -8, 8, 0] } : {}} transition={{ duration: 0.6, repeat: queueCount > 0 && !notifOpen ? Infinity : 0, repeatDelay: 2.5 }} style={{ display: "inline-block", transformOrigin: "50% 10%" }}>
                     <ArrowLeftRight size={17} />
                   </motion.span>
@@ -469,12 +471,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
                   </>
                 ) : null}
               </div>
-              <button
-                onClick={() => setLocale(LOCALES[(LOCALES.indexOf(locale) + 1) % LOCALES.length])}
-                className="hidden sm:flex px-2 h-9 rounded-xl hover:bg-surface2 text-muted text-xs items-center gap-1.5"
-              >
-                <Languages size={15} /> {LOCALE_LABEL[locale]}
-              </button>
+              <LanguageMenu showLabel className="hidden sm:block" />
               <button onClick={() => setMode(mode === "light" ? "dark" : "light")} className="p-2 rounded-xl hover:bg-surface2 text-muted" aria-label="theme">
                 {mode === "dark" ? <Moon size={17} /> : <Sun size={17} />}
               </button>
@@ -527,7 +524,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
         ) : null}
 
         <Suspense fallback={null}>
-          <WorkspaceTabs baseLabel={label[currentKey] ?? t.admin.dashboard} />
+          <WorkspaceTabs baseLabel={label[currentKey] ?? t.admin.dashboard} labelFor={(href) => { const k = NAV_KEY_BY_HREF[href.split("?")[0]]; return k ? label[k] : undefined; }} />
         </Suspense>
 
         <main className="flex-1 min-h-0 overflow-y-auto">{children}</main>

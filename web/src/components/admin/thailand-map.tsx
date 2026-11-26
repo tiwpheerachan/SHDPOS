@@ -104,13 +104,13 @@ export function ThailandMap({
     if (r) setPos({ x: e.clientX - r.left, y: e.clientY - r.top });
   };
 
-  if (!ready) return <div className="min-h-[340px] grid place-items-center text-xs text-muted">{features === null ? "กำลังโหลดแผนที่…" : "แผนที่ไม่พร้อมใช้งาน"}</div>;
+  if (!ready) return <div className="min-h-[340px] grid place-items-center text-xs text-muted">{features === null ? L("กำลังโหลดแผนที่…", "Loading map…", "正在加载地图…") : L("แผนที่ไม่พร้อมใช้งาน", "Map unavailable", "地图不可用")}</div>;
   const hv = hover ? { name: hover, th: provinceTH(hover), stat: data[hover] } : null;
 
   return (
     <div ref={wrapRef} className="relative w-full h-full min-h-[340px]" onMouseMove={move}>
       {focus ? (
-        <button onClick={() => onFocus?.(null)} className="absolute top-2 left-2 z-10 btn-soft h-8 px-2.5 text-xs">← ทั้งประเทศ</button>
+        <button onClick={() => onFocus?.(null)} className="absolute top-2 left-2 z-10 btn-soft h-8 px-2.5 text-xs">{L("← ทั้งประเทศ", "← Whole country", "← 全国")}</button>
       ) : null}
       <svg viewBox={`0 0 ${VB.w} ${VB.h}`} preserveAspectRatio="xMidYMid meet" className="h-full w-full block"
         role="img" aria-label={L("แผนที่ยอดขายประเทศไทย", "Thailand sales map", "泰国销售地图")}

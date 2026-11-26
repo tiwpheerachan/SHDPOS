@@ -6,6 +6,7 @@
 //   • ใบที่คลังกลางเปิดเอง ถูกดึงเข้ามาตอนแสดงรายการของสาขาปลายทาง ("รอรับจากคลังกลาง")
 // =====================================================================
 import type { Transfer, AuditEntry } from "@/lib/types";
+import { tr } from "@/lib/i18n/tr";
 import {
   createTransfer, approveTransfer, rejectTransfer, scanOutTransfer, dispatchTransfer, receiveTransfer, closeTransferShort,
   listTransfersForBranch, listAllTransfers, importTransferSnapshot, listTransferTimeline,
@@ -26,13 +27,13 @@ export async function owLinks(force = false): Promise<Links> {
     linksCache = { at: Date.now(), value };
     return value;
   } catch {
-    return { status: "error", message: "ออฟไลน์" };
+    return { status: "error", message: tr("ออฟไลน์", "Offline", "离线") };
   }
 }
 /** ใบนี้ต้องวิ่งผ่าน OW ไหม — อ่านการตั้งค่าไม่ได้ = โยน error (ห้ามเดาว่า "ไม่ผูก") */
 export async function owIsLivePair(from: string, to: string): Promise<boolean> {
   const l = await owLinks();
-  if (l.status === "error") throw new Error(`อ่านการตั้งค่าการเชื่อม OneWarehouse ไม่ได้ (${l.message}) — กรุณาลองใหม่/เข้าสู่ระบบอีกครั้ง`);
+  if (l.status === "error") throw new Error(tr(`อ่านการตั้งค่าการเชื่อม OneWarehouse ไม่ได้ (${l.message}) — กรุณาลองใหม่/เข้าสู่ระบบอีกครั้ง`, `Couldn't read OneWarehouse link settings (${l.message}) — please retry / sign in again`, `无法读取 OneWarehouse 连接设置（${l.message}）— 请重试/重新登录`));
   return l.configured && !!l.links[from] && !!l.links[to];
 }
 
@@ -43,7 +44,7 @@ async function call(method: "GET" | "POST", payload?: Record<string, unknown>, q
       ? { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }
       : { cache: "no-store" });
   } catch {
-    throw new Error("เชื่อมเซิร์ฟเวอร์ไม่ได้ — ใบโอนผ่าน OneWarehouse ต้องออนไลน์ (ผลอาจสำเร็จแล้ว ให้โหลดรายการใหม่ก่อนกดซ้ำ)");
+    throw new Error(tr("เชื่อมเซิร์ฟเวอร์ไม่ได้ — ใบโอนผ่าน OneWarehouse ต้องออนไลน์ (ผลอาจสำเร็จแล้ว ให้โหลดรายการใหม่ก่อนกดซ้ำ)", "Can't reach the server — OneWarehouse transfers require a connection (the action may have succeeded; reload the list before retrying)", "无法连接服务器 — 经 OneWarehouse 的调拨单需在线（操作可能已成功，请先刷新列表再重试）"));
   }
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(`OneWarehouse: ${j.error ?? `HTTP ${r.status}`}`);

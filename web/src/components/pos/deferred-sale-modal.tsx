@@ -8,6 +8,7 @@ import { useSession } from "@/lib/store/session";
 import type { CartLine } from "@/lib/types";
 import { uuidv4 } from "@/lib/uuid";
 import { formatTHB, round2 } from "@/lib/money";
+import { useL } from "@/lib/i18n/provider";
 const localDate = () => {
   const d = new Date();
   return new Date(d.getTime() - d.getTimezoneOffset() * 60000)
@@ -37,6 +38,7 @@ export function DeferredSaleModal({
   salespersonId: string | null;
   onRegistered: () => void;
 }) {
+  const L = useL();
   const session = useSession(),
     router = useRouter(),
     [form, setForm] = useState<any>(null),
@@ -118,7 +120,7 @@ export function DeferredSaleModal({
         router.push("/pos/holds");
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "บันทึกไม่สำเร็จ");
+      setError(e instanceof Error ? e.message : L("บันทึกไม่สำเร็จ", "Save failed", "保存失败"));
     } finally {
       setBusy(false);
     }
@@ -130,7 +132,7 @@ export function DeferredSaleModal({
         onClose={() => {
           if (!busy) onClose();
         }}
-        title="ขายก่อน · รอข้อมูลเพื่อปิดบิล"
+        title={L("ขายก่อน · รอข้อมูลเพื่อปิดบิล", "Sell now · complete details later", "先售 · 待补资料结单")}
         size="lg"
         footer={
           <>
@@ -143,7 +145,7 @@ export function DeferredSaleModal({
                   router.push("/pos/holds");
                 }}
               >
-                ไปที่รายการรอปิดบิล
+                {L("ไปที่รายการรอปิดบิล", "Go to pending bills", "前往待结单列表")}
               </Button>
             ) : (
               <>
@@ -153,7 +155,7 @@ export function DeferredSaleModal({
                   disabled={busy}
                   onClick={() => void create(false)}
                 >
-                  เก็บไว้ก่อน
+                  {L("เก็บไว้ก่อน", "Save for later", "先保存")}
                 </Button>
                 <Button
                   size="sm"
@@ -162,7 +164,7 @@ export function DeferredSaleModal({
                   loading={busy}
                   onClick={() => void create(true)}
                 >
-                  บันทึก / รับชำระ
+                  {L("บันทึก / รับชำระ", "Save / Take payment", "保存 / 收款")}
                 </Button>
               </>
             )}
@@ -171,10 +173,7 @@ export function DeferredSaleModal({
       >
         <div className="space-y-4">
           <div className="rounded-2xl border border-line bg-surface2/65 p-3 text-xs leading-relaxed">
-            สำหรับรายการที่ขายจริงแต่ข้อมูลยังไม่ครบ
-            เก็บยอดรับชำระและหลักฐานไว้ที่เซิร์ฟเวอร์ แล้วกลับมาเติม
-            SN/แก้ข้อมูลสินค้าที่ “พักบิล → ขายก่อนรอปิดบิล”
-            รายการนี้ยังไม่ใช่บิลขายที่ปิดสมบูรณ์
+            {L("สำหรับรายการที่ขายจริงแต่ข้อมูลยังไม่ครบ เก็บยอดรับชำระและหลักฐานไว้ที่เซิร์ฟเวอร์ แล้วกลับมาเติม SN/แก้ข้อมูลสินค้าที่ “พักบิล → ขายก่อนรอปิดบิล” รายการนี้ยังไม่ใช่บิลขายที่ปิดสมบูรณ์", "For real sales with incomplete data. Payments and evidence are kept on the server; come back to add SN / fix product data under “Hold → Sell now, close later”. This is not yet a completed bill.", "适用于已实际销售但资料不全的项目。收款和凭证保存在服务器，之后可在“挂单 → 先售待结单”补充 SN/修改商品资料。此项目尚未成为完整结单。")}
           </div>
           {error ? (
             <p role="alert" className="text-sm text-danger">
@@ -183,13 +182,12 @@ export function DeferredSaleModal({
           ) : null}
           {record ? (
             <p className="text-sm">
-              บันทึกรายการ {record.id.slice(0, 8).toUpperCase()} แล้ว
-              กลับมาเติมข้อมูลหรือรับชำระต่อได้ในพักบิล
+              {L(`บันทึกรายการ ${record.id.slice(0, 8).toUpperCase()} แล้ว กลับมาเติมข้อมูลหรือรับชำระต่อได้ในพักบิล`, `Saved ${record.id.slice(0, 8).toUpperCase()}. Add details or take payment later under Hold.`, `已保存 ${record.id.slice(0, 8).toUpperCase()}，可稍后在挂单中补充资料或继续收款`)}
             </p>
           ) : form ? (
             <>
               <label className="block text-xs">
-                วันเวลาขายจริง
+                {L("วันเวลาขายจริง", "Actual sale date/time", "实际销售时间")}
                 <input
                   type="datetime-local"
                   value={form.occurred}
@@ -204,14 +202,14 @@ export function DeferredSaleModal({
                     className="py-3 flex flex-wrap items-center justify-between gap-3"
                   >
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium">{line.name}</p>
+                      <p className="text-sm font-medium" translate="no">{line.name}</p>
                       <p className="text-xs text-muted">
-                        {line.sku} · {line.qty} ชิ้น · SN{" "}
+                        <span translate="no">{line.sku}</span> · {line.qty} {L("ชิ้น", "pcs", "件")} · SN{" "}
                         {(line.serials ?? []).length}/{line.qty}
                       </p>
                     </div>
                     <label className="text-xs w-32">
-                      ราคาขายจริง/ชิ้น
+                      {L("ราคาขายจริง/ชิ้น", "Actual price/unit", "实际单价")}
                       <Input
                         type="number"
                         min="0.01"
@@ -233,7 +231,7 @@ export function DeferredSaleModal({
               </div>
               <div className="rounded-xl bg-surface2 p-3 flex justify-between text-sm">
                 <span>
-                  ยอดขายจริงหลังส่วนลด {formatTHB(form.draft.discount_total)}
+                  {L("ยอดขายจริงหลังส่วนลด", "Actual total after discount", "折扣后实际销售额")} {formatTHB(form.draft.discount_total)}
                 </span>
                 <strong>{formatTHB(total)}</strong>
               </div>
@@ -243,23 +241,20 @@ export function DeferredSaleModal({
                   checked={form.delivered}
                   onChange={(e) => change({ delivered: e.target.checked })}
                 />
-                ส่งมอบสินค้าให้ลูกค้าแล้ว
+                {L("ส่งมอบสินค้าให้ลูกค้าแล้ว", "Goods handed to customer", "已向客户交付商品")}
               </label>
               <label className="block text-xs">
-                เหตุผลที่ต้องขายก่อน / ข้อมูลที่ยังขาด
+                {L("เหตุผลที่ต้องขายก่อน / ข้อมูลที่ยังขาด", "Reason / missing information", "先售原因 / 缺少的资料")}
                 <textarea
                   rows={3}
                   value={form.reason}
                   onChange={(e) => change({ reason: e.target.value })}
                   className="mt-1 w-full rounded-xl border border-line bg-surface2 p-2 text-xs"
-                  placeholder="เช่น ลูกค้ารับสินค้าแล้ว แต่ SN ยังไม่เข้าระบบ / รอยืนยันราคา"
+                  placeholder={L("เช่น ลูกค้ารับสินค้าแล้ว แต่ SN ยังไม่เข้าระบบ / รอยืนยันราคา", "e.g. customer took the goods but SN not in system / price pending", "例如：客户已取货但 SN 未入系统 / 待确认价格")}
                 />
               </label>
               <p className="text-xs text-muted">
-                กันจำนวนในสาขาที่มีรายการสต๊อกไว้ระหว่างรอปิดบิล
-                การปิดบิลภายหลังต้องผ่านการตรวจสต๊อกและ SN จริง
-                ราคาต่างจากราคากลางต้องให้หัวหน้าที่มีสิทธิ์ตรวจ
-                ไม่รองรับใช้แต้ม คูปอง หรือของแถมในโหมดนี้
+                {L("กันจำนวนในสาขาที่มีรายการสต๊อกไว้ระหว่างรอปิดบิล การปิดบิลภายหลังต้องผ่านการตรวจสต๊อกและ SN จริง ราคาต่างจากราคากลางต้องให้หัวหน้าที่มีสิทธิ์ตรวจ ไม่รองรับใช้แต้ม คูปอง หรือของแถมในโหมดนี้", "Stock is reserved at the branch while pending. Closing later requires real stock and SN checks. Prices differing from list must be reviewed by an authorised supervisor. Points, coupons and gifts are not supported in this mode.", "待结单期间将预留门店库存。之后结单需核对实际库存和 SN。与标准价不同的价格需由有权限的主管审核。此模式不支持积分、优惠券或赠品。")}
               </p>
             </>
           ) : null}
@@ -267,8 +262,8 @@ export function DeferredSaleModal({
       </Modal>
       <PaymentModal
         open={open && pay && !!record}
-        title="บันทึกเงินรับ · รายการรอปิดบิล"
-        confirmLabel="เก็บไว้ในรายการรอปิดบิล"
+        title={L("บันทึกเงินรับ · รายการรอปิดบิล", "Record payment · pending bill", "记录收款 · 待结单")}
+        confirmLabel={L("เก็บไว้ในรายการรอปิดบิล", "Keep in pending bills", "保存到待结单")}
         onClose={() => {
           setPay(false);
           onClose();
@@ -279,7 +274,7 @@ export function DeferredSaleModal({
         restoredPayments={record?.payments}
         onRecordPayment={async (payment) => {
           const d = recordRef.current;
-          if (!d || !session.branchId) throw Error("ไม่พบรายการ");
+          if (!d || !session.branchId) throw Error(L("ไม่พบรายการ", "Item not found", "未找到项目"));
           const r = await deferredRequest("record", d.id, session.branchId, {
             version: d.version,
             payment,

@@ -363,7 +363,7 @@ export function PaymentModal({
                   </p>
                 </div>
                 <span className="text-sm tnum font-medium">{formatTHB(p.amount, false)}</span>
-                <button disabled={isLiveMode()} title={isLiveMode()?"รายการรับเงินที่บันทึกแล้วต้องให้หัวหน้าตรวจแก้ไข":undefined} onClick={() => setPayments((list) => {const next=list.filter((_,idx)=>idx!==i);if(checkoutId)localStorage.setItem(`shdpos.payment:${checkoutId}`,JSON.stringify(next));return next;})} className="text-muted hover:text-danger">
+                <button disabled={isLiveMode()} title={isLiveMode()?L("รายการรับเงินที่บันทึกแล้วต้องให้หัวหน้าตรวจแก้ไข", "Recorded payments must be edited by a supervisor", "已记录的收款需由主管核查修改"):undefined} onClick={() => setPayments((list) => {const next=list.filter((_,idx)=>idx!==i);if(checkoutId)localStorage.setItem(`shdpos.payment:${checkoutId}`,JSON.stringify(next));return next;})} className="text-muted hover:text-danger">
                   <Trash2 size={14} />
                 </button>
               </div>

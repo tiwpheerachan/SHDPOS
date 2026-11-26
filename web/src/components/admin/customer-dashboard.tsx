@@ -131,7 +131,7 @@ export function CustomerDashboard({
         <Card title={L("ระดับยอดซื้อสะสม", "Lifetime spend bands", "累计消费分布")} hint={L("ลูกค้าที่ซื้อแล้ว", "Purchasing customers", "已购客户")}>
           <div className="flex items-end gap-2 h-32">
             {d.spendBands.map((b) => (
-              <div key={b.label} className="flex-1 h-full flex flex-col justify-end items-center gap-1" title={`${b.label} · ${b.n} คน · ${formatTHB(b.sum)}`}>
+              <div key={b.label} className="flex-1 h-full flex flex-col justify-end items-center gap-1" title={`${b.label} · ${b.n} ${L("คน", "people", "人")} · ${formatTHB(b.sum)}`}>
                 <span className="text-[10px] tnum text-muted">{b.n}</span>
                 <span className="w-full rounded-t-lg bg-brand/75" style={{ height: `${b.n ? Math.max(4, (b.n / maxBand) * 100) : 2}%` }} />
               </div>

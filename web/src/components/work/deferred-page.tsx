@@ -3,7 +3,9 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { DeferredSalesPanel } from "@/components/pos/deferred-sales-panel";
 import { workRead } from "@/lib/work";
+import { useL } from "@/lib/i18n/provider";
 export function DeferredWorkPage() {
+  const L = useL();
   const sp = useSearchParams(),
     [branches, setBranches] = useState<any[]>([]),
     [branch, setBranch] = useState(sp.get("branch_id") ?? ""),
@@ -23,13 +25,13 @@ export function DeferredWorkPage() {
           <p className="work-caption uppercase tracking-wider">
             SHD OPERATIONS
           </p>
-          <h1 className="text-2xl font-semibold mt-1">บิลรอปิด</h1>
+          <h1 className="text-2xl font-semibold mt-1">{L("บิลรอปิด", "Pending bills", "待结单据")}</h1>
           <p className="work-caption mt-1">
-            ตรวจข้อมูล รับงานต่อ และปิดบิลจากเงินรับเดิม
+            {L("ตรวจข้อมูล รับงานต่อ และปิดบิลจากเงินรับเดิม", "Review, take over and close bills from prior payments", "核对信息、接手并按已收款结单")}
           </p>
         </div>
         <select
-          aria-label="สาขาของบิลรอปิด"
+          aria-label={L("สาขาของบิลรอปิด", "Pending bill branch", "待结单据门店")}
           className="work-field !w-52"
           value={branch}
           onChange={(e) => setBranch(e.target.value)}

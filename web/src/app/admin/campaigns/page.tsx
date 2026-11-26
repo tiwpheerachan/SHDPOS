@@ -167,13 +167,13 @@ export default function AdminCampaignsPage() {
 
   async function toggleActive(c: Campaign) {
     const response = await fetch("/api/admin/campaigns", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: c.id, version:c.version, active: !c.active }) });
-    if (!response.ok) { const data = await response.json(); setErr(data.error || "เปลี่ยนสถานะแคมเปญไม่สำเร็จ"); return; }
+    if (!response.ok) { const data = await response.json(); setErr(data.error || L("เปลี่ยนสถานะแคมเปญไม่สำเร็จ", "Failed to change campaign status", "更改活动状态失败")); return; }
     setErr(""); await load();
   }
   async function remove(c: Campaign) {
     if (!confirm(L(`เก็บแคมเปญ "${c.name}" เข้าประวัติและปิดใช้งาน?`, `Delete campaign "${c.name}"?`, `删除活动 "${c.name}"？`))) return;
     const response=await fetch(`/api/admin/campaigns?id=${c.id}&version=${c.version}`, { method: "DELETE" });
-    if(!response.ok){const data=await response.json();setErr(data.error||"เก็บเข้าประวัติไม่สำเร็จ");return;}
+    if(!response.ok){const data=await response.json();setErr(data.error||L("เก็บเข้าประวัติไม่สำเร็จ", "Failed to archive", "归档失败"));return;}
     setItems((p) => p.filter((x) => x.id !== c.id));
   }
 
@@ -502,10 +502,10 @@ function ProductPicker({ onPick }: { onPick: (p: ProdRef) => void }) {
       try {
         const response = await fetch(`/api/admin/products?q=${encodeURIComponent(q.trim())}`, {cache:"no-store",signal:controller.signal});
         const data = await response.json();
-        if (!response.ok) throw Error(data.error || "ค้นหาสินค้าไม่สำเร็จ");
-        if (!Array.isArray(data.products)) throw Error("ข้อมูลแคตตาล็อกไม่ถูกต้อง");
+        if (!response.ok) throw Error(data.error || L("ค้นหาสินค้าไม่สำเร็จ", "Product search failed", "搜索商品失败"));
+        if (!Array.isArray(data.products)) throw Error(L("ข้อมูลแคตตาล็อกไม่ถูกต้อง", "Invalid catalog data", "目录数据无效"));
         if (alive) { setHits(data.products); setMore(data.has_more === true); }
-      } catch (err) { if (alive) setError(err instanceof Error ? err.message : "ค้นหาสินค้าไม่สำเร็จ"); }
+      } catch (err) { if (alive) setError(err instanceof Error ? err.message : L("ค้นหาสินค้าไม่สำเร็จ", "Product search failed", "搜索商品失败")); }
       finally { if (alive) setLoading(false); }
     }, q.trim() ? 280 : 0);
     return () => {alive = false;clearTimeout(timer);controller.abort();};

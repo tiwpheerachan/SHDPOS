@@ -293,7 +293,7 @@ export default function AdminOneWarehousePage() {
               <div className="divide-y divide-line/60 max-h-[calc(100vh-280px)] overflow-auto">
                 {jstRows.map((r) => (
                   <div key={r.sku} className="flex flex-wrap items-center gap-3 px-4 py-2.5 text-[12px]">
-                    <code className="font-mono text-[11px] w-36 shrink-0 truncate">{r.sku}</code>
+                    <code className="font-mono text-[11px] w-36 shrink-0 truncate" translate="no">{r.sku}</code>
                     {r.found && r.product ? <>
                       <span className="flex-1 min-w-[160px] truncate font-medium">{r.product.name || "—"}{r.product.brand ? <span className="text-muted font-normal"> · {r.product.brand}</span> : null}</span>
                       <span className="text-muted tabular-nums">{L("ราคา", "price", "价")} {r.product.sale_price == null ? "—" : formatTHB(r.product.sale_price, false)}</span>

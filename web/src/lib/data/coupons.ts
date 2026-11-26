@@ -4,6 +4,7 @@
 // =====================================================================
 import { db, kvGet, kvSet } from "../offline/db";
 import { listPromoCampaigns, isDemoMode, type PromoCampaign } from "./repo";
+import { tr } from "@/lib/i18n/tr";
 
 export interface CouponUsage {
   id: string;
@@ -86,7 +87,7 @@ async function seedDemoUsages(promos: PromoCampaign[]): Promise<CouponUsage[]> {
 export async function listCouponUsages(): Promise<CouponUsage[]> {
   const [orders, promos, branches] = await Promise.all([db().orders.toArray(), listPromoCampaigns(), db().branches.toArray()]);
   const bName = (id: string) => { const b = branches.find((x) => x.id === id); return b ? (b.name_th || b.name) : "—"; };
-  const nameOf = (id: string | null, code: string | null) => promos.find((p) => p.id === id)?.name ?? code ?? "คูปอง";
+  const nameOf = (id: string | null, code: string | null) => promos.find((p) => p.id === id)?.name ?? code ?? tr("คูปอง", "Coupon", "优惠券");
   const real: CouponUsage[] = orders
     .filter((o) => o.status !== "voided")
     .map((o) => {

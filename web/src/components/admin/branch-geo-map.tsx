@@ -206,7 +206,7 @@ export function BranchGeoMap({
       <div className="absolute top-2 right-2 flex flex-col gap-1">
         <button onClick={() => zoomAround(VB.w / 2, VB.h / 2, 1.4)} className="h-7 w-7 grid place-items-center rounded-lg bg-surface/90 backdrop-blur border border-line text-ink hover:bg-surface2 text-base leading-none" aria-label="zoom in">+</button>
         <button onClick={() => zoomAround(VB.w / 2, VB.h / 2, 1 / 1.4)} className="h-7 w-7 grid place-items-center rounded-lg bg-surface/90 backdrop-blur border border-line text-ink hover:bg-surface2 text-base leading-none" aria-label="zoom out">−</button>
-        {k > 1 ? <button onClick={reset} className="h-7 w-7 grid place-items-center rounded-lg bg-surface/90 backdrop-blur border border-line text-muted hover:bg-surface2 text-[10px]" aria-label="reset">รี</button> : null}
+        {k > 1 ? <button onClick={reset} className="h-7 w-7 grid place-items-center rounded-lg bg-surface/90 backdrop-blur border border-line text-muted hover:bg-surface2 text-[10px]" aria-label="reset">{L("รี", "↺", "↺")}</button> : null}
       </div>
 
       {hv ? (

@@ -8,6 +8,7 @@
 // =====================================================================
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
+import { tr } from "@/lib/i18n/tr";
 
 export type TrendStatus = "up" | "down" | "flat";
 export interface MetricPeriod { name: string; value: string; trend: string; status: TrendStatus; compareLabel: string }
@@ -128,7 +129,7 @@ export function MetricGlassCards({ cards, className, cycleMs = 4200, footer, tit
           const per = card.periods[pIdx[i] ?? 0] ?? card.periods[0];
           const ph = phase[i] ?? "idle";
           return (
-            <article key={card.id} onClick={() => goTo(i)} title="คลิกเพื่อสลับช่วงเวลา (วันนี้ · 7 วัน · 30 วัน)"
+            <article key={card.id} onClick={() => goTo(i)} title={tr("คลิกเพื่อสลับช่วงเวลา (วันนี้ · 7 วัน · 30 วัน)", "Click to switch period (today · 7 days · 30 days)", "点击切换时间段（今天 · 7 天 · 30 天）")}
               className="mgc-card cursor-pointer rounded-[2.25rem] p-6 sm:p-7 flex flex-col justify-between relative overflow-hidden group select-none">
               <div className="flex items-center justify-between relative z-10 mb-6">
                 <LiquidBadge label={card.label} index={i} />

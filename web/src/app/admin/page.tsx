@@ -50,11 +50,7 @@ export default function CommandCenter() {
   const { employee } = useSession();
   const { branches, brands } = useAdminScope();
   const [filter, setFilter] = useDefaultFilter();
-  const weekdays = locale === "th"
-    ? ["จ", "อ", "พ", "พฤ", "ศ", "ส", "อา"]
-    : locale === "zh"
-    ? ["一", "二", "三", "四", "五", "六", "日"]
-    : ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const weekdays = L("จ|อ|พ|พฤ|ศ|ส|อา", "Mon|Tue|Wed|Thu|Fri|Sat|Sun", "一|二|三|四|五|六|日").split("|");
 
   const [orders, setOrders] = useState<Order[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -467,9 +463,9 @@ export default function CommandCenter() {
                 { value: "units" as Metric, label: t.admin.unitsSold },
               ]} />
               <Segmented size="sm" value={gran} onChange={setGran} options={[
-                { value: "hourly" as Gran, label: locale === "th" ? "ชม." : locale === "zh" ? "时" : "Hr" },
-                { value: "daily" as Gran, label: locale === "th" ? "วัน" : locale === "zh" ? "日" : "Day" },
-                { value: "weekly" as Gran, label: locale === "th" ? "สัปดาห์" : locale === "zh" ? "周" : "Wk" },
+                { value: "hourly" as Gran, label: L("ชม.", "Hr", "时") },
+                { value: "daily" as Gran, label: L("วัน", "Day", "日") },
+                { value: "weekly" as Gran, label: L("สัปดาห์", "Wk", "周") },
               ]} />
             </div>
           </div>

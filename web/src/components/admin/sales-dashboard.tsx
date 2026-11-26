@@ -13,10 +13,11 @@ import { can } from "@/lib/permissions";
 import { ChevronRight } from "lucide-react";
 import { OwSaleBadge } from "@/components/pos/ow-sale-badge";
 import { Segmented } from "@/components/ui";
+import { tr } from "@/lib/i18n/tr";
 
-const PAY: Record<string, string> = { cash: "เงินสด", credit_card: "บัตรเครดิต", debit_card: "บัตรเดบิต", qr_promptpay: "พร้อมเพย์", bank_transfer: "โอนเงิน", edc: "EDC", installment: "ผ่อนชำระ", gift_card: "บัตรของขวัญ", store_credit: "เครดิตร้าน", online_marketplace: "มาร์เก็ตเพลส", other: "อื่น ๆ" };
-const CH: Record<string, string> = { offline: "หน้าร้าน", online_shopee: "Shopee", online_lazada: "Lazada", online_tiktok: "TikTok", online_website: "เว็บไซต์", event: "อีเวนต์", b2b: "ขายส่ง", other: "อื่น ๆ" };
-const DAYS = ["อา", "จ", "อ", "พ", "พฤ", "ศ", "ส"];
+const PAY = (): Record<string, string> => ({ cash: tr("เงินสด", "Cash", "现金"), credit_card: tr("บัตรเครดิต", "Credit card", "信用卡"), debit_card: tr("บัตรเดบิต", "Debit card", "借记卡"), qr_promptpay: tr("พร้อมเพย์", "PromptPay", "PromptPay"), bank_transfer: tr("โอนเงิน", "Bank transfer", "银行转账"), edc: "EDC", installment: tr("ผ่อนชำระ", "Installment", "分期付款"), gift_card: tr("บัตรของขวัญ", "Gift card", "礼品卡"), store_credit: tr("เครดิตร้าน", "Store credit", "店铺余额"), online_marketplace: tr("มาร์เก็ตเพลส", "Marketplace", "电商平台"), other: tr("อื่น ๆ", "Other", "其他") });
+const CH = (): Record<string, string> => ({ offline: tr("หน้าร้าน", "In-store", "门店"), online_shopee: "Shopee", online_lazada: "Lazada", online_tiktok: "TikTok", online_website: tr("เว็บไซต์", "Website", "官网"), event: tr("อีเวนต์", "Event", "活动"), b2b: tr("ขายส่ง", "Wholesale", "批发"), other: tr("อื่น ๆ", "Other", "其他") });
+const DAYS = () => tr("อา|จ|อ|พ|พฤ|ศ|ส", "Sun|Mon|Tue|Wed|Thu|Fri|Sat", "日|一|二|三|四|五|六").split("|");
 const baht = (n: number) => formatTHB(n, false);
 const pct = (a: number, b: number) => (b > 0 ? ((a - b) / b) * 100 : a > 0 ? 100 : 0);
 const empName = (e?: Employee) => (e ? e.nickname || [e.first_name, (e as Employee & { last_name?: string }).last_name].filter(Boolean).join(" ") : "—");
@@ -45,7 +46,7 @@ export function Panel({ title, icon, action, children, className = "" }: { title
   );
 }
 export function Bars({ rows, total, color = "bg-brand" }: { rows: { label: string; value: number; sub?: string }[]; total: number; color?: string }) {
-  if (!rows.length) return <p className="text-xs text-muted">ไม่มีข้อมูล</p>;
+  if (!rows.length) return <p className="text-xs text-muted">{tr("ไม่มีข้อมูล", "No data", "暂无数据")}</p>;
   return (
     <div className="space-y-2">
       {rows.map((r) => (
@@ -81,7 +82,7 @@ function Trend({ cur, prev, labels }: { cur: number[]; prev: number[]; labels: s
       </svg>
       {hover !== null ? (
         <div className="absolute top-0 right-0 rounded-lg bg-surface border border-line shadow-sm px-2.5 py-1.5 text-[11px] tnum pointer-events-none">
-          <b>{labels[hover]}</b> · {baht(cur[hover])}{prev[hover] ? <span className="text-muted"> · ก่อนหน้า {baht(prev[hover])}</span> : null}
+          <b>{labels[hover]}</b> · {baht(cur[hover])}{prev[hover] ? <span className="text-muted"> · {tr("ก่อนหน้า", "Previous", "上期")} {baht(prev[hover])}</span> : null}
         </div>
       ) : null}
       <div className="flex justify-between text-[10px] text-muted mt-1 tnum">{ticks.map((i) => <span key={i}>{labels[i]}</span>)}</div>
@@ -140,25 +141,26 @@ export function buildOverview({ orders, adjustments, prev, branches, employees, 
     trend = { cur, prev: pv, labels: days.map((d) => { const [, m, dd] = d.split("-"); return `${+dd}/${+m}`; }), hourly: false };
   }
   const agg = (pairs: [string, number][]) => { const m = new Map<string, number>(); for (const [k, v] of pairs) m.set(k, (m.get(k) ?? 0) + v); return [...m.entries()].sort((a, b) => b[1] - a[1]).map(([label, value]) => ({ label, value })); };
-  const pay = agg(sold.flatMap((o) => o.payments.map((p) => [PAY[p.method] ?? p.method, p.amount] as [string, number])));
-  const ch = agg(sold.map((o) => [CH[o.channel] ?? o.channel, o.grand_total]));
+  const pay = agg(sold.flatMap((o) => o.payments.map((p) => [PAY()[p.method] ?? p.method, p.amount] as [string, number])));
+  const ch = agg(sold.map((o) => [CH()[o.channel] ?? o.channel, o.grand_total]));
   const g = Array.from({ length: 7 }, () => Array(24).fill(0));
   const bkkDate = (iso: string) => new Date(new Date(iso).toLocaleString("en-US", { timeZone: "Asia/Bangkok" }));
   for (const o of sold) { const t = bkkDate(saleAt(o)); g[t.getDay()][t.getHours()] += o.grand_total; }
   let peak = { d: 0, h: 0, v: 0 }; g.forEach((row, d) => row.forEach((v, h) => { if (v > peak.v) peak = { d, h, v }; }));
   const hs = g.flatMap((row) => row.map((v, h) => (v > 0 ? h : -1))).filter((h) => h >= 0);
   const heat = { g, max: Math.max(1, ...g.flat()), peak, hours: (hs.length ? [Math.min(8, ...hs), Math.max(21, ...hs)] : [8, 21]) as [number, number] };
-  const wd = Array.from({ length: 7 }, (_, d) => ({ label: DAYS[d], cur: 0, prev: 0 }));
+  const wd = Array.from({ length: 7 }, (_, d) => ({ label: DAYS()[d], cur: 0, prev: 0 }));
   for (const o of sold) wd[bkkDate(saleAt(o)).getDay()].cur += o.grand_total;
   for (const o of pSold) wd[bkkDate(o.created_at).getDay()].prev += o.grand_total;
   const BUCKETS: [string, number][] = [["< 500", 500], ["500–1K", 1000], ["1K–3K", 3000], ["3K–5K", 5000], ["5K–10K", 10000], ["10K–20K", 20000], ["20K+", Infinity]];
   const basket = BUCKETS.map(([label]) => ({ label, value: 0 }));
   for (const o of sold) basket[BUCKETS.findIndex(([, lim]) => o.grand_total < lim)].value++;
-  let categories = agg(sold.flatMap((o) => o.items.filter((i) => !i.is_gift).map((i) => [catName?.get((i.product_id && productCat?.get(i.product_id)) || "") ?? "ไม่ระบุหมวด", i.line_total] as [string, number]))).slice(0, 7);
+  const noCat = tr("ไม่ระบุหมวด", "Uncategorized", "未分类"), noBrand = tr("ไม่ระบุแบรนด์", "No brand", "未指定品牌");
+  let categories = agg(sold.flatMap((o) => o.items.filter((i) => !i.is_gift).map((i) => [catName?.get((i.product_id && productCat?.get(i.product_id)) || "") ?? noCat, i.line_total] as [string, number]))).slice(0, 7);
   let catKind: "category" | "brand" = "category";
-  if (categories.length === 1 && categories[0].label === "ไม่ระบุหมวด" && brandName) {
-    const byBrand = agg(sold.flatMap((o) => o.items.filter((i) => !i.is_gift).map((i) => [(i.brand_id && brandName.get(i.brand_id)) || "ไม่ระบุแบรนด์", i.line_total] as [string, number]))).slice(0, 7);
-    if (byBrand.some((r) => r.label !== "ไม่ระบุแบรนด์")) { categories = byBrand; catKind = "brand"; }
+  if (categories.length === 1 && categories[0].label === noCat && brandName) {
+    const byBrand = agg(sold.flatMap((o) => o.items.filter((i) => !i.is_gift).map((i) => [(i.brand_id && brandName.get(i.brand_id)) || noBrand, i.line_total] as [string, number]))).slice(0, 7);
+    if (byBrand.some((r) => r.label !== noBrand)) { categories = byBrand; catKind = "brand"; }
   }
   const pm = new Map<string, { name: string; qty: number; sales: number }>();
   for (const o of sold) for (const i of o.items) { if (i.is_gift) continue; const c = pm.get(i.sku) ?? { name: i.name, qty: 0, sales: 0 }; c.qty += i.qty; c.sales += i.line_total; pm.set(i.sku, c); }
@@ -196,7 +198,7 @@ export function Columns({ rows, fmt, highlightMax }: { rows: { label: string; va
   return (
     <div className="flex items-end gap-1.5 h-[120px]">
       {rows.map((r) => (
-        <div key={r.label} className="flex-1 flex flex-col items-center gap-1 min-w-0 h-full justify-end" title={`${r.label}: ${fmt ? fmt(r.value) : r.value}${r.prev !== undefined ? ` · ก่อนหน้า ${fmt ? fmt(r.prev) : r.prev}` : ""}`}>
+        <div key={r.label} className="flex-1 flex flex-col items-center gap-1 min-w-0 h-full justify-end" title={`${r.label}: ${fmt ? fmt(r.value) : r.value}${r.prev !== undefined ? ` · ${tr("ก่อนหน้า", "Previous", "上期")} ${fmt ? fmt(r.prev) : r.prev}` : ""}`}>
           <div className="w-full flex items-end gap-[2px] h-full">
             {r.prev !== undefined ? <div className="flex-1 rounded-t-[3px] bg-muted/25" style={{ height: `${(r.prev / max) * 100}%` }} /> : null}
             <div className={`flex-1 rounded-t-[3px] ${highlightMax && r.value === top && top > 0 ? "bg-brand" : "bg-brand/55"}`} style={{ height: `${(r.value / max) * 100}%`, minHeight: r.value ? 2 : 0 }} />
@@ -217,12 +219,12 @@ export function Spark({ values }: { values: number[] }) {
 function Flow({ k }: { k: OverviewModel["kpi"] }) {
   const before = k.gross + k.disc;
   const rows = [
-    { label: "ยอดก่อนส่วนลด", value: before, tone: "bg-brand/40", sign: "" },
-    { label: "หักส่วนลด", value: -k.disc, tone: "bg-warn", sign: "−" },
-    { label: "ยอดขาย", value: k.gross, tone: "bg-brand", sign: "" },
-    { label: "หักคืนเงิน", value: -k.refunds, tone: "bg-danger", sign: "−" },
-    { label: "หักใบลดหนี้", value: -k.cn, tone: "bg-danger/70", sign: "−" },
-    { label: "ยอดสุทธิ", value: k.net, tone: "bg-ok", sign: "" },
+    { label: tr("ยอดก่อนส่วนลด", "Before discount", "折扣前金额"), value: before, tone: "bg-brand/40", sign: "" },
+    { label: tr("หักส่วนลด", "Less discounts", "减折扣"), value: -k.disc, tone: "bg-warn", sign: "−" },
+    { label: tr("ยอดขาย", "Sales", "销售额"), value: k.gross, tone: "bg-brand", sign: "" },
+    { label: tr("หักคืนเงิน", "Less refunds", "减退款"), value: -k.refunds, tone: "bg-danger", sign: "−" },
+    { label: tr("หักใบลดหนี้", "Less credit notes", "减红字发票"), value: -k.cn, tone: "bg-danger/70", sign: "−" },
+    { label: tr("ยอดสุทธิ", "Net sales", "净销售额"), value: k.net, tone: "bg-ok", sign: "" },
   ];
   const max = Math.max(1, before);
   let run = before;
@@ -252,75 +254,75 @@ export function OverviewView({ m, onDrill }: { m: OverviewModel; onDrill?: (tab:
     <div className="space-y-4">
       <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3">
         <div className="card px-3.5 py-3 min-w-0 ring-1 ring-brand/25 bg-brand/[0.04] col-span-2 sm:col-span-1">
-          <div className="flex items-center justify-between gap-1"><p className="text-[11px] text-muted">ยอดขาย</p><Delta v={pct(k.gross, k.pGross)} show={k.hasPrev} /></div>
+          <div className="flex items-center justify-between gap-1"><p className="text-[11px] text-muted">{tr("ยอดขาย", "Sales", "销售额")}</p><Delta v={pct(k.gross, k.pGross)} show={k.hasPrev} /></div>
           <div className="flex items-end justify-between gap-2 mt-1"><p className="text-lg font-bold tnum leading-tight text-brand truncate">{baht(k.gross)}</p><Spark values={m.spark} /></div>
-          <p className="text-[10.5px] text-muted truncate mt-0.5">{k.hasPrev ? `ช่วงก่อน ${baht(k.pGross)}` : "—"}</p>
+          <p className="text-[10.5px] text-muted truncate mt-0.5">{k.hasPrev ? tr(`ช่วงก่อน ${baht(k.pGross)}`, `Prev. ${baht(k.pGross)}`, `上期 ${baht(k.pGross)}`) : "—"}</p>
         </div>
-        <Kpi label="ยอดสุทธิ (หลังคืน/ลดหนี้)" value={baht(k.net)} sub={k.refunds || k.cn ? `คืน ${baht(k.refunds)} · ลดหนี้ ${baht(k.cn)}` : "ไม่มีคืนเงิน/ลดหนี้"} />
-        <Kpi label="จำนวนบิล" value={formatInt(k.bills)} delta={pct(k.bills, k.pBills)} showDelta={k.hasPrev} sub={k.voids ? `ยกเลิก ${k.voids} บิล · ${baht(k.voidAmt)}` : "ไม่มีบิลยกเลิก"} />
-        <Kpi label="เฉลี่ยต่อบิล" value={baht(k.avg)} delta={pct(k.avg, k.pAvg)} showDelta={k.hasPrev && k.pBills > 0} sub={`${formatInt(k.units)} ชิ้น · ${k.bills ? (k.units / k.bills).toFixed(1) : 0} ชิ้น/บิล`} />
-        <Kpi label="ส่วนลด" value={baht(k.disc)} sub={`${k.gross + k.disc > 0 ? ((k.disc / (k.gross + k.disc)) * 100).toFixed(1) : 0}% ของยอดก่อนลด`} tone="warn" />
-        {k.showCost ? <Kpi label="กำไรขั้นต้น" value={baht(k.gp)} sub={`GP ${k.gross ? ((k.gp / (k.gross / 1.07)) * 100).toFixed(1) : 0}% ของยอดก่อน VAT`} tone="ok" />
-          : <Kpi label="ลูกค้าสมาชิก" value={`${k.bills ? Math.round((k.members / k.bills) * 100) : 0}%`} sub={`${formatInt(k.members)} จาก ${formatInt(k.bills)} บิล`} />}
+        <Kpi label={tr("ยอดสุทธิ (หลังคืน/ลดหนี้)", "Net (after refunds/credits)", "净额（扣除退款/红字）")} value={baht(k.net)} sub={k.refunds || k.cn ? tr(`คืน ${baht(k.refunds)} · ลดหนี้ ${baht(k.cn)}`, `Refunds ${baht(k.refunds)} · credits ${baht(k.cn)}`, `退款 ${baht(k.refunds)} · 红字 ${baht(k.cn)}`) : tr("ไม่มีคืนเงิน/ลดหนี้", "No refunds/credits", "无退款/红字")} />
+        <Kpi label={tr("จำนวนบิล", "Bills", "单据数")} value={formatInt(k.bills)} delta={pct(k.bills, k.pBills)} showDelta={k.hasPrev} sub={k.voids ? tr(`ยกเลิก ${k.voids} บิล · ${baht(k.voidAmt)}`, `${k.voids} voided · ${baht(k.voidAmt)}`, `作废 ${k.voids} 张 · ${baht(k.voidAmt)}`) : tr("ไม่มีบิลยกเลิก", "No voided bills", "无作废单据")} />
+        <Kpi label={tr("เฉลี่ยต่อบิล", "Avg per bill", "客单价")} value={baht(k.avg)} delta={pct(k.avg, k.pAvg)} showDelta={k.hasPrev && k.pBills > 0} sub={tr(`${formatInt(k.units)} ชิ้น · ${k.bills ? (k.units / k.bills).toFixed(1) : 0} ชิ้น/บิล`, `${formatInt(k.units)} units · ${k.bills ? (k.units / k.bills).toFixed(1) : 0} per bill`, `${formatInt(k.units)} 件 · ${k.bills ? (k.units / k.bills).toFixed(1) : 0} 件/单`)} />
+        <Kpi label={tr("ส่วนลด", "Discounts", "折扣")} value={baht(k.disc)} sub={`${k.gross + k.disc > 0 ? ((k.disc / (k.gross + k.disc)) * 100).toFixed(1) : 0}% ${tr("ของยอดก่อนลด", "of pre-discount", "占折前金额")}`} tone="warn" />
+        {k.showCost ? <Kpi label={tr("กำไรขั้นต้น", "Gross profit", "毛利")} value={baht(k.gp)} sub={`GP ${k.gross ? ((k.gp / (k.gross / 1.07)) * 100).toFixed(1) : 0}% ${tr("ของยอดก่อน VAT", "of pre-VAT", "占税前金额")}`} tone="ok" />
+          : <Kpi label={tr("ลูกค้าสมาชิก", "Member customers", "会员顾客")} value={`${k.bills ? Math.round((k.members / k.bills) * 100) : 0}%`} sub={tr(`${formatInt(k.members)} จาก ${formatInt(k.bills)} บิล`, `${formatInt(k.members)} of ${formatInt(k.bills)} bills`, `${formatInt(k.bills)} 单中 ${formatInt(k.members)} 单`)} />}
       </div>
 
       <div className="grid lg:grid-cols-3 gap-4">
-        <Panel className="lg:col-span-2" title={m.trend.hourly ? "ยอดขายรายชั่วโมง" : "แนวโน้มยอดขายรายวัน"} icon={<TrendingUp size={14} className="text-brand" />}
-          action={<span className="text-[10.5px] text-muted inline-flex items-center gap-3"><span className="inline-flex items-center gap-1"><span className="w-3 h-0.5 bg-brand rounded" />ช่วงนี้</span><span className="inline-flex items-center gap-1"><span className="w-3 border-t border-dashed border-muted" />ช่วงก่อนหน้า</span></span>}>
-          {k.bills ? <Trend cur={m.trend.cur} prev={m.trend.prev} labels={m.trend.labels} /> : <p className="text-xs text-muted py-10 text-center">ไม่มียอดขายในช่วงนี้</p>}
+        <Panel className="lg:col-span-2" title={m.trend.hourly ? tr("ยอดขายรายชั่วโมง", "Hourly sales", "每小时销售额") : tr("แนวโน้มยอดขายรายวัน", "Daily sales trend", "每日销售趋势")} icon={<TrendingUp size={14} className="text-brand" />}
+          action={<span className="text-[10.5px] text-muted inline-flex items-center gap-3"><span className="inline-flex items-center gap-1"><span className="w-3 h-0.5 bg-brand rounded" />{tr("ช่วงนี้", "This period", "本期")}</span><span className="inline-flex items-center gap-1"><span className="w-3 border-t border-dashed border-muted" />{tr("ช่วงก่อนหน้า", "Previous period", "上期")}</span></span>}>
+          {k.bills ? <Trend cur={m.trend.cur} prev={m.trend.prev} labels={m.trend.labels} /> : <p className="text-xs text-muted py-10 text-center">{tr("ไม่มียอดขายในช่วงนี้", "No sales in this period", "此期间暂无销售")}</p>}
         </Panel>
-        <Panel title="จากยอดก่อนลด → ยอดสุทธิ" icon={<ReceiptText size={14} className="text-brand" />}><Flow k={k} /></Panel>
+        <Panel title={tr("จากยอดก่อนลด → ยอดสุทธิ", "Pre-discount → net", "折前金额 → 净额")} icon={<ReceiptText size={14} className="text-brand" />}><Flow k={k} /></Panel>
       </div>
 
       <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-4">
-        <Panel title="วิธีรับชำระ" icon={<ReceiptText size={14} className="text-brand" />}>{payTotal ? <Donut rows={m.pay} /> : <p className="text-xs text-muted">ไม่มีข้อมูล</p>}</Panel>
-        <Panel title="ช่องทางขาย" icon={<Store size={14} className="text-brand" />}><Bars rows={m.ch.slice(0, 5)} total={chTotal} color="bg-[rgb(var(--chart-4))]" /></Panel>
-        <Panel title={m.catKind === "brand" ? "สัดส่วนตามแบรนด์" : "หมวดสินค้า"} icon={<Package size={14} className="text-brand" />} action={m.catKind === "brand" ? <span className="text-[10px] text-muted">สินค้ายังไม่ตั้งหมวด</span> : null}>{m.categories.length ? <Donut rows={m.categories} /> : <p className="text-xs text-muted">ไม่มีข้อมูล</p>}</Panel>
-        <Panel title="ขนาดบิล (จำนวนบิล)" icon={<ReceiptText size={14} className="text-brand" />}><Columns rows={m.basket} highlightMax /></Panel>
+        <Panel title={tr("วิธีรับชำระ", "Payment methods", "付款方式")} icon={<ReceiptText size={14} className="text-brand" />}>{payTotal ? <Donut rows={m.pay} /> : <p className="text-xs text-muted">{tr("ไม่มีข้อมูล", "No data", "暂无数据")}</p>}</Panel>
+        <Panel title={tr("ช่องทางขาย", "Sales channels", "销售渠道")} icon={<Store size={14} className="text-brand" />}><Bars rows={m.ch.slice(0, 5)} total={chTotal} color="bg-[rgb(var(--chart-4))]" /></Panel>
+        <Panel title={m.catKind === "brand" ? tr("สัดส่วนตามแบรนด์", "Share by brand", "品牌占比") : tr("หมวดสินค้า", "Categories", "商品类别")} icon={<Package size={14} className="text-brand" />} action={m.catKind === "brand" ? <span className="text-[10px] text-muted">{tr("สินค้ายังไม่ตั้งหมวด", "Products not categorized", "商品未设类别")}</span> : null}>{m.categories.length ? <Donut rows={m.categories} /> : <p className="text-xs text-muted">{tr("ไม่มีข้อมูล", "No data", "暂无数据")}</p>}</Panel>
+        <Panel title={tr("ขนาดบิล (จำนวนบิล)", "Bill size (bill count)", "单据金额分布（单数）")} icon={<ReceiptText size={14} className="text-brand" />}><Columns rows={m.basket} highlightMax /></Panel>
       </div>
 
       <div className="grid lg:grid-cols-3 gap-4">
-        <Panel className="lg:col-span-2" title="ช่วงเวลาขายดี (วัน × ชั่วโมง)" icon={<Clock size={14} className="text-brand" />}
-          action={peak.v ? <span className="text-[10.5px] text-muted">พีค {DAYS[peak.d]} {String(peak.h).padStart(2, "0")}:00 · {baht(peak.v)}</span> : null}>
+        <Panel className="lg:col-span-2" title={tr("ช่วงเวลาขายดี (วัน × ชั่วโมง)", "Peak times (day × hour)", "销售高峰（日 × 时）")} icon={<Clock size={14} className="text-brand" />}
+          action={peak.v ? <span className="text-[10.5px] text-muted">{tr("พีค", "Peak", "高峰")} {DAYS()[peak.d]} {String(peak.h).padStart(2, "0")}:00 · {baht(peak.v)}</span> : null}>
           <div className="overflow-x-auto">
             <div className="grid gap-[3px] min-w-[420px]" style={{ gridTemplateColumns: `28px repeat(${hours[1] - hours[0] + 1}, minmax(0,1fr))` }}>
               <span />
               {Array.from({ length: hours[1] - hours[0] + 1 }, (_, i) => <span key={i} className="text-[9px] text-muted text-center tnum">{(hours[0] + i) % 3 === 0 ? hours[0] + i : ""}</span>)}
               {g.map((row, d) => [
-                <span key={`d${d}`} className="text-[10px] text-muted self-center">{DAYS[d]}</span>,
+                <span key={`d${d}`} className="text-[10px] text-muted self-center">{DAYS()[d]}</span>,
                 ...row.slice(hours[0], hours[1] + 1).map((v, i) => (
-                  <span key={`${d}-${i}`} title={`${DAYS[d]} ${hours[0] + i}:00 · ${baht(v)}`} className="h-5 rounded-[4px]" style={{ background: v ? `rgb(var(--c-brand) / ${0.12 + (v / max) * 0.88})` : "rgb(var(--c-surface-2))" }} />
+                  <span key={`${d}-${i}`} title={`${DAYS()[d]} ${hours[0] + i}:00 · ${baht(v)}`} className="h-5 rounded-[4px]" style={{ background: v ? `rgb(var(--c-brand) / ${0.12 + (v / max) * 0.88})` : "rgb(var(--c-surface-2))" }} />
                 )),
               ])}
             </div>
           </div>
         </Panel>
-        <Panel title="รายวันในสัปดาห์" icon={<TrendingUp size={14} className="text-brand" />} action={k.hasPrev ? <span className="text-[10px] text-muted">เทา = ช่วงก่อนหน้า</span> : null}>
+        <Panel title={tr("รายวันในสัปดาห์", "By weekday", "按星期")} icon={<TrendingUp size={14} className="text-brand" />} action={k.hasPrev ? <span className="text-[10px] text-muted">{tr("เทา = ช่วงก่อนหน้า", "Grey = previous period", "灰色 = 上期")}</span> : null}>
           <Columns rows={m.weekday.map((w) => ({ label: w.label, value: w.cur, prev: k.hasPrev ? w.prev : undefined }))} fmt={baht} highlightMax />
         </Panel>
       </div>
 
       <div className="grid md:grid-cols-3 gap-4">
-        <Panel title="สินค้าขายดี" icon={<Package size={14} className="text-brand" />}>
+        <Panel title={tr("สินค้าขายดี", "Top products", "畅销商品")} icon={<Package size={14} className="text-brand" />}>
           {m.topProducts.length ? <ol className="space-y-2">{m.topProducts.map((p, i) => (
             <li key={p.sku} className="flex items-center gap-2.5 text-xs">
               <span className={`w-5 h-5 rounded-md grid place-items-center text-[10px] font-bold shrink-0 ${i < 3 ? "bg-brand/12 text-brand" : "bg-surface2 text-muted"}`}>{i + 1}</span>
               <span className="min-w-0 flex-1"><span className="block truncate font-medium">{p.name}</span><span className="block text-[10px] text-muted font-mono truncate">{p.sku}</span></span>
-              <span className="text-right shrink-0 tnum"><span className="block font-semibold">{baht(p.sales)}</span><span className="block text-[10px] text-muted">{formatInt(p.qty)} ชิ้น</span></span>
-            </li>))}</ol> : <p className="text-xs text-muted">ไม่มีข้อมูล</p>}
+              <span className="text-right shrink-0 tnum"><span className="block font-semibold">{baht(p.sales)}</span><span className="block text-[10px] text-muted">{formatInt(p.qty)} {tr("ชิ้น", "pcs", "件")}</span></span>
+            </li>))}</ol> : <p className="text-xs text-muted">{tr("ไม่มีข้อมูล", "No data", "暂无数据")}</p>}
         </Panel>
-        <Panel title="สาขาท็อป" icon={<Store size={14} className="text-brand" />} action={onDrill ? <button onClick={() => drill("branch")} className="text-[11px] text-brand inline-flex items-center gap-0.5">ดูทุกสาขา<ArrowUpRight size={12} /></button> : null}>
+        <Panel title={tr("สาขาท็อป", "Top branches", "门店排行")} icon={<Store size={14} className="text-brand" />} action={onDrill ? <button onClick={() => drill("branch")} className="text-[11px] text-brand inline-flex items-center gap-0.5">{tr("ดูทุกสาขา", "All branches", "全部门店")}<ArrowUpRight size={12} /></button> : null}>
           <Bars rows={m.topBranches.map((b) => ({ label: b.name, value: b.value }))} total={k.gross} />
         </Panel>
-        <Panel title="พนักงานท็อป" icon={<Users size={14} className="text-brand" />} action={onDrill ? <button onClick={() => drill("staff")} className="text-[11px] text-brand inline-flex items-center gap-0.5">ผลงานทั้งหมด<ArrowUpRight size={12} /></button> : null}>
+        <Panel title={tr("พนักงานท็อป", "Top staff", "员工排行")} icon={<Users size={14} className="text-brand" />} action={onDrill ? <button onClick={() => drill("staff")} className="text-[11px] text-brand inline-flex items-center gap-0.5">{tr("ผลงานทั้งหมด", "All performance", "全部业绩")}<ArrowUpRight size={12} /></button> : null}>
           {m.topStaff.length ? <div className="space-y-2">{m.topStaff.map((st, i) => (
             <button key={st.id} disabled={!onDrill} onClick={() => drill("staff", { person: st.id })} className="w-full flex items-center gap-2.5 text-xs text-left hover:bg-surface2/60 rounded-lg -mx-1 px-1 py-0.5 disabled:hover:bg-transparent">
               <span className={`w-5 h-5 rounded-full grid place-items-center text-[10px] font-bold shrink-0 ${i === 0 ? "bg-warn/20 text-warn" : "bg-surface2 text-muted"}`}>{i + 1}</span>
-              <span className="flex-1 truncate">{st.name}</span><span className="text-muted tnum">{st.bills} บิล</span><span className="font-semibold tnum w-24 text-right">{baht(st.value)}</span>
-            </button>))}</div> : <p className="text-xs text-muted">ไม่มีข้อมูล</p>}
+              <span className="flex-1 truncate" translate="no">{st.name}</span><span className="text-muted tnum">{st.bills} {tr("บิล", "bills", "单")}</span><span className="font-semibold tnum w-24 text-right">{baht(st.value)}</span>
+            </button>))}</div> : <p className="text-xs text-muted">{tr("ไม่มีข้อมูล", "No data", "暂无数据")}</p>}
         </Panel>
       </div>
-      {k.refunds || k.cn || k.voids ? <p className="text-[11px] text-muted flex items-center gap-1.5"><RotateCcw size={12} />ยอดสุทธิ = ยอดขาย − คืนเงินจากใบรับคืน − ใบลดหนี้ส่วนลด (ลงตามวันที่เกิด) · บิลยกเลิกไม่นับในยอดขาย</p> : null}
+      {k.refunds || k.cn || k.voids ? <p className="text-[11px] text-muted flex items-center gap-1.5"><RotateCcw size={12} />{tr("ยอดสุทธิ = ยอดขาย − คืนเงินจากใบรับคืน − ใบลดหนี้ส่วนลด (ลงตามวันที่เกิด) · บิลยกเลิกไม่นับในยอดขาย", "Net = sales − return refunds − discount credit notes (by occurrence date) · voided bills excluded", "净额 = 销售额 − 退货退款 − 折扣红字发票（按发生日期）· 作废单据不计入")}</p> : null}
     </div>
   );
 }
@@ -350,24 +352,24 @@ export function BillsView({ orders, branches, employees, showCost, owStatus, onE
   const pages = Math.max(1, Math.ceil(list.length / PER)), cur = Math.min(page, pages - 1);
   const shown = list.slice(cur * PER, cur * PER + PER);
   const bName = (id: string) => { const b = branches.find((x) => x.id === id); return b ? b.name_th ?? b.name : "—"; };
-  const STATUS: Record<string, [string, string]> = { completed: ["ขายแล้ว", "bg-ok/12 text-ok"], partially_refunded: ["คืนบางส่วน", "bg-warn/15 text-warn"], refunded: ["คืนครบ", "bg-warn/15 text-warn"], voided: ["ยกเลิก", "bg-danger/10 text-danger"] };
+  const STATUS: Record<string, [string, string]> = { completed: [tr("ขายแล้ว", "Sold", "已售"), "bg-ok/12 text-ok"], partially_refunded: [tr("คืนบางส่วน", "Partly refunded", "部分退款"), "bg-warn/15 text-warn"], refunded: [tr("คืนครบ", "Refunded", "全额退款"), "bg-warn/15 text-warn"], voided: [tr("ยกเลิก", "Voided", "已作废"), "bg-danger/10 text-danger"] };
   return (
     <div className="card overflow-hidden">
       <div className="flex flex-wrap items-center gap-2 px-4 py-3 border-b border-line">
         <Segmented<BillStatus> size="sm" value={st} onChange={(v) => { setSt(v); setPage(0); }} options={[
-          { value: "all", label: `ทั้งหมด ${formatInt(counts.all)}` }, { value: "sold", label: `ขายแล้ว ${formatInt(counts.sold)}` },
-          { value: "refund", label: `คืนเงิน ${formatInt(counts.refund)}` }, { value: "void", label: `ยกเลิก ${formatInt(counts.void)}` }]} />
-        <Segmented<"new" | "amount"> size="sm" value={sort} onChange={setSort} options={[{ value: "new", label: "ล่าสุด" }, { value: "amount", label: "ยอดสูงสุด" }]} />
-        <button onClick={onExport} className="ml-auto text-xs text-muted hover:text-ink">ส่งออก CSV</button>
+          { value: "all", label: `${tr("ทั้งหมด", "All", "全部")} ${formatInt(counts.all)}` }, { value: "sold", label: `${tr("ขายแล้ว", "Sold", "已售")} ${formatInt(counts.sold)}` },
+          { value: "refund", label: `${tr("คืนเงิน", "Refunds", "退款")} ${formatInt(counts.refund)}` }, { value: "void", label: `${tr("ยกเลิก", "Voided", "已作废")} ${formatInt(counts.void)}` }]} />
+        <Segmented<"new" | "amount"> size="sm" value={sort} onChange={setSort} options={[{ value: "new", label: tr("ล่าสุด", "Latest", "最新") }, { value: "amount", label: tr("ยอดสูงสุด", "Highest", "金额最高") }]} />
+        <button onClick={onExport} className="ml-auto text-xs text-muted hover:text-ink">{tr("ส่งออก CSV", "Export CSV", "导出 CSV")}</button>
       </div>
       {shown.length ? (
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead className="bg-surface2/50 text-[11px] text-muted"><tr>
-              <th className="text-left font-medium px-4 py-2">เลขบิล</th><th className="text-left font-medium px-2 py-2">เวลา</th><th className="text-left font-medium px-2 py-2">สาขา</th>
-              <th className="text-left font-medium px-2 py-2">พนักงาน</th><th className="text-left font-medium px-2 py-2">ลูกค้า</th><th className="text-left font-medium px-2 py-2">สินค้า</th>
-              <th className="text-left font-medium px-2 py-2">ชำระ</th><th className="text-center font-medium px-2 py-2">สถานะ</th><th className="text-center font-medium px-2 py-2">JST</th>
-              <th className="text-right font-medium px-2 py-2">ยอด</th>{showCost ? <th className="text-right font-medium px-2 py-2">กำไร</th> : null}<th className="w-6" />
+              <th className="text-left font-medium px-4 py-2">{tr("เลขบิล", "Bill no.", "单号")}</th><th className="text-left font-medium px-2 py-2">{tr("เวลา", "Time", "时间")}</th><th className="text-left font-medium px-2 py-2">{tr("สาขา", "Branch", "门店")}</th>
+              <th className="text-left font-medium px-2 py-2">{tr("พนักงาน", "Staff", "员工")}</th><th className="text-left font-medium px-2 py-2">{tr("ลูกค้า", "Customer", "顾客")}</th><th className="text-left font-medium px-2 py-2">{tr("สินค้า", "Products", "商品")}</th>
+              <th className="text-left font-medium px-2 py-2">{tr("ชำระ", "Payment", "付款")}</th><th className="text-center font-medium px-2 py-2">{tr("สถานะ", "Status", "状态")}</th><th className="text-center font-medium px-2 py-2">JST</th>
+              <th className="text-right font-medium px-2 py-2">{tr("ยอด", "Amount", "金额")}</th>{showCost ? <th className="text-right font-medium px-2 py-2">{tr("กำไร", "Profit", "利润")}</th> : null}<th className="w-6" />
             </tr></thead>
             <tbody className="divide-y divide-line">
               {shown.map((o) => {
@@ -376,15 +378,15 @@ export function BillsView({ orders, branches, employees, showCost, owStatus, onE
                 const staff = employees.find((e) => e.id === (o.salesperson_id ?? o.cashier_id));
                 return (
                   <tr key={o.id} tabIndex={canTrace ? 0 : -1} onClick={canTrace ? () => setOpenBill(o) : undefined} onKeyDown={(e) => { if (canTrace && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); setOpenBill(o); } }}
-                    title={canTrace ? "กดเพื่อดูรายละเอียดและที่มาของบิล" : undefined}
+                    title={canTrace ? tr("กดเพื่อดูรายละเอียดและที่มาของบิล", "Click to view bill details and trace", "点击查看单据详情与来源") : undefined}
                     className={`group transition-colors ${canTrace ? "cursor-pointer hover:bg-brand/[0.045] focus-visible:outline-none focus-visible:bg-brand/[0.07]" : ""} ${openBill?.id === o.id ? "bg-brand/[0.07]" : ""}`}>
                     <td className="px-4 py-2.5 font-mono whitespace-nowrap"><span className="inline-flex items-center gap-1.5"><span className={`w-1 h-4 rounded-full transition-colors ${openBill?.id === o.id ? "bg-brand" : "bg-transparent group-hover:bg-brand/40"}`} />{o.order_no}</span></td>
                     <td className="px-2 py-2 text-muted whitespace-nowrap tnum">{new Date(saleAt(o)).toLocaleString("th-TH", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</td>
                     <td className="px-2 py-2 max-w-[160px] truncate">{bName(o.branch_id)}</td>
                     <td className="px-2 py-2 max-w-[120px] truncate">{empName(staff)}</td>
-                    <td className="px-2 py-2 max-w-[130px] truncate">{o.customer_name || <span className="text-muted">ทั่วไป</span>}</td>
+                    <td className="px-2 py-2 max-w-[130px] truncate">{o.customer_name ? <span translate="no">{o.customer_name}</span> : <span className="text-muted">{tr("ทั่วไป", "Walk-in", "散客")}</span>}</td>
                     <td className="px-2 py-2 max-w-[200px] truncate" title={items.map((i) => `${i.sku} ×${i.qty}`).join(", ")}>{items[0]?.name ?? "—"}{items.length > 1 ? <span className="text-muted"> +{items.length - 1}</span> : null}</td>
-                    <td className="px-2 py-2 whitespace-nowrap">{[...new Set(o.payments.map((p) => PAY[p.method] ?? p.method))].join(" + ") || "—"}</td>
+                    <td className="px-2 py-2 whitespace-nowrap">{[...new Set(o.payments.map((p) => PAY()[p.method] ?? p.method))].join(" + ") || "—"}</td>
                     <td className="px-2 py-2 text-center"><span className={`inline-block px-1.5 py-0.5 rounded-md text-[10.5px] font-medium ${s[1]}`}>{s[0]}</span></td>
                     <td className="px-2 py-2 text-center"><OwSaleBadge status={(o.client_uuid ? owStatus[o.client_uuid] : null) as never} /></td>
                     <td className={`px-2 py-2 text-right font-semibold tnum whitespace-nowrap ${o.status === "voided" ? "line-through text-muted" : ""}`}>{baht(o.grand_total)}</td>
@@ -396,12 +398,12 @@ export function BillsView({ orders, branches, employees, showCost, owStatus, onE
             </tbody>
           </table>
         </div>
-      ) : <p className="text-sm text-muted text-center py-10">ไม่มีบิลตามตัวกรอง</p>}
+      ) : <p className="text-sm text-muted text-center py-10">{tr("ไม่มีบิลตามตัวกรอง", "No bills match the filter", "没有符合筛选的单据")}</p>}
       {openBill ? <OrderTraceDrawer key={openBill.id} clientUuid={openBill.client_uuid} orderNo={openBill.order_no} onClose={() => setOpenBill(null)} /> : null}
       {pages > 1 ? (
         <div className="flex items-center justify-between px-4 py-2.5 border-t border-line text-xs">
-          <span className="text-muted">{formatInt(cur * PER + 1)}–{formatInt(Math.min(list.length, cur * PER + PER))} จาก {formatInt(list.length)}</span>
-          <span className="flex gap-1"><button disabled={cur === 0} onClick={() => setPage(cur - 1)} className="h-7 px-2.5 rounded-lg border border-line disabled:opacity-40">ก่อนหน้า</button><button disabled={cur >= pages - 1} onClick={() => setPage(cur + 1)} className="h-7 px-2.5 rounded-lg border border-line disabled:opacity-40">ถัดไป</button></span>
+          <span className="text-muted">{formatInt(cur * PER + 1)}–{formatInt(Math.min(list.length, cur * PER + PER))} {tr("จาก", "of", "/")} {formatInt(list.length)}</span>
+          <span className="flex gap-1"><button disabled={cur === 0} onClick={() => setPage(cur - 1)} className="h-7 px-2.5 rounded-lg border border-line disabled:opacity-40">{tr("ก่อนหน้า", "Prev", "上一页")}</button><button disabled={cur >= pages - 1} onClick={() => setPage(cur + 1)} className="h-7 px-2.5 rounded-lg border border-line disabled:opacity-40">{tr("ถัดไป", "Next", "下一页")}</button></span>
         </div>
       ) : null}
     </div>

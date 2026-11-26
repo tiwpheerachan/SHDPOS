@@ -212,7 +212,7 @@ export default function SellPage() {
   useEffect(() => {
     if (!branchId) { setGiftCampaigns([]); return; }
     let alive = true;
-    const load=()=>void fetchActiveGiftCampaigns(branchId,session.channel,cart.customerId).then(c=>{if(alive){setGiftCampaigns(c);setGiftLoadError("");}}).catch(error=>{if(alive)setGiftLoadError(error instanceof Error?error.message:"อ่านสิทธิ์ของแถมไม่สำเร็จ")});
+    const load=()=>void fetchActiveGiftCampaigns(branchId,session.channel,cart.customerId).then(c=>{if(alive){setGiftCampaigns(c);setGiftLoadError("");}}).catch(error=>{if(alive)setGiftLoadError(error instanceof Error?error.message:L("อ่านสิทธิ์ของแถมไม่สำเร็จ", "Failed to load gift eligibility", "读取赠品资格失败"))});
     load();const timer=window.setInterval(()=>{if(!checkoutId.current)load()},30000);
     return () => { alive = false;clearInterval(timer); };
   }, [branchId, session.channel,cart.customerId,giftReload]);
@@ -374,13 +374,13 @@ export default function SellPage() {
 
   async function beginCheckout(skipPromoCheck = false) {
     if(deferredMode){
-      if(!isLiveMode()){toast.push({tone:"warn",title:"โหมดขายก่อนต้องบันทึกบนเซิร์ฟเวอร์จริง"});return;}
-      if(checkoutId.current||localStorage.getItem(`shdpos.checkout:${employee?.id}:${branchId}`)){toast.push({tone:"warn",title:"มี Checkout เดิมค้างอยู่",body:"กรุณาตรวจหรือยกเลิกการจองเดิมในศูนย์ตรวจสอบก่อน เพื่อไม่ให้รับเงินซ้ำ"});return;}
+      if(!isLiveMode()){toast.push({tone:"warn",title:L("โหมดขายก่อนต้องบันทึกบนเซิร์ฟเวอร์จริง", "Sell-now mode must be saved on the live server", "先售模式必须保存在正式服务器")});return;}
+      if(checkoutId.current||localStorage.getItem(`shdpos.checkout:${employee?.id}:${branchId}`)){toast.push({tone:"warn",title:L("มี Checkout เดิมค้างอยู่", "A previous checkout is pending", "存在未完成的结账"),body:L("กรุณาตรวจหรือยกเลิกการจองเดิมในศูนย์ตรวจสอบก่อน เพื่อไม่ให้รับเงินซ้ำ", "Review or release the previous reservation in Checkout recovery first, to avoid double charging", "请先在核查中心检查或取消原预留，以免重复收款")});return;}
       if(cart.lines.some(l=>l.campaign)){toast.push({tone:"warn",title:L("โปรรายสินค้ายังใช้กับ \"ขายก่อน\" ไม่ได้","Item promotions can't be used with deferred sale","先卖模式暂不支持商品优惠"),body:L("ถอดโปรออกก่อน หรือขายแบบปกติ","Remove the promotion or sell normally","请先移除优惠")});return;}
       setDeferredOpen(true);return;
     }
 
-    if(isLiveMode()&&giftLoadError){toast.push({tone:"danger",title:"กรุณาตรวจสิทธิ์ของแถมอีกครั้งก่อนรับชำระ"});return;}
+    if(isLiveMode()&&giftLoadError){toast.push({tone:"danger",title:L("กรุณาตรวจสิทธิ์ของแถมอีกครั้งก่อนรับชำระ", "Re-check gift eligibility before payment", "收款前请重新检查赠品资格")});return;}
     if (!employee || !branchId || checkoutPreparing || busy) return;
     // มีส่วนลดที่ตั้งไว้แต่ยังไม่ใช้ → ถามยืนยันก่อนรับเงิน (กันลืมให้ส่วนลดลูกค้า)
     if (!skipPromoCheck) {
@@ -414,7 +414,7 @@ export default function SellPage() {
         const fresh=await checkoutRequest("preview",uuidv4(),branchId,{draft});
         if(cart.couponCode&&Number(fresh.coupon_discount)!==totals.couponAmount){
           cart.setCoupon(cart.couponCode,Number(fresh.coupon_discount),fresh.campaign_id);
-          toast.push({tone:"info",title:"ปรับส่วนลดตามรายการล่าสุดแล้ว",body:"กรุณาตรวจยอดใหม่และกดชำระเงินอีกครั้ง"});return;
+          toast.push({tone:"info",title:L("ปรับส่วนลดตามรายการล่าสุดแล้ว", "Discounts updated to latest items", "已按最新项目调整折扣"),body:L("กรุณาตรวจยอดใหม่และกดชำระเงินอีกครั้ง", "Check the new total and press Pay again", "请核对新金额并再次点击付款")});return;
         }
         // โปรรายสินค้า: ยอดที่เครื่องประเมินต้องตรงกับเซิร์ฟเวอร์ (กันรับเงินผิดยอด)
         if(Number(fresh.grand_total)!==totals.grandTotal){
@@ -572,7 +572,7 @@ export default function SellPage() {
       } else {
         setCouponMsg(r.reason ?? L("ใช้คูปองไม่ได้", "Coupon not valid", "优惠券无效"));
       }
-    } catch(error){const message=error instanceof Error?error.message:"ตรวจคูปองไม่สำเร็จ";setCouponMsg(message);if(codeOverride)toast.push({tone:"warn",title:"ใช้แคมเปญไม่ได้",body:message});} finally {
+    } catch(error){const message=error instanceof Error?error.message:L("ตรวจคูปองไม่สำเร็จ", "Coupon check failed", "优惠券校验失败");setCouponMsg(message);if(codeOverride)toast.push({tone:"warn",title:L("ใช้แคมเปญไม่ได้", "Campaign not applicable", "无法使用活动"),body:message});} finally {
       setCouponChecking(false);
     }
   }
@@ -626,7 +626,7 @@ export default function SellPage() {
       return;
     }
     cart.setLineCampaign(lineId, toLineCampaign(p));
-    toast.push({ tone: "ok", title: L(`ใช้โปร: ${p.name}`, `Applied: ${p.name}`, p.name), body: `${l.name} · ${L("ลด", "−", "减")} ${formatTHB(amt, false)}` });
+    toast.push({ tone: "ok", title: L(`ใช้โปร: ${p.name}`, `Applied: ${p.name}`, `已应用：${p.name}`), body: `${l.name} · ${L("ลด", "−", "减")} ${formatTHB(amt, false)}` });
   }
 
   // ใช้แคมเปญจากการ์ด/รหัส
@@ -644,7 +644,7 @@ export default function SellPage() {
     if (amt <= 0) { toast.push({ tone: "warn", title: L(`ยอดไม่ถึงขั้นต่ำ ${formatTHB(p.min_spend, false)}`, `Min ${formatTHB(p.min_spend, false)}`, `未达`) }); return; }
     cart.setCoupon(p.code, amt, p.id);
     setPromoOpen(false);
-    toast.push({ tone: "ok", title: L(`ใช้แคมเปญ: ${p.name}`, `Applied: ${p.name}`, p.name), body: `${L("ลด", "−", "减")} ${formatTHB(amt, false)}` });
+    toast.push({ tone: "ok", title: L(`ใช้แคมเปญ: ${p.name}`, `Applied: ${p.name}`, `已应用：${p.name}`), body: `${L("ลด", "−", "减")} ${formatTHB(amt, false)}` });
   }
 
   // ── แนะนำโปรทั้งบิลที่คุ้มสุด / ใกล้ถึงขั้นต่ำ ──
@@ -695,7 +695,7 @@ export default function SellPage() {
       const operationId = checkoutId.current ?? uuidv4();
       let centralOrderNo: string | null = null;
       if (isLiveMode()) {
-        if (!checkoutId.current) throw new Error("ไม่พบการจองกลาง กรุณาตรวจรายการก่อนรับเงินซ้ำ");
+        if (!checkoutId.current) throw new Error(L("ไม่พบการจองกลาง กรุณาตรวจรายการก่อนรับเงินซ้ำ", "Central reservation not found — check before collecting again", "未找到中央预留，请核查后再重复收款"));
         const committed = await checkoutRequest("commit", operationId, branchId, {payments, ...(pickupLater ? { pickup: { due: pickupDue || null } } : {})});
         if (pickupLater) {
           if (committed?.pickup?.ok) toast.push({ tone: "ok", title: L("บันทึกเป็น “รอลูกค้ามารับ” แล้ว", "Saved as awaiting pickup", "已登记待取货"), body: pickupDue ? L(`นัดรับ ${new Date(pickupDue).toLocaleDateString("th-TH", { day: "numeric", month: "short" })}`, `Pickup by ${pickupDue}`, pickupDue) : undefined });
@@ -920,8 +920,8 @@ export default function SellPage() {
                     </div>
 
                     {/* ชื่อ + ราคา + สต๊อกปกติ */}
-                    {!p.is_active?<span className="text-[10px] text-warn mt-1">รอตรวจข้อมูล · ขายก่อนเท่านั้น</span>:null}
-                    <p className="text-[11.5px] font-medium leading-snug line-clamp-2 mt-1.5 flex-1">{name}</p>
+                    {!p.is_active?<span className="text-[10px] text-warn mt-1">{L("รอตรวจข้อมูล · ขายก่อนเท่านั้น", "Pending review · sell-now only", "待审核资料 · 仅限先售")}</span>:null}
+                    <p className="text-[11.5px] font-medium leading-snug line-clamp-2 mt-1.5 flex-1" translate="no">{name}</p>
                     <div className="flex items-center justify-between gap-1 mt-1">
                       <p className="text-sm font-bold tnum">{formatTHB(p.price, false)}</p>
                       {p.is_stocked && !out && !low && <span className="text-[10px] text-muted tnum">{L("เหลือ", "Left", "剩")} {qty}</span>}
@@ -1090,7 +1090,7 @@ export default function SellPage() {
           )}
         </div>
 
-        {giftLoadError?<div role="alert" className="rounded-xl border border-danger/20 bg-danger/5 p-3 text-sm text-danger">{giftLoadError}<Button variant="soft" className="ml-2" onClick={()=>setGiftReload(v=>v+1)}>ตรวจสิทธิ์ของแถมอีกครั้ง</Button></div>:null}
+        {giftLoadError?<div role="alert" className="rounded-xl border border-danger/20 bg-danger/5 p-3 text-sm text-danger">{giftLoadError}<Button variant="soft" className="ml-2" onClick={()=>setGiftReload(v=>v+1)}>{L("ตรวจสิทธิ์ของแถมอีกครั้ง", "Re-check gift eligibility", "重新检查赠品资格")}</Button></div>:null}
         {giftWarns.length > 0 && (
           <div className="mx-4 mt-2 px-3 py-2 rounded-lg bg-danger/8 border border-danger/30 text-[11px] text-danger space-y-0.5">
             {giftWarns.map((w, i) => (
@@ -1114,10 +1114,10 @@ export default function SellPage() {
                       </div>
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium leading-snug line-clamp-2">
-                          {l.name}
+                          <span translate="no">{l.name}</span>
                           {l.is_gift && <span className="ml-1.5 text-[9px] font-bold px-1.5 py-0.5 rounded bg-ink text-surface align-middle inline-flex items-center gap-0.5"><Gift size={9} />{l.gift_source === "campaign" ? L("ของแถมแคมเปญ", "Campaign gift", "活动赠品") : L("ของแถม", "Gift", "赠品")}</span>}
                         </p>
-                        <p className="text-[10px] font-mono text-muted mt-0.5">{l.sku}</p>
+                        <p className="text-[10px] font-mono text-muted mt-0.5" translate="no">{l.sku}</p>
                       </div>
                       {!isCampaignGift && (
                         <button onClick={() => cart.removeLine(l.lineId)} className="text-muted hover:text-danger p-1">
@@ -1190,7 +1190,7 @@ export default function SellPage() {
                     </div>
 
                     {l.serials.length ? (
-                      <p className="text-[10px] font-mono text-muted mt-1.5 truncate">SN: {l.serials.join(", ")}</p>
+                      <p className="text-[10px] font-mono text-muted mt-1.5 truncate" translate="no">SN: {l.serials.join(", ")}</p>
                     ) : null}
                     {/* โปรรายสินค้า — ใช้แล้ว (ถอดได้) / มีโปรให้ใช้ (กดใช้ได้เลย) */}
                     {!l.is_gift ? (() => {
@@ -1289,7 +1289,7 @@ export default function SellPage() {
               <Inbox size={15} />
             </Button>
           </div>
-          {isLiveMode()?<label className={`flex gap-2 text-xs p-3 rounded-xl border ${deferredMode?'border-warn/40 bg-warn/10 text-ink':'border-line text-muted'}`}><input type="checkbox" checked={deferredMode} onChange={e=>{setDeferredMode(e.target.checked);if(e.target.checked)setReserveMode(false)}}/>ขายก่อน · รอเติม SN / ข้อมูล แล้วปิดบิลภายหลัง</label>:null}
+          {isLiveMode()?<label className={`flex gap-2 text-xs p-3 rounded-xl border ${deferredMode?'border-warn/40 bg-warn/10 text-ink':'border-line text-muted'}`}><input type="checkbox" checked={deferredMode} onChange={e=>{setDeferredMode(e.target.checked);if(e.target.checked)setReserveMode(false)}}/>{L("ขายก่อน · รอเติม SN / ข้อมูล แล้วปิดบิลภายหลัง", "Sell now · add SN / details and close the bill later", "先售 · 稍后补充 SN/资料再结单")}</label>:null}
           <div className="flex items-center justify-between gap-2 px-0.5">
             <label className="flex items-center gap-2 cursor-pointer text-xs select-none">
               {isLiveMode() ? (<>
@@ -1310,7 +1310,7 @@ export default function SellPage() {
             loading={checkoutPreparing}
             onClick={() => void beginCheckout()}
           >
-            {deferredMode?"ขายก่อน / บันทึกรอปิดบิล":reserveMode ? L("รับเงิน + จองของ", "Pay + reserve", "收款+预留") : t.pos.pay} · {formatTHB(totals.grandTotal)}
+            {deferredMode?L("ขายก่อน / บันทึกรอปิดบิล", "Sell now / save pending bill", "先售 / 保存待结单"):reserveMode ? L("รับเงิน + จองของ", "Pay + reserve", "收款+预留") : t.pos.pay} · {formatTHB(totals.grandTotal)}
           </Button>
           <p className="text-[10px] text-muted text-center">{reserveMode ? L("โหมดจอง: จองสต๊อกไว้ ส่งมอบทีหลัง (ไม่ตัด On Hand จนส่งมอบ)", "Reserve mode: stock held, deliver later", "预留模式") : L("F2 = ชำระเงิน · F4 = พักบิล · / = ค้นหา", "F2 = Pay · F4 = Hold · / = Search", "F2 = 收款 · F4 = 挂单 · / = 搜索")}</p>
         </div>
@@ -1319,14 +1319,14 @@ export default function SellPage() {
       {/* ================= Modals ================= */}
       <DeferredSaleModal key={branchId} open={deferredOpen} onClose={()=>setDeferredOpen(false)} lines={cart.lines} discountTotal={totals.discountTotal} customer={{id:cart.customerId,name:cart.customerName,phone:cart.customerPhone}} channel={session.channel} couponCode={cart.couponCode} redeemPoints={cart.redeemPoints} salespersonId={cart.defaultSalespersonId??employee?.id??null} onRegistered={()=>{
         if(useSession.getState().branchId===branchId&&JSON.stringify(useCart.getState().lines)===JSON.stringify(cart.lines)){cart.clear();setDeferredMode(false);}
-        void refreshBranchSnapshot().then(reloadStock).catch(()=>toast.push({tone:"warn",title:"บันทึกรายการแล้ว แต่ยังโหลดสต๊อกล่าสุดไม่ได้"}));
+        void refreshBranchSnapshot().then(reloadStock).catch(()=>toast.push({tone:"warn",title:L("บันทึกรายการแล้ว แต่ยังโหลดสต๊อกล่าสุดไม่ได้", "Saved, but could not reload latest stock", "已保存，但无法加载最新库存")}));
       }}/>
 
       <PaymentModal
         checkoutId={checkoutId.current}
         restoredPayments={restoredPayments}
         onRecordPayment={isLiveMode() ? async payment => {
-          if(!branchId || !checkoutId.current)throw new Error("ไม่พบรายการจองกลาง");
+          if(!branchId || !checkoutId.current)throw new Error(L("ไม่พบรายการจองกลาง", "Central reservation not found", "未找到中央预留项目"));
           await checkoutRequest("record",checkoutId.current,branchId,{payment});
         } : undefined}
         open={payOpen}
@@ -1429,7 +1429,7 @@ export default function SellPage() {
             cart.setLineSerials(serialLineId, ok);
             setSerialLineId(null);
           } catch (error) {
-            toast.push({ tone: "danger", title: error instanceof Error ? error.message : "SN ไม่ถูกต้อง" });
+            toast.push({ tone: "danger", title: error instanceof Error ? error.message : L("SN ไม่ถูกต้อง", "Invalid SN", "SN 无效") });
           }
         }}
       />

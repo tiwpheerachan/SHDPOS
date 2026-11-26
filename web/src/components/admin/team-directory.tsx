@@ -7,6 +7,7 @@ import { useMemo, useState } from "react";
 import { Search, X, Plus, Users } from "lucide-react";
 import clsx from "clsx";
 import { Avatar } from "@/components/ui";
+import { tr } from "@/lib/i18n/tr";
 
 export interface DirMember {
   id: string;
@@ -58,7 +59,7 @@ export function TeamDirectory({
   featuredCount,
   directoryTitle,
   directorySub,
-  searchPlaceholder = "ค้นหาพนักงาน…",
+  searchPlaceholder = tr("ค้นหาพนักงาน…", "Search staff…", "搜索员工…"),
   emptyFeatured = "—",
   onPick,
   onAdd,
@@ -133,8 +134,8 @@ export function TeamDirectory({
               <Users size={20} />
             </div>
             <motion.div layout="position" className="min-w-0">
-              <p className="text-sm font-medium leading-none truncate">{directoryTitle ?? "ไดเรกทอรีพนักงาน"}</p>
-              <p className="text-xs text-muted mt-1 leading-none truncate">{directorySub ?? `${all.length} คนในสาขา`}</p>
+              <p className="text-sm font-medium leading-none truncate">{directoryTitle ?? tr("ไดเรกทอรีพนักงาน", "Staff directory", "员工目录")}</p>
+              <p className="text-xs text-muted mt-1 leading-none truncate">{directorySub ?? tr(`${all.length} คนในสาขา`, `${all.length} people in branch`, `门店内 ${all.length} 人`)}</p>
             </motion.div>
           </div>
           <div className="flex items-center gap-2 shrink-0">

@@ -244,7 +244,7 @@ export default function PosOrdersPage() {
                     {o.status === "voided" ? (
                       <Badge tone="danger">{t.orders.voided}</Badge>
                     ) : o.client_uuid && owStatus[o.client_uuid]?.ow_status === "failed" ? (
-                      <Badge tone="danger">ยังไม่สมบูรณ์</Badge>
+                      <Badge tone="danger">{L("ยังไม่สมบูรณ์", "Incomplete", "未完成")}</Badge>
                     ) : o.is_offline_origin ? (
                       <Badge tone="warn">{t.offline.pending}</Badge>
                     ) : (

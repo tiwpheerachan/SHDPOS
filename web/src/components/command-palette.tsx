@@ -13,6 +13,7 @@ import { DocViewer } from "@/components/doc-viewer";
 import { VoicePoweredOrb } from "@/components/ui/voice-powered-orb";
 import type { OrderDocItem } from "@/lib/doc-types";
 import { formatTHB } from "@/lib/money";
+import { tr } from "@/lib/i18n/tr";
 
 type Doc = { kind: string; url: string; title: string; doc_no: string };
 type Item = { title: string; sub?: string; href?: string; doc?: Doc; badge?: string };
@@ -21,34 +22,34 @@ type Flat = Item & { group: string; kind: string; key: string };
 
 // เมนู/หน้า — ค้นด้วยคำไทย/อังกฤษ/คำพ้อง
 const PAGES: { title: string; href: string; kw: string }[] = [
-  { title: "ยอดขาย · ภาพรวม", href: "/admin/sales", kw: "sales ยอดขาย รายได้ dashboard แดชบอร์ด" },
-  { title: "ยอดขายรายสาขา", href: "/admin/sales?tab=branch", kw: "branch สาขา เทียบสาขา" },
-  { title: "ยอดขายตามแบรนด์", href: "/admin/sales?tab=brand", kw: "brand แบรนด์" },
-  { title: "ผลงานพนักงาน", href: "/admin/sales?tab=staff", kw: "performance พนักงาน ผลงาน staff kpi ตำแหน่ง" },
-  { title: "รายการบิล", href: "/admin/sales?tab=bills", kw: "bills orders บิล ใบเสร็จ" },
-  { title: "การเงิน", href: "/admin/finance", kw: "finance เงิน กระแสเงิน" },
-  { title: "ปิดงวดบัญชี", href: "/admin/periods", kw: "period close ปิดงวด งบ ภาษีขาย" },
-  { title: "รับชำระ / EDC", href: "/admin/payments", kw: "edc payment ชำระ บัตร" },
-  { title: "แคมเปญ", href: "/admin/campaigns", kw: "campaign แคมเปญ โปร promotion" },
-  { title: "ประวัติส่วนลด / คูปอง", href: "/admin/discounts", kw: "discount ส่วนลด คูปอง coupon" },
-  { title: "ลูกค้า", href: "/admin/customers", kw: "customer ลูกค้า crm สมาชิก" },
-  { title: "แต้มสะสม", href: "/admin/loyalty", kw: "loyalty แต้ม point" },
-  { title: "สต๊อก", href: "/admin/inventory", kw: "stock สต๊อก คงเหลือ inventory" },
-  { title: "ความเคลื่อนไหวสต๊อก", href: "/admin/movement", kw: "movement เคลื่อนไหว stock card" },
-  { title: "ตามรอย SN", href: "/admin/serials", kw: "serial sn ตามรอย imei" },
-  { title: "โอนย้ายสินค้า", href: "/admin/transfers", kw: "transfer โอน ย้าย" },
-  { title: "สินค้า", href: "/admin/products", kw: "product สินค้า sku ราคา" },
-  { title: "ศูนย์เอกสาร", href: "/admin/documents", kw: "document เอกสาร pdf" },
-  { title: "คำขออนุมัติ", href: "/admin/approvals", kw: "approval อนุมัติ" },
-  { title: "ผังสาขา / องค์กร", href: "/admin/org", kw: "org ผัง องค์กร ทีม" },
-  { title: "ผู้ช่วย AI", href: "/admin/insights", kw: "ai ผู้ช่วย ถาม วิเคราะห์ insight" },
-  { title: "สิทธิ์ผู้ใช้", href: "/admin/permissions", kw: "permission สิทธิ์ user ผู้ใช้" },
-  { title: "เชื่อมคลังกลาง (OneWarehouse)", href: "/admin/onewarehouse", kw: "onewarehouse jst คลังกลาง เชื่อม" },
-  { title: "หน้าร้าน · ขายสินค้า", href: "/pos/sell", kw: "pos sell ขาย หน้าร้าน" },
-  { title: "หน้าร้าน · ตรวจนับสต๊อก", href: "/pos/count", kw: "count นับ ตรวจนับ" },
-  { title: "หน้าร้าน · ปรับสต๊อก", href: "/pos/adjust", kw: "adjust ปรับ ของเสีย" },
-  { title: "หน้าร้าน · รอลูกค้ารับของ", href: "/pos/pickups", kw: "pickup รับของ รอรับ" },
-  { title: "หน้าร้าน · คืน / เปลี่ยนสินค้า", href: "/pos/returns", kw: "return คืน เปลี่ยน refund" },
+  { get title() { return tr("ยอดขาย · ภาพรวม", "Sales · Overview", "销售 · 概览"); }, href: "/admin/sales", kw: "sales ยอดขาย รายได้ dashboard แดชบอร์ด" },
+  { get title() { return tr("ยอดขายรายสาขา", "Sales by branch", "门店销售额"); }, href: "/admin/sales?tab=branch", kw: "branch สาขา เทียบสาขา" },
+  { get title() { return tr("ยอดขายตามแบรนด์", "Sales by brand", "品牌销售额"); }, href: "/admin/sales?tab=brand", kw: "brand แบรนด์" },
+  { get title() { return tr("ผลงานพนักงาน", "Staff performance", "员工业绩"); }, href: "/admin/sales?tab=staff", kw: "performance พนักงาน ผลงาน staff kpi ตำแหน่ง" },
+  { get title() { return tr("รายการบิล", "Bills", "单据列表"); }, href: "/admin/sales?tab=bills", kw: "bills orders บิล ใบเสร็จ" },
+  { get title() { return tr("การเงิน", "Finance", "财务"); }, href: "/admin/finance", kw: "finance เงิน กระแสเงิน" },
+  { get title() { return tr("ปิดงวดบัญชี", "Period close", "会计期间结账"); }, href: "/admin/periods", kw: "period close ปิดงวด งบ ภาษีขาย" },
+  { get title() { return tr("รับชำระ / EDC", "Payments / EDC", "收款 / EDC"); }, href: "/admin/payments", kw: "edc payment ชำระ บัตร" },
+  { get title() { return tr("แคมเปญ", "Campaigns", "活动"); }, href: "/admin/campaigns", kw: "campaign แคมเปญ โปร promotion" },
+  { get title() { return tr("ประวัติส่วนลด / คูปอง", "Discount / coupon history", "折扣 / 优惠券记录"); }, href: "/admin/discounts", kw: "discount ส่วนลด คูปอง coupon" },
+  { get title() { return tr("ลูกค้า", "Customers", "顾客"); }, href: "/admin/customers", kw: "customer ลูกค้า crm สมาชิก" },
+  { get title() { return tr("แต้มสะสม", "Loyalty points", "积分"); }, href: "/admin/loyalty", kw: "loyalty แต้ม point" },
+  { get title() { return tr("สต๊อก", "Stock", "库存"); }, href: "/admin/inventory", kw: "stock สต๊อก คงเหลือ inventory" },
+  { get title() { return tr("ความเคลื่อนไหวสต๊อก", "Stock movement", "库存变动"); }, href: "/admin/movement", kw: "movement เคลื่อนไหว stock card" },
+  { get title() { return tr("ตามรอย SN", "SN tracking", "SN 追踪"); }, href: "/admin/serials", kw: "serial sn ตามรอย imei" },
+  { get title() { return tr("โอนย้ายสินค้า", "Stock transfers", "商品调拨"); }, href: "/admin/transfers", kw: "transfer โอน ย้าย" },
+  { get title() { return tr("สินค้า", "Products", "商品"); }, href: "/admin/products", kw: "product สินค้า sku ราคา" },
+  { get title() { return tr("ศูนย์เอกสาร", "Document center", "单据中心"); }, href: "/admin/documents", kw: "document เอกสาร pdf" },
+  { get title() { return tr("คำขออนุมัติ", "Approval requests", "审批申请"); }, href: "/admin/approvals", kw: "approval อนุมัติ" },
+  { get title() { return tr("ผังสาขา / องค์กร", "Branch / org chart", "门店 / 组织架构"); }, href: "/admin/org", kw: "org ผัง องค์กร ทีม" },
+  { get title() { return tr("ผู้ช่วย AI", "AI assistant", "AI 助手"); }, href: "/admin/insights", kw: "ai ผู้ช่วย ถาม วิเคราะห์ insight" },
+  { get title() { return tr("สิทธิ์ผู้ใช้", "User permissions", "用户权限"); }, href: "/admin/permissions", kw: "permission สิทธิ์ user ผู้ใช้" },
+  { get title() { return tr("เชื่อมคลังกลาง (OneWarehouse)", "Central warehouse (OneWarehouse)", "中央仓库对接 (OneWarehouse)"); }, href: "/admin/onewarehouse", kw: "onewarehouse jst คลังกลาง เชื่อม" },
+  { get title() { return tr("หน้าร้าน · ขายสินค้า", "Store · Sell", "门店 · 销售"); }, href: "/pos/sell", kw: "pos sell ขาย หน้าร้าน" },
+  { get title() { return tr("หน้าร้าน · ตรวจนับสต๊อก", "Store · Stock count", "门店 · 盘点"); }, href: "/pos/count", kw: "count นับ ตรวจนับ" },
+  { get title() { return tr("หน้าร้าน · ปรับสต๊อก", "Store · Stock adjust", "门店 · 库存调整"); }, href: "/pos/adjust", kw: "adjust ปรับ ของเสีย" },
+  { get title() { return tr("หน้าร้าน · รอลูกค้ารับของ", "Store · Pickups", "门店 · 待取货"); }, href: "/pos/pickups", kw: "pickup รับของ รอรับ" },
+  { get title() { return tr("หน้าร้าน · คืน / เปลี่ยนสินค้า", "Store · Returns / exchanges", "门店 · 退换货"); }, href: "/pos/returns", kw: "return คืน เปลี่ยน refund" },
 ];
 // ภาษาไทยไม่เว้นวรรค → จับคำบ่งชี้คำถาม/การวิเคราะห์ในประโยค
 const QUESTION = /(เท่าไร|เท่าไหร่|กี่|ทำไม|ยังไง|อย่างไร|ขายดี|ขายไม่ดี|เทียบ|แนวโน้ม|สรุป|วิเคราะห์|ไหน|ใคร|ดีสุด|มากสุด|น้อยสุด|สูงสุด|ต่ำสุด|ตกลง|เพิ่มขึ้น|ลดลง|อันดับ|\?|how|what|why|which|who|compare|trend|top|best|worst)/i;
@@ -103,7 +104,7 @@ export function CommandPalette() {
             .map((x) => ({ title: x.order_no, sub: `${formatTHB(x.grand_total, false)}${x.customer_name ? ` · ${x.customer_name}` : ""}`, href: `/admin/sales?tab=bills&q=${encodeURIComponent(x.order_no)}` }));
           const pi = p.filter((x) => x.sku.toLowerCase().includes(low) || x.name_th.toLowerCase().includes(low) || x.barcodes.some((b) => b.includes(low))).slice(0, 6)
             .map((x) => ({ title: x.name_th, sub: x.sku, href: `/admin/products?q=${encodeURIComponent(x.sku)}` }));
-          g = [...(oi.length ? [{ kind: "order", label: "บิลขาย", items: oi }] : []), ...(pi.length ? [{ kind: "product", label: "สินค้า", items: pi }] : [])];
+          g = [...(oi.length ? [{ kind: "order", label: L("บิลขาย", "Sales bills", "销售单据"), items: oi }] : []), ...(pi.length ? [{ kind: "product", label: L("สินค้า", "Products", "商品"), items: pi }] : [])];
         }
         if (my === seq.current) { setGroups(g); setActive(0); }
       } finally { if (my === seq.current) setLoading(false); }
@@ -116,7 +117,7 @@ export function CommandPalette() {
     if (!term) return [];
     const out: Flat[] = [];
     const isQ = QUESTION.test(term);
-    if (isQ) out.push({ group: "ai", kind: "ai", key: "ai", title: `ถามผู้ช่วย AI: “${q.trim()}”`, sub: "วิเคราะห์จากข้อมูลจริง สร้างกราฟ/สรุปให้", href: `/admin/insights?q=${encodeURIComponent(q.trim())}` });
+    if (isQ) out.push({ group: "ai", kind: "ai", key: "ai", title: L(`ถามผู้ช่วย AI: “${q.trim()}”`, `Ask AI assistant: “${q.trim()}”`, `询问 AI 助手：“${q.trim()}”`), sub: L("วิเคราะห์จากข้อมูลจริง สร้างกราฟ/สรุปให้", "Analyzes real data and builds charts/summaries", "基于真实数据分析，生成图表/摘要"), href: `/admin/insights?q=${encodeURIComponent(q.trim())}` });
     // เมนู: ให้คะแนนตามคำสำคัญที่อยู่ในประโยค (รองรับไทยไม่เว้นวรรค) — เช่น "ยอดขายสาขาไหนดีสุด" → ยอดขายรายสาขา
     const pages = PAGES.map((p) => {
       const tokens = `${p.title} ${p.kw}`.toLowerCase().split(/[\s·/()]+/).filter((x) => x.length >= 2);
@@ -125,7 +126,7 @@ export function CommandPalette() {
     }).filter((x) => x.score >= 2).sort((a, b) => b.score - a.score).slice(0, 3).map((x) => x.p);
     for (const p of pages) out.push({ group: "page", kind: "page", key: `page:${p.href}`, title: p.title, sub: L("ไปที่หน้า", "Go to page", "前往"), href: p.href });
     groups.forEach((g) => g.items.forEach((it, i) => out.push({ ...it, group: g.label, kind: g.kind, key: `${g.kind}:${i}:${it.title}` })));
-    if (!isQ && term.length >= 3) out.push({ group: "ai", kind: "ai", key: "ai2", title: `ถามผู้ช่วย AI เรื่อง “${q.trim()}”`, sub: "ถ้าไม่เจอสิ่งที่ต้องการ", href: `/admin/insights?q=${encodeURIComponent(q.trim())}` });
+    if (!isQ && term.length >= 3) out.push({ group: "ai", kind: "ai", key: "ai2", title: L(`ถามผู้ช่วย AI เรื่อง “${q.trim()}”`, `Ask AI assistant about “${q.trim()}”`, `就“${q.trim()}”询问 AI 助手`), sub: L("ถ้าไม่เจอสิ่งที่ต้องการ", "If you can't find what you need", "找不到想要的内容时"), href: `/admin/insights?q=${encodeURIComponent(q.trim())}` });
     return out;
   }, [q, groups, L]);
 

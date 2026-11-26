@@ -229,7 +229,7 @@ export default function PosTransfersPage() {
                     <DetailRow label="OneWarehouse">
                       <span className="inline-flex flex-wrap items-center gap-1.5">
                         <span className={`text-[10px] px-1.5 py-0.5 rounded-md ${detail.sync_state === "synced" ? "bg-ok/12 text-ok" : detail.sync_state === "failed" ? "bg-danger/12 text-danger" : "bg-warn/12 text-warn"}`}>
-                          {detail.sync_state === "synced" ? "ซิงก์ JST แล้ว" : detail.sync_state === "failed" ? "ซิงก์ JST ล้มเหลว" : "รอซิงก์ JST"}
+                          {detail.sync_state === "synced" ? L("ซิงก์ JST แล้ว", "Synced to JST", "已同步 JST") : detail.sync_state === "failed" ? L("ซิงก์ JST ล้มเหลว", "JST sync failed", "JST 同步失败") : L("รอซิงก์ JST", "Pending JST sync", "等待同步 JST")}
                         </span>
                         <span className="font-mono text-[11px]">{Object.values(detail.ow_state ?? {}).map((s) => `${s.orderNo} (${s.status})`).join(" · ") || "—"}</span>
                       </span>
@@ -239,15 +239,15 @@ export default function PosTransfersPage() {
                   {detail.ow_owned && (detail.ow_link_state && detail.ow_link_state !== "ok" || detail.ow_error) ? (
                     <div className="rounded-xl border border-warn/30 bg-warn/8 p-3 text-xs space-y-2">
                       <p className="text-warn font-medium">
-                        {detail.ow_link_state === "checking" ? "กำลังตรวจสอบผลจาก OneWarehouse (อาจทำสำเร็จแล้ว) — โหลดสถานะล่าสุดก่อนกดซ้ำ"
-                          : detail.ow_link_state === "partially_created" ? "สร้างใบใน OneWarehouse ได้บางส่วน"
-                          : detail.ow_link_state === "recovery_required" ? "ต้องดำเนินการต่อให้ OneWarehouse ครบ"
-                          : "คำสั่งล่าสุดกับ OneWarehouse ไม่สำเร็จ"}
+                        {detail.ow_link_state === "checking" ? L("กำลังตรวจสอบผลจาก OneWarehouse (อาจทำสำเร็จแล้ว) — โหลดสถานะล่าสุดก่อนกดซ้ำ", "Checking result from OneWarehouse (may already have succeeded) — refresh status before retrying", "正在核对 OneWarehouse 结果（可能已成功）— 请先刷新状态再重试")
+                          : detail.ow_link_state === "partially_created" ? L("สร้างใบใน OneWarehouse ได้บางส่วน", "Document partially created in OneWarehouse", "已在 OneWarehouse 部分创建单据")
+                          : detail.ow_link_state === "recovery_required" ? L("ต้องดำเนินการต่อให้ OneWarehouse ครบ", "OneWarehouse needs to be completed", "需继续完成 OneWarehouse 操作")
+                          : L("คำสั่งล่าสุดกับ OneWarehouse ไม่สำเร็จ", "Last OneWarehouse command failed", "最近一次 OneWarehouse 操作失败")}
                       </p>
                       {detail.ow_error ? <p className="text-muted break-words">{detail.ow_error}</p> : null}
                       <div className="flex gap-2">
-                        <button className="h-8 px-3 rounded-lg bg-brand text-brandInk text-xs font-medium" onClick={() => void run(() => owResume(detail), "ดำเนินการต่อแล้ว")}>ดำเนินการต่อเฉพาะส่วนที่ค้าง</button>
-                        <button className="h-8 px-3 rounded-lg border border-line text-xs" onClick={() => void run(() => owRefresh(detail), "โหลดสถานะล่าสุดแล้ว")}>โหลดสถานะล่าสุด</button>
+                        <button className="h-8 px-3 rounded-lg bg-brand text-brandInk text-xs font-medium" onClick={() => void run(() => owResume(detail), L("ดำเนินการต่อแล้ว", "Resumed", "已继续"))}>{L("ดำเนินการต่อเฉพาะส่วนที่ค้าง", "Resume pending steps only", "仅继续未完成部分")}</button>
+                        <button className="h-8 px-3 rounded-lg border border-line text-xs" onClick={() => void run(() => owRefresh(detail), L("โหลดสถานะล่าสุดแล้ว", "Status refreshed", "已刷新状态"))}>{L("โหลดสถานะล่าสุด", "Refresh status", "刷新状态")}</button>
                       </div>
                     </div>
                   ) : null}

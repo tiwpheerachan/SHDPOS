@@ -86,7 +86,7 @@ export function StockDrawer({ open, onClose, analysis, locale, L, onRestock }: {
                 const dl = daysLabel(r);
                 return (
                   <tr key={r.productId}>
-                    <Td className="max-w-[240px]"><div className="truncate font-medium">{r.name}</div><div className="text-[10px] text-muted">{r.sku}</div></Td>
+                    <Td className="max-w-[240px]"><div className="truncate font-medium">{r.name}</div><div className="text-[10px] text-muted" translate="no">{r.sku}</div></Td>
                     <Td align="right" className={`tnum font-semibold ${r.onHand <= 0 ? "text-danger" : r.status === "critical" ? "text-danger" : ""}`}>{formatInt(r.onHand)}</Td>
                     <Td align="right" className="tnum text-muted">{r.velocity ? r.velocity : "—"}</Td>
                     <Td align="right" className="tnum">{dl == null ? <span className="text-muted inline-flex items-center gap-0.5"><InfIcon size={12} /></span> : <span className={r.status === "out" || r.status === "critical" ? "text-danger font-semibold" : r.status === "low" ? "text-amber-600" : ""}>{dl}</span>}</Td>

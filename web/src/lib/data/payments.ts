@@ -247,12 +247,12 @@ export async function hasDemoData(): Promise<boolean> {
   return a.some((i) => i.is_demo) || t.some((i) => i.is_demo) || x.some((i) => i.is_demo);
 }
 
-export const EDC_SERVICE_LABEL: Record<string, { th: string; en: string }> = {
-  card: { th: "บัตร", en: "Card" },
-  unionpay: { th: "UnionPay", en: "UnionPay" },
-  thaiqr: { th: "Thai QR", en: "Thai QR" },
-  qr_credit: { th: "QR เครดิต", en: "QR Credit" },
-  alipay: { th: "Alipay+", en: "Alipay+" },
-  wechat: { th: "WeChat", en: "WeChat" },
-  installment: { th: "ผ่อน 0%", en: "Installment" },
+export const EDC_SERVICE_LABEL: Record<string, { th: string; en: string; zh: string }> = {
+  card: { th: "บัตร", en: "Card", zh: "银行卡" },
+  unionpay: { th: "UnionPay", en: "UnionPay", zh: "银联" },
+  thaiqr: { th: "Thai QR", en: "Thai QR", zh: "Thai QR" },
+  qr_credit: { th: "QR เครดิต", en: "QR Credit", zh: "QR 信用卡" },
+  alipay: { th: "Alipay+", en: "Alipay+", zh: "Alipay+" },
+  wechat: { th: "WeChat", en: "WeChat", zh: "微信支付" },
+  installment: { th: "ผ่อน 0%", en: "Installment", zh: "0% 分期" },
 };

@@ -52,8 +52,8 @@ export default function AdminProductsPage() {
           title={t.admin.products}
           subtitle={L(
             `${rows.length} SKU ในแคตตาล็อก POS รวมสินค้านำเข้าจาก OW · ยังไม่เปิดใช้งาน ${products.filter(p=>!p.is_active).length} รายการ`,
-            `${rows.length} SKUs in the POS catalog, including OW imports`,
-            `${rows.length} 个 SKU — 真实商品数据将从您的数据库导入（见 docs/08-api-reference.md）`
+            `${rows.length} SKUs in the POS catalog incl. OW imports · ${products.filter(p=>!p.is_active).length} not yet active`,
+            `POS 商品目录共 ${rows.length} 个 SKU（含 OW 导入）· 未启用 ${products.filter(p=>!p.is_active).length} 项`
           )}
         />
         <div className="p-4 flex flex-wrap gap-2">
@@ -99,7 +99,7 @@ export default function AdminProductsPage() {
                 <Th align="right">{t.common.price}</Th>
                 {showCost ? <Th align="right">{L("ต้นทุน", "Cost", "成本")}</Th> : null}
                 {showCost ? <Th align="right">GP%</Th> : null}
-                <Th align="center">Serial</Th><Th>สถานะ</Th><Th>ตรวจสินค้า</Th>
+                <Th align="center">Serial</Th><Th>{L("สถานะ", "Status", "状态")}</Th><Th>{L("ตรวจสินค้า", "Review", "商品审核")}</Th>
               </tr>
             </thead>
             <tbody>
@@ -116,10 +116,10 @@ export default function AdminProductsPage() {
                           : <Package size={16} className="text-muted/40" />}
                       </div>
                     </Td>
-                    <Td className="font-mono text-[11px] text-muted">{p.sku}</Td>
+                    <Td className="font-mono text-[11px] text-muted"><span translate="no">{p.sku}</span></Td>
                     <Td>
                       <p className="text-xs font-medium">{pick({ th: p.name_th, en: p.name_en, zh: p.name_zh })}</p>
-                      <p className="text-[10px] font-mono text-muted">{p.barcodes[0] ?? ""}</p>
+                      <p className="text-[10px] font-mono text-muted" translate="no">{p.barcodes[0] ?? ""}</p>
                     </Td>
                     <Td className="text-xs">{brands.find((b) => b.id === p.brand_id)?.name ?? "—"}</Td>
                     <Td className="text-xs text-muted">{catName(p.category_id)}</Td>
@@ -131,10 +131,10 @@ export default function AdminProductsPage() {
                       </Td>
                     ) : null}
                     <Td align="center">
-                      {p.serial_policy_confirmed === false ? <Badge tone="warn">ยังไม่ยืนยัน SN</Badge> : p.track_serial ? <Badge tone="info">SN ทุกชิ้น</Badge> : <Badge tone="neutral">ไม่ใช้ SN</Badge>}
+                      {p.serial_policy_confirmed === false ? <Badge tone="warn">{L("ยังไม่ยืนยัน SN", "SN unconfirmed", "SN 未确认")}</Badge> : p.track_serial ? <Badge tone="info">{L("SN ทุกชิ้น", "SN every unit", "每件 SN")}</Badge> : <Badge tone="neutral">{L("ไม่ใช้ SN", "No SN", "无 SN")}</Badge>}
                     </Td>
-                    <Td><Badge tone={p.is_active?"ok":"warn"}>{p.is_active?"เปิดใช้งาน":"รอตรวจ / ปิดขาย"}</Badge></Td>
-                    <Td>{can(employee,"admin.product_manage")&&showCost?<Button variant="soft" onClick={()=>setReviewId(p.id)}>ตรวจและตั้งค่า</Button>:null}</Td>
+                    <Td><Badge tone={p.is_active?"ok":"warn"}>{p.is_active?L("เปิดใช้งาน", "Active", "已启用"):L("รอตรวจ / ปิดขาย", "Pending review / off sale", "待审核 / 停售")}</Badge></Td>
+                    <Td>{can(employee,"admin.product_manage")&&showCost?<Button variant="soft" onClick={()=>setReviewId(p.id)}>{L("ตรวจและตั้งค่า", "Review & set up", "审核并设置")}</Button>:null}</Td>
                   </tr>
                 );
               })}

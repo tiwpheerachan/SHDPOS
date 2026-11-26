@@ -5,6 +5,7 @@
 // =====================================================================
 import type { CartLine, Product } from "../types";
 import type { GiftCampaign } from "../data/repo";
+import { tr } from "@/lib/i18n/tr";
 
 export interface GiftResult {
   gifts: CartLine[];
@@ -49,11 +50,11 @@ export function computeCampaignGifts(
 
     for (const g of c.gift_skus) {
       const p = productBySku(g.sku);
-      if (p && !p.is_active) { warnings.push(`ของแถม ${g.sku} ยังไม่เปิดใช้งาน (${c.name})`); continue; }
-      if (!p) { warnings.push(`ของแถม ${g.sku} ไม่พบในระบบ (${c.name})`); continue; }
+      if (p && !p.is_active) { warnings.push(tr(`ของแถม ${g.sku} ยังไม่เปิดใช้งาน (${c.name})`, `Gift ${g.sku} is not active (${c.name})`, `赠品 ${g.sku} 未启用（${c.name}）`)); continue; }
+      if (!p) { warnings.push(tr(`ของแถม ${g.sku} ไม่พบในระบบ (${c.name})`, `Gift ${g.sku} not found in system (${c.name})`, `系统中未找到赠品 ${g.sku}（${c.name}）`)); continue; }
       const qty = sets * (g.gift_qty || 1);
       if (p.is_stocked && stockQty(p.id) < qty) {
-        warnings.push(`ของแถม ${p.name_th} คงเหลือไม่พอ (${c.name})`);
+        warnings.push(tr(`ของแถม ${p.name_th} คงเหลือไม่พอ (${c.name})`, `Not enough stock for gift ${p.name_th} (${c.name})`, `赠品 ${p.name_th} 库存不足（${c.name}）`));
       }
       gifts.push({
         lineId: `gift:${c.id}:${p.id}`,

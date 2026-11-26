@@ -6,11 +6,14 @@ import { useParams } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
 import { Printer, Download, Link2, Share2, Loader2, Check, Lock } from "lucide-react";
 import type { DocPayload } from "@/lib/doc-types";
+import { useL } from "@/lib/i18n/provider";
+import { tr } from "@/lib/i18n/tr";
 
 const TONE: Record<string, string> = { ok: "#059669", warn: "#d97706", error: "#dc2626", info: "#0284c7", none: "#9ca3af" };
 
 export default function DocPage() {
   const { token } = useParams<{ token: string }>();
+  const L = useL();
   const [doc, setDoc] = useState<DocPayload | null>(null), [err, setErr] = useState<{ msg: string; login?: boolean } | null>(null);
   const [exp, setExp] = useState<string | null>(null), [busy, setBusy] = useState(false), [copied, setCopied] = useState(false);
   const [tax, setTax] = useState<TaxState | null>(null);
@@ -27,7 +30,7 @@ export default function DocPage() {
   }, []);
   useEffect(() => {
     fetch(`/api/doc/${token}`, { cache: "no-store" }).then(async (r) => { const j = await r.json(); if (!r.ok) setErr({ msg: j.error, login: j.login }); else { setDoc(j.doc); setExp(j.expires_at); setTax(j.tax ?? null); document.title = `${j.doc.title} ${j.doc.doc_no}`; } })
-      .catch(() => setErr({ msg: "โหลดเอกสารไม่สำเร็จ" }));
+      .catch(() => setErr({ msg: tr("โหลดเอกสารไม่สำเร็จ", "Failed to load document", "单据加载失败") }));
   }, [token]);
   const url = typeof window !== "undefined" ? `${window.location.origin}${window.location.pathname}` : "";
 
@@ -58,28 +61,28 @@ export default function DocPage() {
       <div className="max-w-sm text-center space-y-3 bg-white rounded-2xl shadow p-8">
         {err.login ? <Lock className="mx-auto text-gray-400" /> : null}
         <p className="text-sm text-gray-700">{err.msg}</p>
-        {err.login ? <a href={`/sso/login?next=${encodeURIComponent(`/doc/${token}`)}`} className="inline-block text-sm font-medium text-white bg-gray-900 rounded-xl px-4 py-2">เข้าสู่ระบบ</a> : null}
+        {err.login ? <a href={`/sso/login?next=${encodeURIComponent(`/doc/${token}`)}`} className="inline-block text-sm font-medium text-white bg-gray-900 rounded-xl px-4 py-2">{L("เข้าสู่ระบบ", "Sign in", "登录")}</a> : null}
       </div>
     </main>
   );
-  if (!doc) return <main className="min-h-screen grid place-items-center bg-[#f3f4f6] text-gray-500 text-sm gap-2"><Loader2 className="animate-spin" />กำลังโหลดเอกสาร…</main>;
+  if (!doc) return <main className="min-h-screen grid place-items-center bg-[#f3f4f6] text-gray-500 text-sm gap-2"><Loader2 className="animate-spin" />{L("กำลังโหลดเอกสาร…", "Loading document…", "正在加载单据…")}</main>;
 
   return (
     <main className={`min-h-screen print:bg-white ${embed ? "bg-[#eef0f3]" : "bg-[#e5e7eb]"}`}>
       <style>{`@page { size: A4; margin: 0 } @media print { .no-print { display: none !important } .sheet { box-shadow: none !important; margin: 0 !important } }`}</style>
       <div className={`no-print sticky top-0 z-10 bg-white/90 backdrop-blur border-b border-gray-200 ${embed ? "hidden" : ""}`}>
         <div className="max-w-[210mm] mx-auto px-4 py-2.5 flex flex-wrap items-center gap-2">
-          <p className="text-sm font-semibold text-gray-900 mr-auto">{doc.title} <span className="font-mono text-gray-500 font-normal">{doc.doc_no}</span>{doc.internal ? <span className="ml-2 text-[11px] text-red-600">เอกสารภายใน</span> : null}</p>
-          <Btn onClick={() => void pdf()} icon={busy ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />} label="ดาวน์โหลด PDF" primary />
-          <Btn onClick={() => window.print()} icon={<Printer size={14} />} label="พิมพ์" />
-          <Btn onClick={() => void copy()} icon={copied ? <Check size={14} /> : <Link2 size={14} />} label={copied ? "คัดลอกแล้ว" : "คัดลอกลิงก์"} />
-          {!doc.internal ? <Btn onClick={() => void share()} icon={<Share2 size={14} />} label="แชร์" /> : null}
+          <p className="text-sm font-semibold text-gray-900 mr-auto">{doc.title} <span className="font-mono text-gray-500 font-normal" translate="no">{doc.doc_no}</span>{doc.internal ? <span className="ml-2 text-[11px] text-red-600">{L("เอกสารภายใน", "Internal document", "内部单据")}</span> : null}</p>
+          <Btn onClick={() => void pdf()} icon={busy ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />} label={L("ดาวน์โหลด PDF", "Download PDF", "下载 PDF")} primary />
+          <Btn onClick={() => window.print()} icon={<Printer size={14} />} label={L("พิมพ์", "Print", "打印")} />
+          <Btn onClick={() => void copy()} icon={copied ? <Check size={14} /> : <Link2 size={14} />} label={copied ? L("คัดลอกแล้ว", "Copied", "已复制") : L("คัดลอกลิงก์", "Copy link", "复制链接")} />
+          {!doc.internal ? <Btn onClick={() => void share()} icon={<Share2 size={14} />} label={L("แชร์", "Share", "分享")} /> : null}
         </div>
       </div>
 
       {doc.kind === "receipt" && tax && !embed ? <TaxRequestCard token={token} tax={tax} onSent={() => setTax({ ...tax, pending: true })} /> : null}
       <div ref={zoomBox} className={`print:py-0 ${embed ? "py-3 px-3" : "py-6 px-2"}`} style={embed ? { zoom: scale } : undefined}>
-        <div ref={paper} className="sheet relative mx-auto bg-white text-gray-900 shadow-xl w-[210mm] min-h-[297mm] px-[16mm] py-[14mm] text-[11.5px] leading-relaxed" style={{ fontFamily: "'Sarabun','Noto Sans Thai','Prompt',system-ui,sans-serif" }}>
+        <div ref={paper} translate="no" className="sheet relative mx-auto bg-white text-gray-900 shadow-xl w-[210mm] min-h-[297mm] px-[16mm] py-[14mm] text-[11.5px] leading-relaxed" style={{ fontFamily: "'Sarabun','Noto Sans Thai','Prompt',system-ui,sans-serif" }}>
           {doc.watermark ? <div className="pointer-events-none absolute inset-0 grid place-items-center overflow-hidden"><span className="text-[110px] font-bold text-red-500/10 -rotate-[30deg] whitespace-nowrap">{doc.watermark}</span></div> : null}
 
           {/* หัวเอกสาร */}
@@ -179,6 +182,7 @@ function Btn({ onClick, icon, label, primary }: { onClick: () => void; icon: Rea
 // ── ลูกค้าขอใบกำกับภาษีเต็มรูปจากลิงก์/QR บนใบเสร็จ ──
 type TaxState = { eligible: boolean; issued: { invoice_no: string; url: string } | null; pending: boolean };
 function TaxRequestCard({ token, tax, onSent }: { token: string; tax: TaxState; onSent: () => void }) {
+  const L = useL();
   const [open, setOpen] = useState(false), [busy, setBusy] = useState(false), [err, setErr] = useState(""), [done, setDone] = useState(false);
   const [f, setF] = useState({ name: "", tax_id: "", branch_no: "", address: "", phone: "", contact: "" });
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setF({ ...f, [k]: e.target.value });
@@ -188,34 +192,34 @@ function TaxRequestCard({ token, tax, onSent }: { token: string; tax: TaxState; 
       const r = await fetch(`/api/doc/${token}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ buyer: { name: f.name, tax_id: f.tax_id, branch_no: f.branch_no, address: f.address, phone: f.phone }, contact: f.contact }) });
       const j = await r.json(); if (!r.ok) throw Error(j.error);
       setDone(true); setOpen(false); onSent();
-    } catch (e) { setErr(e instanceof Error ? e.message : "ส่งคำขอไม่สำเร็จ"); } finally { setBusy(false); }
+    } catch (e) { setErr(e instanceof Error ? e.message : L("ส่งคำขอไม่สำเร็จ", "Failed to send request", "提交申请失败")); } finally { setBusy(false); }
   }
   const box = "no-print max-w-[210mm] mx-auto mt-4 mx-2 sm:mx-auto rounded-2xl border px-4 py-3";
   const inp = "w-full h-10 px-3 rounded-xl border border-gray-300 bg-white text-sm outline-none focus:border-gray-900";
   if (tax.issued) return (
     <div className={`${box} border-emerald-300 bg-emerald-50 flex flex-wrap items-center gap-3`}>
-      <p className="text-sm text-emerald-800 flex-1">ออกใบกำกับภาษีเต็มรูปแล้ว เลขที่ <b className="font-mono">{tax.issued.invoice_no}</b></p>
-      <a href={tax.issued.url} className="h-9 px-4 rounded-xl bg-emerald-700 text-white text-xs font-medium inline-flex items-center">ดูใบกำกับภาษี</a>
+      <p className="text-sm text-emerald-800 flex-1">{L("ออกใบกำกับภาษีเต็มรูปแล้ว เลขที่", "Full tax invoice issued, no.", "已开具完整增值税发票，编号")} <b className="font-mono" translate="no">{tax.issued.invoice_no}</b></p>
+      <a href={tax.issued.url} className="h-9 px-4 rounded-xl bg-emerald-700 text-white text-xs font-medium inline-flex items-center">{L("ดูใบกำกับภาษี", "View tax invoice", "查看增值税发票")}</a>
     </div>
   );
   if (!tax.eligible) return null;
   return (
     <div className={`${box} ${tax.pending || done ? "border-amber-300 bg-amber-50" : "border-gray-200 bg-white"}`}>
       <div className="flex flex-wrap items-center gap-3">
-        <p className="text-sm text-gray-800 flex-1">{tax.pending || done ? "ส่งคำขอใบกำกับภาษีเต็มรูปแล้ว — สาขากำลังดำเนินการ เมื่อออกแล้วลิงก์นี้จะมีปุ่มดูใบกำกับภาษี" : "ต้องการใบกำกับภาษีเต็มรูป? กรอกข้อมูลผู้เสียภาษีได้ที่นี่"}</p>
-        <button onClick={() => setOpen(!open)} className="h-9 px-4 rounded-xl bg-gray-900 text-white text-xs font-medium">{open ? "ปิด" : tax.pending || done ? "แก้ไขข้อมูลคำขอ" : "ขอใบกำกับภาษีเต็มรูป"}</button>
+        <p className="text-sm text-gray-800 flex-1">{tax.pending || done ? L("ส่งคำขอใบกำกับภาษีเต็มรูปแล้ว — สาขากำลังดำเนินการ เมื่อออกแล้วลิงก์นี้จะมีปุ่มดูใบกำกับภาษี", "Full tax invoice requested — the branch is processing it. Once issued, this link will show a button to view it", "已提交完整增值税发票申请 — 门店处理中，开具后此链接将显示查看按钮") : L("ต้องการใบกำกับภาษีเต็มรูป? กรอกข้อมูลผู้เสียภาษีได้ที่นี่", "Need a full tax invoice? Enter your taxpayer details here", "需要完整增值税发票？请在此填写纳税人信息")}</p>
+        <button onClick={() => setOpen(!open)} className="h-9 px-4 rounded-xl bg-gray-900 text-white text-xs font-medium">{open ? L("ปิด", "Close", "关闭") : tax.pending || done ? L("แก้ไขข้อมูลคำขอ", "Edit request", "修改申请信息") : L("ขอใบกำกับภาษีเต็มรูป", "Request full tax invoice", "申请完整增值税发票")}</button>
       </div>
       {open ? (
         <div className="mt-3 grid sm:grid-cols-2 gap-2">
-          <input className={inp} placeholder="ชื่อผู้ซื้อ / บริษัท *" value={f.name} onChange={set("name")} />
-          <input className={`${inp} font-mono`} placeholder="เลขประจำตัวผู้เสียภาษี 13 หลัก *" inputMode="numeric" value={f.tax_id} onChange={set("tax_id")} />
-          <input className={`${inp} font-mono`} placeholder="สาขา (ว่าง = สำนักงานใหญ่)" inputMode="numeric" value={f.branch_no} onChange={set("branch_no")} />
-          <input className={inp} placeholder="โทรศัพท์" inputMode="tel" value={f.phone} onChange={set("phone")} />
-          <textarea className={`${inp} h-auto py-2 sm:col-span-2`} rows={2} placeholder="ที่อยู่ตามทะเบียน *" value={f.address} onChange={set("address")} />
-          <input className={`${inp} sm:col-span-2`} placeholder="ช่องทางติดต่อกลับ (อีเมล / LINE) — ไม่บังคับ" value={f.contact} onChange={set("contact")} />
+          <input className={inp} placeholder={L("ชื่อผู้ซื้อ / บริษัท *", "Buyer / company name *", "购买方 / 公司名称 *")} value={f.name} onChange={set("name")} />
+          <input className={`${inp} font-mono`} placeholder={L("เลขประจำตัวผู้เสียภาษี 13 หลัก *", "Tax ID (13 digits) *", "纳税人识别号（13 位）*")} inputMode="numeric" value={f.tax_id} onChange={set("tax_id")} />
+          <input className={`${inp} font-mono`} placeholder={L("สาขา (ว่าง = สำนักงานใหญ่)", "Branch (blank = head office)", "分支机构（留空 = 总部）")} inputMode="numeric" value={f.branch_no} onChange={set("branch_no")} />
+          <input className={inp} placeholder={L("โทรศัพท์", "Phone", "电话")} inputMode="tel" value={f.phone} onChange={set("phone")} />
+          <textarea className={`${inp} h-auto py-2 sm:col-span-2`} rows={2} placeholder={L("ที่อยู่ตามทะเบียน *", "Registered address *", "注册地址 *")} value={f.address} onChange={set("address")} />
+          <input className={`${inp} sm:col-span-2`} placeholder={L("ช่องทางติดต่อกลับ (อีเมล / LINE) — ไม่บังคับ", "Contact (email / LINE) — optional", "回访联系方式（邮箱 / LINE）— 选填")} value={f.contact} onChange={set("contact")} />
           {err ? <p className="sm:col-span-2 text-sm text-red-600">{err}</p> : null}
-          <p className="sm:col-span-2 text-[11px] text-gray-500">ข้อมูลนี้ใช้ออกใบกำกับภาษีของบิลนี้เท่านั้น</p>
-          <div className="sm:col-span-2 flex justify-end"><button disabled={busy} onClick={() => void submit()} className="h-10 px-5 rounded-xl bg-gray-900 text-white text-sm font-medium disabled:opacity-50 inline-flex items-center gap-2">{busy ? <Loader2 size={15} className="animate-spin" /> : null}ส่งคำขอ</button></div>
+          <p className="sm:col-span-2 text-[11px] text-gray-500">{L("ข้อมูลนี้ใช้ออกใบกำกับภาษีของบิลนี้เท่านั้น", "This information is used only to issue the tax invoice for this bill", "此信息仅用于开具本账单的增值税发票")}</p>
+          <div className="sm:col-span-2 flex justify-end"><button disabled={busy} onClick={() => void submit()} className="h-10 px-5 rounded-xl bg-gray-900 text-white text-sm font-medium disabled:opacity-50 inline-flex items-center gap-2">{busy ? <Loader2 size={15} className="animate-spin" /> : null}{L("ส่งคำขอ", "Submit request", "提交申请")}</button></div>
         </div>
       ) : null}
     </div>

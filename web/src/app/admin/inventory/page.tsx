@@ -336,7 +336,7 @@ export default function AdminInventoryPage() {
                 {xProductList.slice(0, 150).map(({ p, total, nb }) => (
                   <button key={p.id} onClick={() => setXProductId(p.id)} className="flex items-center gap-3 p-2.5 rounded-xl border border-line/70 hover:border-brand/40 hover:bg-brand/5 text-left">
                     <Img p={p} size={48} />
-                    <div className="min-w-0 flex-1"><p className="text-sm font-medium truncate">{pick({ th: p.name_th, en: p.name_en, zh: p.name_zh })}</p><p className="text-[10px] text-muted truncate"><span className="font-mono">{p.sku}</span>{brandName(p.brand_id) ? ` · ${brandName(p.brand_id)}` : ""}{p.is_active === false ? <span className="ml-1.5 px-1.5 rounded bg-surface2 text-muted">{L("ปิดขาย", "Inactive", "停售")}</span> : null}</p></div>
+                    <div className="min-w-0 flex-1"><p className="text-sm font-medium truncate">{pick({ th: p.name_th, en: p.name_en, zh: p.name_zh })}</p><p className="text-[10px] text-muted truncate"><span className="font-mono" translate="no">{p.sku}</span>{brandName(p.brand_id) ? ` · ${brandName(p.brand_id)}` : ""}{p.is_active === false ? <span className="ml-1.5 px-1.5 rounded bg-surface2 text-muted">{L("ปิดขาย", "Inactive", "停售")}</span> : null}</p></div>
                     <div className="text-right shrink-0"><p className={`text-base font-bold tnum ${total > 0 ? "text-ok" : "text-muted"}`}>{total}</p><p className="text-[10px] text-muted">{nb} {L("สาขา", "br.", "店")}</p></div>
                   </button>
                 ))}

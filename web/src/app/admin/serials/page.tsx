@@ -168,7 +168,7 @@ export default function AdminSerialsPage() {
               {history.map((h) => (
                 <button key={h.serialNo} onClick={() => { setQ(h.serialNo); void lookup(h.serialNo); }} className="w-full flex items-center gap-2.5 px-4 py-2 hover:bg-brand/5 text-left">
                   {h.image ? <img src={h.image} alt="" className="w-8 h-8 rounded-lg object-cover border border-line bg-white shrink-0" /> : <div className="w-8 h-8 rounded-lg border border-line bg-surface grid place-items-center shrink-0 text-muted/40"><Boxes size={13} /></div>}
-                  <div className="min-w-0 flex-1"><p className="font-mono text-[11px] truncate">{h.serialNo}</p><p className="text-[10px] text-muted truncate">{h.name}</p></div>
+                  <div className="min-w-0 flex-1"><p className="font-mono text-[11px] truncate" translate="no">{h.serialNo}</p><p className="text-[10px] text-muted truncate">{h.name}</p></div>
                   <Badge tone={STATUS_META[h.status].tone}>{L(STATUS_META[h.status].th, STATUS_META[h.status].en, STATUS_META[h.status].zh)}</Badge>
                 </button>
               ))}
@@ -179,7 +179,7 @@ export default function AdminSerialsPage() {
             <div className="px-4 pt-3 pb-2 text-xs font-semibold inline-flex items-center gap-1.5"><Clock size={14} className="text-brand" /> {L("ล่าสุดในระบบ", "Recent in system", "系统最近")}</div>
             <div className="px-4 pb-4 flex flex-wrap gap-1.5">
               {recent.map((r) => (
-                <button key={r.serialNo} onClick={() => { setQ(r.serialNo); void lookup(r.serialNo); }} className="text-[11px] font-mono px-2 py-1 rounded-lg border border-line bg-surface hover:border-brand hover:text-brand transition-colors" title={r.name}>{r.serialNo}</button>
+                <button key={r.serialNo} onClick={() => { setQ(r.serialNo); void lookup(r.serialNo); }} className="text-[11px] font-mono px-2 py-1 rounded-lg border border-line bg-surface hover:border-brand hover:text-brand transition-colors" title={r.name} translate="no">{r.serialNo}</button>
               ))}
             </div>
           </Card>
@@ -221,7 +221,7 @@ export default function AdminSerialsPage() {
                   <h2 className="text-xl font-bold leading-tight mt-1.5">{info.product?.name || L("ไม่ทราบสินค้า", "Unknown", "未知")}</h2>
                   <p className="text-xs text-muted font-mono">{info.product?.sku}{info.product?.price ? ` · ${formatTHB(info.product.price)}` : ""}</p>
                   <div className="flex items-center gap-2 mt-2.5">
-                    <code className="text-sm font-mono font-semibold bg-surface2 border border-line rounded-lg px-2.5 py-1">{info.serialNo}</code>
+                    <code className="text-sm font-mono font-semibold bg-surface2 border border-line rounded-lg px-2.5 py-1" translate="no">{info.serialNo}</code>
                     <button onClick={() => copy(info.serialNo, "sn")} className="h-8 px-2.5 rounded-lg border border-line text-xs text-muted hover:text-brand hover:border-brand/40 inline-flex items-center gap-1">{copied === "sn" ? <Check size={13} className="text-ok" /> : <Copy size={13} />} {copied === "sn" ? L("คัดลอกแล้ว", "Copied", "已复制") : L("คัดลอก", "Copy", "复制")}</button>
                     <button onClick={shareLink} className="h-8 px-2.5 rounded-lg border border-line text-xs text-muted hover:text-brand hover:border-brand/40 inline-flex items-center gap-1">{copied === "link" ? <Check size={13} className="text-ok" /> : <Share2 size={13} />} {L("แชร์", "Share", "分享")}</button>
                     <button onClick={printLabel} className="h-8 px-2.5 rounded-lg border border-line text-xs text-muted hover:text-brand hover:border-brand/40 inline-flex items-center gap-1"><Printer size={13} /> {L("พิมพ์ป้าย", "Label", "标签")}</button>
@@ -275,7 +275,7 @@ export default function AdminSerialsPage() {
                 {/* OneWarehouse — สถานะสด (เมื่อเชื่อมต่อ) */}
                 {owConn && owInfo ? (() => {
                   const b = branchForWarehouseId(owInfo.warehouseId);
-                  const OW_TH: Record<string, string> = { in_stock: "อยู่ในสต๊อก", sold: "ขายแล้ว", in_transit: "ระหว่างโอน", reserved: "ถูกจอง", written_off: "ตัดจำหน่าย", shipped: "ส่งออกแล้ว" };
+                  const OW_TH: Record<string, string> = { in_stock: L("อยู่ในสต๊อก", "In stock", "在库"), sold: L("ขายแล้ว", "Sold", "已售"), in_transit: L("ระหว่างโอน", "In transit", "在途"), reserved: L("ถูกจอง", "Reserved", "预留"), written_off: L("ตัดจำหน่าย", "Written off", "已核销"), shipped: L("ส่งออกแล้ว", "Shipped", "已出库") };
                   // เทียบ POS ↔ JST → อธิบายเหตุที่ไม่ตรงเป็นภาษาคน
                   const pos = info?.status;
                   const diff: string | null =
@@ -291,7 +291,7 @@ export default function AdminSerialsPage() {
                         <div className="grid grid-cols-2 gap-2 text-[12px]">
                           <div className="rounded-xl bg-surface2/60 px-2.5 py-2"><p className="text-[10.5px] text-muted">{L("สถานะ", "Status", "状态")}</p><p className="font-semibold">{OW_TH[owInfo.status] ?? owInfo.status}</p></div>
                           <div className="rounded-xl bg-surface2/60 px-2.5 py-2"><p className="text-[10.5px] text-muted">{L("ประเภทสต๊อก", "Stock type", "库存类型")}</p><p className={`font-semibold ${owInfo.stockType && owInfo.stockType !== "sellable" ? "text-danger" : ""}`}>{owInfo.stockType === "damaged" ? L("ชำรุด", "Damaged", "损坏") : owInfo.stockType === "sellable" || !owInfo.stockType ? L("ขายได้", "Sellable", "可售") : owInfo.stockType}</p></div>
-                          <div className="col-span-2 rounded-xl bg-surface2/60 px-2.5 py-2"><p className="text-[10.5px] text-muted">{L("คลัง", "Warehouse", "仓")}</p><p className="font-semibold">{owInfo.warehouseId ? (b ? `${branchName(b)} · ${owInfo.warehouseId}` : owInfo.warehouseId) : "—"}</p>{owInfo.sku ? <p className="text-muted font-mono text-[10.5px]">{owInfo.sku}</p> : null}</div>
+                          <div className="col-span-2 rounded-xl bg-surface2/60 px-2.5 py-2"><p className="text-[10.5px] text-muted">{L("คลัง", "Warehouse", "仓")}</p><p className="font-semibold">{owInfo.warehouseId ? (b ? `${branchName(b)} · ${owInfo.warehouseId}` : owInfo.warehouseId) : "—"}</p>{owInfo.sku ? <p className="text-muted font-mono text-[10.5px]" translate="no">{owInfo.sku}</p> : null}</div>
                         </div>
                         {diff ? <p className="rounded-xl bg-amber-500/10 text-amber-700 dark:text-amber-300 text-[11.5px] px-3 py-2 leading-snug">⚠ {diff}</p> : <p className="text-[11px] text-ok">{L("ตรงกับ POS", "Matches POS", "与 POS 一致")}</p>}
                         <p className="text-[10px] text-muted/70">{L("ข้อมูลจริงจากคลังกลาง (JST ผ่าน OneWarehouse)", "Authoritative from central WMS", "中央仓权威数据")}</p>
