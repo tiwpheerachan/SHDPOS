@@ -9,7 +9,8 @@ import { useSalesData } from "@/lib/hooks/use-sales-data";
 import { useCatalogProducts } from "@/lib/hooks/use-catalog-products";
 import { StaffPerformance } from "@/components/admin/staff-performance";
 import { BrandView } from "@/components/admin/brand-view";
-import { OverviewView, BillsView, buildOverview } from "@/components/admin/sales-dashboard";
+import { OverviewView, buildOverview } from "@/components/admin/sales-dashboard";
+import { SalesSheet } from "@/components/admin/sales-sheet";
 import { ViewsMenu, ShareMenu, DownloadMenu, type ReportState } from "@/components/admin/report-actions";
 import { rangeToDates, type AdminFilter } from "@/components/admin/filters";
 import { listCategories } from "@/lib/data/repo";
@@ -186,7 +187,7 @@ function AdminSalesPage() {
       {data.truncated ? <p className="rounded-xl bg-warn/10 text-[12.5px] px-4 py-2.5">{L("ช่วงวันที่นี้มีบิลมากกว่า 20,000 ใบ — แสดงเฉพาะล่าสุด ให้แคบช่วงวันที่ลงเพื่อดูครบ", "More than 20,000 bills — showing latest only; narrow the date range", "数据过多")}</p> : null}
 
       <div ref={reportRef} className="space-y-4">
-      {tab === "bills" ? <BillsView orders={rows} branches={branches} employees={employees} showCost={showCost} owStatus={owStatus as never} onExport={exportCsv} /> : null}
+      {tab === "bills" ? <SalesSheet orders={rows} branches={branches} brands={brands} employees={employees} products={products} catName={cats} showCost={showCost} owStatus={owStatus as never} onExportCsv={exportCsv} /> : null}
       {tab === "overview" ? <OverviewView m={overview}
         onDrill={(to, patch) => { if (to === "staff" && patch?.person) { const u = new URLSearchParams(sp.toString()); u.set("tab", "staff"); u.set("person", String(patch.person)); router.push(`/admin/sales?${u}`, { scroll: false }); } else setTab(to); }} /> : null}
 
