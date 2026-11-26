@@ -3,9 +3,11 @@
 //   ดาวน์โหลด: ป๊อปอัปกรองสินค้า (แบรนด์/หมวด/สถานะ/เลือก SKU/เฉพาะที่มีสต๊อกในสาขา — รวมทุกสาขาที่เลือก) + เติมค่าตั้งต้นให้ทุกแถว (กรอกน้อยสุด)
 //   นำเข้า: อ่าน .xlsx/.csv → จับคอลัมน์อัตโนมัติ → พรีวิวทีละแถว (ผ่าน/เตือน/ผิด + ก่อน→หลัง) → ยืนยัน → เป็น 1 ชุด ย้อนกลับได้
 import { useEffect, useMemo, useRef, useState } from "react";
-import { FileDown, FileUp, X, Check, AlertTriangle, XCircle, Loader2, Undo2, History, RotateCcw, Search, Filter } from "lucide-react";
+import { FileDown, FileUp, X, Check, AlertTriangle, XCircle, Loader2, Undo2, History, RotateCcw, Search, Filter, ShieldCheck, Sparkle } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { Badge, Button, EmptyState, Field, Input, Modal, Segmented, Select, Skeleton } from "@/components/ui";
+import { MultiSelect } from "@/components/ui/multi-select";
+import { reviewImport, type ReviewRow, type Finding, type Verdict } from "@/lib/pricing/review";
 import { useToast } from "@/components/toast-host";
 import { formatTHB, formatInt } from "@/lib/money";
 import { PRICE_TYPE, ROUNDING, bkkEndExclusive, bkkStart, describeRule, ruleValue, toBkkYmd, type PriceMode, type PriceType, type Rounding } from "@/lib/pricing/rules";
@@ -21,59 +23,67 @@ const monthEnd = (ymd: string) => { const [y, m] = ymd.split("-").map(Number); r
 
 // ═════════════ ดาวน์โหลดเทมเพลต ═════════════
 export function ExportTemplateModal({ data, onClose }: { data: PData; onClose: () => void }) {
-  const { L } = useI18n();
+  const { L, locale } = useI18n();
   const toast = useToast();
   const [brands, setBrands] = useState<string[]>([]), [cats, setCats] = useState<string[]>([]), [status, setStatus] = useState<"all" | "on" | "off">("all");
-  const [source, setSource] = useState<"all" | "stock">("all"), [stockBranches, setStockBranches] = useState<string[]>([]), [stockCols, setStockCols] = useState(true);
-  const [picked, setPicked] = useState<string[]>([]), [q, setQ] = useState("");
-  const [prefill, setPrefill] = useState({ action: "none" as "none" | "percent" | "amount" | "price_list", value: "", from: todayYmd(), to: monthEnd(todayYmd()), allBranches: true, branches: [] as string[], type: "monthly" as PriceType, promo: "", rounding: "baht" as Rounding });
+  const [stockBranches, setStockBranches] = useState<string[]>([]), [onlyStock, setOnlyStock] = useState(false), [stockCols, setStockCols] = useState(true);
+  const [picked, setPicked] = useState<string[]>([]);
+  const [prefill, setPrefill] = useState({ action: "none" as "none" | "percent" | "amount" | "price_list", value: "", from: todayYmd(), to: monthEnd(todayYmd()), branches: [] as string[], type: "monthly" as PriceType, promo: "", rounding: "baht" as Rounding });
   const [stock, setStock] = useState<{ rows: { branch_id: string; product_id: string; available: number }[] } | null>(null), [busy, setBusy] = useState(false);
   useEffect(() => { void fetch("/api/admin/branch-stock", { cache: "no-store" }).then((r) => r.json()).then((j) => setStock(j.rows ? j : { rows: [] })).catch(() => setStock({ rows: [] })); }, []);
   const stockBy = useMemo(() => { const m = new Map<string, Map<string, number>>(); for (const r of stock?.rows ?? []) { const x = m.get(r.product_id) ?? new Map(); x.set(r.branch_id, Number(r.available)); m.set(r.product_id, x); } return m; }, [stock]);
-  const useBranches = stockBranches.length ? stockBranches : data.branches.map((b) => b.id);
+  // ไม่เลือกสาขา = ทุกสาขา
+  const scopeBranches = stockBranches.length ? stockBranches : data.branches.map((b) => b.id);
   const list = useMemo(() => data.products.filter((p) => (!brands.length || brands.includes(p.brand_id ?? "")) && (!cats.length || cats.includes(p.category_id ?? ""))
     && (status === "all" || (status === "on" ? p.is_active : !p.is_active)) && (!picked.length || picked.includes(p.id))
-    && (source === "all" || useBranches.some((b) => (stockBy.get(p.id)?.get(b) ?? 0) > 0))), [data.products, brands, cats, status, picked, source, useBranches, stockBy]);
-  const s = q.trim().toLowerCase();
-  const pick = s ? data.products.filter((p) => (p.sku.toLowerCase().includes(s) || p.name_th.toLowerCase().includes(s)) && !picked.includes(p.id)).slice(0, 20) : [];
-  const toggle = (arr: string[], v: string) => (arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v]);
+    && (!onlyStock || scopeBranches.some((b) => (stockBy.get(p.id)?.get(b) ?? 0) > 0))), [data.products, brands, cats, status, picked, onlyStock, scopeBranches, stockBy]);
+  // คอลัมน์สต๊อก: สาขาที่เลือก หรือ (ไม่เลือก) เฉพาะสาขาที่มีของของสินค้าในไฟล์จริง — ไม่ใส่ครบทุกสาขา
+  const stockBranchList = useMemo(() => data.branches.filter((b) => stockBranches.length ? stockBranches.includes(b.id) : list.some((p) => (stockBy.get(p.id)?.get(b.id) ?? 0) !== 0)), [data.branches, stockBranches, list, stockBy]);
+  const names = (ids: string[], src: { id: string; name: string }[]) => src.filter((x) => ids.includes(x.id)).map((x) => x.name);
+  const brandTxt = brands.length ? names(brands, data.brands).join("+") : L("ทุกแบรนด์", "All brands", "全部品牌");
+  const branchTxt = stockBranches.length ? data.branches.filter((b) => stockBranches.includes(b.id)).map((b) => b.code).join("+") : L("ทุกสาขา", "All branches", "所有门店");
+  const monthTxt = new Date(`${(prefill.action !== "none" ? prefill.from : todayYmd())}T00:00:00`).toLocaleDateString(locale === "th" ? "th-TH" : locale === "zh" ? "zh-CN" : "en-GB", { month: "short", year: "2-digit" });
+  const safe = (s: string, n: number) => s.replace(/[\\/?*[\]:]/g, " ").replace(/\s+/g, " ").trim().slice(0, n);
+  const fileName = `${safe(`${L("ราคา", "Prices", "价格")}_${brandTxt}_${branchTxt}${prefill.action !== "none" && prefill.promo ? `_${prefill.promo}` : ""}_${todayYmd()}`, 120).replace(/ /g, "_")}.xlsx`;
+  const sheetName = safe(`${L("ราคา", "Prices", "价格")} ${brands.length === 1 ? names(brands, data.brands)[0] : brands.length ? `${brands.length} ${L("แบรนด์", "brands", "品牌")}` : L("ทุกแบรนด์", "all", "全部")} ${monthTxt}`, 31);
   async function download() {
     setBusy(true);
     try {
       const ExcelJS = (await import("exceljs")).default;
       const wb = new ExcelJS.Workbook(); wb.creator = "SHD POS";
-      const ws = wb.addWorksheet(L("ราคา", "Prices", "价格"), { views: [{ state: "frozen", xSplit: 2, ySplit: 1 }] });
+      const ws = wb.addWorksheet(sheetName, { views: [{ state: "frozen", xSplit: 2, ySplit: 2 }] });
       const bn = new Map(data.brands.map((b) => [b.id, b.name])), cn = new Map(data.categories.map((c) => [c.id, c.name]));
-      const branchList = data.branches.filter((b) => useBranches.includes(b.id));
-      const stockHeads = stockCols ? branchList.map((b) => `${L("สต๊อก", "Stock", "库存")} ${b.code}`) : [];
+      const stockHeads = stockCols ? stockBranchList.map((b) => `${L("สต๊อก", "Stock", "库存")} ${b.code}`) : [];
       const pfVal = prefill.action === "percent" && prefill.value ? `${prefill.value}%` : prefill.action === "amount" && prefill.value ? `-${prefill.value}` : "";
       const head = ["SKU", L("ชื่อสินค้า", "Product", "商品名称"), L("แบรนด์", "Brand", "品牌"), L("หมวด", "Category", "类别"), L("สต๊อกรวม", "Total stock", "库存合计"), ...stockHeads,
         L("ราคาหลักปัจจุบัน", "Current list price", "当前标价"), L("ราคาขายตอนนี้", "Selling now", "当前售价"),
         L("ราคาหลักใหม่", "New list price", "新标价"), L("ราคาพิเศษ / ส่วนลด", "Special price / discount", "特价 / 折扣"), L("เริ่ม", "Start", "开始"), L("ถึง", "End", "结束"),
         L("สาขา", "Branches", "门店"), L("ประเภทราคา", "Price type", "价格类型"), L("ชื่อโปร", "Promo name", "促销名称"), L("ปัดเศษ", "Rounding", "取整")];
+      // แถวชื่อไฟล์ (อ่านรู้เรื่องว่าเป็นไฟล์อะไร) — ตอนนำเข้าระบบหาหัวตารางเอง
+      ws.addRow([`${L("เทมเพลตราคา", "Price template", "价格模板")} · ${L("แบรนด์", "Brand", "品牌")}: ${brandTxt} · ${L("สาขา", "Branches", "门店")}: ${branchTxt} · ${list.length} ${L("สินค้า", "products", "商品")} · ${L("สร้าง", "Created", "创建")} ${todayYmd()} — ${L("กรอกเฉพาะช่องสีเหลืองที่ต้องการเปลี่ยน ช่องสาขาเว้นว่าง = ทุกสาขา", "Fill only yellow cells you want to change; blank branches = all branches", "只填需要修改的黄色单元格；门店留空=所有门店")}`]);
+      ws.mergeCells(1, 1, 1, head.length); ws.getRow(1).font = { bold: true, color: { argb: "FF7950D8" } }; ws.getRow(1).height = 22;
       ws.addRow(head);
       const fromD = prefill.from ? new Date(`${prefill.from}T00:00:00Z`) : null, toD = prefill.to ? new Date(`${prefill.to}T00:00:00Z`) : null;
-      const branchTxt = prefill.allBranches ? L("ทุกสาขา", "All branches", "所有门店") : data.branches.filter((b) => prefill.branches.includes(b.id)).map((b) => b.code).join(", ");
+      const branchCell = prefill.branches.length ? data.branches.filter((b) => prefill.branches.includes(b.id)).map((b) => b.code).join(", ") : ""; // ว่าง = ทุกสาขา
       for (const p of list) {
-        const perBranch = branchList.map((b) => stockBy.get(p.id)?.get(b.id) ?? 0);
+        const perBranch = stockBranchList.map((b) => stockBy.get(p.id)?.get(b.id) ?? 0);
+        const total = [...(stockBy.get(p.id)?.entries() ?? [])].filter(([b]) => scopeBranches.includes(b)).reduce((a, [, v]) => a + v, 0);
         const special = prefill.action === "price_list" ? Number(p.price) || "" : pfVal;
-        const hasRule = special !== "";
-        ws.addRow([p.sku, p.name_th, bn.get(p.brand_id ?? "") ?? "", cn.get(p.category_id ?? "") ?? "", perBranch.reduce((a, b) => a + b, 0), ...(stockCols ? perBranch : []),
-          Number(p.price), Number(p.current_price), "", special, hasRule ? fromD : "", hasRule ? toD : "", hasRule ? branchTxt : "",
-          hasRule ? PRICE_TYPE()[prefill.type].label : "", hasRule ? prefill.promo : "", hasRule ? ROUNDING()[prefill.rounding].split(" (")[0] : ""]);
+        const has = special !== "";
+        ws.addRow([p.sku, p.name_th, bn.get(p.brand_id ?? "") ?? "", cn.get(p.category_id ?? "") ?? "", total, ...(stockCols ? perBranch : []),
+          Number(p.price), Number(p.current_price), "", special, has ? fromD : "", has ? toD : "", has ? branchCell : "",
+          has ? PRICE_TYPE()[prefill.type].label : "", has ? prefill.promo : "", has ? ROUNDING()[prefill.rounding].split(" (")[0] : ""]);
       }
-      // รูปแบบ: หัวตาราง · คอลัมน์ที่ให้แก้ (เหลือง) · วันที่ · ล็อกคอลัมน์อ้างอิง
       const editFrom = head.indexOf(L("ราคาหลักใหม่", "New list price", "新标价")) + 1;
-      ws.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } }; ws.getRow(1).height = 22;
-      head.forEach((_, i) => { const c = ws.getCell(1, i + 1); c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: i + 1 >= editFrom ? "FF7950D8" : "FF132436" } }; c.alignment = { vertical: "middle", wrapText: true }; });
+      ws.getRow(2).font = { bold: true, color: { argb: "FFFFFFFF" } }; ws.getRow(2).height = 28;
+      head.forEach((_, i) => { const c = ws.getCell(2, i + 1); c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: i + 1 >= editFrom ? "FF7950D8" : "FF132436" } }; c.alignment = { vertical: "middle", wrapText: true }; });
       ws.columns.forEach((col, i) => { col.width = i === 1 ? 36 : i === 0 ? 22 : i + 1 >= editFrom ? 16 : 12; });
-      for (let r = 2; r <= list.length + 1; r++) for (let c = editFrom; c <= head.length; c++) ws.getCell(r, c).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFF8DC" } };
+      for (let r = 3; r <= list.length + 2; r++) for (let c = editFrom; c <= head.length; c++) ws.getCell(r, c).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFF8DC" } };
       [editFrom + 2, editFrom + 3].forEach((c) => { ws.getColumn(c).numFmt = "dd/mm/yyyy"; });
       ws.getColumn(editFrom - 2).numFmt = "#,##0.00"; ws.getColumn(editFrom - 1).numFmt = "#,##0.00";
-      ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: head.length } };
-      // ตัวเลือกให้เลือกในช่อง (dropdown)
+      ws.autoFilter = { from: { row: 2, column: 1 }, to: { row: 2, column: head.length } };
       const types = Object.values(PRICE_TYPE()).map((t) => t.label).join(","), rounds = Object.values(ROUNDING()).map((t) => t.split(" (")[0]).join(",");
-      for (let r = 2; r <= Math.max(list.length + 1, 2); r++) {
+      for (let r = 3; r <= Math.max(list.length + 2, 3); r++) {
         ws.getCell(r, editFrom + 5).dataValidation = { type: "list", allowBlank: true, formulae: [`"${types}"`] };
         ws.getCell(r, editFrom + 7).dataValidation = { type: "list", allowBlank: true, formulae: [`"${rounds}"`] };
       }
@@ -82,9 +92,9 @@ export function ExportTemplateModal({ data, onClose }: { data: PData; onClose: (
       [[L("คอลัมน์", "Column", "列"), L("วิธีกรอก", "How to fill", "填写方法")],
         [L("ราคาหลักใหม่", "New list price", "新标价"), L("ว่าง = ไม่เปลี่ยน · ใส่ตัวเลข = ราคาหลักใหม่ (รวม VAT)", "Blank = unchanged · number = new list price (incl. VAT)", "留空=不变 · 数字=新标价（含税）")],
         [L("ราคาพิเศษ / ส่วนลด", "Special price / discount", "特价 / 折扣"), L("ว่าง = ไม่มีราคาช่วงเวลา · 1490 = ขายราคา 1,490 · -100 หรือ “ลด 100” = ลด 100 บาท · 15% = ลด 15%", "Blank = none · 1490 = sell at 1,490 · -100 = 100 off · 15% = 15% off", "留空=无 · 1490=售价1490 · -100=减100 · 15%=减15%")],
-        [L("เริ่ม / ถึง", "Start / End", "开始 / 结束"), L("วันที่ เช่น 1/12/2569, 1/12/2026, 2026-12-01 · เริ่ม 00:00 ถึงสิ้นวัน (เวลาไทย) · ว่าง = ใช้ค่าตั้งต้นตอนนำเข้า", "Dates like 1/12/2026 or 2026-12-01 · blank = default chosen at import", "日期如 2026-12-01 · 留空=导入时的默认值")],
-        [L("สาขา", "Branches", "门店"), L("ทุกสาขา หรือรหัสสาขาคั่นด้วย , (ดูแท็บ “สาขา”)", "“All branches” or branch codes separated by , (see “Branches” sheet)", "所有门店 或以逗号分隔的门店代码")],
-        [L("ลบแถว", "Removing rows", "删除行"), L("ลบแถวสินค้าที่ไม่ต้องการเปลี่ยนได้เลย · ระบบจับคอลัมน์จากหัวตาราง ย้ายคอลัมน์ได้", "Delete rows you don't need · columns are detected by header, order doesn't matter", "可删除不需要的行 · 按表头识别列")],
+        [L("เริ่ม / ถึง", "Start / End", "开始 / 结束"), L("วันที่ เช่น 1/12/2569, 1/12/2026, 2026-12-01 · ว่าง = ใช้วันที่ตั้งต้นตอนนำเข้า", "Dates like 1/12/2026 or 2026-12-01 · blank = default at import", "日期如 2026-12-01 · 留空=导入时默认")],
+        [L("สาขา", "Branches", "门店"), L("เว้นว่าง = ทุกสาขา · ระบุเฉพาะเมื่อราคานี้ใช้บางสาขา (รหัสสาขาคั่นด้วย , ดูแท็บ “สาขา”)", "Leave blank = all branches · fill only for branch-specific prices (codes separated by ,)", "留空=所有门店 · 仅特定门店时填写代码")],
+        [L("ลบแถว", "Removing rows", "删除行"), L("ลบแถวที่ไม่ต้องการได้ · ย้ายคอลัมน์ได้ ระบบจับจากหัวตาราง", "Delete rows you don't need · columns are detected by header", "可删除不需要的行 · 按表头识别列")],
       ].forEach((r) => help.addRow(r));
       help.getRow(1).font = { bold: true };
       const br = wb.addWorksheet(L("สาขา", "Branches", "门店"));
@@ -93,34 +103,32 @@ export function ExportTemplateModal({ data, onClose }: { data: PData; onClose: (
       br.getRow(1).font = { bold: true };
       const buf = await wb.xlsx.writeBuffer();
       const url = URL.createObjectURL(new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
-      const a = document.createElement("a"); a.href = url; a.download = `price-template-${todayYmd()}.xlsx`; a.click(); URL.revokeObjectURL(url);
-      toast.push({ tone: "ok", title: L(`ดาวน์โหลดเทมเพลต ${list.length} สินค้าแล้ว`, `Template with ${list.length} products downloaded`, `已下载 ${list.length} 个商品的模板`) });
+      const a = document.createElement("a"); a.href = url; a.download = fileName; a.click(); URL.revokeObjectURL(url);
+      toast.push({ tone: "ok", title: L(`ดาวน์โหลด ${fileName}`, `Downloaded ${fileName}`, `已下载 ${fileName}`), body: L(`${list.length} สินค้า`, `${list.length} products`, `${list.length} 个商品`) });
       onClose();
     } catch (e) { toast.push({ tone: "danger", title: L("สร้างไฟล์ไม่สำเร็จ", "Couldn't build the file", "生成文件失败"), body: e instanceof Error ? e.message : String(e) }); } finally { setBusy(false); }
   }
-  const Chip = ({ on, children, onClick }: { on: boolean; children: React.ReactNode; onClick: () => void }) => <button type="button" onClick={onClick} className={`h-7 px-2.5 rounded-full text-[11.5px] border ${on ? "border-brand bg-brand/10 text-brand font-medium" : "border-line hover:bg-surface2"}`}>{children}</button>;
+  const brOpts = data.branches.map((b) => ({ value: b.id, label: b.name_th ?? b.name, sub: b.code }));
   return (
     <Modal open onClose={onClose} size="lg" title={<span className="inline-flex items-center gap-2"><FileDown size={16} />{L("ดาวน์โหลดเทมเพลตราคา", "Download price template", "下载价格模板")}</span>}
-      footer={<div className="flex items-center justify-between w-full gap-2"><span className="text-xs text-muted">{L(`จะได้ ${formatInt(list.length)} สินค้า`, `${formatInt(list.length)} products`, `共 ${formatInt(list.length)} 个商品`)}</span>
+      footer={<div className="flex items-center justify-between w-full gap-2 flex-wrap">
+        <span className="text-[11px] text-muted min-w-0"><b className="text-ink">{formatInt(list.length)}</b> {L("สินค้า", "products", "商品")} · <span translate="no" className="font-mono">{fileName}</span></span>
         <div className="flex gap-2"><Button variant="ghost" onClick={onClose}>{L("ยกเลิก", "Cancel", "取消")}</Button><Button variant="primary" loading={busy} disabled={!list.length || stock === null} onClick={() => void download()}><FileDown size={14} />{L("ดาวน์โหลด .xlsx", "Download .xlsx", "下载 .xlsx")}</Button></div></div>}>
       <div className="space-y-4 text-sm">
         <section className="space-y-2">
-          <p className="text-[13px] font-semibold flex items-center gap-1.5"><Filter size={14} />{L("เลือกสินค้าที่จะอยู่ในไฟล์", "Products in the file", "文件包含的商品")}</p>
-          <div className="flex flex-wrap gap-1.5"><span className="text-[11px] text-muted self-center w-14">{L("แบรนด์", "Brand", "品牌")}</span>{data.brands.map((b) => <Chip key={b.id} on={brands.includes(b.id)} onClick={() => setBrands(toggle(brands, b.id))}>{b.name}</Chip>)}</div>
-          {data.categories.length ? <div className="flex flex-wrap gap-1.5"><span className="text-[11px] text-muted self-center w-14">{L("หมวด", "Category", "类别")}</span>{data.categories.map((c) => <Chip key={c.id} on={cats.includes(c.id)} onClick={() => setCats(toggle(cats, c.id))}>{c.name}</Chip>)}</div> : null}
-          <div className="flex items-center gap-2"><span className="text-[11px] text-muted w-14">{L("สถานะ", "Status", "状态")}</span><Segmented size="sm" value={status} onChange={setStatus} options={[{ value: "all", label: L("ทั้งหมด", "All", "全部") }, { value: "on", label: L("เปิดขาย", "On sale", "在售") }, { value: "off", label: L("ปิดขาย", "Off", "未上架") }]} /></div>
-          <div>
-            <div className="relative"><Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" /><Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={L("เลือกเฉพาะบาง SKU (ไม่บังคับ)", "Only specific SKUs (optional)", "仅特定 SKU（可选）")} className="pl-9 h-9" /></div>
-            {pick.length ? <div className="mt-1 max-h-32 overflow-auto rounded-xl border border-line divide-y divide-line" translate="no">{pick.map((p) => <button key={p.id} onClick={() => { setPicked([...picked, p.id]); setQ(""); }} className="w-full text-left px-3 py-1.5 text-xs hover:bg-surface2"><span className="font-mono text-muted">{p.sku}</span> · {p.name_th}</button>)}</div> : null}
-            {picked.length ? <div className="mt-1.5 flex flex-wrap gap-1" translate="no">{picked.map((id) => <span key={id} className="inline-flex items-center gap-1 h-6 pl-2 pr-1 rounded-full bg-surface2 text-[11px] font-mono">{data.products.find((p) => p.id === id)?.sku}<button onClick={() => setPicked(picked.filter((x) => x !== id))}><X size={11} /></button></span>)}</div> : null}
+          <p className="text-[13px] font-semibold flex items-center gap-1.5"><Filter size={14} />{L("สินค้าที่จะอยู่ในไฟล์", "Products in the file", "文件包含的商品")}</p>
+          <div className="grid sm:grid-cols-2 gap-2">
+            <MultiSelect label={L("แบรนด์", "Brand", "品牌")} placeholder={L("ทุกแบรนด์", "All brands", "全部品牌")} options={data.brands.map((b) => ({ value: b.id, label: b.name }))} value={brands} onChange={setBrands} noTranslate />
+            <MultiSelect label={L("หมวด", "Category", "类别")} placeholder={L("ทุกหมวด", "All categories", "全部类别")} options={data.categories.map((c) => ({ value: c.id, label: c.name }))} value={cats} onChange={setCats} />
+            <MultiSelect label={L("เฉพาะบาง SKU (ไม่บังคับ)", "Specific SKUs (optional)", "特定 SKU（可选）")} placeholder={L("ทุก SKU ตามตัวกรอง", "All SKUs in filter", "筛选内全部 SKU")} options={data.products.map((p) => ({ value: p.id, label: p.sku, sub: p.name_th }))} value={picked} onChange={setPicked} noTranslate />
+            <div><span className="block text-[11px] text-muted mb-1">{L("สถานะ", "Status", "状态")}</span><Segmented size="sm" value={status} onChange={setStatus} options={[{ value: "all", label: L("ทั้งหมด", "All", "全部") }, { value: "on", label: L("เปิดขาย", "On sale", "在售") }, { value: "off", label: L("ปิดขาย", "Off", "未上架") }]} /></div>
           </div>
         </section>
         <section className="rounded-xl border border-line p-3 space-y-2">
           <p className="text-[13px] font-semibold">{L("สต๊อกสาขา", "Branch stock", "门店库存")}</p>
-          <Segmented size="sm" value={source} onChange={setSource} options={[{ value: "all", label: L("ทุกสินค้าตามตัวกรอง", "All filtered products", "所有筛选商品") }, { value: "stock", label: L("เฉพาะที่มีสต๊อกในสาขาที่เลือก", "Only in stock at chosen branches", "仅所选门店有库存") }]} />
-          <div className="flex flex-wrap gap-1.5">{data.branches.map((b) => <Chip key={b.id} on={stockBranches.includes(b.id)} onClick={() => setStockBranches(toggle(stockBranches, b.id))}><span translate="no">{b.name_th ?? b.name}</span></Chip>)}</div>
-          <p className="text-[11px] text-muted">{stockBranches.length ? L(`รวมสินค้าจาก ${stockBranches.length} สาขา (สาขาไหนมีอะไรรวมกันหมด)`, `Union of ${stockBranches.length} branches`, `合并 ${stockBranches.length} 家门店`) : L("ไม่เลือก = ทุกสาขา", "None selected = all branches", "未选择=所有门店")}</p>
-          <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={stockCols} onChange={(e) => setStockCols(e.target.checked)} className="accent-[rgb(var(--c-brand))]" />{L("ใส่คอลัมน์สต๊อกแยกรายสาขา", "Add per-branch stock columns", "添加分门店库存列")}</label>
+          <MultiSelect placeholder={L("ทุกสาขา (ไม่ต้องเลือก)", "All branches (no need to pick)", "所有门店（无需选择）")} options={brOpts} value={stockBranches} onChange={setStockBranches} noTranslate />
+          <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={onlyStock} onChange={(e) => setOnlyStock(e.target.checked)} className="accent-[rgb(var(--c-brand))]" />{L("เอาเฉพาะสินค้าที่มีสต๊อก (รวมทุกสาขาข้างบน — สาขาไหนมีอะไรรวมกันหมด)", "Only products in stock (union of the branches above)", "仅有库存的商品（合并上述门店）")}</label>
+          <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={stockCols} onChange={(e) => setStockCols(e.target.checked)} className="accent-[rgb(var(--c-brand))]" />{L(`ใส่คอลัมน์สต๊อกแยกรายสาขา (${stockBranchList.length} สาขาที่มีของ)`, `Per-branch stock columns (${stockBranchList.length} branches with stock)`, `分门店库存列（${stockBranchList.length} 家有库存）`)}</label>
         </section>
         <section className="rounded-xl border border-brand/30 bg-brand/[0.03] p-3 space-y-2">
           <p className="text-[13px] font-semibold">{L("เติมค่าตั้งต้นให้ทุกแถว (แก้ในไฟล์ได้)", "Pre-fill every row (editable in the file)", "为每行预填（可在文件中修改）")}</p>
@@ -133,10 +141,7 @@ export function ExportTemplateModal({ data, onClose }: { data: PData; onClose: (
               <Field label={L("ประเภทราคา", "Price type", "价格类型")}><Select value={prefill.type} onChange={(e) => setPrefill({ ...prefill, type: e.target.value as PriceType })}>{(Object.keys(PRICE_TYPE()) as PriceType[]).map((k) => <option key={k} value={k}>{PRICE_TYPE()[k].label}</option>)}</Select></Field>
               <Field label={L("ชื่อโปร", "Promo name", "促销名称")}><Input value={prefill.promo} onChange={(e) => setPrefill({ ...prefill, promo: e.target.value })} /></Field>
               <Field label={L("ปัดเศษ", "Rounding", "取整")}><Select value={prefill.rounding} onChange={(e) => setPrefill({ ...prefill, rounding: e.target.value as Rounding })}>{(Object.keys(ROUNDING()) as Rounding[]).map((k) => <option key={k} value={k}>{ROUNDING()[k]}</option>)}</Select></Field>
-              <div className="sm:col-span-3">
-                <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={prefill.allBranches} onChange={(e) => setPrefill({ ...prefill, allBranches: e.target.checked })} className="accent-[rgb(var(--c-brand))]" />{L("ใช้ทุกสาขา", "All branches", "所有门店")}</label>
-                {!prefill.allBranches ? <div className="mt-1.5 flex flex-wrap gap-1.5">{data.branches.map((b) => <Chip key={b.id} on={prefill.branches.includes(b.id)} onClick={() => setPrefill({ ...prefill, branches: toggle(prefill.branches, b.id) })}><span translate="no">{b.code}</span></Chip>)}</div> : null}
-              </div>
+              <div className="sm:col-span-3"><MultiSelect label={L("ราคานี้ใช้กับสาขา", "Applies to branches", "适用门店")} placeholder={L("ทุกสาขา (เว้นว่างในไฟล์)", "All branches (left blank in file)", "所有门店（文件中留空）")} options={brOpts} value={prefill.branches} onChange={(v) => setPrefill({ ...prefill, branches: v })} noTranslate /></div>
             </div>
           ) : <p className="text-[11px] text-muted">{L("ไฟล์จะมีราคาปัจจุบันให้ดู · กรอกเฉพาะแถวที่ต้องการเปลี่ยน", "The file shows current prices · fill only rows you want to change", "文件显示当前价格 · 只需填写要修改的行")}</p>}
         </section>
@@ -158,6 +163,12 @@ export function ImportPricesModal({ data, onClose, onDone }: { data: PData; onCl
   const [raw, setRaw] = useState<{ grid: unknown[][]; hdr: NonNullable<ReturnType<typeof detectHeader>> } | null>(null);
   const [filter, setFilter] = useState<"all" | "ok" | "warn" | "error">("all"), [title, setTitle] = useState(""), [busy, setBusy] = useState(false);
   const bySku = useMemo(() => new Map(data.products.map((p) => [p.sku.trim().toLowerCase().replace(/\s+/g, " "), p])), [data.products]);
+  // จับคู่สำรองเมื่อ SKU ไม่ตรงเป๊ะ: (1) สะกดต่างแค่ช่องว่าง/ขีด/จุด (2) ชื่อสินค้าตรงกันพอดี — ต้องมีตัวเดียวเท่านั้น ไม่งั้นแค่เสนอ
+  const loose = (x: string) => x.toLowerCase().replace(/[\s\-_./]/g, "");
+  const byLoose = useMemo(() => { const m = new Map<string, PProd[]>(); for (const p of data.products) for (const k of new Set([loose(p.sku), loose(p.name_th)])) m.set(k, [...(m.get(k) ?? []), p]); return m; }, [data.products]);
+  const suggest = (raw: string) => { const k = loose(raw); if (k.length < 3) return []; return data.products.filter((p) => loose(p.sku).includes(k) || k.includes(loose(p.sku)) || loose(p.name_th).includes(k)).slice(0, 3); };
+  const [ack, setAck] = useState(false), [focus, setFocus] = useState<Finding | null>(null);
+  const [ai, setAi] = useState<{ state: "idle" | "loading" | "done" | "none"; verdict?: Verdict; summary?: string; findings?: Finding[] }>({ state: "idle" });
   async function readFile(f: File) {
     setParsing(true); setErr(""); setRows(null); setFileName(f.name); setTitle(f.name.replace(/\.(xlsx|csv)$/i, ""));
     try {
@@ -185,8 +196,16 @@ export function ImportPricesModal({ data, onClose, onDone }: { data: PData; onCl
       const r = grid[i]; const skuRaw = String(col("sku", r) ?? "").trim();
       if (!skuRaw) continue;
       const row: PreviewRow = { line: i + 1, sku: skuRaw, status: "ok", msgs: [], newList: null, rule: null, finalPrice: null };
-      const p = bySku.get(skuRaw.toLowerCase().replace(/\s+/g, " "));
-      if (!p) { row.status = "error"; row.msgs.push(L("ไม่พบ SKU นี้ (หรืออยู่นอกแบรนด์ที่คุณดูแล)", "SKU not found (or outside your brands)", "未找到 SKU（或不在您负责的品牌）")); out.push(row); continue; }
+      let p = bySku.get(skuRaw.toLowerCase().replace(/\s+/g, " "));
+      if (!p) {
+        const cand = byLoose.get(loose(skuRaw)) ?? [];
+        if (cand.length === 1) { p = cand[0]; row.status = "warn"; row.msgs.push(L(`จับคู่กับ ${p.sku} (สะกด/ชื่อต่างเล็กน้อย) — ตรวจว่าถูกตัว`, `Matched to ${p.sku} (slightly different spelling) — check`, `匹配到 ${p.sku}（拼写略有不同）— 请核对`)); }
+        else {
+          const sg = cand.length ? cand : suggest(skuRaw);
+          row.status = "error"; row.msgs.push(L("ไม่พบ SKU นี้ (หรืออยู่นอกแบรนด์ที่คุณดูแล)", "SKU not found (or outside your brands)", "未找到 SKU（或不在您负责的品牌）") + (sg.length ? L(` — หมายถึง ${sg.map((x) => x.sku).join(" / ")} ไหม? แก้ในไฟล์แล้วนำเข้าใหม่`, ` — did you mean ${sg.map((x) => x.sku).join(" / ")}?`, ` — 是否指 ${sg.map((x) => x.sku).join(" / ")}？`) : ""));
+          out.push(row); continue;
+        }
+      }
       row.product = p;
       if (seen.has(p.id)) { row.status = "error"; row.msgs.push(L("SKU ซ้ำในไฟล์ — ใช้แถวแรก", "Duplicate SKU — first row used", "SKU 重复 — 使用第一行")); out.push(row); continue; }
       seen.add(p.id);
@@ -229,9 +248,35 @@ export function ImportPricesModal({ data, onClose, onDone }: { data: PData; onCl
       out.push(row);
     }
     setRows(out);
-  }, [raw, defaults, bySku]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [raw, defaults, bySku, byLoose]); // eslint-disable-line react-hooks/exhaustive-deps
   const counts = useMemo(() => ({ ok: rows?.filter((r) => r.status === "ok").length ?? 0, warn: rows?.filter((r) => r.status === "warn").length ?? 0, error: rows?.filter((r) => r.status === "error").length ?? 0, skip: rows?.filter((r) => r.status === "skip").length ?? 0 }), [rows]);
-  const shown = (rows ?? []).filter((r) => r.status !== "skip" && (filter === "all" || r.status === filter));
+  // ตรวจทั้งไฟล์ (กฎ) — หาความผิดปกติ/ตกหล่นที่การตรวจรายแถวมองไม่เห็น
+  const review = useMemo(() => {
+    if (!rows) return null;
+    const rr: ReviewRow[] = rows.filter((r) => r.product && r.status !== "error").map((r) => ({ sku: r.sku, product_id: r.product!.id, brand_id: r.product!.brand_id, category_id: r.product!.category_id,
+      list: Number(r.product!.price), newList: r.newList, mode: r.rule?.mode ?? null, value: r.rule?.value ?? null, final: r.finalPrice, from: r.rule?.from ?? null, to: r.rule?.to ?? null,
+      branchCount: r.rule?.branch_ids.length ?? 0, cost: data.perms.cost ? r.product!.cost : null, currentRule: Number(r.product!.current_price) !== Number(r.product!.price) ? baht(Number(r.product!.current_price)) : null, changed: r.status !== "skip" }));
+    return { ...reviewImport(rr, data.products, todayYmd()), rr };
+  }, [rows, data.products, data.perms.cost]);
+  // AI ตรวจเพิ่ม (อัตโนมัติเมื่อพรีวิวพร้อม) — ส่งเฉพาะ SKU/ราคา/สถิติ ไม่มีข้อมูลส่วนบุคคล
+  useEffect(() => {
+    if (!review || !review.rr.some((r) => r.changed)) { setAi({ state: "idle" }); return; }
+    setAck(false); setAi({ state: "loading" });
+    let off = false;
+    const t = setTimeout(() => {
+      const sample = review.rr.filter((r) => r.changed).slice(0, 60).map((r) => ({ sku: r.sku, list: r.list, new_list: r.newList, mode: r.mode, value: r.value, final: r.final, from: r.from, to: r.to, branches: r.branchCount || "all" }));
+      void fetch("/api/admin/pricing", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "ai_review", stats: review.stats, findings: review.findings, sample }) })
+        .then((r) => r.json()).then((j) => { if (!off) setAi(j.source === "ai" ? { state: "done", verdict: j.verdict, summary: j.summary, findings: j.findings } : { state: "none" }); })
+        .catch(() => { if (!off) setAi({ state: "none" }); });
+    }, 600);
+    return () => { off = true; clearTimeout(t); };
+  }, [review]);
+  const allFindings = [...(review?.findings ?? []), ...(ai.findings ?? [])];
+  const rank = { ok: 0, review: 1, stop: 2 } as const;
+  const verdict: Verdict = !review ? "ok" : (ai.verdict && rank[ai.verdict] > rank[review.verdict] ? ai.verdict : review.verdict);
+  const needAck = verdict !== "ok" || counts.warn > 0;
+  const focusSet = focus ? new Set(focus.skus.map((x) => x.toLowerCase())) : null;
+  const shown = (rows ?? []).filter((r) => focusSet ? focusSet.has(r.sku.toLowerCase()) : r.status !== "skip" && (filter === "all" || r.status === filter));
   const ready = (rows ?? []).filter((r) => r.status === "ok" || r.status === "warn");
   async function confirm() {
     setBusy(true);
@@ -249,7 +294,7 @@ export function ImportPricesModal({ data, onClose, onDone }: { data: PData; onCl
     <Modal open onClose={onClose} size="xl" title={<span className="inline-flex items-center gap-2"><FileUp size={16} />{L("นำเข้าราคาจากไฟล์", "Import prices from file", "从文件导入价格")}</span>}
       footer={<div className="flex items-center justify-between w-full gap-2">
         <span className="text-xs text-muted">{rows ? L(`จะนำเข้า ${ready.length} แถว · ข้าม ${counts.error} แถวที่ผิด`, `Will import ${ready.length} · skip ${counts.error} errors`, `将导入 ${ready.length} 行 · 跳过 ${counts.error} 行错误`) : ""}</span>
-        <div className="flex gap-2"><Button variant="ghost" onClick={onClose}>{L("ยกเลิก", "Cancel", "取消")}</Button><Button variant="primary" loading={busy} disabled={!ready.length || !title.trim()} onClick={() => void confirm()}><Check size={14} />{L("ยืนยันนำเข้า", "Confirm import", "确认导入")}</Button></div></div>}>
+        <div className="flex gap-2"><Button variant="ghost" onClick={onClose}>{L("ยกเลิก", "Cancel", "取消")}</Button><Button variant="primary" loading={busy} disabled={!ready.length || !title.trim() || (needAck && !ack) || ai.state === "loading"} onClick={() => void confirm()}><Check size={14} />{verdict === "ok" ? L("ยืนยันนำเข้า", "Confirm import", "确认导入") : L("ยืนยันนำเข้า (ตรวจแล้ว)", "Confirm (reviewed)", "确认导入（已复核）")}</Button></div></div>}>
       <div className="space-y-3 text-sm">
         <div className="flex flex-wrap items-center gap-2">
           <input ref={fileRef} type="file" accept=".xlsx,.csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void readFile(f); e.currentTarget.value = ""; }} />
@@ -264,6 +309,32 @@ export function ImportPricesModal({ data, onClose, onDone }: { data: PData; onCl
               <Field label={L("วันเริ่มตั้งต้น (แถวที่ไม่ใส่)", "Default start", "默认开始")}><Input type="date" value={defaults.from} onChange={(e) => setDefaults({ ...defaults, from: e.target.value })} /></Field>
               <Field label={L("วันสิ้นสุดตั้งต้น", "Default end", "默认结束")}><Input type="date" value={defaults.to} onChange={(e) => setDefaults({ ...defaults, to: e.target.value })} /></Field>
             </div>
+            {review && review.rr.some((r) => r.changed) ? (
+              <div className={`rounded-xl border p-3 space-y-2 ${verdict === "stop" ? "border-danger/40 bg-danger/[0.04]" : verdict === "review" ? "border-warn/40 bg-warn/[0.05]" : "border-ok/40 bg-ok/[0.05]"}`}>
+                <div className="flex items-start gap-2">
+                  <span className={`mt-0.5 ${verdict === "stop" ? "text-danger" : verdict === "review" ? "text-warn" : "text-ok"}`}>{verdict === "ok" ? <ShieldCheck size={18} /> : <AlertTriangle size={18} />}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-[13.5px]">{verdict === "ok" ? L("ตรวจแล้วไม่พบความผิดปกติ — ยืนยันได้", "No anomalies found — safe to confirm", "未发现异常 — 可以确认") : verdict === "review" ? L(`พบ ${allFindings.filter((x) => x.severity !== "info").length} จุดที่ควรดูก่อนยืนยัน`, `${allFindings.filter((x) => x.severity !== "info").length} item(s) worth checking first`, `发现 ${allFindings.filter((x) => x.severity !== "info").length} 处建议先检查`) : L("แนะนำให้หยุดตรวจก่อน — น่าจะมีพิมพ์ผิด", "Recommend stopping to check — likely typos", "建议先停下检查 — 可能有输入错误")}</p>
+                    <p className="text-[11.5px] text-muted">{L(`${review.stats.changed} สินค้าจะเปลี่ยน · ส่วนลดกลาง ${review.stats.median_off}% · สูงสุด ${review.stats.max_off}% · ราคาหลักเปลี่ยน ${review.stats.list_changes}`, `${review.stats.changed} changing · median ${review.stats.median_off}% off · max ${review.stats.max_off}% · ${review.stats.list_changes} list changes`, `${review.stats.changed} 个变更 · 中位折扣 ${review.stats.median_off}% · 最高 ${review.stats.max_off}% · 标价变更 ${review.stats.list_changes}`)}</p>
+                  </div>
+                  <span className="text-[11px] text-muted inline-flex items-center gap-1 shrink-0">{ai.state === "loading" ? <><Loader2 size={12} className="animate-spin" />{L("AI กำลังตรวจ…", "AI checking…", "AI 检查中…")}</> : ai.state === "done" ? <><Sparkle size={12} />{L("ตรวจด้วยกฎ + AI", "Rules + AI", "规则 + AI")}</> : L("ตรวจด้วยกฎ", "Rule check", "规则检查")}</span>
+                </div>
+                {ai.state === "done" && ai.summary ? <p className="text-[12px] rounded-lg bg-surface/70 border border-line px-2.5 py-1.5"><Sparkle size={11} className="inline mr-1 text-brand" />{ai.summary}</p> : null}
+                {allFindings.length ? (
+                  <ul className="space-y-1">
+                    {allFindings.map((x) => (
+                      <li key={x.id} className="text-[12px] flex items-start gap-2">
+                        <span className={`mt-1 h-2 w-2 rounded-full shrink-0 ${x.severity === "high" ? "bg-danger" : x.severity === "medium" ? "bg-warn" : "bg-muted/50"}`} />
+                        <div className="flex-1 min-w-0"><b className="font-medium">{x.title}</b>{x.detail ? <span className="block text-muted text-[11px] break-words" translate="no">{x.detail}</span> : null}</div>
+                        {x.skus.length && x.id !== "group_gap" ? <button type="button" className={`text-[11px] shrink-0 ${focus?.id === x.id ? "text-ink font-semibold" : "text-brand"}`} onClick={() => setFocus(focus?.id === x.id ? null : x)}>{focus?.id === x.id ? L("แสดงทั้งหมด", "Show all", "显示全部") : L("ดูแถว", "Show rows", "查看行")}</button> : null}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+                {needAck ? <label className="flex items-center gap-2 text-[12px] font-medium pt-1"><input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} className="accent-[rgb(var(--c-brand))]" />{L("ตรวจข้อสังเกตข้างบนแล้ว ยืนยันว่าตั้งใจนำเข้าตามนี้", "I've reviewed the notes above and intend to import as shown", "已复核上述提示，确认按此导入")}</label> : null}
+              </div>
+            ) : null}
+            {focus ? <p className="text-[11.5px] text-brand">{L(`กำลังแสดงเฉพาะแถว: ${focus.title}`, `Showing only: ${focus.title}`, `仅显示：${focus.title}`)} · <button type="button" className="underline" onClick={() => setFocus(null)}>{L("แสดงทั้งหมด", "Show all", "显示全部")}</button></p> : null}
             <div className="flex flex-wrap items-center gap-2">
               <Segmented size="sm" value={filter} onChange={setFilter} options={[
                 { value: "all", label: `${L("ทั้งหมด", "All", "全部")} ${counts.ok + counts.warn + counts.error}` },

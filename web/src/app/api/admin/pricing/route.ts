@@ -10,6 +10,7 @@ import { hasPerm } from "@/lib/sso/guard";
 import { visibleBrandIds, visibleBranchIds } from "@/lib/sso/scope";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { effectivePrices } from "@/lib/server/effective-prices";
+import { aiJson } from "@/lib/server/ai-text";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -159,6 +160,20 @@ export async function POST(req: NextRequest) {
     const { data, error } = await sb.rpc("pos_import_prices", { p_actor: c.authz.employee_id, p_meta: { title: String(b.title ?? "").slice(0, 200), file_name: String(b.file_name ?? "").slice(0, 200) }, p_rows: clean });
     if (error) return reply({ error: friendly(error.message) }, 409);
     return reply(data);
+  }
+  if (b?.action === "ai_review") {
+    // AI ให้ความเห็นไฟล์ราคาก่อนนำเข้า — ส่งเฉพาะ SKU/ราคา/สถิติ (ไม่มีข้อมูลส่วนบุคคล) · ไม่มีคีย์/ล้ม → source "none" (หน้าจอใช้ผลตรวจจากกฎ)
+    if (!hasPerm(c.profile.email, c.authz, "price.period") && !hasPerm(c.profile.email, c.authz, "price.list")) return reply({ error: "ไม่มีสิทธิ์" }, 403);
+    const sample = (Array.isArray(b.sample) ? b.sample : []).slice(0, 60);
+    const system = `คุณคือผู้ตรวจราคาสินค้าก่อนนำเข้าระบบ POS ร้านค้าปลีกไทย ตรวจหา: ราคาพิมพ์ผิดหลัก, ใส่ราคาแทน %, ส่วนลดไม่สมเหตุผลเทียบสินค้าอื่น, ช่วงวันที่แปลก, สินค้าที่น่าจะตกหล่น, ราคาต่ำกว่าทุน
+ตอบเป็น JSON เท่านั้น: {"verdict":"ok|review|stop","summary":"สรุป 1-2 ประโยคภาษาไทย บอกว่าควรยืนยันหรือไม่ เพราะอะไร","findings":[{"severity":"high|medium|info","title":"หัวข้อสั้น","detail":"รายละเอียดสั้น","skus":["SKU"]}]}
+วันนี้คือ today_bangkok — ช่วงวันที่ในเดือนถัดไปถือว่าปกติ · ราคาหลักเดิม 0 = สินค้าตั้งราคาครั้งแรก ไม่ใช่ความผิดปกติ · ห้ามซ้ำกับข้อสังเกตที่ระบบตรวจแล้ว (ให้เสริมเฉพาะที่เห็นเพิ่ม) · ถ้าไม่พบอะไรเพิ่ม findings เป็น [] · verdict=stop เมื่อมีโอกาสสูงว่าพิมพ์ผิด`;
+    const today = new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10);
+    const user = JSON.stringify({ today_bangkok: today, stats: b.stats ?? {}, rule_findings: (Array.isArray(b.findings) ? b.findings : []).map((x: { title?: string }) => x.title).slice(0, 20), rows: sample });
+    const out = await aiJson<{ verdict?: string; summary?: string; findings?: { severity?: string; title?: string; detail?: string; skus?: string[] }[] }>(system, user, { timeoutMs: 15_000, maxTokens: 900 });
+    if (!out) return reply({ source: "none" });
+    return reply({ source: "ai", verdict: ["ok", "review", "stop"].includes(String(out.verdict)) ? out.verdict : "review", summary: String(out.summary ?? "").slice(0, 600),
+      findings: (out.findings ?? []).slice(0, 10).map((x, i) => ({ id: `ai${i}`, severity: ["high", "medium", "info"].includes(String(x.severity)) ? x.severity : "info", title: String(x.title ?? "").slice(0, 160), detail: String(x.detail ?? "").slice(0, 400), skus: Array.isArray(x.skus) ? x.skus.map(String).slice(0, 50) : [] })) });
   }
   if (b?.action === "revert_batch") {
     if (!hasPerm(c.profile.email, c.authz, "price.period") && !hasPerm(c.profile.email, c.authz, "price.list")) return reply({ error: "ไม่มีสิทธิ์" }, 403);

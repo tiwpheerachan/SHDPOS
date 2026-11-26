@@ -51,3 +51,24 @@ eq(detectHeader([["a", "b"]]), null, "ไม่มีหัวตาราง");
 // สูตรราคาตรงกับ SQL
 eq(ruleValue("percent", 15, 1990, "baht"), 1692, "1990 −15% ปัดบาท"); eq(ruleValue("percent", 15, 1990, "end9"), 1689, "ลงท้าย 9"); eq(ruleValue("amount", 9999, 500, "baht"), null, "ติดลบ");
 console.log(`PASS: ${n} price-import parsing checks (values/%, Thai/BE/Excel dates, fuzzy branches, header detection, formula parity)`);
+
+// ── ตรวจไฟล์ก่อนนำเข้า (review.ts) ──
+import { reviewImport, type ReviewRow } from "../src/lib/pricing/review";
+const R = (sku: string, o: Partial<ReviewRow> = {}): ReviewRow => ({ sku, product_id: sku, brand_id: "B", category_id: "C", list: 1000, newList: null, mode: "percent", value: 15, final: 850, from: "2026-12-01", to: "2026-12-31", branchCount: 0, cost: 500, currentRule: null, changed: true, ...o });
+const cat = ["A1", "A2", "A3", "A4", "A5", "A6"].map((s) => ({ id: s, sku: s, brand_id: "B", category_id: "C", is_active: true }));
+let rv = reviewImport(["A1", "A2", "A3", "A4", "A5", "A6"].map((s) => R(s)), cat, "2026-11-26");
+eq(rv.verdict, "ok", "ไฟล์ปกติ = ผ่าน"); eq(rv.findings.length, 0, "ไม่มีข้อสังเกต");
+rv = reviewImport([R("A1"), R("A2"), R("A3"), R("A4"), R("A5", { value: 60, final: 400 })], cat, "2026-11-26");
+eq(rv.findings.find((x) => x.id === "outlier")?.skus, ["A5"], "จับส่วนลดหลุดกลุ่ม"); eq(rv.verdict, "stop", "หลุด 45 จุด = หยุดตรวจ");
+eq(rv.findings.find((x) => x.id === "group_gap")?.skus, ["A6"], "จับสินค้ากลุ่มเดียวกันที่ตกหล่น");
+rv = reviewImport([R("A1", { mode: "price", value: 15, final: 15 })], cat, "2026-11-26");
+eq(rv.findings.some((x) => x.id === "pct_as_price"), true, "15 กับราคาหลัก 1000 = น่าจะเป็น %"); eq(rv.verdict, "stop", "ต้องหยุดตรวจ");
+rv = reviewImport([R("A1"), R("A2"), R("A3"), R("A4", { changed: false, mode: null, value: null, final: null })], cat, "2026-11-26");
+eq(rv.findings.find((x) => x.id === "forgotten")?.skus, ["A4"], "จับแถวที่ลืมกรอก");
+rv = reviewImport([R("A1"), R("A2"), R("A3"), R("A4", { from: "2026-12-05" })], cat, "2026-11-26");
+eq(rv.findings.find((x) => x.id === "odd_dates")?.skus, ["A4"], "จับช่วงวันที่แปลก");
+rv = reviewImport([R("A1", { final: 450, value: 55 })], cat, "2026-11-26");
+eq(rv.findings.some((x) => x.id === "below_cost"), true, "ต่ำกว่าทุน (450/1.07 < 500)");
+rv = reviewImport([R("A1", { from: "2026-11-01" })], cat, "2026-11-26");
+eq(rv.findings.find((x) => x.id === "backdated")?.severity, "info", "ย้อนหลัง = แจ้งเฉย ๆ"); eq(rv.verdict, "ok", "แจ้งเฉย ๆ ไม่บล็อก");
+console.log(`PASS: review checks (outlier, % typed as price, forgotten rows, group gap, odd dates, below cost, backdated) — total ${n}`);
