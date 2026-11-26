@@ -72,3 +72,9 @@ eq(rv.findings.some((x) => x.id === "below_cost"), true, "ต่ำกว่า�
 rv = reviewImport([R("A1", { from: "2026-11-01" })], cat, "2026-11-26");
 eq(rv.findings.find((x) => x.id === "backdated")?.severity, "info", "ย้อนหลัง = แจ้งเฉย ๆ"); eq(rv.verdict, "ok", "แจ้งเฉย ๆ ไม่บล็อก");
 console.log(`PASS: review checks (outlier, % typed as price, forgotten rows, group gap, odd dates, below cost, backdated) — total ${n}`);
+const cat2 = Array.from({ length: 12 }, (_, i) => ({ id: `G${i}`, sku: `G${i}`, brand_id: "B", category_id: "C", is_active: true }));
+rv = reviewImport(cat2.slice(0, 3).map((p) => R(p.sku)), cat2, "2026-11-26");
+eq(rv.findings.find((x) => x.id === "group_gap")?.severity, "info", "เลือกมาแค่บางส่วนของกลุ่มใหญ่ = แจ้งเฉย ๆ"); eq(rv.verdict, "ok", "ไม่บังคับติ๊ก");
+rv = reviewImport(cat2.slice(0, 11).map((p) => R(p.sku)), cat2, "2026-11-26");
+eq(rv.findings.find((x) => x.id === "group_gap")?.severity, "medium", "ขาด 1 จาก 12 = น่าจะลืม");
+console.log(`PASS: group-gap severity — total ${n}`);

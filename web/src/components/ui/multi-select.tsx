@@ -14,8 +14,12 @@ export function MultiSelect({ options, value, onChange, placeholder, label, clas
   useEffect(() => {
     if (!open) return;
     const h = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
+    // Esc ปิดแค่ dropdown ไม่ให้ไปปิด Modal ที่ครอบอยู่
+    const k = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); setOpen(false); } };
     document.addEventListener("mousedown", h);
-    return () => document.removeEventListener("mousedown", h);
+    ref.current?.addEventListener("keydown", k);
+    const el = ref.current;
+    return () => { document.removeEventListener("mousedown", h); el?.removeEventListener("keydown", k); };
   }, [open]);
   const s = q.trim().toLowerCase();
   const list = useMemo(() => (s ? options.filter((o) => o.label.toLowerCase().includes(s) || (o.sub ?? "").toLowerCase().includes(s)) : options).slice(0, 300), [options, s]);

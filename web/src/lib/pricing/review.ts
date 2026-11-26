@@ -58,15 +58,18 @@ export function reviewImport(rows: ReviewRow[], catalog: CatalogLite[], today: s
   const inFile = new Set(rows.map((r) => r.product_id));
   const groups = new Map<string, ReviewRow[]>();
   for (const r of priced) { const k = `${r.brand_id}|${r.category_id}`; groups.set(k, [...(groups.get(k) ?? []), r]); }
-  const missing: string[] = [];
+  const missing: string[] = []; let likelyForgot = false;
   for (const [k, g] of groups) {
     if (g.length < 3) continue;
     const sig = new Map<string, number>(); g.forEach((r) => sig.set(`${r.mode}:${r.value}`, (sig.get(`${r.mode}:${r.value}`) ?? 0) + 1));
     if (Math.max(...sig.values()) < g.length * 0.8) continue;
     const [b, c] = k.split("|");
-    catalog.filter((p) => p.is_active && String(p.brand_id) === b && String(p.category_id) === c && !inFile.has(p.id)).forEach((p) => missing.push(p.sku));
+    const gap = catalog.filter((p) => p.is_active && String(p.brand_id) === b && String(p.category_id) === c && !inFile.has(p.id));
+    gap.forEach((p) => missing.push(p.sku));
+    // ขาดไม่กี่ตัวจากกลุ่มใหญ่ = น่าจะลืม (ควรดู) · ขาดเยอะ = น่าจะตั้งใจเลือกบางส่วน (แจ้งเฉย ๆ ไม่บังคับติ๊ก)
+    if (gap.length && gap.length <= Math.max(2, g.length * 0.25)) likelyForgot = true;
   }
-  if (missing.length) f.push({ id: "group_gap", severity: "medium", title: tr(`${missing.length} สินค้ากลุ่มเดียวกันไม่อยู่ในไฟล์`, `${missing.length} product(s) of the same group not in the file`, `${missing.length} 个同组商品不在文件中`), detail: tr(`สินค้าแบรนด์/หมวดเดียวกันลดเท่ากันเกือบทั้งกลุ่ม แต่ไม่มี: ${top(missing)}`, `Same brand/category got the same discount but these are missing: ${top(missing)}`, `同品牌/类别大多同折扣，但缺少：${top(missing)}`), skus: missing });
+  if (missing.length) f.push({ id: "group_gap", severity: likelyForgot ? "medium" : "info", title: tr(`${missing.length} สินค้ากลุ่มเดียวกันไม่อยู่ในไฟล์`, `${missing.length} product(s) of the same group not in the file`, `${missing.length} 个同组商品不在文件中`), detail: tr(`สินค้าแบรนด์/หมวดเดียวกันลดเท่ากันเกือบทั้งกลุ่ม แต่ไม่มี: ${top(missing)}`, `Same brand/category got the same discount but these are missing: ${top(missing)}`, `同品牌/类别大多同折扣，但缺少：${top(missing)}`), skus: missing });
   // 8) ทับราคาช่วงเวลาเดิมที่ใช้อยู่
   const over = priced.filter((r) => r.currentRule);
   if (over.length) f.push({ id: "override", severity: "info", title: tr(`${over.length} สินค้ามีราคาช่วงเวลาใช้อยู่ — กฎใหม่ (ระดับ SKU ล่าสุด) จะมีผลแทน`, `${over.length} product(s) already on a period price — the new SKU rule takes over`, `${over.length} 个商品已有时段价 — 新规则将覆盖`), detail: top(over.map((r) => `${r.sku} (${r.currentRule})`), 4), skus: over.map((r) => r.sku) });

@@ -11,7 +11,7 @@ import { reviewImport, type ReviewRow, type Finding, type Verdict } from "@/lib/
 import { useToast } from "@/components/toast-host";
 import { formatTHB, formatInt } from "@/lib/money";
 import { PRICE_TYPE, ROUNDING, bkkEndExclusive, bkkStart, describeRule, ruleValue, toBkkYmd, type PriceMode, type PriceType, type Rounding } from "@/lib/pricing/rules";
-import { detectHeader, parseBranches, parseDateCell, parsePriceType, parsePriceValue, parseRounding, type ColKey } from "@/lib/pricing/import-parse";
+import { detectHeader, parseBranches, parseDateCell, parsePriceType, parsePriceValue, parseRounding, shortLabel, templateHeads, type ColKey } from "@/lib/pricing/import-parse";
 
 type Ref = { id: string; name: string };
 type BranchRef = { id: string; code: string; name: string; name_th: string | null; brand_id: string | null };
@@ -42,7 +42,7 @@ export function ExportTemplateModal({ data, onClose }: { data: PData; onClose: (
   const names = (ids: string[], src: { id: string; name: string }[]) => src.filter((x) => ids.includes(x.id)).map((x) => x.name);
   const brandTxt = brands.length ? names(brands, data.brands).join("+") : L("ทุกแบรนด์", "All brands", "全部品牌");
   const branchTxt = stockBranches.length ? data.branches.filter((b) => stockBranches.includes(b.id)).map((b) => b.code).join("+") : L("ทุกสาขา", "All branches", "所有门店");
-  const monthTxt = new Date(`${(prefill.action !== "none" ? prefill.from : todayYmd())}T00:00:00`).toLocaleDateString(locale === "th" ? "th-TH" : locale === "zh" ? "zh-CN" : "en-GB", { month: "short", year: "2-digit" });
+  const monthTxt = new Date(`${(prefill.action !== "none" && /^\d{4}-\d{2}-\d{2}$/.test(prefill.from) ? prefill.from : todayYmd())}T00:00:00`).toLocaleDateString(locale === "th" ? "th-TH" : locale === "zh" ? "zh-CN" : "en-GB", { month: "short", year: "2-digit" });
   const safe = (s: string, n: number) => s.replace(/[\\/?*[\]:]/g, " ").replace(/\s+/g, " ").trim().slice(0, n);
   const fileName = `${safe(`${L("ราคา", "Prices", "价格")}_${brandTxt}_${branchTxt}${prefill.action !== "none" && prefill.promo ? `_${prefill.promo}` : ""}_${todayYmd()}`, 120).replace(/ /g, "_")}.xlsx`;
   const sheetName = safe(`${L("ราคา", "Prices", "价格")} ${brands.length === 1 ? names(brands, data.brands)[0] : brands.length ? `${brands.length} ${L("แบรนด์", "brands", "品牌")}` : L("ทุกแบรนด์", "all", "全部")} ${monthTxt}`, 31);
@@ -55,10 +55,7 @@ export function ExportTemplateModal({ data, onClose }: { data: PData; onClose: (
       const bn = new Map(data.brands.map((b) => [b.id, b.name])), cn = new Map(data.categories.map((c) => [c.id, c.name]));
       const stockHeads = stockCols ? stockBranchList.map((b) => `${L("สต๊อก", "Stock", "库存")} ${b.code}`) : [];
       const pfVal = prefill.action === "percent" && prefill.value ? `${prefill.value}%` : prefill.action === "amount" && prefill.value ? `-${prefill.value}` : "";
-      const head = ["SKU", L("ชื่อสินค้า", "Product", "商品名称"), L("แบรนด์", "Brand", "品牌"), L("หมวด", "Category", "类别"), L("สต๊อกรวม", "Total stock", "库存合计"), ...stockHeads,
-        L("ราคาหลักปัจจุบัน", "Current list price", "当前标价"), L("ราคาขายตอนนี้", "Selling now", "当前售价"),
-        L("ราคาหลักใหม่", "New list price", "新标价"), L("ราคาพิเศษ / ส่วนลด", "Special price / discount", "特价 / 折扣"), L("เริ่ม", "Start", "开始"), L("ถึง", "End", "结束"),
-        L("สาขา", "Branches", "门店"), L("ประเภทราคา", "Price type", "价格类型"), L("ชื่อโปร", "Promo name", "促销名称"), L("ปัดเศษ", "Rounding", "取整")];
+      const { head, editFrom } = templateHeads(L, stockHeads);
       // แถวชื่อไฟล์ (อ่านรู้เรื่องว่าเป็นไฟล์อะไร) — ตอนนำเข้าระบบหาหัวตารางเอง
       ws.addRow([`${L("เทมเพลตราคา", "Price template", "价格模板")} · ${L("แบรนด์", "Brand", "品牌")}: ${brandTxt} · ${L("สาขา", "Branches", "门店")}: ${branchTxt} · ${list.length} ${L("สินค้า", "products", "商品")} · ${L("สร้าง", "Created", "创建")} ${todayYmd()} — ${L("กรอกเฉพาะช่องสีเหลืองที่ต้องการเปลี่ยน ช่องสาขาเว้นว่าง = ทุกสาขา", "Fill only yellow cells you want to change; blank branches = all branches", "只填需要修改的黄色单元格；门店留空=所有门店")}`]);
       ws.mergeCells(1, 1, 1, head.length); ws.getRow(1).font = { bold: true, color: { argb: "FF7950D8" } }; ws.getRow(1).height = 22;
@@ -72,9 +69,8 @@ export function ExportTemplateModal({ data, onClose }: { data: PData; onClose: (
         const has = special !== "";
         ws.addRow([p.sku, p.name_th, bn.get(p.brand_id ?? "") ?? "", cn.get(p.category_id ?? "") ?? "", total, ...(stockCols ? perBranch : []),
           Number(p.price), Number(p.current_price), "", special, has ? fromD : "", has ? toD : "", has ? branchCell : "",
-          has ? PRICE_TYPE()[prefill.type].label : "", has ? prefill.promo : "", has ? ROUNDING()[prefill.rounding].split(" (")[0] : ""]);
+          has ? PRICE_TYPE()[prefill.type].label : "", has ? prefill.promo : "", has ? shortLabel(ROUNDING()[prefill.rounding]) : ""]);
       }
-      const editFrom = head.indexOf(L("ราคาหลักใหม่", "New list price", "新标价")) + 1;
       ws.getRow(2).font = { bold: true, color: { argb: "FFFFFFFF" } }; ws.getRow(2).height = 28;
       head.forEach((_, i) => { const c = ws.getCell(2, i + 1); c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: i + 1 >= editFrom ? "FF7950D8" : "FF132436" } }; c.alignment = { vertical: "middle", wrapText: true }; });
       ws.columns.forEach((col, i) => { col.width = i === 1 ? 36 : i === 0 ? 22 : i + 1 >= editFrom ? 16 : 12; });
@@ -82,7 +78,7 @@ export function ExportTemplateModal({ data, onClose }: { data: PData; onClose: (
       [editFrom + 2, editFrom + 3].forEach((c) => { ws.getColumn(c).numFmt = "dd/mm/yyyy"; });
       ws.getColumn(editFrom - 2).numFmt = "#,##0.00"; ws.getColumn(editFrom - 1).numFmt = "#,##0.00";
       ws.autoFilter = { from: { row: 2, column: 1 }, to: { row: 2, column: head.length } };
-      const types = Object.values(PRICE_TYPE()).map((t) => t.label).join(","), rounds = Object.values(ROUNDING()).map((t) => t.split(" (")[0]).join(",");
+      const types = Object.values(PRICE_TYPE()).map((t) => t.label).join(","), rounds = Object.values(ROUNDING()).map(shortLabel).join(",");
       for (let r = 3; r <= Math.max(list.length + 2, 3); r++) {
         ws.getCell(r, editFrom + 5).dataValidation = { type: "list", allowBlank: true, formulae: [`"${types}"`] };
         ws.getCell(r, editFrom + 7).dataValidation = { type: "list", allowBlank: true, formulae: [`"${rounds}"`] };
@@ -170,7 +166,7 @@ export function ImportPricesModal({ data, onClose, onDone }: { data: PData; onCl
   const [ack, setAck] = useState(false), [focus, setFocus] = useState<Finding | null>(null);
   const [ai, setAi] = useState<{ state: "idle" | "loading" | "done" | "none"; verdict?: Verdict; summary?: string; findings?: Finding[] }>({ state: "idle" });
   async function readFile(f: File) {
-    setParsing(true); setErr(""); setRows(null); setFileName(f.name); setTitle(f.name.replace(/\.(xlsx|csv)$/i, ""));
+    setParsing(true); setErr(""); setRows(null); setFocus(null); setFileName(f.name); setTitle(f.name.replace(/\.(xlsx|csv)$/i, ""));
     try {
       let grid: unknown[][] = [];
       if (/\.csv$/i.test(f.name)) {
@@ -359,7 +355,7 @@ export function ImportPricesModal({ data, onClose, onDone }: { data: PData; onCl
                         <td className="px-2 py-1.5 text-muted tnum">{r.line}</td>
                         <td className="px-2 py-1.5" translate="no"><span className="font-mono">{r.sku}</span>{r.product ? <span className="block text-[10.5px] text-muted truncate max-w-[180px]">{r.product.name_th}</span> : null}</td>
                         <td className="px-2 py-1.5 text-right tnum whitespace-nowrap">{r.newList != null ? <><span className="line-through text-muted">{baht(list)}</span> → <b>{baht(r.newList)}</b></> : r.product ? baht(list) : "—"}</td>
-                        <td className="px-2 py-1.5 whitespace-nowrap">{r.rule ? <>{describeRule(r.rule)}{r.rule.mode !== "price" ? <span className="text-muted"> · {ROUNDING()[r.rule.rounding].split(" (")[0]}</span> : null}<span className={`ml-1 text-[10px] px-1 rounded ${PRICE_TYPE()[r.rule.type].cls}`}>{PRICE_TYPE()[r.rule.type].label}</span></> : <span className="text-muted">—</span>}</td>
+                        <td className="px-2 py-1.5 whitespace-nowrap">{r.rule ? <>{describeRule(r.rule)}{r.rule.mode !== "price" ? <span className="text-muted"> · {shortLabel(ROUNDING()[r.rule.rounding])}</span> : null}<span className={`ml-1 text-[10px] px-1 rounded ${PRICE_TYPE()[r.rule.type].cls}`}>{PRICE_TYPE()[r.rule.type].label}</span></> : <span className="text-muted">—</span>}</td>
                         <td className="px-2 py-1.5 text-right tnum font-semibold text-danger whitespace-nowrap">{r.finalPrice != null ? <>{baht(r.finalPrice)}<span className="block text-[10px] font-normal">−{pctOff(r.newList ?? list, r.finalPrice)}%</span></> : r.newList != null ? <span className="text-ink">{baht(r.newList)}</span> : "—"}</td>
                         <td className="px-2 py-1.5 text-[11px] whitespace-nowrap">{r.rule ? <>{r.rule.from} → {r.rule.to}<span className="block text-muted">{r.rule.branch_ids.length ? data.branches.filter((b) => r.rule!.branch_ids.includes(b.id)).map((b) => b.code).join(", ") : L("ทุกสาขา", "All branches", "所有门店")}</span></> : ""}</td>
                         <td className={`px-2 py-1.5 text-[11px] ${stCls[r.status]}`}>

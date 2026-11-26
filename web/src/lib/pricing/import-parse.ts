@@ -83,7 +83,7 @@ export function parseBranches(raw: unknown, branches: BranchLite[]): string[] | 
   return miss.length ? { error: `ไม่พบสาขา: ${miss.join(", ")}` } : out;
 }
 
-const PT: [RegExp, PriceType][] = [[/ประจำเดือน|monthly|month/i, "monthly"], [/เปิดตัว|launch/i, "launch"], [/เคลียร์|clearance|clear/i, "clearance"], [/อีเวนต์|event|งาน/i, "event"], [/สมาชิก|member/i, "member"]];
+const PT: [RegExp, PriceType][] = [[/ประจำเดือน|monthly|month|月度|每月/i, "monthly"], [/เปิดตัว|launch|上市|新品/i, "launch"], [/เคลียร์|clearance|clear|清仓/i, "clearance"], [/อีเวนต์|event|งาน|活动/i, "event"], [/สมาชิก|member|会员/i, "member"]];
 export function parsePriceType(raw: unknown): PriceType | null {
   const s = raw == null ? "" : String(raw).trim();
   if (!s) return null;
@@ -93,26 +93,27 @@ export function parsePriceType(raw: unknown): PriceType | null {
 export function parseRounding(raw: unknown): Rounding | null {
   const s = raw == null ? "" : String(raw).trim().toLowerCase();
   if (!s) return null;
-  if (/ไม่ปัด|none|no/.test(s)) return "none";
-  if (/สิบ|10/.test(s)) return "down10";
-  if (/9/.test(s)) return "end9";
-  if (/บาท|baht|เต็ม/.test(s)) return "baht";
+  if (/ไม่ปัด|不取整|none|\bno\b/.test(s)) return "none";
+  if (/สิบ|10|十/.test(s)) return "down10";
+  if (/9|九/.test(s)) return "end9";
+  if (/บาท|baht|เต็ม|元|取整/.test(s)) return "baht";
   return null;
 }
 
 // หัวคอลัมน์ → ช่องข้อมูล (ไทย/อังกฤษ/รูปแบบที่ลูกทีมพิมพ์เอง)
 export type ColKey = "sku" | "name" | "new_list" | "special" | "start" | "end" | "branches" | "type" | "promo" | "rounding";
 const HEADERS: [ColKey, RegExp][] = [
-  ["sku", /^(sku|รหัสสินค้า|รหัส|item ?code|product ?code)$/i],
-  ["new_list", /ราคาหลักใหม่|new ?list|list ?price ?new|ราคาตั้งใหม่|ราคาป้ายใหม่/i],
-  ["special", /ราคาพิเศษ|ส่วนลด|special|discount|promo ?price|ราคาโปร|ราคาช่วง/i],
-  ["start", /^(เริ่ม|วันเริ่ม|start|from|ตั้งแต่)/i],
-  ["end", /^(ถึง|สิ้นสุด|วันสิ้นสุด|end|to|until)/i],
-  ["branches", /สาขา|branch/i],
-  ["type", /ประเภทราคา|price ?type|ประเภท/i],
-  ["promo", /ชื่อโปร|ชื่อแคมเปญ|promo ?name|campaign|ชื่อราคา/i],
-  ["rounding", /ปัดเศษ|rounding/i],
-  ["name", /^(ชื่อสินค้า|ชื่อ|product|name|สินค้า)$/i],
+  ["sku", /^(sku|รหัสสินค้า|รหัส|item ?code|product ?code|商品编码|编码)$/i],
+  ["new_list", /ราคาหลักใหม่|new ?list|list ?price ?new|ราคาตั้งใหม่|ราคาป้ายใหม่|新标价/i],
+  ["special", /ราคาพิเศษ|ส่วนลด|special|discount|promo ?price|ราคาโปร|ราคาช่วง|特价|折扣/i],
+  // คำอังกฤษต้องจบคำ — กัน "Total stock" ถูกจับเป็นคอลัมน์ "to"
+  ["start", /^(เริ่ม|วันเริ่ม|ตั้งแต่|开始)|^(start|from)\b/i],
+  ["end", /^(ถึง|สิ้นสุด|วันสิ้นสุด|结束|截止)|^(end|to|until)\b/i],
+  ["branches", /^(ใช้กับ)?สาขา|门店$|^branch(es)?\b|^applies to branch/i],
+  ["type", /ประเภทราคา|price ?type|ประเภท|价格类型/i],
+  ["promo", /ชื่อโปร|ชื่อแคมเปญ|promo ?name|campaign|ชื่อราคา|促销名称/i],
+  ["rounding", /ปัดเศษ|rounding|取整/i],
+  ["name", /^(ชื่อสินค้า|ชื่อ|product|name|สินค้า|商品名称)$/i],
 ];
 /** หาแถวหัวตาราง (ภายใน 15 แถวแรก) แล้วจับคอลัมน์ */
 export function detectHeader(rows: unknown[][]): { row: number; map: Partial<Record<ColKey, number>>; percentHint: boolean } | null {
@@ -126,4 +127,17 @@ export function detectHeader(rows: unknown[][]): { row: number; map: Partial<Rec
     }
   }
   return null;
+}
+
+/** ป้ายสั้นของการปัดเศษ (ตัดตัวอย่างในวงเล็บ — รองรับวงเล็บเต็มความกว้างภาษาจีน) ใช้ทั้งในเทมเพลตและ dropdown ของไฟล์ */
+export const shortLabel = (s: string) => s.replace(/\s*[（(].*$/, "").trim();
+
+/** หัวคอลัมน์เทมเพลต — ใช้ตอนสร้างไฟล์ และในเทสแบบดาวน์โหลด→นำเข้า ให้แน่ใจว่าทุกภาษาอ่านกลับได้ */
+export type Pick3 = (th: string, en: string, zh: string) => string;
+export function templateHeads(L: Pick3, stockHeads: string[]) {
+  const before = ["SKU", L("ชื่อสินค้า", "Product", "商品名称"), L("แบรนด์", "Brand", "品牌"), L("หมวด", "Category", "类别"), L("สต๊อกรวม", "Total stock", "库存合计"), ...stockHeads,
+    L("ราคาหลักปัจจุบัน", "Current list price", "当前标价"), L("ราคาขายตอนนี้", "Selling now", "当前售价")];
+  const edit = [L("ราคาหลักใหม่", "New list price", "新标价"), L("ราคาพิเศษ / ส่วนลด", "Special price / discount", "特价 / 折扣"), L("เริ่ม", "Start", "开始"), L("ถึง", "End", "结束"),
+    L("สาขา", "Branches", "门店"), L("ประเภทราคา", "Price type", "价格类型"), L("ชื่อโปร", "Promo name", "促销名称"), L("ปัดเศษ", "Rounding", "取整")];
+  return { head: [...before, ...edit], editFrom: before.length + 1 };
 }
