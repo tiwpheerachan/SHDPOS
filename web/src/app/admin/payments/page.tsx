@@ -11,6 +11,7 @@ import { useAdminScope } from "@/components/admin/filters";
 import { Card, KpiTile, Table, Th, Td, Badge, Input, Select, EmptyState, Drawer, Modal, Segmented } from "@/components/ui";
 import { ExportShareBar } from "@/components/admin/export-share";
 import { useToast } from "@/components/toast-host";
+import { EdcRegistry, MdrRates, useEdcData } from "@/components/admin/edc-registry";
 import { listAcquirers, listTerminals, upsertTerminal, listPaymentTxns, createPaymentTxn, resolvePaymentTxn, voidPaymentTxn, listStatementRows, importStatementRows, parseStatementCsv, generateSampleStatement, clearStatements, clearDemoData, EDC_SERVICE_LABEL } from "@/lib/data/payments";
 import { logActivity } from "@/lib/data/repo";
 import { can } from "@/lib/permissions";
@@ -32,7 +33,8 @@ export default function AdminPaymentsPage() {
   const actor = useSession((s) => s.employee);
   const { branches } = useAdminScope();
   const toast = useToast();
-  const [view, setView] = useState<"devices" | "txns" | "recon">("devices");
+  const [view, setView] = useState<"devices" | "mdr" | "txns" | "recon">("devices");
+  const edc = useEdcData();
   const [reconKey, setReconKey] = useState<string | null>(null);
   const [acquirers, setAcquirers] = useState<Acquirer[]>([]);
   const [terminals, setTerminals] = useState<EdcTerminal[]>([]);
@@ -203,18 +205,7 @@ export default function AdminPaymentsPage() {
             <p className="text-[11px] text-muted">{L("ทะเบียนเครื่อง · ผู้รับชำระ · MID/TID · บริการ (ยังไม่เชื่อมธนาคารจริง)", "Device registry · acquirer · MID/TID · services (bank not connected)", "设备登记")}</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          {view === "devices" ? (
-            <ExportShareBar<EdcTerminal> filename="edc-terminals" title={L("ทะเบียนเครื่อง EDC", "EDC terminals", "EDC设备")} rows={filtered} size="sm"
-              columns={[
-                { key: "asset_code", label: L("รหัสเครื่อง", "Asset", "设备") }, { key: "acquirer", label: L("ผู้รับชำระ", "Acquirer", "收单"), map: (t) => acqName(t.acquirer_id) },
-                { key: "mid", label: "MID", map: (t) => t.mid ?? "-" }, { key: "tid", label: "TID", map: (t) => t.tid ?? "-" },
-                { key: "branch", label: L("สาขา", "Branch", "门店"), map: (t) => branchName(t.branch_id) },
-                { key: "services", label: L("บริการ", "Services", "服务"), map: (t) => t.services.map(svcLabel).join(", ") },
-                { key: "status", label: L("สถานะ", "Status", "状态"), map: (t) => statusMeta(t.status)[locale === "th" ? "th" : "en"] },
-                { key: "verified", label: L("ยืนยัน", "Verified", "验证"), map: (t) => (t.verified ? L("ใช่", "Yes", "是") : L("ยัง", "No", "否")) },
-              ]} />
-          ) : (
+        {view === "txns" || view === "recon" ? <div className="flex items-center gap-2">
             <ExportShareBar<PaymentTxn> filename="edc-txns" title={L("รายการชำระ EDC", "EDC transactions", "EDC交易")} rows={txns} size="sm"
               columns={[
                 { key: "at", label: L("เวลา", "Time", "时间"), map: (t) => new Date(t.at).toLocaleString("th-TH", { dateStyle: "short", timeStyle: "short" }) },
@@ -223,17 +214,14 @@ export default function AdminPaymentsPage() {
                 { key: "status", label: L("สถานะ", "Status", "状态"), map: (t) => TXN_STATUS[t.status][locale === "th" ? "th" : "en"] },
                 { key: "approval_code", label: L("รหัสอนุมัติ", "Approval", "批准码"), map: (t) => t.approval_code ?? "-" }, { key: "ref_no", label: "Ref", map: (t) => t.ref_no ?? "-" },
               ]} />
-          )}
-          {view === "devices"
-            ? <button onClick={openNew} className="h-10 px-4 rounded-2xl bg-brand text-brandInk text-sm font-bold inline-flex items-center gap-2 shrink-0"><Plus size={16} /> {L("เพิ่มเครื่อง", "Add terminal", "新增")}</button>
-            : <button onClick={() => { setNf2({ terminal_id: "", method: "card", amount: "", order_no: "", months: "", op_key: `op-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}` }); setNewOpen(true); }} className="h-10 px-4 rounded-2xl bg-brand text-brandInk text-sm font-bold inline-flex items-center gap-2 shrink-0"><Plus size={16} /> {L("เริ่มรายการชำระ", "New charge", "新收款")}</button>}
-        </div>
+            <button onClick={() => { setNf2({ terminal_id: "", method: "card", amount: "", order_no: "", months: "", op_key: `op-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}` }); setNewOpen(true); }} className="h-10 px-4 rounded-2xl bg-brand text-brandInk text-sm font-bold inline-flex items-center gap-2 shrink-0"><Plus size={16} /> {L("เริ่มรายการชำระ", "New charge", "新收款")}</button>
+        </div> : null}
       </div>
 
-      <Segmented value={view} onChange={(v) => setView(v as typeof view)} options={[{ value: "devices", label: L("ทะเบียนเครื่อง", "Terminals", "设备") }, { value: "txns", label: `${L("รายการชำระ", "Transactions", "交易")}${txnKpi.recover ? ` · ${txnKpi.recover}⚠` : ""}` }, { value: "recon", label: L("สรุปรายวัน", "Daily close", "日结") }]} />
+      <Segmented value={view} onChange={(v) => setView(v as typeof view)} options={[{ value: "devices", label: L("ทะเบียนเครื่อง", "Terminals", "设备") }, { value: "mdr", label: L("อัตรา MDR", "MDR rates", "手续费率") }, { value: "txns", label: `${L("รายการชำระ", "Transactions", "交易")}${txnKpi.recover ? ` · ${txnKpi.recover}⚠` : ""}` }, { value: "recon", label: L("สรุปรายวัน", "Daily close", "日结") }]} />
 
-      {/* ผู้รับชำระ */}
-      <Card className="p-3.5">
+      {/* ผู้รับชำระ (ข้อมูลตัวอย่างของรายการชำระ/สรุปรายวัน) */}
+      {view === "txns" || view === "recon" ? <Card className="p-3.5">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-xs text-muted mr-1">{L("ผู้รับชำระ", "Acquirers", "收单行")}:</span>
           {acquirers.map((a) => (
@@ -248,46 +236,13 @@ export default function AdminPaymentsPage() {
             <button onClick={() => void onClearDemo()} className="h-7 px-2.5 rounded-lg border border-amber-500/40 text-amber-700 hover:bg-amber-500/10 font-semibold">{L("ล้างข้อมูลตัวอย่าง", "Clear demo", "清除示例")}</button>
           </div>
         ) : null}
-      </Card>
+      </Card> : null}
 
-      {view === "devices" ? (<>
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <KpiTile label={L("เครื่องทั้งหมด", "Terminals", "设备总数")} value={String(kpi.total)} icon={<Cpu size={16} />} accent="lavender" />
-        <KpiTile label={L("ใช้งานอยู่", "Installed", "使用中")} value={String(kpi.installed)} icon={<CreditCard size={16} />} accent="mint" />
-        <KpiTile label={L("ยืนยันแล้ว", "Verified", "已验证")} value={String(kpi.verified)} icon={<ShieldCheck size={16} />} accent="lime" />
-        <KpiTile label={L("ยังไม่ยืนยัน", "Unverified", "未验证")} value={String(kpi.unverified)} icon={<ShieldAlert size={16} />} accent={kpi.unverified ? "peach" : "neutral"} />
-      </div>
-
-      {/* ตัวกรอง */}
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative flex-1 min-w-[180px] max-w-xs"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" /><Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={L("ค้นหา รหัส/MID/TID/สาขา…", "Search asset/MID/TID…", "搜索…")} className="pl-9 h-9" /></div>
-        <Select value={fAcq} onChange={(e) => setFAcq(e.target.value)} className="h-9 w-40"><option value="">{L("ทุกผู้รับชำระ", "All acquirers", "全部")}</option>{acquirers.map((a) => <option key={a.id} value={a.id}>{a.code}</option>)}</Select>
-        <Select value={fStatus} onChange={(e) => setFStatus(e.target.value)} className="h-9 w-36"><option value="">{L("ทุกสถานะ", "All status", "全部状态")}</option>{STATUS.map((s) => <option key={s.v} value={s.v}>{L(s.th, s.en, s.th)}</option>)}</Select>
-      </div>
-
-      {loading ? <Card className="p-16 text-center text-muted"><Loader2 className="inline animate-spin" size={18} /></Card>
-        : !filtered.length ? <EmptyState icon={<CreditCard size={26} />} title={L("ไม่พบเครื่อง", "No terminals", "无设备")} />
-          : (
-            <Card className="overflow-x-auto">
-              <Table>
-                <thead><tr><Th>{L("รหัสเครื่อง", "Asset", "设备")}</Th><Th>{L("ผู้รับชำระ", "Acquirer", "收单")}</Th><Th>MID</Th><Th>TID</Th><Th>{L("สาขา", "Branch", "门店")}</Th><Th>{L("บริการ", "Services", "服务")}</Th><Th>{L("สถานะ", "Status", "状态")}</Th><Th align="center">{L("ยืนยัน", "Verified", "验证")}</Th><Th></Th></tr></thead>
-                <tbody>{filtered.map((t) => { const sm = statusMeta(t.status); return (
-                  <tr key={t.id}>
-                    <Td className="font-mono text-xs font-medium">{t.asset_code}{t.is_demo ? <span className="ml-1 text-[9px] px-1 py-0.5 rounded bg-amber-500/15 text-amber-600 font-sans align-middle">{L("ตัวอย่าง", "demo", "示例")}</span> : null}{t.model ? <span className="block text-[10px] text-muted font-sans">{t.model}</span> : null}</Td>
-                    <Td className="text-xs"><span className="inline-flex items-center gap-1">{acqName(t.acquirer_id)}{!acqVerified(t.acquirer_id) ? <ShieldAlert size={11} className="text-amber-500" /> : null}</span></Td>
-                    <Td className="font-mono text-[11px] text-muted">{t.mid ?? "—"}</Td>
-                    <Td className="font-mono text-[11px] text-muted">{t.tid ?? "—"}</Td>
-                    <Td className="text-xs">{branchName(t.branch_id)}</Td>
-                    <Td><div className="flex flex-wrap gap-1 max-w-[220px]">{t.services.map((s) => <span key={s} className="text-[10px] px-1.5 py-0.5 rounded bg-surface2 text-muted">{svcLabel(s)}{s === "installment" && t.installment_months.length ? ` ${t.installment_months.join("/")}` : ""}</span>)}</div></Td>
-                    <Td><Badge tone={sm.tone}>{L(sm.th, sm.en, sm.th)}</Badge></Td>
-                    <Td align="center">{t.verified ? <ShieldCheck size={15} className="text-emerald-500 inline" /> : <ShieldAlert size={15} className="text-amber-500 inline" />}</Td>
-                    <Td align="right"><button onClick={() => openEdit(t)} className="h-8 w-8 grid place-items-center rounded-lg text-muted hover:bg-surface2"><Pencil size={14} /></button></Td>
-                  </tr>
-                ); })}</tbody>
-              </Table>
-            </Card>
-          )}
-      </>) : view === "txns" ? (
+      {view === "devices" || view === "mdr" ? (
+        edc.err ? <Card className="p-8 text-center text-sm text-danger">{edc.err}</Card>
+          : !edc.data ? <Card className="p-16 text-center text-muted"><Loader2 className="inline animate-spin" size={18} /></Card>
+            : view === "devices" ? <EdcRegistry data={edc.data} reload={edc.reload} /> : <MdrRates data={edc.data} reload={edc.reload} />
+) : view === "txns" ? (
       /* ───────── รายการชำระ EDC (ledger) ───────── */
       <>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">

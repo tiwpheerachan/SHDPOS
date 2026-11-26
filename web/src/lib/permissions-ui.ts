@@ -13,7 +13,7 @@ export const PERM_GROUPS: { th: string; en: string; zh: string; keys: Permission
   { th: "โอนย้าย", en: "Transfers", zh: "调货", keys: ["transfer.request", "transfer.approve", "transfer.receive"] },
   { th: "กะ & เงินสด", en: "Shift & cash", zh: "班次与现金", keys: ["shift.open", "shift.close", "shift.force_close", "cash.adjust"] },
   { th: "การตลาด & ลูกค้า", en: "Marketing & customers", zh: "营销与客户", keys: ["customer.manage", "campaign.manage", "loyalty.manage", "display.manage"] },
-  { th: "รายงาน & การเงิน", en: "Reports & finance", zh: "报表与财务", keys: ["report.employee_perf", "report.cost", "report.gross_profit", "report.discount", "finance.view", "period.close", "period.reopen", "report.share"] },
+  { th: "รายงาน & การเงิน", en: "Reports & finance", zh: "报表与财务", keys: ["report.employee_perf", "report.cost", "report.gross_profit", "report.discount", "finance.view", "period.close", "period.reopen", "report.share", "edc.manage", "edc.mdr_manage"] },
   { th: "แอดมิน", en: "Admin", zh: "管理", keys: ["admin.employee_manage", "admin.permission_manage", "admin.product_manage", "admin.branch_manage", "admin.settings", "integration.manage", "integration.reconcile", "audit.view"] },
   { th: "เอกสารภาษี", en: "Tax documents", zh: "税务单据", keys: ["tax.issue_full", "tax.credit_note"] },
 ];
@@ -22,6 +22,8 @@ export const PERM_GROUPS: { th: string; en: string; zh: string; keys: Permission
 export const PERM_LABEL: Record<PermissionKey, { th: string; en: string; zh: string }> = {
   "pos.discount": { th: "ให้ส่วนลด", en: "Give discount", zh: "折扣" },
   "finance.view": { th: "ดูการเงิน / รับชำระ", en: "View finance / payments", zh: "查看财务" },
+  "edc.manage": { th: "จัดการทะเบียนเครื่อง EDC + ดูเลข MID/TID เต็ม + นำเข้าไฟล์ธนาคาร", en: "Manage EDC registry (full MID/TID, import)", zh: "管理EDC设备（完整MID/TID）" },
+  "edc.mdr_manage": { th: "ตั้งอัตราค่าธรรมเนียมบัตร (MDR)", en: "Manage card fee rates (MDR)", zh: "设置刷卡手续费率" },
   "report.share": { th: "แชร์รายงานเป็นลิงก์ภาพนิ่ง (เปิดได้โดยไม่ต้องล็อกอิน)", en: "Share report snapshot links", zh: "分享报表链接" },
   "period.close": { th: "ปิดงวดบัญชี (รายเดือน)", en: "Close accounting period", zh: "结账" },
   "period.reopen": { th: "เปิดงวดที่ปิดแล้ว (ต้องระบุเหตุผล)", en: "Reopen closed period", zh: "反结账" },

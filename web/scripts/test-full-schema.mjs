@@ -41,4 +41,5 @@ await (await import('./test-period-close.mjs')).testPeriodClose(db,ids);
 await (await import('./test-vat-engine.mjs')).testVatEngine(db);
 await (await import('./test-pickups.mjs')).testPickups(db,ids);
 await (await import('./test-stock-adjust.mjs')).testStockAdjust(db,ids);
+await (await import('./test-edc.mjs')).testEdc(db,ids);
 await db.close();

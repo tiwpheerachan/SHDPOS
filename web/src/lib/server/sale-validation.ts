@@ -225,6 +225,9 @@ export function validatePayments(value: unknown, total: number) {
       acquirer_bank: p.acquirer_bank ?? null,
       card_last4: p.card_last4 ?? null,
       installment_months: p.installment_months ?? null,
+      // เครื่อง EDC ที่เลือก (0080) — เซิร์ฟเวอร์ตรวจ/เติมธนาคาร MID TID ค่าธรรมเนียมเองใน enrichEdcPayments
+      edc_terminal_id: typeof p.edc_terminal_id === "string" ? p.edc_terminal_id : null,
+      card_brand: typeof p.card_brand === "string" ? p.card_brand.slice(0, 20) : null,
       fee_amount: 0,
     };
   });

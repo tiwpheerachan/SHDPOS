@@ -289,6 +289,8 @@ export interface PaymentEntry {
   approval_code?: string;
   reference_no?: string;
   installment_months?: number;
+  /** เครื่อง EDC ที่รูด (0080) — เซิร์ฟเวอร์ตรวจว่าเป็นของสาขา + เติม MID/TID/ค่าธรรมเนียมเอง */
+  edc_terminal_id?: string;
 }
 
 export interface OrderDraft {

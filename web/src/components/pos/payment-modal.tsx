@@ -67,6 +67,16 @@ export function PaymentModal({
   const [reference, setReference] = useState("");
   const [confirmed, setConfirmed] = useState(false);
   const [accountError, setAccountError] = useState<string | null>(null);
+  // เครื่อง EDC ของสาขา (ทะเบียนจริง 0080) — มีในทะเบียน = ต้องเลือกเครื่องตอนรับบัตร/ผ่อน
+  type EdcOpt = { id: string; acquirer: string; acquirer_name: string; label: string | null; tid_last: string | null; shared: boolean; services: string[]; installment_months: number[] };
+  const [edcList, setEdcList] = useState<EdcOpt[]>([]), [edcRequired, setEdcRequired] = useState(false), [edcId, setEdcId] = useState("");
+  useEffect(() => {
+    if (!open || !branchId || !isLiveMode()) return;
+    let alive = true;
+    fetch(`/api/pos/edc?branch=${encodeURIComponent(branchId)}`, { cache: "no-store" }).then((r) => (r.ok ? r.json() : { terminals: [], required: false }))
+      .then((d) => { if (alive) { setEdcList(d.terminals ?? []); setEdcRequired(!!d.required); } }).catch(() => undefined);
+    return () => { alive = false; };
+  }, [open, branchId]);
   useEffect(() => {
     if(!open || !branchId) return;
     let alive=true; setAccount({configured:false}); setAccountError(null);
@@ -114,7 +124,9 @@ export function PaymentModal({
     if (method === "installment" && !months) return;
     const entry: PaymentEntry = { method, amount: round2(amount), reference_no: reference.trim() || approvalCode.trim() };
     if (method === "credit_card" || method === "debit_card" || method === "edc" || method === "installment") {
-      entry.acquirer_bank = bank.th;
+      const term = edcList.find((x) => x.id === edcId);
+      entry.acquirer_bank = term ? term.acquirer : bank.th;
+      if (term) entry.edc_terminal_id = term.id;
       if (last4) entry.card_last4 = last4;
       if (approvalCode) entry.approval_code = approvalCode;
       if (method === "installment" && months > 0) entry.installment_months = months;
@@ -130,13 +142,17 @@ export function PaymentModal({
       return next;
     });
     setLast4("");
-    setApprovalCode(""); setReference(""); setConfirmed(false);
+    setApprovalCode(""); setReference(""); setConfirmed(false); setEdcId("");
     } catch(error) {toast.push({tone:"danger",title:L("ต้องตรวจสอบรายการรับชำระ","Payment needs review","请核对收款"),body:error instanceof Error?error.message:String(error)});}
     finally{recording.current=false;setRecordBusy(false);}
   }
 
   const needsCardFields = ["credit_card", "debit_card", "edc", "installment"].includes(method);
-  const canAdd = confirmed && Boolean(reference.trim() || approvalCode.trim()) && Number.isFinite(Number(amountText)) && Number(amountText)>0 && Number(amountText)<=remaining && (method!=="qr_promptpay" || Boolean(account.mobile)) && (method!=="installment" || months>0) && (!last4 || last4.length===4);
+  const edcChoices = edcList.filter((x) => method !== "installment" || x.installment_months.length);
+  const edcSel = edcList.find((x) => x.id === edcId) ?? null;
+  const useEdc = needsCardFields && edcList.length > 0;
+  const planMonths = method === "installment" && edcSel ? edcSel.installment_months : [3, 6, 10, 12, 18, 24];
+  const canAdd = confirmed && Boolean(reference.trim() || approvalCode.trim()) && Number.isFinite(Number(amountText)) && Number(amountText)>0 && Number(amountText)<=remaining && (method!=="qr_promptpay" || Boolean(account.mobile)) && (method!=="installment" || months>0) && (!last4 || last4.length===4) && (!useEdc || !edcRequired || !!edcSel) && (method!=="installment" || !edcSel || edcSel.installment_months.includes(months));
   const canConfirm = paid === round2(grandTotal) && grandTotal > 0;
   const qrDue = remaining > 0 ? remaining : grandTotal;
 
@@ -224,7 +240,22 @@ export function PaymentModal({
             </div>
           ) : null}
 
-          {(needsCardFields || method === "bank_transfer") ? (
+          {useEdc ? (
+            <div className="mt-3">
+              <label className="label">{L("เครื่อง EDC ที่ใช้รูด", "EDC terminal used", "使用的EDC终端")}{edcRequired ? <span className="text-danger"> *</span> : null}</label>
+              {edcChoices.length ? <div className="grid grid-cols-2 gap-2">
+                {edcChoices.map((x) => (
+                  <button key={x.id} onClick={() => { setEdcId(x.id); if (method === "installment" && !x.installment_months.includes(months)) setMonths(x.installment_months[0] ?? 0); }}
+                    className={`text-left rounded-xl border px-2.5 py-2 transition-all active:scale-95 ${edcId === x.id ? "border-brand bg-brand/8" : "border-line hover:bg-surface2"}`}>
+                    <span className="block text-xs font-semibold truncate">{x.acquirer_name}</span>
+                    <span className="block text-[10.5px] text-muted truncate">{x.label ?? ""} · TID {x.tid_last}{x.shared ? ` · ${L("เครื่องกลาง", "shared", "共用")}` : ""}</span>
+                    {method === "installment" ? <span className="block text-[10px] text-muted">{L("ผ่อน", "Plans", "分期")} {x.installment_months.join("/")} {L("ด.", "mo", "月")}</span> : null}
+                  </button>))}
+              </div> : <p className="text-[11px] text-warn">{L("สาขานี้ยังไม่มีเครื่องที่รองรับการผ่อน — แจ้งฝ่ายการเงินให้เพิ่มแผนในทะเบียน EDC", "No terminal with installment plans", "无分期终端")}</p>}
+            </div>
+          ) : null}
+
+          {((needsCardFields && !useEdc) || method === "bank_transfer") ? (
             <div className="mt-3">
               <label className="label">{L("ธนาคารผู้รับชำระ / เครื่อง EDC", "Acquiring / receiving bank", "收单/收款银行")}</label>
               <div className="grid grid-cols-2 gap-2">
@@ -259,7 +290,7 @@ export function PaymentModal({
               {method === "installment" ? (
                 <Field label={t.payment.installmentMonths}>
                   <Select value={months} onChange={(e) => setMonths(Number(e.target.value))}>
-                    {[0, 3, 6, 10, 12, 18, 24].map((m) => (
+                    {[0, ...planMonths].map((m) => (
                       <option key={m} value={m}>
                         {m === 0 ? "-" : `${m}`}
                       </option>

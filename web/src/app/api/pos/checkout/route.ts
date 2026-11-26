@@ -1,3 +1,4 @@
+import { enrichEdcPayments } from "@/lib/server/edc";
 import { legacyUuid } from "@/lib/server/legacy-ids";
 import { kickSaleOutbox } from "@/lib/server/ow-sales";
 import { owWarehouseOf } from "@/lib/server/ow-branch";
@@ -199,10 +200,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ payments: r.data });
     }
     if (body.action === "commit") {
-      const payments = validatePayments(
+      const payments = await enrichEdcPayments(sb, body.branch_id, validatePayments(
         body.payments,
         Number(hold.quote.grand_total),
-      );
+      ));
       const r = await sb.rpc("pos_commit_checkout", {
         p_id: body.id,
         p_actor: ctx.actorId,
