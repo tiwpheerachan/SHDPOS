@@ -4,7 +4,7 @@
 //   เงื่อนไขการขาย · ราคา (รอบคัน/รายตำแหน่ง) · ความเข้ม → ม้วนฟิล์ม · พื้นที่ต่อตำแหน่ง · รุ่นรถ → ขนาด
 // =====================================================================
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Car, Loader2, Lock, Plus, Trash2, Search, Store, Layers, Ruler, BadgeDollarSign, ListChecks } from "lucide-react";
+import { Car, Loader2, Lock, Plus, Trash2, Search, Store, Layers, Boxes, Ruler, BadgeDollarSign, ListChecks } from "lucide-react";
 import { Button, Card, Input, Segmented, Select } from "@/components/ui";
 import { useToast } from "@/components/toast-host";
 import { useI18n } from "@/lib/i18n/provider";
@@ -160,6 +160,14 @@ export function FilmSettingsTab({ editMode }: { editMode: boolean }) {
   );
 }
 
+/** สีหัวตารางรายรุ่น — โทนอ่อนเรียบ (เซจ · ลาเวนเดอร์ · แชมเปญ) */
+const HEAD_TONE: Record<string, { head: string; sub: string; line: string; accent: string }> = {
+  E: { head: "bg-[#EEF3EE] text-[#2F5A43] dark:bg-[#1F2B24] dark:text-[#A8CDB5]", sub: "bg-[#F5F8F5] dark:bg-[#18221C]", line: "border-t-2 border-t-[#5E8C72]", accent: "accent-[#4F7D63]" },
+  P: { head: "bg-[#F0EEF6] text-[#4A3F78] dark:bg-[#25213A] dark:text-[#C3B9EC]", sub: "bg-[#F7F6FB] dark:bg-[#1D1A2E]", line: "border-t-2 border-t-[#7B6DB0]", accent: "accent-[#6A5CA3]" },
+  U: { head: "bg-[#F6F1E6] text-[#755A22] dark:bg-[#2C2619] dark:text-[#E2C98F]", sub: "bg-[#FAF7F0] dark:bg-[#221E14]", line: "border-t-2 border-t-[#B8924A]", accent: "accent-[#A6823E]" },
+};
+const headTone = (code: string) => HEAD_TONE[code] ?? HEAD_TONE.E;
+
 /** รายสาขา: ตารางเรียบ — แถว = สาขา · คอลัมน์ = ความเข้มของแต่ละรุ่น (ติ๊กเปิด/ปิด + สต๊อกม้วน) */
 function BranchMatrix({ d, can, post, L, busy }: { d: Data; can: boolean; busy: string | null; post: (b: Record<string, unknown>, k: string, ok?: string) => Promise<boolean>; L: (a: string, b: string, c: string) => string }) {
   const [q, setQ] = useState("");
@@ -182,12 +190,12 @@ function BranchMatrix({ d, can, post, L, busy }: { d: Data; can: boolean; busy: 
           <thead className="text-[11px] text-muted">
             <tr className="border-b border-line">
               <th rowSpan={2} className="text-left font-medium px-4 py-2 align-bottom min-w-[200px]">{L("สาขา", "Branch", "门店")}</th>
-              {cols.map(({ se, shades }) => <th key={se.code} colSpan={shades.length} className="text-center font-medium px-2 pt-2 border-l border-line">{se.name}</th>)}
+              {cols.map(({ se, shades }) => <th key={se.code} colSpan={shades.length} className={`text-center text-[12px] font-semibold tracking-wide px-2 py-2 border-l border-line ${headTone(se.code).head} ${headTone(se.code).line}`}>{se.name}</th>)}
               <th rowSpan={2} className="text-center font-medium px-3 py-2 align-bottom border-l border-line">{L("เปิด", "On", "开放")}</th>
               {can ? <th rowSpan={2} className="px-3 py-2 border-l border-line" /> : null}
             </tr>
             <tr className="border-b border-line">
-              {cols.map(({ se, shades }) => shades.map((sh, i) => <th key={se.code + sh.shade} className={`font-normal px-2 pb-2 text-center tnum ${i === 0 ? "border-l border-line" : ""}`}>{sh.shade}%</th>))}
+              {cols.map(({ se, shades }) => shades.map((sh, i) => <th key={se.code + sh.shade} className={`font-medium px-2 py-1.5 text-center tnum text-ink/80 ${headTone(se.code).sub} ${i === 0 ? "border-l border-line" : ""}`}>{sh.shade}%</th>))}
             </tr>
           </thead>
           <tbody>
@@ -206,19 +214,25 @@ function BranchMatrix({ d, can, post, L, busy }: { d: Data; can: boolean; busy: 
                           onChange={(e) => void post(off(b.id, se.code, 0)
                             ? { action: "branch_toggle", branch_id: b.id, series_code: se.code, shade: 0, enabled: true }
                             : { action: "branch_toggle", branch_id: b.id, series_code: se.code, shade: sh.shade, enabled: e.target.checked }, "branch")}
-                          className="h-4 w-4 accent-[rgb(var(--c-ink))]" />
+                          className={`h-4 w-4 ${headTone(se.code).accent}`} />
                         <span className="block text-[11px] text-muted tnum mt-0.5">{have ? have.toLocaleString() : "—"}</span>
                       </td>
                     );
                   }))}
                   <td className="px-3 py-2 text-center tnum border-l border-line">{on}/{total}</td>
                   {can ? (
-                    <td className="px-3 py-2 border-l border-line whitespace-nowrap text-xs">
-                      <button type="button" disabled={!!busy} className="text-ink underline-offset-2 hover:underline disabled:opacity-50" onClick={() => void post({ action: "branch_auto", branch_id: b.id }, "branch", L("ตั้งตามสต๊อกแล้ว", "Matched to stock", "已按库存设置"))}>{L("ตั้งตามสต๊อก", "Match stock", "按库存")}</button>
-                      <span className="text-muted mx-1.5">·</span>
-                      <button type="button" disabled={!!busy} className="text-ink underline-offset-2 hover:underline disabled:opacity-50" onClick={() => void post({ action: "branch_all", branch_id: b.id, enabled: true }, "branch")}>{L("เปิดทั้งหมด", "All on", "全开")}</button>
-                      <span className="text-muted mx-1.5">·</span>
-                      <button type="button" disabled={!!busy} className="text-ink underline-offset-2 hover:underline disabled:opacity-50" onClick={() => void post({ action: "branch_all", branch_id: b.id, enabled: false }, "branch")}>{L("ปิดทั้งหมด", "All off", "全关")}</button>
+                    <td className="px-3 py-2 border-l border-line whitespace-nowrap">
+                      <div className="flex items-center gap-1.5">
+                        <button type="button" disabled={!!busy} title={L("เปิดเฉพาะความเข้มที่สาขามีม้วน", "Turn on only shades with rolls in stock", "仅开放有库存的深度")}
+                          className="h-8 px-3 rounded-lg bg-ink text-surface text-xs font-medium inline-flex items-center gap-1.5 hover:opacity-90 disabled:opacity-40"
+                          onClick={() => void post({ action: "branch_auto", branch_id: b.id }, "branch", L("ตั้งตามสต๊อกแล้ว", "Matched to stock", "已按库存设置"))}><Boxes size={13} />{L("ตั้งตามสต๊อก", "Match stock", "按库存")}</button>
+                        <button type="button" disabled={!!busy || on === total}
+                          className="h-8 px-3 rounded-lg border border-line bg-surface text-xs font-medium text-ink hover:bg-surface2 disabled:opacity-40"
+                          onClick={() => void post({ action: "branch_all", branch_id: b.id, enabled: true }, "branch")}>{L("เปิดทั้งหมด", "All on", "全开")}</button>
+                        <button type="button" disabled={!!busy || on === 0}
+                          className="h-8 px-3 rounded-lg border border-line bg-surface text-xs font-medium text-danger hover:bg-danger/5 disabled:opacity-40"
+                          onClick={() => void post({ action: "branch_all", branch_id: b.id, enabled: false }, "branch")}>{L("ปิดทั้งหมด", "All off", "全关")}</button>
+                      </div>
                     </td>
                   ) : null}
                 </tr>
