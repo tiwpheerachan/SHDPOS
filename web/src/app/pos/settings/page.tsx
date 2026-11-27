@@ -26,6 +26,7 @@ import type { Branch, Employee, Order } from "@/lib/types";
 // ข้อมูลบริษัทบนใบเสร็จทดสอบ (เหมือนหน้าขาย)
 const COMPANY = { name_th: "บริษัท เอส เอช ดี เทคโนโลยี จำกัด", tax_id: "0000000000000", address: "กรุงเทพมหานคร", phone: "02-000-0000" };
 
+type Section = "printer" | "display" | "appearance" | "data";
 type Pick3 = (th: string, en: string, zh: string) => string;
 
 /** ใบเสร็จตัวอย่าง (ใช้ทั้งภาพตัวอย่างและทดสอบพิมพ์ — ไม่ได้สร้างบิลจริง) */
@@ -60,6 +61,7 @@ export default function PosSettingsPage() {
   const [lastTest, setLastTest] = useState<{ ok: boolean; at: Date; msg?: string } | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
+  const [section, setSection] = useState<Section>("printer");
 
   useEffect(() => { if (session.branchId) void getBranch(session.branchId).then((b) => setBranch(b ?? null)).catch(() => undefined); }, [session.branchId]);
   useEffect(() => { setSunmi(shellInfo()); }, []);
@@ -129,212 +131,317 @@ export default function PosSettingsPage() {
 
   const Dot = ({ ok }: { ok: boolean | null }) => ok === null ? <Loader2 size={14} className="animate-spin text-muted" /> : ok ? <CheckCircle2 size={15} className="text-ok" /> : <AlertCircle size={15} className="text-warn" />;
 
+  const sections: { id: Section; icon: React.ReactNode; title: string; sub: string; ok: boolean | null }[] = [
+    { id: "printer", icon: <Printer size={18} />, title: L("เครื่องพิมพ์ใบเสร็จ", "Receipt printer", "小票打印机"), sub: printerState.label, ok: printerState.ok },
+    { id: "display", icon: <Monitor size={18} />, title: t.settings.customerDisplay, sub: sunmi ? (sunmi.secondScreen ? L("จอที่สอง Sunmi พร้อม", "Sunmi second screen ready", "Sunmi 副屏就绪") : L("ไม่พบจอที่สอง", "No second screen", "未检测到副屏")) : L("เปิดเป็นหน้าต่างที่สอง", "Opens as a second window", "以第二窗口打开"), ok: sunmi ? sunmi.secondScreen : null },
+    { id: "appearance", icon: <Palette size={18} />, title: t.settings.appearance, sub: `${mode === "light" ? t.settings.light : mode === "dark" ? t.settings.dark : t.settings.system} · ${LOCALE_LABEL[locale]}`, ok: null },
+    { id: "data", icon: <Database size={18} />, title: t.settings.dataMode, sub: sync.failed ? L(`ส่งไม่สำเร็จ ${sync.failed}`, `${sync.failed} failed`, `${sync.failed} 失败`) : sync.pending ? L(`รอซิงก์ ${sync.pending}`, `${sync.pending} pending`, `待同步 ${sync.pending}`) : sync.online ? L("ออนไลน์ · ซิงก์ครบ", "Online · all synced", "在线 · 已全部同步") : L("ออฟไลน์", "Offline", "离线"), ok: sync.online && !sync.failed && !sync.pending },
+  ];
+  const cur = sections.find((s) => s.id === section)!;
+  const browserName = typeof navigator === "undefined" ? "—" : /Edg\//.test(navigator.userAgent) ? "Edge" : /Chrome\//.test(navigator.userAgent) ? "Chrome" : /Safari\//.test(navigator.userAgent) ? "Safari" : /Firefox\//.test(navigator.userAgent) ? "Firefox" : "—";
+
   return (
-    <div className="p-4 sm:p-6 max-w-6xl mx-auto space-y-4">
-      {/* หัว + สถานะรวม */}
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold flex items-center gap-2"><Settings2 size={20} className="text-brand" /> {t.settings.title}</h1>
-          <p className="text-xs text-muted mt-0.5">{L("ตั้งค่าเฉพาะเครื่องนี้ — เครื่องพิมพ์ จอลูกค้า และการแสดงผล", "Settings for this device — printer, customer display and appearance", "本机设置 — 打印机、客显屏与显示")}</p>
+    <div className="p-4 sm:p-6 min-h-[calc(100dvh-56px)] flex flex-col gap-4">
+      {/* หัว */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <span className="h-11 w-11 rounded-2xl bg-brand/12 text-brand grid place-items-center"><Settings2 size={22} /></span>
+          <div>
+            <h1 className="text-xl font-semibold leading-tight">{t.settings.title}</h1>
+            <p className="text-xs text-muted">{L("ตั้งค่าเฉพาะเครื่องนี้", "Settings for this device", "本机设置")}{branch ? <> · <span translate="no">{branch.name_th || branch.name}</span></> : null}</p>
+          </div>
         </div>
         <div className="flex flex-wrap gap-2">
           <StatusPill icon={<Printer size={14} />} ok={printerState.ok} label={L("เครื่องพิมพ์", "Printer", "打印机")} value={printerState.ok ? L("พร้อม", "Ready", "就绪") : printerState.ok === null ? "…" : L("ยังไม่พร้อม", "Not ready", "未就绪")} />
-          <StatusPill icon={<Monitor size={14} />} ok={sunmi ? sunmi.secondScreen : null} label={L("จอลูกค้า", "Display", "客显屏")} value={sunmi ? (sunmi.secondScreen ? L("พร้อม", "Ready", "就绪") : L("ไม่พบ", "None", "无")) : L("เปิดหน้าต่าง", "Window", "窗口")} />
-          <StatusPill icon={sync.online ? <Wifi size={14} /> : <WifiOff size={14} />} ok={sync.online && !sync.failed} label={L("ข้อมูล", "Data", "数据")} value={sync.failed ? L(`ส่งไม่สำเร็จ ${sync.failed}`, `${sync.failed} failed`, `${sync.failed} 失败`) : sync.pending ? L(`รอซิงก์ ${sync.pending}`, `${sync.pending} pending`, `待同步 ${sync.pending}`) : sync.online ? L("ออนไลน์", "Online", "在线") : L("ออฟไลน์", "Offline", "离线")} />
+          <StatusPill icon={sync.online ? <Wifi size={14} /> : <WifiOff size={14} />} ok={sync.online && !sync.failed} label={L("ข้อมูล", "Data", "数据")} value={sync.pending ? L(`รอซิงก์ ${sync.pending}`, `${sync.pending} pending`, `待同步 ${sync.pending}`) : sync.online ? L("ออนไลน์", "Online", "在线") : L("ออฟไลน์", "Offline", "离线")} />
         </div>
       </div>
 
-      {/* เครื่องพิมพ์ + ตัวอย่างใบเสร็จ */}
-      <div className="grid lg:grid-cols-[minmax(0,1fr)_340px] gap-4 items-start">
-        <Card className="overflow-hidden">
-          <div className="px-5 pt-5 pb-3 flex items-start justify-between gap-3">
+      <div className="flex-1 grid lg:grid-cols-[300px_minmax(0,1fr)] gap-4 min-h-0">
+        {/* เมนูหมวด */}
+        <nav className="flex lg:flex-col gap-2 overflow-x-auto lg:overflow-visible lg:sticky lg:top-4 lg:self-start lg:h-[calc(100dvh-150px)]" aria-label={t.settings.title}>
+          {sections.map((s) => {
+            const on = s.id === section;
+            return (
+              <button key={s.id} type="button" onClick={() => setSection(s.id)} aria-current={on ? "page" : undefined}
+                className={`shrink-0 lg:w-full text-left rounded-2xl border p-3.5 flex items-center gap-3 transition-colors ${on ? "border-brand/40 bg-surface shadow-card ring-1 ring-brand/20" : "border-transparent bg-surface/60 hover:bg-surface"}`}>
+                <span className={`h-10 w-10 rounded-xl grid place-items-center shrink-0 ${on ? "bg-brand text-brandInk" : "bg-surface2 text-muted"}`}>{s.icon}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[13.5px] font-semibold truncate">{s.title}</span>
+                  <span className="block text-[11.5px] text-muted truncate" translate="no">{s.sub}</span>
+                </span>
+                {s.ok === null ? null : s.ok ? <CheckCircle2 size={16} className="text-ok shrink-0 hidden lg:block" /> : <AlertCircle size={16} className="text-warn shrink-0 hidden lg:block" />}
+              </button>
+            );
+          })}
+          {/* ข้อมูลเครื่องนี้ */}
+          <div className="hidden lg:block mt-auto rounded-2xl border border-line/70 bg-surface/60 p-4 space-y-2 text-xs">
+            <p className="text-[13px] font-semibold">{L("เครื่องนี้", "This device", "本机")}</p>
+            <InfoRow k={L("สาขา", "Branch", "门店")} v={branch ? (branch.name_th || branch.name) : "—"} />
+            <InfoRow k={L("ผู้ใช้", "User", "用户")} v={session.employee ? (session.employee.nickname || session.employee.first_name || "—") : "—"} />
+            <InfoRow k={L("เบราว์เซอร์", "Browser", "浏览器")} v={browserName} />
+            <InfoRow k="USB" v={webUsbSupported() ? L("รองรับ", "Supported", "支持") : L("ไม่รองรับ", "Not supported", "不支持")} />
+            <InfoRow k={L("โหมด", "Mode", "模式")} v={sunmi ? `Sunmi ${sunmi.model}` : isLiveMode() ? L("ระบบจริง", "Live", "正式") : L("สาธิต", "Demo", "演示")} />
+          </div>
+        </nav>
+
+        {/* เนื้อหาหมวด */}
+        <Card className="min-h-0 flex flex-col overflow-hidden">
+          <div className="px-6 py-4 border-b border-line/70 flex items-center justify-between gap-3">
             <div>
-              <h2 className="text-base font-semibold flex items-center gap-2"><Printer size={17} className="text-brand" />{L("เครื่องพิมพ์ใบเสร็จ", "Receipt printer", "小票打印机")}</h2>
-              <p className="text-xs text-muted mt-0.5">{L("1 เลือกวิธีต่อ → 2 เชื่อมต่อ → 3 ทดสอบพิมพ์", "1 Choose method → 2 Connect → 3 Test print", "1 选择方式 → 2 连接 → 3 测试打印")}</p>
+              <h2 className="text-lg font-semibold">{cur.title}</h2>
+              <p className="text-xs text-muted">
+                {section === "printer" ? L("เลือกวิธีต่อ → เชื่อมต่อ → ทดสอบพิมพ์ · ใบเสร็จส่งเป็นรูป ภาษาไทยออกถูกทุกยี่ห้อ", "Choose method → connect → test print · receipts are sent as images so Thai prints correctly", "选择方式 → 连接 → 测试打印 · 小票以图片发送，泰文正确")
+                  : section === "display" ? L("หน้าจอที่หันหาลูกค้า แสดงตะกร้า ยอด และ QR ชำระเงิน", "The customer-facing screen shows the cart, total and payment QR", "面向顾客的屏幕显示购物车、金额与付款二维码")
+                  : section === "appearance" ? L("โหมดสีและภาษาของเครื่องนี้", "Color mode and language for this device", "本机的颜色模式与语言")
+                  : L("บิลที่ขายขณะออฟไลน์จะเก็บในเครื่องแล้วส่งขึ้นเซิร์ฟเวอร์อัตโนมัติ", "Bills made offline are kept on this device and synced automatically", "离线开单保存在本机并自动同步")}
+              </p>
             </div>
+            {section === "data" ? <Badge tone={isLiveMode() ? "ok" : "warn"}>{isLiveMode() ? L("ระบบจริง", "Live", "正式") : L("สาธิต", "Demo", "演示")}</Badge> : null}
           </div>
 
-          <div className="px-5 pb-5 space-y-5">
-            {/* 1) วิธีต่อ */}
-            <section>
-              <StepTitle n={1} text={L("วิธีต่อเครื่องพิมพ์", "How the printer connects", "打印机连接方式")} />
-              <div className="grid sm:grid-cols-2 gap-2">
-                {methods.map((m) => {
-                  const on = transport === m.v;
-                  return (
-                    <button key={m.v} type="button" onClick={() => session.setPrinter({ transport: m.v })} aria-pressed={on}
-                      className={`text-left rounded-2xl border p-3 flex gap-3 transition-colors ${on ? "border-brand bg-brand/[0.06] ring-1 ring-brand/30" : "border-line hover:bg-surface2"}`}>
-                      <span className={`h-9 w-9 rounded-xl grid place-items-center shrink-0 ${on ? "bg-brand text-brandInk" : "bg-surface2 text-muted"}`}>{m.icon}</span>
-                      <span className="min-w-0">
-                        <span className="flex items-center gap-1.5 text-[13px] font-semibold">{m.title}{m.rec ? <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-ok/12 text-ok font-medium">{L("แนะนำ", "Recommended", "推荐")}</span> : null}</span>
-                        <span className="block text-[11.5px] text-muted leading-snug mt-0.5">{m.desc}</span>
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </section>
+          <div className="flex-1 min-h-0 overflow-auto">
+            {section === "printer" ? (
+              <div className="grid xl:grid-cols-[minmax(0,1fr)_420px] h-full">
+                <div className="p-6 space-y-6 min-w-0">
+                  {/* 1) วิธีต่อ */}
+                  <section>
+                    <StepTitle n={1} text={L("วิธีต่อเครื่องพิมพ์", "How the printer connects", "打印机连接方式")} />
+                    <div className="grid sm:grid-cols-2 2xl:grid-cols-4 gap-2.5">
+                      {methods.map((m) => {
+                        const on = transport === m.v;
+                        return (
+                          <button key={m.v} type="button" onClick={() => session.setPrinter({ transport: m.v })} aria-pressed={on}
+                            className={`relative text-left rounded-2xl border p-4 flex flex-col gap-2.5 transition-colors ${on ? "border-brand bg-brand/[0.06] ring-1 ring-brand/30" : "border-line hover:bg-surface2"}`}>
+                            {m.rec ? <span className="absolute top-3 right-3 text-[10px] px-1.5 py-0.5 rounded-full bg-ok/12 text-ok font-medium">{L("แนะนำ", "Recommended", "推荐")}</span> : null}
+                            <span className={`h-10 w-10 rounded-xl grid place-items-center ${on ? "bg-brand text-brandInk" : "bg-surface2 text-muted"}`}>{m.icon}</span>
+                            <span>
+                              <span className="block text-[13.5px] font-semibold">{m.title}</span>
+                              <span className="block text-[11.5px] text-muted leading-snug mt-0.5">{m.desc}</span>
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </section>
 
-            {/* 2) เชื่อมต่อ */}
-            <section>
-              <StepTitle n={2} text={L("เชื่อมต่อ", "Connect", "连接")} />
-              <div className={`rounded-2xl border p-4 space-y-3 ${printerState.ok ? "border-ok/30 bg-ok/[0.04]" : printerState.ok === false ? "border-warn/30 bg-warn/[0.04]" : "border-line"}`}>
-                <div className="flex flex-wrap items-center gap-2 justify-between">
-                  <span className="inline-flex items-center gap-2 text-sm font-medium min-w-0"><Dot ok={printerState.ok} /><span className="truncate" translate="no">{printerState.label}</span></span>
-                  {transport === "usb" ? (
-                    <Button size="sm" variant={usbName ? "soft" : "primary"} disabled={!webUsbSupported()} onClick={() => void connectUsb()}><Usb size={14} />{usbName ? L("เปลี่ยนเครื่องพิมพ์", "Change printer", "更换打印机") : L("เชื่อมต่อ USB", "Connect USB", "连接 USB")}</Button>
-                  ) : transport === "webserial" ? (
-                    <Button size="sm" variant="primary" disabled={!webSerialSupported()} onClick={async () => { const ok = await connectWebSerial(); setSerialOk(ok); toast.push(ok ? { tone: "ok", title: L("เชื่อมต่อแล้ว", "Connected", "已连接") } : { tone: "warn", title: L("เชื่อมต่อไม่สำเร็จ", "Connection failed", "连接失败") }); }}><Cable size={14} />{L("เชื่อมต่อ Serial", "Connect serial", "连接串口")}</Button>
-                  ) : transport === "bridge" ? (
-                    <Button size="sm" variant="soft" onClick={() => { setBridgeOk(null); void bridgeStatus(session.printer).then((r) => { setBridgeOk(r.ok); setPrinters(r.printers ?? []); }); }}><RefreshCw size={14} />{L("ตรวจใหม่", "Re-check", "重新检测")}</Button>
-                  ) : null}
+                  {/* 2) เชื่อมต่อ */}
+                  <section>
+                    <StepTitle n={2} text={L("เชื่อมต่อ", "Connect", "连接")} />
+                    <div className={`rounded-2xl border p-5 space-y-3 ${printerState.ok ? "border-ok/30 bg-ok/[0.04]" : printerState.ok === false ? "border-warn/30 bg-warn/[0.04]" : "border-line"}`}>
+                      <div className="flex flex-wrap items-center gap-3 justify-between">
+                        <span className="inline-flex items-center gap-3 min-w-0">
+                          <span className={`h-11 w-11 rounded-xl grid place-items-center shrink-0 ${printerState.ok ? "bg-ok/15 text-ok" : "bg-warn/15 text-warn"}`}><Printer size={20} /></span>
+                          <span className="min-w-0">
+                            <span className="block text-[15px] font-semibold truncate" translate="no">{printerState.label}</span>
+                            <span className="inline-flex items-center gap-1 text-xs text-muted"><Dot ok={printerState.ok} />{printerState.ok ? L("พร้อมพิมพ์", "Ready to print", "可打印") : printerState.ok === null ? L("กำลังตรวจ", "Checking", "检查中") : L("ยังไม่พร้อม", "Not ready", "未就绪")}</span>
+                          </span>
+                        </span>
+                        {transport === "usb" ? (
+                          <Button variant={usbName ? "soft" : "primary"} disabled={!webUsbSupported()} onClick={() => void connectUsb()}><Usb size={15} />{usbName ? L("เปลี่ยนเครื่องพิมพ์", "Change printer", "更换打印机") : L("เชื่อมต่อ USB", "Connect USB", "连接 USB")}</Button>
+                        ) : transport === "webserial" ? (
+                          <Button variant="primary" disabled={!webSerialSupported()} onClick={async () => { const ok = await connectWebSerial(); setSerialOk(ok); toast.push(ok ? { tone: "ok", title: L("เชื่อมต่อแล้ว", "Connected", "已连接") } : { tone: "warn", title: L("เชื่อมต่อไม่สำเร็จ", "Connection failed", "连接失败") }); }}><Cable size={15} />{L("เชื่อมต่อ Serial", "Connect serial", "连接串口")}</Button>
+                        ) : transport === "bridge" ? (
+                          <Button variant="soft" onClick={() => { setBridgeOk(null); void bridgeStatus(session.printer).then((r) => { setBridgeOk(r.ok); setPrinters(r.printers ?? []); }); }}><RefreshCw size={15} />{L("ตรวจใหม่", "Re-check", "重新检测")}</Button>
+                        ) : null}
+                      </div>
+                      {transport === "usb" ? (
+                        <p className="text-xs text-muted leading-relaxed">
+                          {webUsbSupported()
+                            ? L("ต่อสาย USB แล้วกด “เชื่อมต่อ USB” เลือกเครื่องพิมพ์ครั้งเดียว — ครั้งต่อไประบบต่อให้อัตโนมัติ", "Plug in the USB cable, press “Connect USB” and pick the printer once — it reconnects automatically afterwards", "插上 USB 线，点“连接 USB”选择打印机一次 — 之后自动连接")
+                            : L("เบราว์เซอร์นี้ใช้ USB ไม่ได้ — เปิดด้วย Chrome หรือ Edge บนคอม หรือเลือก “ไดรเวอร์ในเครื่อง”", "This browser can't use USB — open in Chrome or Edge on a computer, or choose “System driver”", "此浏览器无法使用 USB — 请用电脑版 Chrome/Edge，或选择“系统驱动”")}
+                        </p>
+                      ) : null}
+                      {transport === "browser" ? (
+                        <p className="text-xs text-muted leading-relaxed">{L("ลงไดรเวอร์ของเครื่องพิมพ์ในคอมแล้วตั้งเป็นเครื่องพิมพ์หลัก — จะมีหน้าต่างพิมพ์ให้กดทุกครั้ง · ตั้งกระดาษ 80 มม. และขอบ “ไม่มี”", "Install the printer driver and set it as default — a print dialog appears each time · paper 80mm, margins “None”", "安装打印机驱动并设为默认 — 每次弹出打印对话框 · 纸张 80 毫米、边距“无”")}</p>
+                      ) : null}
+                      {transport === "bridge" ? (
+                        <div className="grid sm:grid-cols-2 gap-3">
+                          <Field label={t.settings.bridgeUrl} hint={L("รันโปรแกรมจากโฟลเดอร์ bridge/ บนเครื่องนี้", "Run the agent from the bridge/ folder on this machine", "在本机运行 bridge/ 中的程序")}>
+                            <Input value={session.printer.bridgeUrl} onChange={(e) => session.setPrinter({ bridgeUrl: e.target.value })} />
+                          </Field>
+                          {printers.length ? (
+                            <Field label={t.settings.printer}>
+                              <Select value={session.printer.printerName ?? ""} onChange={(e) => session.setPrinter({ printerName: e.target.value })}>
+                                <option value="">(default)</option>
+                                {printers.map((p) => <option key={p}>{p}</option>)}
+                              </Select>
+                            </Field>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </div>
+                  </section>
+
+                  {/* 3) กระดาษ + ทดสอบ */}
+                  <section>
+                    <StepTitle n={3} text={L("กระดาษและทดสอบพิมพ์", "Paper & test print", "纸张与测试打印")} />
+                    <div className="rounded-2xl border border-line p-5 space-y-4">
+                      <div className="flex flex-wrap items-end gap-4">
+                        <Field label={L("ขนาดกระดาษ", "Paper width", "纸张宽度")}>
+                          <Segmented value={String(session.printer.width)} onChange={(v) => session.setPrinter({ width: Number(v) })}
+                            options={[{ value: "48", label: L("80 มม.", "80 mm", "80 毫米") }, { value: "32", label: L("58 มม.", "58 mm", "58 毫米") }]} />
+                        </Field>
+                        {hasDrawer ? (
+                          <Field label={L("ขาลิ้นชัก", "Drawer pin", "钱箱引脚")}>
+                            <Select value={session.printer.drawerPin} onChange={(e) => session.setPrinter({ drawerPin: Number(e.target.value) as 0 | 1 })}>
+                              <option value={0}>{L("Pin 2 (ปกติ)", "Pin 2 (default)", "Pin 2（默认）")}</option>
+                              <option value={1}>Pin 5</option>
+                            </Select>
+                          </Field>
+                        ) : null}
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Button variant="primary" className="flex-1 min-w-[240px] h-12 text-[15px]" loading={testing} onClick={() => void testPrint()}>
+                          <Printer size={17} /> {L("ทดสอบพิมพ์ใบเสร็จ", "Print a test receipt", "打印测试小票")}
+                        </Button>
+                        {hasDrawer ? <Button variant="ghost" className="h-12" onClick={() => void testDrawer()}><Inbox size={16} /> {t.settings.testDrawer}</Button> : null}
+                      </div>
+                      {lastTest ? (
+                        <p className={`text-xs flex items-center gap-1.5 ${lastTest.ok ? "text-ok" : "text-danger"}`}>
+                          {lastTest.ok ? <CheckCircle2 size={13} /> : <AlertCircle size={13} />}
+                          {lastTest.ok ? L("ส่งงานพิมพ์สำเร็จ", "Sent successfully", "发送成功") : L("พิมพ์ไม่สำเร็จ", "Print failed", "打印失败")}
+                          {" · "}{lastTest.at.toLocaleTimeString(locale === "th" ? "th-TH" : locale === "zh" ? "zh-CN" : "en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                          {lastTest.msg ? <span className="text-muted"> — {lastTest.msg}</span> : null}
+                        </p>
+                      ) : null}
+                    </div>
+                  </section>
+
+                  {/* แก้ปัญหา */}
+                  <details className="group rounded-2xl border border-line">
+                    <summary className="cursor-pointer list-none px-5 py-3.5 text-[13px] font-medium flex items-center justify-between">
+                      {L("พิมพ์ไม่ออก? วิธีแก้", "Nothing prints? Troubleshooting", "无法打印？排查方法")}
+                      <ChevronDown size={15} className="text-muted transition-transform group-open:rotate-180" />
+                    </summary>
+                    <ul className="px-5 pb-4 space-y-1.5 text-xs text-muted list-disc pl-9 leading-relaxed">
+                      <li>{L("เครื่องพิมพ์เปิดอยู่ ไฟเขียว มีกระดาษ และฝาปิดสนิท", "Printer is on (green light), has paper and the cover is closed", "打印机已开（绿灯）、有纸且盖已合上")}</li>
+                      <li>{L("ใช้ Chrome หรือ Edge — Safari ใช้ USB ไม่ได้", "Use Chrome or Edge — Safari can't use USB", "请用 Chrome 或 Edge — Safari 不支持 USB")}</li>
+                      <li>{L("ถอดสาย USB แล้วเสียบใหม่ จากนั้นกด “เปลี่ยนเครื่องพิมพ์” เลือกเครื่องอีกครั้ง", "Unplug and replug the USB cable, then press “Change printer” and pick it again", "拔插 USB 线后点“更换打印机”重新选择")}</li>
+                      <li>{L("Windows: ถ้าเชื่อมต่อ USB ไม่ได้ ให้ลงไดรเวอร์เครื่องพิมพ์แล้วเลือก “ไดรเวอร์ในเครื่อง”", "Windows: if USB won't connect, install the printer driver and choose “System driver”", "Windows：若 USB 连不上，请安装驱动并选择“系统驱动”")}</li>
+                      <li>{L("เว็บจริงกับ localhost ต้องกดเชื่อมต่อแยกกันอย่างละครั้ง", "The live site and localhost each need connecting once", "正式网站与 localhost 需分别连接一次")}</li>
+                    </ul>
+                  </details>
                 </div>
 
-                {transport === "usb" ? (
-                  <p className="text-xs text-muted leading-relaxed">
-                    {webUsbSupported()
-                      ? L("ต่อสาย USB แล้วกด “เชื่อมต่อ USB” เลือกเครื่องพิมพ์ (เช่น Gainscha GA-E200I) ครั้งเดียว — ครั้งต่อไประบบต่อให้อัตโนมัติ", "Plug in the USB cable, press “Connect USB” and pick the printer (e.g. Gainscha GA-E200I) once — it reconnects automatically afterwards", "插上 USB 线，点“连接 USB”选择打印机（如 Gainscha GA-E200I）一次 — 之后自动连接")
-                      : L("เบราว์เซอร์นี้ใช้ USB ไม่ได้ — เปิดด้วย Chrome หรือ Edge บนคอม หรือเลือก “ไดรเวอร์ในเครื่อง”", "This browser can't use USB — open in Chrome or Edge on a computer, or choose “System driver”", "此浏览器无法使用 USB — 请用电脑版 Chrome/Edge，或选择“系统驱动”")}
-                  </p>
-                ) : null}
-                {transport === "browser" ? (
-                  <p className="text-xs text-muted leading-relaxed">{L("ลงไดรเวอร์ของเครื่องพิมพ์ในคอมแล้วตั้งเป็นเครื่องพิมพ์หลัก — จะมีหน้าต่างพิมพ์ให้กดทุกครั้ง · ตั้งกระดาษ 80 มม. และขอบ “ไม่มี”", "Install the printer driver and set it as default — a print dialog appears each time · paper 80mm, margins “None”", "安装打印机驱动并设为默认 — 每次弹出打印对话框 · 纸张 80 毫米、边距“无”")}</p>
-                ) : null}
-                {transport === "bridge" ? (
-                  <div className="grid sm:grid-cols-2 gap-3">
-                    <Field label={t.settings.bridgeUrl} hint={L("รันโปรแกรมจากโฟลเดอร์ bridge/ บนเครื่องนี้", "Run the agent from the bridge/ folder on this machine", "在本机运行 bridge/ 中的程序")}>
-                      <Input value={session.printer.bridgeUrl} onChange={(e) => session.setPrinter({ bridgeUrl: e.target.value })} />
-                    </Field>
-                    {printers.length ? (
-                      <Field label={t.settings.printer}>
-                        <Select value={session.printer.printerName ?? ""} onChange={(e) => session.setPrinter({ printerName: e.target.value })}>
-                          <option value="">(default)</option>
-                          {printers.map((p) => <option key={p}>{p}</option>)}
-                        </Select>
-                      </Field>
-                    ) : null}
+                {/* ตัวอย่างใบเสร็จ — สูงเต็มพื้นที่ */}
+                <aside className="border-t xl:border-t-0 xl:border-l border-line/70 bg-surface2/60 flex flex-col min-h-[420px]">
+                  <div className="px-5 pt-5 pb-3 flex items-center justify-between">
+                    <div>
+                      <h3 className="text-sm font-semibold">{L("ตัวอย่างใบเสร็จ", "Receipt preview", "小票预览")}</h3>
+                      <p className="text-[11px] text-muted">{L("หน้าตาที่จะพิมพ์จริง", "Exactly what will print", "实际打印效果")}</p>
+                    </div>
+                    <Badge tone="neutral">{session.printer.width <= 32 ? "58" : "80"} {L("มม.", "mm", "毫米")}</Badge>
                   </div>
-                ) : null}
+                  <div className="flex-1 min-h-0 overflow-auto px-5 pb-5">
+                    {preview
+                      // eslint-disable-next-line @next/next/no-img-element
+                      ? <img src={`data:image/png;base64,${preview}`} alt={L("ตัวอย่างใบเสร็จ", "Receipt preview", "小票预览")} className={`mx-auto bg-white rounded-sm shadow-[0_8px_30px_-12px_rgba(0,0,0,.35)] ${session.printer.width <= 32 ? "w-[72%]" : "w-full"}`} />
+                      : <div className="h-64 grid place-items-center text-muted"><Loader2 size={18} className="animate-spin" /></div>}
+                  </div>
+                </aside>
               </div>
-            </section>
+            ) : null}
 
-            {/* 3) ทดสอบ */}
-            <section>
-              <StepTitle n={3} text={L("กระดาษและทดสอบพิมพ์", "Paper & test print", "纸张与测试打印")} />
-              <div className="flex flex-wrap items-end gap-3">
-                <Field label={L("ขนาดกระดาษ", "Paper width", "纸张宽度")}>
-                  <Segmented value={String(session.printer.width)} onChange={(v) => session.setPrinter({ width: Number(v) })}
-                    options={[{ value: "48", label: L("80 มม.", "80 mm", "80 毫米") }, { value: "32", label: L("58 มม.", "58 mm", "58 毫米") }]} />
-                </Field>
-                {hasDrawer ? (
-                  <Field label={L("ขาลิ้นชัก", "Drawer pin", "钱箱引脚")}>
-                    <Select value={session.printer.drawerPin} onChange={(e) => session.setPrinter({ drawerPin: Number(e.target.value) as 0 | 1 })}>
-                      <option value={0}>{L("Pin 2 (ปกติ)", "Pin 2 (default)", "Pin 2（默认）")}</option>
-                      <option value={1}>Pin 5</option>
-                    </Select>
-                  </Field>
-                ) : null}
+            {section === "display" ? (
+              <div className="p-6 grid xl:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] gap-6 items-start">
+                <div className="space-y-4">
+                  <div className="rounded-2xl border border-line p-5 space-y-3">
+                    <p className="text-sm leading-relaxed">
+                      {sunmi
+                        ? (sunmi.secondScreen ? L("จอที่สองของ Sunmi แสดงตะกร้า ยอด และ QR ให้ลูกค้าอัตโนมัติ ไม่ต้องตั้งค่าเพิ่ม", "The Sunmi second screen shows cart, total and QR automatically — nothing to set up", "Sunmi 副屏自动显示购物车、金额与二维码，无需设置") : L("ไม่พบจอที่สอง — ตรวจสายจอลูกค้าแล้วเปิดแอปใหม่", "No second screen found — check the customer display cable and restart the app", "未检测到副屏 — 请检查客显屏连线并重启应用"))
+                        : L("คอมที่ต่อ 2 จอ: กดเปิดจอลูกค้า แล้วลากหน้าต่างไปจอที่หันหาลูกค้า กด F11 ให้เต็มจอ", "Two-monitor computer: open the customer display, drag the window to the customer-facing screen and press F11 for full screen", "双屏电脑：打开客显屏窗口，拖到面向顾客的屏幕并按 F11 全屏")}
+                    </p>
+                    {!sunmi ? <Button variant="primary" className="h-11" onClick={openDisplayWindow}><Monitor size={16} /> {t.settings.openDisplay}</Button> : null}
+                  </div>
+                  <ul className="text-xs text-muted space-y-1.5 list-disc pl-5 leading-relaxed">
+                    <li>{L("แสดงรายการสินค้า ส่วนลด และยอดสุทธิทันทีที่สแกน", "Shows items, discounts and the total as you scan", "扫码即时显示商品、折扣与合计")}</li>
+                    <li>{L("ตอนชำระเงินแสดง QR พร้อมเพย์ให้ลูกค้าสแกน", "Shows the PromptPay QR at payment", "付款时显示 PromptPay 二维码")}</li>
+                    <li>{L("ตอนว่างหมุนแบนเนอร์ของแบรนด์ (ตั้งที่หลังบ้าน → จอลูกค้า)", "Rotates brand banners when idle (Back office → Customer display)", "空闲时轮播品牌横幅（后台 → 客显屏）")}</li>
+                  </ul>
+                </div>
+                {/* ภาพจำลองจอลูกค้า */}
+                <div className="rounded-[22px] border-[10px] border-ink/85 bg-surface shadow-card overflow-hidden aspect-[16/10]">
+                  <div className="h-full grid grid-cols-[1.4fr_1fr]">
+                    <div className="p-4 space-y-2">
+                      <p className="text-[10px] text-muted">{L("รายการของคุณ", "Your items", "您的商品")}</p>
+                      {[["Soundcore Life P3", "2", "990.00"], ["MOVA Z200", "1", "4,990.00"]].map(([n, q, p]) => (
+                        <div key={n} className="flex items-center gap-2 rounded-lg bg-surface2 px-2 py-1.5 text-[11px]"><span className="h-5 w-5 rounded bg-brand/15 text-brand grid place-items-center text-[9px]">{q}</span><span className="flex-1 truncate" translate="no">{n}</span><span className="tnum">{p}</span></div>
+                      ))}
+                    </div>
+                    <div className="bg-surface2 p-4 flex flex-col justify-end">
+                      <p className="text-[10px] text-muted">{L("ยอดสุทธิ", "Total", "应付")}</p>
+                      <p className="text-xl font-bold tnum">฿5,980.00</p>
+                    </div>
+                  </div>
+                </div>
               </div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <Button variant="primary" className="flex-1 min-w-[220px] h-11 text-[14px]" loading={testing} onClick={() => void testPrint()}>
-                  <Printer size={16} /> {L("ทดสอบพิมพ์ใบเสร็จ", "Print a test receipt", "打印测试小票")}
-                </Button>
-                {hasDrawer ? <Button variant="ghost" className="h-11" onClick={() => void testDrawer()}><Inbox size={16} /> {t.settings.testDrawer}</Button> : null}
+            ) : null}
+
+            {section === "appearance" ? (
+              <div className="p-6 space-y-8 max-w-4xl">
+                <section>
+                  <p className="text-[13px] font-semibold mb-3">{t.settings.theme}</p>
+                  <div className="grid sm:grid-cols-3 gap-3">
+                    {([["light", t.settings.light, "bg-white", "bg-slate-100"], ["dark", t.settings.dark, "bg-slate-900", "bg-slate-700"], ["system", t.settings.system, "bg-gradient-to-r from-white to-slate-900", "bg-slate-400"]] as const).map(([v, label, bg, bar]) => (
+                      <button key={v} type="button" onClick={() => setMode(v as ThemeMode)} aria-pressed={mode === v}
+                        className={`rounded-2xl border p-3 text-left transition-colors ${mode === v ? "border-brand ring-1 ring-brand/30 bg-brand/[0.05]" : "border-line hover:bg-surface2"}`}>
+                        <span className={`block h-20 rounded-xl border border-line ${bg} p-2 space-y-1.5`}><span className={`block h-2 w-1/2 rounded ${bar}`} /><span className={`block h-2 w-3/4 rounded ${bar}`} /><span className={`block h-2 w-2/3 rounded ${bar}`} /></span>
+                        <span className="mt-2 flex items-center justify-between text-[13px] font-medium">{label}{mode === v ? <CheckCircle2 size={15} className="text-brand" /> : null}</span>
+                      </button>
+                    ))}
+                  </div>
+                </section>
+                <section>
+                  <p className="text-[13px] font-semibold mb-3">{t.settings.language}</p>
+                  <div className="grid sm:grid-cols-3 gap-3">
+                    {LOCALES.map((l) => (
+                      <button key={l} type="button" onClick={() => setLocale(l)} aria-pressed={locale === l}
+                        className={`rounded-2xl border px-4 py-4 text-left flex items-center justify-between transition-colors ${locale === l ? "border-brand ring-1 ring-brand/30 bg-brand/[0.05]" : "border-line hover:bg-surface2"}`}>
+                        <span><span className="block text-[15px] font-semibold" translate="no">{LOCALE_LABEL[l]}</span><span className="text-[11px] text-muted uppercase">{l}</span></span>
+                        {locale === l ? <CheckCircle2 size={16} className="text-brand" /> : null}
+                      </button>
+                    ))}
+                  </div>
+                </section>
               </div>
-              {lastTest ? (
-                <p className={`mt-2 text-xs flex items-center gap-1.5 ${lastTest.ok ? "text-ok" : "text-danger"}`}>
-                  {lastTest.ok ? <CheckCircle2 size={13} /> : <AlertCircle size={13} />}
-                  {lastTest.ok ? L("ส่งงานพิมพ์สำเร็จ", "Sent successfully", "发送成功") : L("พิมพ์ไม่สำเร็จ", "Print failed", "打印失败")}
-                  {" · "}{lastTest.at.toLocaleTimeString(locale === "th" ? "th-TH" : locale === "zh" ? "zh-CN" : "en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
-                  {lastTest.msg ? <span className="text-muted"> — {lastTest.msg}</span> : null}
-                </p>
-              ) : null}
-            </section>
+            ) : null}
 
-            {/* แก้ปัญหา */}
-            <details className="group rounded-2xl border border-line">
-              <summary className="cursor-pointer list-none px-4 py-3 text-[13px] font-medium flex items-center justify-between">
-                {L("พิมพ์ไม่ออก? วิธีแก้", "Nothing prints? Troubleshooting", "无法打印？排查方法")}
-                <ChevronDown size={15} className="text-muted transition-transform group-open:rotate-180" />
-              </summary>
-              <ul className="px-4 pb-4 space-y-1.5 text-xs text-muted list-disc pl-8 leading-relaxed">
-                <li>{L("เครื่องพิมพ์เปิดอยู่ ไฟเขียว มีกระดาษ และฝาปิดสนิท", "Printer is on (green light), has paper and the cover is closed", "打印机已开（绿灯）、有纸且盖已合上")}</li>
-                <li>{L("ใช้ Chrome หรือ Edge — Safari ใช้ USB ไม่ได้", "Use Chrome or Edge — Safari can't use USB", "请用 Chrome 或 Edge — Safari 不支持 USB")}</li>
-                <li>{L("ถอดสาย USB แล้วเสียบใหม่ จากนั้นกด “เปลี่ยนเครื่องพิมพ์” เลือกเครื่องอีกครั้ง", "Unplug and replug the USB cable, then press “Change printer” and pick it again", "拔插 USB 线后点“更换打印机”重新选择")}</li>
-                <li>{L("Windows: ถ้าเชื่อมต่อ USB ไม่ได้ ให้ลงไดรเวอร์เครื่องพิมพ์แล้วเลือก “ไดรเวอร์ในเครื่อง”", "Windows: if USB won't connect, install the printer driver and choose “System driver”", "Windows：若 USB 连不上，请安装驱动并选择“系统驱动”")}</li>
-                <li>{L("เว็บจริงกับ localhost ต้องกดเชื่อมต่อแยกกันอย่างละครั้ง", "The live site and localhost each need connecting once", "正式网站与 localhost 需分别连接一次")}</li>
-              </ul>
-            </details>
-          </div>
-        </Card>
-
-        {/* ตัวอย่างใบเสร็จ */}
-        <Card className="lg:sticky lg:top-4 overflow-hidden">
-          <div className="px-4 pt-4 pb-2">
-            <h3 className="text-sm font-semibold">{L("ตัวอย่างใบเสร็จ", "Receipt preview", "小票预览")}</h3>
-            <p className="text-[11px] text-muted">{L(`หน้าตาที่จะพิมพ์จริง · ${session.printer.width <= 32 ? "58" : "80"} มม.`, `What will print · ${session.printer.width <= 32 ? "58" : "80"} mm`, `实际打印效果 · ${session.printer.width <= 32 ? "58" : "80"} 毫米`)}</p>
-          </div>
-          <div className="px-4 pb-4">
-            <div className="rounded-xl bg-surface2 border border-line p-3 max-h-[560px] overflow-auto">
-              {preview
-                // eslint-disable-next-line @next/next/no-img-element
-                ? <img src={`data:image/png;base64,${preview}`} alt={L("ตัวอย่างใบเสร็จ", "Receipt preview", "小票预览")} className={`mx-auto bg-white shadow-sm ${session.printer.width <= 32 ? "w-[75%]" : "w-full"}`} />
-                : <div className="h-64 grid place-items-center text-muted"><Loader2 size={18} className="animate-spin" /></div>}
-            </div>
-          </div>
-        </Card>
-      </div>
-
-      {/* จอลูกค้า · การแสดงผล · ข้อมูล */}
-      <div className="grid md:grid-cols-3 gap-4">
-        <Card className="p-5 space-y-3">
-          <h2 className="text-sm font-semibold flex items-center gap-2"><Monitor size={16} className="text-brand" />{t.settings.customerDisplay}</h2>
-          <p className="text-xs text-muted leading-relaxed">
-            {sunmi
-              ? (sunmi.secondScreen ? L("จอที่สองของ Sunmi แสดงตะกร้า ยอด และ QR ให้ลูกค้าอัตโนมัติ", "The Sunmi second screen shows cart, total and QR automatically", "Sunmi 副屏自动显示购物车、金额与二维码") : L("ไม่พบจอที่สอง — ตรวจการต่อจอลูกค้า", "No second screen found — check the customer display cable", "未检测到副屏 — 请检查客显屏连接"))
-              : L("เปิดหน้าต่างที่สองแล้วลากไปจอที่หันหาลูกค้า (คอมที่ต่อ 2 จอ)", "Open a second window and drag it to the customer-facing screen (two-monitor setup)", "打开第二个窗口并拖到面向顾客的屏幕（双屏电脑）")}
-          </p>
-          {!sunmi ? <Button variant="soft" onClick={openDisplayWindow}><Monitor size={15} /> {t.settings.openDisplay}</Button> : null}
-        </Card>
-
-        <Card className="p-5 space-y-3">
-          <h2 className="text-sm font-semibold flex items-center gap-2"><Palette size={16} className="text-brand" />{t.settings.appearance}</h2>
-          <Field label={t.settings.theme}>
-            <Segmented value={mode} onChange={(v) => setMode(v as ThemeMode)}
-              options={[{ value: "light" as ThemeMode, label: t.settings.light }, { value: "dark" as ThemeMode, label: t.settings.dark }, { value: "system" as ThemeMode, label: t.settings.system }]} />
-          </Field>
-          <Field label={t.settings.language}>
-            <Segmented value={locale} onChange={setLocale} options={LOCALES.map((l) => ({ value: l, label: LOCALE_LABEL[l] }))} />
-          </Field>
-        </Card>
-
-        <Card className="p-5 space-y-3">
-          <div className="flex items-center justify-between gap-2">
-            <h2 className="text-sm font-semibold flex items-center gap-2"><Database size={16} className="text-brand" />{t.settings.dataMode}</h2>
-            <Badge tone={isLiveMode() ? "ok" : "warn"}>{isLiveMode() ? L("ระบบจริง", "Live", "正式") : L("สาธิต", "Demo", "演示")}</Badge>
-          </div>
-          <div className="grid grid-cols-3 gap-2 text-center">
-            <MiniStat label={t.offline.pending} value={sync.pending} />
-            <MiniStat label={t.offline.failed} value={sync.failed} danger={sync.failed > 0} />
-            <MiniStat label={t.common.status} value={sync.online ? t.offline.online : t.offline.offline} />
-          </div>
-          {confirmReset ? (
-            <div className="rounded-xl border border-danger/30 bg-danger/[0.05] p-3 space-y-2">
-              <p className="text-xs text-danger font-medium">
-                {sync.pending ? L(`มีบิลรอซิงก์ ${sync.pending} รายการ — ล้างแล้วบิลเหล่านี้จะหาย! รอซิงก์ให้เป็น 0 ก่อน`, `${sync.pending} bills are waiting to sync — they will be LOST! Wait until pending is 0`, `有 ${sync.pending} 张单据待同步 — 清除将丢失！请等待同步完成`) : L("ล้างข้อมูลในเครื่องแล้วโหลดจากเซิร์ฟเวอร์ใหม่ทั้งหมด", "Clear this device's data and reload everything from the server", "清除本机数据并从服务器重新加载")}
-              </p>
-              <div className="flex gap-2">
-                <Button size="sm" variant="ghost" onClick={() => setConfirmReset(false)}>{L("ยกเลิก", "Cancel", "取消")}</Button>
-                <Button size="sm" variant="danger" disabled={sync.pending > 0} onClick={async () => { await resetLocalData(); toast.push({ tone: "ok", title: t.common.reset }); location.reload(); }}>{L("ยืนยันล้างข้อมูล", "Confirm clear", "确认清除")}</Button>
+            {section === "data" ? (
+              <div className="p-6 space-y-6 max-w-4xl">
+                <div className="grid sm:grid-cols-3 gap-3">
+                  <BigStat label={t.offline.pending} value={sync.pending} tone={sync.pending ? "warn" : "ok"} />
+                  <BigStat label={t.offline.failed} value={sync.failed} tone={sync.failed ? "danger" : "ok"} />
+                  <BigStat label={t.common.status} value={sync.online ? t.offline.online : t.offline.offline} tone={sync.online ? "ok" : "warn"} />
+                </div>
+                <div className="rounded-2xl border border-line p-5 space-y-3">
+                  <p className="text-sm font-semibold">{L("ล้างข้อมูลในเครื่อง", "Clear local data", "清除本地数据")}</p>
+                  <p className="text-xs text-muted leading-relaxed">{L("ใช้เมื่อข้อมูลในเครื่องค้างหรือแสดงผลผิด — ระบบจะโหลดสินค้า ราคา และสต๊อกจากเซิร์ฟเวอร์ใหม่ทั้งหมด", "Use when local data is stale or wrong — products, prices and stock reload from the server", "本机数据异常时使用 — 将从服务器重新加载商品、价格与库存")}</p>
+                  {confirmReset ? (
+                    <div className="rounded-xl border border-danger/30 bg-danger/[0.05] p-3 space-y-2">
+                      <p className="text-xs text-danger font-medium">
+                        {sync.pending ? L(`มีบิลรอซิงก์ ${sync.pending} รายการ — ล้างแล้วบิลเหล่านี้จะหาย! รอซิงก์ให้เป็น 0 ก่อน`, `${sync.pending} bills are waiting to sync — they will be LOST! Wait until pending is 0`, `有 ${sync.pending} 张单据待同步 — 清除将丢失！请等待同步完成`) : L("ยืนยันล้างข้อมูลในเครื่องแล้วโหลดใหม่?", "Clear this device's data and reload?", "确认清除本机数据并重新加载？")}
+                      </p>
+                      <div className="flex gap-2">
+                        <Button size="sm" variant="ghost" onClick={() => setConfirmReset(false)}>{L("ยกเลิก", "Cancel", "取消")}</Button>
+                        <Button size="sm" variant="danger" disabled={sync.pending > 0} onClick={async () => { await resetLocalData(); toast.push({ tone: "ok", title: t.common.reset }); location.reload(); }}>{L("ยืนยันล้างข้อมูล", "Confirm clear", "确认清除")}</Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <Button variant="ghost" onClick={() => setConfirmReset(true)}><Database size={15} /> {L("ล้างข้อมูลในเครื่องแล้วโหลดใหม่", "Clear local data and reload", "清除本地数据并重新加载")}</Button>
+                  )}
+                </div>
               </div>
-            </div>
-          ) : (
-            <Button variant="ghost" size="sm" onClick={() => setConfirmReset(true)}><Database size={14} /> {L("ล้างข้อมูลในเครื่องแล้วโหลดใหม่", "Clear local data and reload", "清除本地数据并重新加载")}</Button>
-          )}
+            ) : null}
+          </div>
         </Card>
       </div>
     </div>
   );
+}
+
+function InfoRow({ k, v }: { k: string; v: string }) {
+  return <p className="flex justify-between gap-3"><span className="text-muted shrink-0 whitespace-nowrap">{k}</span><span className="font-medium truncate text-right min-w-0" translate="no">{v}</span></p>;
 }
 
 function StatusPill({ icon, ok, label, value }: { icon: React.ReactNode; ok: boolean | null; label: string; value: string }) {
@@ -354,11 +461,12 @@ function StepTitle({ n, text }: { n: number; text: string }) {
   );
 }
 
-function MiniStat({ label, value, danger }: { label: string; value: string | number; danger?: boolean }) {
+function BigStat({ label, value, tone }: { label: string; value: string | number; tone: "ok" | "warn" | "danger" }) {
+  const c = tone === "ok" ? "text-ok" : tone === "warn" ? "text-warn" : "text-danger";
   return (
-    <div className="rounded-xl bg-surface2 border border-line py-2">
-      <p className="text-[10.5px] text-muted truncate px-1">{label}</p>
-      <p className={`text-base font-semibold tnum ${danger ? "text-danger" : ""}`}>{value}</p>
+    <div className="rounded-2xl border border-line bg-surface2/60 p-4">
+      <p className="text-xs text-muted">{label}</p>
+      <p className={`mt-1 text-2xl font-semibold tnum ${c}`}>{value}</p>
     </div>
   );
 }
