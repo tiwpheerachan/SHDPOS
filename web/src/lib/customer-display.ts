@@ -5,6 +5,7 @@
 // =====================================================================
 
 import type { CartLine } from "./types";
+import { shellDisplay } from "./printing/shell";
 
 const CHANNEL = "shdpos.customer-display";
 
@@ -54,6 +55,7 @@ export function pushDisplay(payload: Omit<DisplayPayload, "updatedAt">): void {
   const c = getChannel();
   const full: DisplayPayload = { ...payload, updatedAt: Date.now() };
   c?.postMessage(full);
+  shellDisplay(full); // แอปตัวหุ้ม Sunmi: ส่งไปจอลูกค้า (จอที่สอง)
   try {
     localStorage.setItem(CHANNEL, JSON.stringify(full));
   } catch {
@@ -65,6 +67,9 @@ export function subscribeDisplay(cb: (p: DisplayPayload) => void): () => void {
   const c = getChannel();
   const onMsg = (e: MessageEvent<DisplayPayload>) => cb(e.data);
   c?.addEventListener("message", onMsg);
+  // แอปตัวหุ้ม Sunmi เรียก window.__shdDisplay(payload) บนจอที่สอง
+  const w = window as unknown as { __shdDisplay?: (p: DisplayPayload) => void };
+  w.__shdDisplay = (p) => { try { cb(p); } catch { /* ignore */ } };
 
   // fallback สำหรับเบราว์เซอร์ที่ไม่มี BroadcastChannel
   const onStorage = (e: StorageEvent) => {
@@ -88,6 +93,7 @@ export function subscribeDisplay(cb: (p: DisplayPayload) => void): () => void {
   return () => {
     c?.removeEventListener("message", onMsg);
     window.removeEventListener("storage", onStorage);
+    if (w.__shdDisplay) delete w.__shdDisplay;
   };
 }
 

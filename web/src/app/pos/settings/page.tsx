@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { shellInfo, type ShellInfo } from "@/lib/printing/shell";
 import { Settings2, Printer, Inbox, Monitor, Database, Palette, Languages, Usb } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import { useTheme, type ThemeMode } from "@/lib/theme";
@@ -23,6 +24,8 @@ export default function PosSettingsPage() {
   const session = useSession();
   const [bridgeOk, setBridgeOk] = useState<boolean | null>(null);
   const [printers, setPrinters] = useState<string[]>([]);
+  const [sunmi, setSunmi] = useState<ShellInfo | null>(null);
+  useEffect(() => { setSunmi(shellInfo()); }, []);
 
   useEffect(() => {
     void bridgeStatus(session.printer).then((r) => {
@@ -101,9 +104,17 @@ export default function PosSettingsPage() {
                 { value: "bridge" as PrintTransport, label: "Print Bridge" },
                 { value: "webserial" as PrintTransport, label: "WebSerial" },
                 { value: "browser" as PrintTransport, label: "Browser" },
+                ...(sunmi ? [{ value: "sunmi" as PrintTransport, label: "Sunmi" }] : []),
               ]}
             />
           </Field>
+          {sunmi ? (
+            <p className="text-xs rounded-xl border border-ok/30 bg-ok/5 px-3 py-2">
+              {L(`เปิดผ่านแอป SHD POS บน Sunmi ${sunmi.model} — ใบเสร็จพิมพ์ด้วยเครื่องพิมพ์ในตัวอัตโนมัติ (${sunmi.paperWidthPx >= 576 ? "80" : "58"} มม.)`, `Running in the SHD POS app on Sunmi ${sunmi.model} — receipts print on the built-in printer (${sunmi.paperWidthPx >= 576 ? "80" : "58"} mm)`, `正在 Sunmi ${sunmi.model} 的 SHD POS 应用中运行 — 小票自动用内置打印机打印（${sunmi.paperWidthPx >= 576 ? "80" : "58"} 毫米）`)}
+              {" · "}{sunmi.printer ? L("เครื่องพิมพ์พร้อม", "Printer ready", "打印机就绪") : L("ยังเชื่อมเครื่องพิมพ์ไม่ได้", "Printer not connected", "打印机未连接")}
+              {" · "}{sunmi.secondScreen ? L("มีจอลูกค้า", "Customer display found", "已检测到客显屏") : L("ไม่พบจอลูกค้า", "No customer display", "未检测到客显屏")}
+            </p>
+          ) : null}
 
           {session.printer.transport === "bridge" ? (
             <>

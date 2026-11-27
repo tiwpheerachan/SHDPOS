@@ -11,8 +11,9 @@
 // =====================================================================
 
 import { drawerKickBytes, EscPosBuilder } from "./escpos";
+import { inShell, shellInfo, shellPrintImage } from "./shell";
 
-export type PrintTransport = "bridge" | "webserial" | "browser" | "none";
+export type PrintTransport = "bridge" | "webserial" | "browser" | "sunmi" | "none";
 
 export interface PrinterConfig {
   transport: PrintTransport;
@@ -105,6 +106,18 @@ async function writeSerial(bytes: Uint8Array): Promise<boolean> {
 // API หลัก
 // ---------------------------------------------------------------------
 export async function printEscPos(cfg: PrinterConfig, builder: EscPosBuilder): Promise<PrintResult> {
+  // เปิดในแอปตัวหุ้ม Sunmi → พิมพ์เครื่องพิมพ์ในตัวเสมอ (ยกเว้นตั้งเป็น Browser/ไม่พิมพ์ไว้เอง)
+  if (cfg.transport === "sunmi" || (inShell() && cfg.transport !== "browser" && cfg.transport !== "none")) {
+    if (!inShell()) return { ok: false, transport: "sunmi", error: "ต้องเปิดผ่านแอป SHD POS บนเครื่อง Sunmi" };
+    try {
+      const { renderReceiptPng } = await import("./render-image");
+      const png = await renderReceiptPng(builder, shellInfo()?.paperWidthPx || 576);
+      const r = await shellPrintImage(png);
+      return r.ok ? { ok: true, transport: "sunmi" } : { ok: false, transport: "sunmi", error: r.error };
+    } catch (e) {
+      return { ok: false, transport: "sunmi", error: e instanceof Error ? e.message : "print failed" };
+    }
+  }
   const payloadB64 = builder.toBase64();
 
   if (cfg.transport === "bridge") {

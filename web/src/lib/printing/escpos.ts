@@ -8,8 +8,20 @@
 const ESC = 0x1b;
 const GS = 0x1d;
 
+/** คำสั่งที่บันทึกไว้ — ใช้วาดใบเสร็จเป็นรูป (เครื่องพิมพ์ในตัว Sunmi: ภาษาไทยออกถูกแน่นอน) */
+export type ReceiptOp =
+  | { t: "line"; s: string; align: "left" | "center" | "right"; bold: boolean; double: boolean }
+  | { t: "row"; l: string; r: string; bold: boolean; double: boolean }
+  | { t: "divider"; ch: string }
+  | { t: "feed"; n: number }
+  | { t: "qr"; data: string; size: number };
+
 export class EscPosBuilder {
   private parts: number[] = [];
+  readonly ops: ReceiptOp[] = [];
+  private st = { align: "left" as "left" | "center" | "right", bold: false, double: false };
+  private pending = "";
+  private rec = true;
   constructor(public readonly width = 48) {
     this.raw(ESC, 0x40); // initialize
     this.raw(ESC, 0x74, 0x3d); // codepage TIS-620 (ไทย) — ปรับตามรุ่นเครื่องพิมพ์
@@ -22,6 +34,7 @@ export class EscPosBuilder {
 
   /** ข้อความ — เข้ารหัสเป็น TIS-620 ให้ภาษาไทยออกถูก */
   text(s: string): this {
+    this.pending += s;
     for (const ch of s) {
       const code = ch.codePointAt(0)!;
       if (code < 0x80) {
@@ -36,32 +49,47 @@ export class EscPosBuilder {
   }
 
   line(s = ""): this {
-    return this.text(s).raw(0x0a);
+    this.text(s).raw(0x0a);
+    if (this.rec) this.ops.push({ t: "line", s: this.pending, ...this.st });
+    this.pending = "";
+    return this;
   }
 
   align(a: "left" | "center" | "right"): this {
+    this.st.align = a;
     return this.raw(ESC, 0x61, a === "left" ? 0 : a === "center" ? 1 : 2);
   }
 
   bold(on: boolean): this {
+    this.st.bold = on;
     return this.raw(ESC, 0x45, on ? 1 : 0);
   }
 
   double(on: boolean): this {
+    this.st.double = on;
     return this.raw(GS, 0x21, on ? 0x11 : 0x00);
   }
 
   /** ซ้าย-ขวาในบรรทัดเดียว (ใช้กับยอดเงิน) */
   row(left: string, right: string): this {
     const pad = Math.max(1, this.width - visualLength(left) - visualLength(right));
-    return this.line(left + " ".repeat(pad) + right);
+    this.ops.push({ t: "row", l: left, r: right, bold: this.st.bold, double: this.st.double });
+    this.rec = false;
+    this.line(left + " ".repeat(pad) + right);
+    this.rec = true;
+    return this;
   }
 
   divider(ch = "-"): this {
-    return this.line(ch.repeat(this.width));
+    this.ops.push({ t: "divider", ch });
+    this.rec = false;
+    this.line(ch.repeat(this.width));
+    this.rec = true;
+    return this;
   }
 
   feed(n = 4): this {
+    this.ops.push({ t: "feed", n });
     return this.raw(ESC, 0x64, n);
   }
 
@@ -75,6 +103,7 @@ export class EscPosBuilder {
   }
 
   qr(data: string, size = 6): this {
+    this.ops.push({ t: "qr", data, size });
     const bytes = Array.from(new TextEncoder().encode(data));
     const len = bytes.length + 3;
     this.raw(GS, 0x28, 0x6b, 0x04, 0x00, 0x31, 0x41, 0x32, 0x00);

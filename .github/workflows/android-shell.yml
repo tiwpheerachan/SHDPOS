@@ -1,0 +1,44 @@
+# สร้างไฟล์ติดตั้งแอปตัวหุ้ม Sunmi (APK) อัตโนมัติเมื่อแก้โฟลเดอร์ android-shell/
+#   ดาวน์โหลดได้ที่แท็บ Actions → รันล่าสุด → Artifacts "shd-pos-shell"
+#   ตั้ง Secrets (ไม่บังคับ) เพื่อเซ็นด้วยคีย์ถาวร = อัปเดตทับได้ไม่ต้องลบแอป:
+#   SHELL_KEYSTORE_B64, SHELL_KEYSTORE_PASSWORD, SHELL_KEY_ALIAS, SHELL_KEY_PASSWORD
+name: android-shell
+on:
+  push:
+    paths: ["android-shell/**", ".github/workflows/android-shell.yml"]
+  workflow_dispatch:
+    inputs:
+      app_url:
+        description: "URL ระบบ (ค่าเริ่มต้นในแอป)"
+        required: false
+        default: "https://shdpos.onrender.com"
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android-shell
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.7"
+      - name: Keystore (ถ้ามี)
+        env:
+          KS: ${{ secrets.SHELL_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KS" ]; then echo "$KS" | base64 -d > "$RUNNER_TEMP/shell.jks"; echo "SHELL_KEYSTORE_PATH=$RUNNER_TEMP/shell.jks" >> "$GITHUB_ENV"; fi
+      - name: Build APK
+        env:
+          SHELL_KEYSTORE_PASSWORD: ${{ secrets.SHELL_KEYSTORE_PASSWORD }}
+          SHELL_KEY_ALIAS: ${{ secrets.SHELL_KEY_ALIAS }}
+          SHELL_KEY_PASSWORD: ${{ secrets.SHELL_KEY_PASSWORD }}
+        run: gradle assembleRelease --no-daemon --stacktrace -PappUrl="${{ github.event.inputs.app_url || 'https://shdpos.onrender.com' }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shd-pos-shell
+          path: android-shell/app/build/outputs/apk/release/*.apk
