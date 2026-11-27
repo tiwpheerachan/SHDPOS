@@ -207,7 +207,11 @@ export function SalesSheet({ orders, branches, brands, employees, products, catN
     const v = c.get(r);
     if (c.kind === "money") return baht(Number(v ?? 0));
     if (c.kind === "num") return formatInt(Number(v ?? 0));
-    return v === "" || v == null ? <span className="text-muted">—</span> : String(v);
+    if (v === "" || v == null || v === "—") return <span className="text-muted">—</span>;
+    // ค่าแบบเลือก (dropdown) → ป้ายสีแบบ Lark · คน → ชิปรูปย่อ + ชื่อ
+    if (c.id === "sales" || c.id === "cashier") return <PersonChip name={String(v)} />;
+    if (c.kind === "enum") return <TagChip value={String(v)} />;
+    return String(v);
   };
 
   return (
@@ -443,5 +447,33 @@ function LarkBillDrawer({ order, onClose }: { order: Order; onClose: () => void 
         <div className="flex justify-between font-semibold border-t border-line pt-2"><span>{tr("ยอดสุทธิ", "Net total", "合计")}</span><span className="tnum">{formatTHB(order.grand_total)}</span></div>
       </div>
     </Drawer>
+  );
+}
+
+// ── ป้ายสีแบบ Lark (สีพาสเทลคงที่ตามค่า) ──
+const TAG_TONES = [
+  "bg-[#E1EAFF] text-[#245BDB] dark:bg-[#1E2C4D] dark:text-[#9DB8FF]",
+  "bg-[#D9F5E8] text-[#1F7A4F] dark:bg-[#183528] dark:text-[#8FDDB6]",
+  "bg-[#FFF0D9] text-[#A35F00] dark:bg-[#3A2C14] dark:text-[#F3C27A]",
+  "bg-[#FDE2E2] text-[#C2352E] dark:bg-[#3D1F1F] dark:text-[#F6A5A0]",
+  "bg-[#EDE3FF] text-[#6B3FD1] dark:bg-[#2B2142] dark:text-[#C6AEFF]",
+  "bg-[#D7F4F7] text-[#0E7C86] dark:bg-[#15353A] dark:text-[#84D9E1]",
+  "bg-[#FFE3F1] text-[#B4307A] dark:bg-[#3C1B2D] dark:text-[#F4A3CD]",
+  "bg-[#EEF1D2] text-[#5F6B12] dark:bg-[#2C3015] dark:text-[#CED78A]",
+  "bg-[#E8EAED] text-[#4A5160] dark:bg-[#2A2D33] dark:text-[#B9BEC8]",
+];
+const hashOf = (v: string) => [...v].reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) >>> 0, 7);
+export function TagChip({ value }: { value: string }) {
+  return <span className={`inline-flex items-center max-w-full h-[22px] px-2 rounded-md text-[11.5px] font-medium truncate align-middle ${TAG_TONES[hashOf(value) % TAG_TONES.length]}`} title={value}>{value}</span>;
+}
+const PERSON_TONES = ["#5B8DEF", "#9B6EE8", "#E8789B", "#3FB27F", "#F0A23B", "#34A9C8", "#7C83FD", "#D9795F"];
+export function PersonChip({ name }: { name: string }) {
+  const w = name.replace(/[-–—(].*$/, "").trim().split(/\s+/).filter(Boolean);
+  const ini = ((w[0]?.[0] ?? "?") + (w[1]?.[0] ?? "")).toUpperCase();
+  return (
+    <span className="inline-flex items-center gap-1.5 max-w-full h-[22px] pl-0.5 pr-2 rounded-full bg-surface2 text-[11.5px] align-middle" title={name}>
+      <span className="w-[18px] h-[18px] rounded-full grid place-items-center text-[9px] font-semibold text-white shrink-0" style={{ background: PERSON_TONES[hashOf(name) % PERSON_TONES.length] }}>{ini}</span>
+      <span className="truncate">{name}</span>
+    </span>
   );
 }
