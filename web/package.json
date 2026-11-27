@@ -14,7 +14,7 @@
     "test:real-users": "node scripts/test-real-user-regressions.cjs && node scripts/test-central-sale-cache.cjs && node scripts/test-ow-access.cjs && node scripts/test-permissions.cjs && node scripts/test-pin-session.cjs && node scripts/test-cart-serials.cjs && node scripts/test-catalog-integration.cjs && node scripts/test-ow-full-sync.cjs",
     "test:checkout-db": "node scripts/test-checkout-db.mjs",
     "test:returns-db": "node scripts/test-returns-db.mjs",
-    "test:ow-sale": "tsx --tsconfig tsconfig.json scripts/test-price-import-parse.ts && tsx --tsconfig tsconfig.json scripts/test-price-template-roundtrip.ts && tsx --tsconfig tsconfig.json scripts/test-film-quote.ts && tsx --tsconfig tsconfig.json scripts/test-ow-sale-body.ts && tsx --tsconfig tsconfig.json scripts/test-ow-oidc.ts",
+    "test:ow-sale": "tsx --tsconfig tsconfig.json scripts/test-price-import-parse.ts && tsx --tsconfig tsconfig.json scripts/test-price-template-roundtrip.ts && tsx --tsconfig tsconfig.json scripts/test-film-quote.ts && tsx --tsconfig tsconfig.json scripts/test-dataverse-match.ts && tsx --tsconfig tsconfig.json scripts/test-ow-sale-body.ts && tsx --tsconfig tsconfig.json scripts/test-ow-oidc.ts",
     "test:schema": "node scripts/test-full-schema.mjs",
     "test:sale-validation": "node scripts/test-sale-validation.cjs",
     "test:edc": "tsx scripts/test-edc-import.ts",

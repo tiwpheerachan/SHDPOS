@@ -9,7 +9,7 @@ import {
   LayoutDashboard, TrendingUp, Users, Package, Boxes, ArrowLeftRight, ScanLine,
   ShieldCheck, ScrollText, Settings2, Store, Sun, Moon, Menu, X, Bell,
   Search, PanelLeftClose, PanelLeftOpen, ChevronDown, Command, Home, Activity, FileText, LogOut, Contact, CalendarClock, Ticket, Network, Landmark, Wand2, CreditCard, MonitorPlay, Cloud,
-  BadgePercent, Star, CloudDownload, UserCog, History,
+  BadgePercent, Star, CloudDownload, UserCog, History, Database,
   CalendarCheck,
 } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
@@ -90,6 +90,7 @@ const NAV: NavGroup[] = [
       { hub: "integration", icon: Cloud, children: [
         { href: "/admin/onewarehouse", icon: Cloud, key: "onewarehouse", perm: "integration.manage" },
         { href: "/admin/catalog-sync", icon: CloudDownload, key: "catalogsync", perm: "integration.manage" },
+        { href: "/admin/dataverse", icon: Database, key: "dataverse", perm: "integration.manage" },
       ] },
       { href: "/admin/approvals", icon: ShieldCheck, key: "approvals", perm: "approval.view" },
       { hub: "security", icon: UserCog, children: [
@@ -210,6 +211,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
     periods: L("ปิดงวด", "Period close", "关账"),
     insights: L("ผู้ช่วย AI", "AI assistant", "AI 助手"),
     onewarehouse: L("เชื่อมคลังกลาง", "OneWarehouse", "中央仓"),
+    dataverse: L("ยอดขายระบบเดิม (Lark)", "Legacy sales (Lark)", "旧系统销售 (Lark)"),
     catalogsync: L("นำเข้าแคตตาล็อก", "Catalog import", "目录导入"),
   };
   const hubLabel: Record<string, string> = {

@@ -383,6 +383,8 @@ export interface Order {
   /** ซิงก์ขึ้น server แล้วหรือยัง + เลขบิลที่ server ออกให้ (อ้างอิงข้ามเครื่อง) */
   synced?: boolean;
   server_order_no?: string | null;
+  /** แหล่งข้อมูล: pos = ขายในระบบนี้ · lark = ระบบเดิม (ดึงจาก Dataverse) */
+  source?: "pos" | "lark";
 }
 
 export interface OrderItem {

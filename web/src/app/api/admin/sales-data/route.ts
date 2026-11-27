@@ -3,6 +3,7 @@
 //   สิทธิ์ sales.view · เห็นเฉพาะสาขาในขอบเขต · data_scope=own เห็นเฉพาะบิลตัวเอง · ต้นทุน/กำไรซ่อนถ้าไม่มี report.cost
 //   ตัวกรองละเอียด (พนักงาน/หมวด/SKU/ชำระ/ช่องทาง/สถานะ ฯลฯ) คิดฝั่งหน้าเว็บด้วย applyOrderFilters (สูตรเดียวกับทุกหน้า)
 import { NextRequest, NextResponse } from "next/server";
+import { legacyOrders } from "@/lib/server/legacy-sales";
 import { SSO_COOKIE, readSession } from "@/lib/sso/session-cookie";
 import { resolveAuthz } from "@/lib/sso/grants";
 import { hasPerm } from "@/lib/sso/guard";
@@ -50,16 +51,24 @@ export async function GET(req: NextRequest) {
     cashier_id: o.cashier_id, salesperson_id: o.salesperson_id, customer_id: o.customer_id, customer_name: o.customer_name, customer_phone: o.customer_phone,
     status: o.status, channel: o.channel, subtotal: +o.subtotal, discount_total: +o.discount_total, vat_amount: +o.vat_amount, grand_total: +o.grand_total,
     paid_total: +o.paid_total, change_amount: +o.change_amount, cost_total: showCost ? +o.cost_total : 0, gross_profit: showCost ? +o.gross_profit : 0,
-    created_at: o.sale_occurred_at ?? o.created_at, void_reason: o.void_reason, is_offline_origin: false, synced: true,
+    created_at: o.sale_occurred_at ?? o.created_at, void_reason: o.void_reason, is_offline_origin: false, synced: true, source: "pos" as const,
     items: (o.order_items ?? []).map((i: Row) => ({ id: i.id, product_id: i.product_id, sku: i.sku, name: i.name, kind: i.kind, qty: +i.qty, unit_price: +i.unit_price,
       discount_amount: +i.discount_amount, line_total: +i.line_total, unit_cost: showCost ? +i.unit_cost : 0, cost_total: showCost ? +i.cost_total : 0,
       gross_profit: showCost ? +i.gross_profit : 0, serials: [], salesperson_id: i.salesperson_id, returned_qty: +(i.returned_qty ?? 0), is_gift: !!i.is_gift, brand_id: (i.products as { brand_id?: string | null } | null)?.brand_id ?? null })),
     payments: (o.order_payments ?? []).map((p: Row) => ({ method: p.method, amount: +p.amount })),
   }));
 
+  // ยอดขายระบบเดิม (Lark) — ?legacy=0 ปิด · สิทธิ์ตามสาขาเดียวกัน (ร้านที่ยังไม่จับคู่/อีเวนต์ เห็นเฉพาะผู้ดูทั้งบริษัท)
+  let legacy: Awaited<ReturnType<typeof legacyOrders>> | null = null;
+  if (req.nextUrl.searchParams.get("legacy") !== "0" && !own) {
+    try { legacy = await legacyOrders(sb, from.toISOString(), to.toISOString(), allowed); }
+    catch (e) { console.error("[sales-data:legacy]", e instanceof Error ? e.message : e); }
+  }
+  if (legacy) orders.push(...(legacy.orders as unknown as typeof orders));
+
   let bq = sb.from("branches").select("id,code,name,name_th,brand_id,province,branch_type,is_active").eq("is_active", true).order("code");
   if (allowed !== null) bq = bq.in("id", allowed.length ? allowed : ["00000000-0000-0000-0000-000000000000"]);
-  const branches = ((await bq).data ?? []).filter((b) => b.branch_type !== "warehouse");
+  const branches = [...((await bq).data ?? []).filter((b) => b.branch_type !== "warehouse"), ...((legacy?.pseudoBranches ?? []) as never[])];
   // แบรนด์ = ของสาขา + ของสินค้าที่ขายจริง (สาขาคลัง/ร้านรวมหลายแบรนด์ไม่มี brand_id ที่สาขา)
   const brandIds = [...new Set([...branches.map((b) => b.brand_id), ...orders.flatMap((o) => o.items.map((i: { brand_id: string | null }) => i.brand_id))].filter(Boolean))] as string[];
   const brands = brandIds.length ? ((await sb.from("brands").select("id,code,name,name_th,name_zh,logo_url").in("id", brandIds)).data ?? []) : [];
@@ -86,5 +95,6 @@ export async function GET(req: NextRequest) {
   if (allowed !== null) pq = pq.in("branch_id", allowed.length ? allowed : ["00000000-0000-0000-0000-000000000000"]);
   if (own) pq = pq.or(`cashier_id.eq.${own},salesperson_id.eq.${own}`);
   const prev = ((await pq).data ?? []).map((o) => ({ branch_id: o.branch_id, grand_total: +o.grand_total, status: o.status, channel: o.channel, created_at: o.sale_occurred_at ?? o.created_at }));
-  return reply({ orders, branches, brands, employees, positions, truncated, show_cost: showCost, adjustments, prev, prev_range: { from: pFrom, to: pTo } });
+  return reply({ orders, branches, brands, employees, positions, truncated: truncated || !!legacy?.truncated, show_cost: showCost, adjustments, prev, prev_range: { from: pFrom, to: pTo },
+    legacy: legacy ? { lines: legacy.lines, skipped: legacy.skipped, overlapped: legacy.overlapped } : null });
 }

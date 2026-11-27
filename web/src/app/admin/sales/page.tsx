@@ -10,7 +10,7 @@ import { useCatalogProducts } from "@/lib/hooks/use-catalog-products";
 import { StaffPerformance } from "@/components/admin/staff-performance";
 import { BrandView } from "@/components/admin/brand-view";
 import { OverviewView, buildOverview } from "@/components/admin/sales-dashboard";
-import { SalesSheet } from "@/components/admin/sales-sheet";
+import { SalesSheet, SourceTag } from "@/components/admin/sales-sheet";
 import { ViewsMenu, ShareMenu, DownloadMenu, type ReportState } from "@/components/admin/report-actions";
 import { rangeToDates, type AdminFilter } from "@/components/admin/filters";
 import { listCategories } from "@/lib/data/repo";
@@ -53,11 +53,15 @@ function AdminSalesPage() {
   const setTab = (v: Tab) => { const u = new URLSearchParams(sp.toString()); u.set("tab", v); u.delete("person"); u.delete("sv"); router.replace(`/admin/sales?${u}`, { scroll: false }); };
   const drill = (patch: Partial<typeof filter>, to: Tab = "overview") => { setFilter({ ...filter, ...patch }); setTab(to); };
 
+  // แหล่งข้อมูล: POS (ระบบนี้) / Lark (ระบบเดิม ดึงจาก Dataverse)
+  const [src, setSrc] = useState<"all" | "pos" | "lark">("all");
+  const srcCount = useMemo(() => ({ pos: orders.filter((o) => o.source !== "lark").length, lark: orders.filter((o) => o.source === "lark").length }), [orders]);
   const scoped = useMemo(() => {
-    if (data.live) return orders; // เซิร์ฟเวอร์ตัดตามสิทธิ์สาขาแล้ว
+    const bySrc = src === "all" ? orders : orders.filter((o) => (src === "lark" ? o.source === "lark" : o.source !== "lark"));
+    if (data.live) return bySrc; // เซิร์ฟเวอร์ตัดตามสิทธิ์สาขาแล้ว
     const ids = visibleBranchIds(employee, branches.map((b) => b.id));
-    return orders.filter((o) => ids.includes(o.branch_id));
-  }, [orders, employee, branches, data.live]);
+    return bySrc.filter((o) => ids.includes(o.branch_id));
+  }, [orders, employee, branches, data.live, src]);
 
   // ตัวกรองครบทุกมิติ (แบรนด์/สาขา/จังหวัด/ประเภทร้าน/พนักงานขาย/แคชเชียร์/หมวด/SKU/ชำระ/ช่องทาง/สถานะ/ลูกค้า/เครื่อง/ธง)
   const filtered = useMemo(() => applyOrderFilters(scoped, filter, { branches, products }), [scoped, filter, branches, products]);
@@ -177,11 +181,23 @@ function AdminSalesPage() {
           { value: "brand", label: <span className="inline-flex items-center gap-1.5"><Tag size={14} />{L("แบรนด์", "Brands", "品牌")}</span> },
           ...(can(employee, "report.employee_perf") ? [{ value: "staff" as Tab, label: <span className="inline-flex items-center gap-1.5"><Users size={14} />{L("ผลงานพนักงาน", "Staff performance", "员工业绩")}</span> }] : []),
         ]} />
+        <div className="flex flex-wrap items-center gap-2">
+        {srcCount.lark ? (
+          <div className="inline-flex rounded-lg border border-line bg-surface p-0.5 text-xs" role="group" aria-label={L("แหล่งข้อมูล", "Source", "数据来源")}>
+            {([["all", L("ทุกแหล่ง", "All sources", "全部来源"), srcCount.pos + srcCount.lark], ["pos", "POS", srcCount.pos], ["lark", "Lark", srcCount.lark]] as const).map(([v, label, n]) => (
+              <button key={v} type="button" onClick={() => setSrc(v)} aria-pressed={src === v}
+                className={`h-7 px-2.5 rounded-md inline-flex items-center gap-1.5 ${src === v ? "bg-ink text-surface" : "text-muted hover:text-ink"}`}>
+                {v !== "all" ? <SourceTag source={v} /> : null}{v === "all" ? label : null}<span className="tnum opacity-70">{formatInt(n)}</span>
+              </button>
+            ))}
+          </div>
+        ) : null}
         <span className="text-[11px] text-muted inline-flex items-center gap-1.5">
           {data.loading ? <><Loader2 size={12} className="animate-spin" />{L("กำลังโหลดข้อมูล…", "Loading…", "加载中…")}</> : data.live
             ? <><Cloud size={12} />{L(`ข้อมูลจริงจากระบบกลาง · ${formatInt(filtered.length)} จาก ${formatInt(scoped.length)} บิลในช่วงวันที่`, `Central data · ${filtered.length}/${scoped.length} bills`, "中央数据")}</>
             : L("โหมดสาธิต · ข้อมูลในเครื่อง", "Demo · local data", "演示数据")}
         </span>
+        </div>
       </div>
       {data.error ? <p className="rounded-xl bg-danger/8 text-danger text-sm px-4 py-2.5 flex items-center gap-2"><AlertTriangle size={15} />{data.error}</p> : null}
       {data.truncated ? <p className="rounded-xl bg-warn/10 text-[12.5px] px-4 py-2.5">{L("ช่วงวันที่นี้มีบิลมากกว่า 20,000 ใบ — แสดงเฉพาะล่าสุด ให้แคบช่วงวันที่ลงเพื่อดูครบ", "More than 20,000 bills — showing latest only; narrow the date range", "数据过多")}</p> : null}

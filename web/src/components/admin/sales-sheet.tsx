@@ -15,7 +15,7 @@ import { OrderTraceDrawer } from "@/components/order-trace";
 import { OwSaleBadge } from "@/components/pos/ow-sale-badge";
 import { useSession } from "@/lib/store/session";
 import { can } from "@/lib/permissions";
-import { Segmented } from "@/components/ui";
+import { Segmented, Drawer } from "@/components/ui";
 import { tr } from "@/lib/i18n/tr";
 import { useI18n } from "@/lib/i18n/provider";
 import { downloadExcel } from "@/lib/export";
@@ -74,8 +74,10 @@ export function SalesSheet({ orders, branches, brands, employees, products, catN
     const pay = (o: Order) => [...new Set(o.payments.map((p) => PAY()[p.method] ?? p.method))].join(" + ");
     const common: Col[] = [
       { id: "date", label: () => tr("วันที่", "Date", "日期"), kind: "date", get: (r) => ymd(saleAt(r.o)), def: true, w: "92px" },
-      { id: "time", label: () => tr("เวลา", "Time", "时间"), kind: "text", get: (r) => hm(saleAt(r.o)), def: true, w: "56px" },
-      { id: "order_no", label: () => tr("เลขบิล", "Bill no.", "单号"), kind: "text", get: (r) => r.o.order_no, def: true, noTr: true, show: (r) => <span className="font-mono">{r.o.order_no}</span> },
+      // ระบบเดิม (Lark) ไม่มีเวลาขาย/ต้นทุน → แสดง —
+      { id: "time", label: () => tr("เวลา", "Time", "时间"), kind: "text", get: (r) => (r.o.source === "lark" ? "—" : hm(saleAt(r.o))), def: true, w: "56px" },
+      { id: "order_no", label: () => tr("เลขบิล", "Bill no.", "单号"), kind: "text", get: (r) => r.o.order_no, def: true, noTr: true, show: (r) => <span className="inline-flex items-center gap-1.5"><SourceTag source={r.o.source === "lark" ? "lark" : "pos"} /><span className="font-mono">{r.o.order_no}</span></span> },
+      { id: "source", label: () => tr("แหล่งข้อมูล", "Source", "数据来源"), kind: "enum", get: (r) => (r.o.source === "lark" ? "Lark" : "POS"), def: false, noTr: true },
       { id: "branch", label: () => tr("สาขา", "Branch", "门店"), kind: "enum", get: (r) => { const b = B(r); return b ? b.name_th ?? b.name : "—"; }, def: true },
       { id: "branch_code", label: () => tr("รหัสสาขา", "Branch code", "门店代码"), kind: "enum", get: (r) => B(r)?.code ?? "", noTr: true },
       { id: "branch_brand", label: () => tr("แบรนด์สาขา", "Branch brand", "门店品牌"), kind: "enum", get: (r) => { const b = B(r); return b?.brand_id ? ref.bn.get(b.brand_id) ?? "" : ""; }, def: true },
@@ -107,9 +109,9 @@ export function SalesSheet({ orders, branches, brands, employees, products, catN
       { id: "jst", label: () => "JST", kind: "enum", get: (r) => (r.o.client_uuid ? owStatus[r.o.client_uuid]?.ow_status ?? "" : ""), def: true,
         show: (r) => <OwSaleBadge status={(r.o.client_uuid ? owStatus[r.o.client_uuid] : null) as never} /> },
       ...(showCost ? [
-        { id: "cost", label: () => tr("ต้นทุน", "Cost", "成本"), kind: "money" as Kind, get: (r: Row) => r.o.cost_total, sum: true },
-        { id: "gp", label: () => tr("กำไรขั้นต้น", "Gross profit", "毛利"), kind: "money" as Kind, get: (r: Row) => r.o.gross_profit, sum: true, def: true },
-        { id: "gp_pct", label: () => "%GP", kind: "num" as Kind, get: (r: Row) => (r.o.grand_total ? Math.round((r.o.gross_profit / r.o.grand_total) * 1000) / 10 : 0) },
+        { id: "cost", label: () => tr("ต้นทุน", "Cost", "成本"), kind: "money" as Kind, get: (r: Row) => r.o.cost_total, sum: true, show: (r: Row) => (r.o.source === "lark" ? <span className="text-muted">—</span> : undefined) },
+        { id: "gp", label: () => tr("กำไรขั้นต้น", "Gross profit", "毛利"), kind: "money" as Kind, get: (r: Row) => r.o.gross_profit, sum: true, def: true, show: (r: Row) => (r.o.source === "lark" ? <span className="text-muted">—</span> : undefined) },
+        { id: "gp_pct", label: () => "%GP", kind: "num" as Kind, get: (r: Row) => (r.o.grand_total ? Math.round((r.o.gross_profit / r.o.grand_total) * 1000) / 10 : 0), show: (r: Row) => (r.o.source === "lark" ? <span className="text-muted">—</span> : undefined) },
       ] : []),
       { id: "void_reason", label: () => tr("เหตุผลยกเลิก", "Void reason", "作废原因"), kind: "text", get: (r) => r.o.void_reason ?? "", noTr: true },
     ];
@@ -198,7 +200,7 @@ export function SalesSheet({ orders, branches, brands, employees, products, catN
   }, [orders]);
 
   const fmt = (c: Col, r: Row) => {
-    if (c.show) return c.show(r);
+    if (c.show) { const v = c.show(r); if (v !== undefined) return v; }
     const v = c.get(r);
     if (c.kind === "money") return baht(Number(v ?? 0));
     if (c.kind === "num") return formatInt(Number(v ?? 0));
@@ -326,7 +328,8 @@ export function SalesSheet({ orders, branches, brands, employees, products, catN
 
       {menu ? <ColumnFilterMenu col={cols.find((c) => c.id === menu.id)!} rect={menu.rect} rows={rows} value={filters[menu.id]} onClose={() => setMenu(null)}
         onApply={(f) => { setF(menu.id, f); setMenu(null); }} onSort={(dir) => { setSort({ id: menu.id, dir }); setMenu(null); }} /> : null}
-      {openBill ? <OrderTraceDrawer key={openBill.id} clientUuid={openBill.client_uuid} orderNo={openBill.order_no} onClose={() => setOpenBill(null)} /> : null}
+      {openBill && openBill.source !== "lark" ? <OrderTraceDrawer key={openBill.id} clientUuid={openBill.client_uuid} orderNo={openBill.order_no} onClose={() => setOpenBill(null)} /> : null}
+      {openBill && openBill.source === "lark" ? <LarkBillDrawer order={openBill} onClose={() => setOpenBill(null)} /> : null}
     </div>
   );
 }
@@ -408,5 +411,34 @@ function ColumnFilterMenu({ col, rect, rows, value, onClose, onApply, onSort }: 
       </div>
     </div>,
     document.body,
+  );
+}
+
+/** ป้ายแหล่งข้อมูล: POS = ขายในระบบนี้ · Lark = ระบบเดิม (ดึงจาก Dataverse) */
+export function SourceTag({ source }: { source: "pos" | "lark" }) {
+  return source === "lark"
+    ? <span title={tr("ข้อมูลจากระบบเดิม (Lark) ผ่าน Dataverse", "From the legacy system (Lark) via Dataverse", "来自旧系统 (Lark)")} className="inline-flex items-center h-[18px] px-1.5 rounded text-[10px] font-semibold tracking-wide border border-[#C9B37E] text-[#7A5E22] bg-[#FBF6EA] dark:bg-[#2C2619] dark:text-[#E2C98F] dark:border-[#6B5A30]" translate="no">Lark</span>
+    : <span title={tr("ขายในระบบ SHD POS", "Sold in SHD POS", "在 SHD POS 销售")} className="inline-flex items-center h-[18px] px-1.5 rounded text-[10px] font-semibold tracking-wide border border-line text-ink bg-surface2" translate="no">POS</span>;
+}
+
+/** บิลจากระบบเดิม — ไม่มีที่มาในระบบนี้ แสดงรายการตามที่ดึงมา */
+function LarkBillDrawer({ order, onClose }: { order: Order; onClose: () => void }) {
+  return (
+    <Drawer open onClose={onClose} title={<span className="inline-flex items-center gap-2"><SourceTag source="lark" /><span className="font-mono">{order.order_no}</span></span>}
+      subtitle={tr("ข้อมูลจากระบบเดิม (Lark) ผ่าน Dataverse — อ่านอย่างเดียว · อัปเดตอัตโนมัติทุกชั่วโมง", "From the legacy system (Lark) via Dataverse — read only · refreshed hourly", "来自旧系统 (Lark) — 只读 · 每小时更新")}>
+      <div className="p-5 space-y-3 text-sm">
+        <p className="text-xs text-muted">{new Date(order.created_at).toLocaleDateString("th-TH", { dateStyle: "long" })}{order.status === "voided" ? ` · ${tr("คืนสินค้า", "Returned", "已退货")}` : ""}</p>
+        <table className="w-full text-sm">
+          <thead className="text-[11px] text-muted"><tr><th className="text-left font-medium py-1">{tr("สินค้า", "Item", "商品")}</th><th className="text-right font-medium py-1">{tr("จำนวน", "Qty", "数量")}</th><th className="text-right font-medium py-1">{tr("ยอด", "Amount", "金额")}</th></tr></thead>
+          <tbody className="divide-y divide-line/60">
+            {order.items.map((i) => (
+              <tr key={i.id}><td className="py-1.5"><span className="block" translate="no">{i.name}</span><span className="text-[11px] text-muted font-mono" translate="no">{i.sku}</span></td>
+                <td className="py-1.5 text-right tnum">{i.qty}</td><td className="py-1.5 text-right tnum">{formatTHB(i.line_total)}</td></tr>
+            ))}
+          </tbody>
+        </table>
+        <div className="flex justify-between font-semibold border-t border-line pt-2"><span>{tr("ยอดสุทธิ", "Net total", "合计")}</span><span className="tnum">{formatTHB(order.grand_total)}</span></div>
+      </div>
+    </Drawer>
   );
 }
