@@ -48,6 +48,7 @@ const PERM_LABEL: Record<string, { th: string; en: string; zh: string }> = {
   "admin.branch_manage": { th: "จัดการสาขา", en: "Manage branches", zh: "管理门店" },
   "admin.settings": { th: "ตั้งค่าระบบ", en: "System settings", zh: "系统设置" },
   "audit.view": { th: "ดู audit log", en: "View audit log", zh: "查看审计日志" },
+  "presence.view": { th: "ดูว่าใครออนไลน์อยู่หน้าไหน", en: "See who's online & where", zh: "查看在线成员及所在页面" },
   "customer.manage": { th: "จัดการลูกค้า", en: "Manage customers", zh: "管理客户" },
   "tax.issue_full": { th: "ออกใบกำกับเต็มรูป", en: "Issue full tax invoice", zh: "开具增值税专用发票" },
   "price.list": { th: "ตั้งราคาหลัก", en: "Set list price", zh: "设置标价" },

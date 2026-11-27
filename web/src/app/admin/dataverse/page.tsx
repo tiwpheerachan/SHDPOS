@@ -1,7 +1,7 @@
 "use client";
 // =====================================================================
 // หลังบ้าน → เชื่อมระบบ → ยอดขายระบบเดิม (Lark ผ่าน Dataverse)
-//   ดึงย้อนหลังทีละเดือน · อัปเดตอัตโนมัติทุกชั่วโมง · จับคู่ร้าน → สาขา · วันเริ่มใช้ POS (กันยอดซ้ำ)
+//   ดึงย้อนหลังทีละเดือน · อัปเดตอัตโนมัติ (เดือนนี้ 15 นาที, เดือนก่อนทุกชั่วโมง) · จับคู่ร้าน → สาขา · วันเริ่มใช้ POS (กันยอดซ้ำ)
 // =====================================================================
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Database, RefreshCw, Loader2, CheckCircle2, AlertCircle, History } from "lucide-react";
@@ -69,7 +69,7 @@ export default function DataversePage() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold flex items-center gap-2"><Database size={20} />{L("ยอดขายระบบเดิม", "Legacy sales", "旧系统销售")} <SourceTag source="lark" /></h1>
-          <p className="text-xs text-muted mt-0.5">{L("ยอดขายหน้าร้านและอีเวนต์จากระบบเดิม (Lark) ผ่าน Dataverse — อ่านอย่างเดียว · อัปเดตอัตโนมัติทุกชั่วโมง (เดือนนี้ + เดือนก่อน) · หน้ายอดขายแสดงคู่กับ POS พร้อมป้ายแหล่งข้อมูล", "Store and event sales from the legacy system (Lark) via Dataverse — read only · auto-refreshed hourly (this + last month) · shown alongside POS in Sales with a source tag", "来自旧系统 (Lark) 的门店与活动销售 — 只读 · 每小时自动更新（本月+上月）· 在销售页与 POS 一起显示并标注来源")}</p>
+          <p className="text-xs text-muted mt-0.5">{L("ยอดขายหน้าร้านและอีเวนต์จากระบบเดิม (Lark) ผ่าน Dataverse — อ่านอย่างเดียว · อัปเดตอัตโนมัติ เดือนนี้ทุก 15 นาที · เดือนก่อนทุกชั่วโมง · หน้ายอดขายแสดงคู่กับ POS พร้อมป้ายแหล่งข้อมูล", "Store and event sales from the legacy system (Lark) via Dataverse — read only · this month refreshed every 15 min, last month hourly · shown alongside POS in Sales with a source tag", "来自旧系统 (Lark) 的门店与活动销售 — 只读 · 本月每 15 分钟更新，上月每小时· 在销售页与 POS 一起显示并标注来源")}</p>
         </div>
         <span className={`inline-flex items-center gap-1.5 text-xs px-2.5 h-8 rounded-lg border ${d.ready ? "border-line text-ink" : "border-danger/40 text-danger"}`}>
           {d.ready ? <CheckCircle2 size={14} className="text-ok" /> : <AlertCircle size={14} />}{d.ready ? L("เชื่อมต่อ Dataverse แล้ว", "Dataverse connected", "已连接 Dataverse") : L("ยังไม่ได้ตั้งค่า DATAVERSE_API_KEY บนเซิร์ฟเวอร์", "DATAVERSE_API_KEY not set on the server", "服务器未设置 DATAVERSE_API_KEY")}

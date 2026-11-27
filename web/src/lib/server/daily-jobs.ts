@@ -23,15 +23,16 @@ export function startDailyJobs(): void {
   setTimeout(() => void run(), 60_000);
   setInterval(() => void run(), 30 * 60_000);
 
-  // ยอดขายระบบเดิม (Lark ผ่าน Dataverse): ดึงเดือนนี้ + เดือนก่อนซ้ำทุกชั่วโมง (ระบบเดิมยังใช้คู่กัน) · ปิดด้วย LEGACY_SYNC=0
+  // ยอดขายระบบเดิม (Lark ผ่าน Dataverse): เดือนนี้ทุก 15 นาที · เดือนก่อนทุกชั่วโมง (ระบบเดิมยังใช้คู่กัน/แก้ย้อนหลังได้) · ปิดด้วย LEGACY_SYNC=0
   if (dataverseReady() && process.env.LEGACY_SYNC !== "0") {
+    let tick = 0;
     const legacy = async () => {
       try {
-        const r = await syncLegacyRecent(supabaseAdmin());
+        const r = await syncLegacyRecent(supabaseAdmin(), { includePrev: tick++ % 4 === 0 });
         console.log(JSON.stringify({ at: new Date().toISOString(), legacy_sync: r.map((x) => x.fetched) }));
       } catch (e) { console.error("[daily-jobs:legacy-sync]", e instanceof Error ? e.message : e); }
     };
     setTimeout(() => void legacy(), 3 * 60_000);
-    setInterval(() => void legacy(), 60 * 60_000);
+    setInterval(() => void legacy(), 15 * 60_000);
   }
 }

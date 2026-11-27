@@ -47,10 +47,17 @@ export function useSalesData(range: { from: Date; to: Date }): SalesData {
   const scope = useAdminScope();
   const [state, setState] = useState<Omit<SalesData, "live">>({ orders: [], branches: [], brands: [], employees: [], positions: null, adjustments: [], prev: [], loading: true, error: "", truncated: false });
   const key = `${range.from.toISOString().slice(0, 16)}|${range.to.toISOString().slice(0, 16)}`;
+  // เปิดหน้าค้างไว้ → รีเฟรชเบื้องหลังทุก 5 นาที (ระบบเดิมอัปเดตทุก 15 นาที) โดยข้อมูลเดิมยังแสดงอยู่
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    if (!live) return;
+    const id = setInterval(() => { if (document.visibilityState === "visible") setTick((t) => t + 1); }, FRESH_MS);
+    return () => clearInterval(id);
+  }, [live]);
   useEffect(() => {
     let alive = true;
     const cached = live ? fromCache(range.from, range.to) : null;
-    const fresh = !!cached?.exact && Date.now() - cached.at < FRESH_MS;
+    const fresh = !!cached?.exact && Date.now() - cached.at < FRESH_MS - 5_000;
     if (cached) setState({ ...cached, loading: !fresh, error: "" });
     else setState((s) => ({ ...s, loading: true, error: "" }));
     if (fresh) return () => { alive = false; };
@@ -67,6 +74,6 @@ export function useSalesData(range: { from: Date; to: Date }): SalesData {
       } catch (e) { if (alive) setState((s) => ({ ...s, loading: false, error: e instanceof Error ? e.message : tr("โหลดไม่สำเร็จ", "Failed to load", "加载失败") })); }
     })();
     return () => { alive = false; };
-  }, [key, live]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [key, live, tick]); // eslint-disable-line react-hooks/exhaustive-deps
   return useMemo(() => live ? { ...state, live } : { ...state, branches: scope.branches, brands: scope.brands, live }, [state, live, scope.branches, scope.brands]);
 }

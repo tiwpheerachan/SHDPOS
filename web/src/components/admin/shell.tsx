@@ -22,6 +22,7 @@ import type { Transfer } from "@/lib/types";
 import { Avatar, LiveDot } from "@/components/ui";
 import { Clock } from "@/components/clock";
 import { ScopeTopbar } from "@/components/admin/scope-topbar";
+import { OnlinePresence } from "@/components/admin/online-presence";
 import { WorkspaceTabs } from "@/components/admin/workspace-tabs";
 import { WorkNotifications } from "@/components/work/notifications";
 import { BrandReveal } from "@/components/brand-reveal";
@@ -419,6 +420,8 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
             <div className="ml-auto flex items-center gap-1">
               {/* ตัวกรองแบรนด์/สาขา (ใช้งานจริง) */}
               <ScopeTopbar />
+
+              <OnlinePresence pageLabel={label[currentKey] ?? t.admin.dashboard} />
 
               <Clock />
 

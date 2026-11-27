@@ -175,12 +175,12 @@ export function monthRange(ym: string): { from: string; to: string } {
 }
 
 /** อัปเดตอัตโนมัติ: เดือนนี้ + เดือนก่อน (ระบบเดิมยังแก้ย้อนหลังได้) */
-export async function syncLegacyRecent(sb: SupabaseClient) {
+export async function syncLegacyRecent(sb: SupabaseClient, opts: { includePrev?: boolean } = {}) {
   const now = new Date(Date.now() + 7 * 3600_000);
   const cur = now.toISOString().slice(0, 7);
   const prevD = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
   const prev = prevD.toISOString().slice(0, 7);
   const out = [];
-  for (const ym of [prev, cur]) { const { from, to } = monthRange(ym); out.push(await syncLegacyRange(sb, from, to, "auto")); }
+  for (const ym of opts.includePrev === false ? [cur] : [prev, cur]) { const { from, to } = monthRange(ym); out.push(await syncLegacyRange(sb, from, to, "auto")); }
   return out;
 }

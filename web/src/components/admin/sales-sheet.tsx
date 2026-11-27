@@ -10,7 +10,7 @@ import { createPortal } from "react-dom";
 import { Filter, ArrowUp, ArrowDown, Columns3, X, Search, FileDown, ExternalLink, Link2, Check, Rows3, ReceiptText, RotateCcw } from "lucide-react";
 import type { Branch, Brand, Employee, Order, OrderItem, Product } from "@/lib/types";
 import { formatTHB, formatInt } from "@/lib/money";
-import { saleAt } from "@/lib/sales-basis";
+import { saleAt, isCountedSale } from "@/lib/sales-basis";
 import { OrderTraceDrawer } from "@/components/order-trace";
 import { OwSaleBadge } from "@/components/pos/ow-sale-badge";
 import { useSession } from "@/lib/store/session";
@@ -177,7 +177,10 @@ export function SalesSheet({ orders, branches, brands, employees, products, catN
     }
     return out;
   }, [rows, filters, cols, sort]);
-  const totals = useMemo(() => Object.fromEntries(visible.filter((c) => c.sum).map((c) => [c.id, filtered.reduce((s, r) => s + Number(c.get(r) ?? 0), 0)])), [visible, filtered]);
+  // แถวยอดรวม = เฉพาะบิลขายที่นับยอด (ไม่รวมบิลยกเลิก) — ตรงกับการ์ด/ภาพรวม/รายสาขา
+  const counted = useMemo(() => filtered.filter((r) => isCountedSale(r.o)), [filtered]);
+  const voidBills = useMemo(() => new Set(filtered.filter((r) => !isCountedSale(r.o)).map((r) => r.o.id)).size, [filtered]);
+  const totals = useMemo(() => Object.fromEntries(visible.filter((c) => c.sum).map((c) => [c.id, counted.reduce((s, r) => s + Number(c.get(r) ?? 0), 0)])), [visible, counted]);
   const billCount = useMemo(() => new Set(filtered.map((r) => r.o.id)).size, [filtered]);
   const pages = Math.max(1, Math.ceil(filtered.length / per)), cur = Math.min(page, pages - 1);
   const shown = filtered.slice(cur * per, cur * per + per);
@@ -215,7 +218,7 @@ export function SalesSheet({ orders, branches, brands, employees, products, catN
           { value: "bill", label: <span className="inline-flex items-center gap-1.5"><ReceiptText size={13} />{tr("ต่อบิล", "Per bill", "按单据")}</span> },
           { value: "line", label: <span className="inline-flex items-center gap-1.5"><Rows3 size={13} />{tr("ต่อรายการสินค้า (แบบชีทสาขา)", "Per product line (branch sheet)", "按商品行（门店表格）")}</span> },
         ]} />
-        <span className="text-[11px] text-muted tnum">{formatInt(filtered.length)} {tr("แถว", "rows", "行")} · {formatInt(billCount)} {tr("บิล", "bills", "单")}</span>
+        <span className="text-[11px] text-muted tnum">{formatInt(filtered.length)} {tr("แถว", "rows", "行")} · {formatInt(billCount)} {tr("บิล", "bills", "单")}{voidBills ? <span title={tr("บิลยกเลิก/คืนสินค้า แสดงในตารางแต่ไม่รวมในแถวยอดรวม", "Voided/returned bills are listed but excluded from the total row", "作废/退货单据列出但不计入合计")}> · {tr(`ยกเลิก ${formatInt(voidBills)} (ไม่รวมในยอด)`, `${formatInt(voidBills)} voided (not in total)`, `作废 ${formatInt(voidBills)}（不计入合计）`)}</span> : null}</span>
         <div className="ml-auto flex items-center gap-1.5">
           {activeFilters.length ? <button onClick={() => { setFilters({}); setPage(0); }} className="h-8 px-2.5 rounded-lg border border-line text-xs inline-flex items-center gap-1 text-muted hover:text-ink"><RotateCcw size={13} />{tr("ล้างตัวกรองคอลัมน์", "Clear column filters", "清除列筛选")}</button> : null}
           <div className="relative">
@@ -425,7 +428,7 @@ export function SourceTag({ source }: { source: "pos" | "lark" }) {
 function LarkBillDrawer({ order, onClose }: { order: Order; onClose: () => void }) {
   return (
     <Drawer open onClose={onClose} title={<span className="inline-flex items-center gap-2"><SourceTag source="lark" /><span className="font-mono">{order.order_no}</span></span>}
-      subtitle={tr("ข้อมูลจากระบบเดิม (Lark) ผ่าน Dataverse — อ่านอย่างเดียว · อัปเดตอัตโนมัติทุกชั่วโมง", "From the legacy system (Lark) via Dataverse — read only · refreshed hourly", "来自旧系统 (Lark) — 只读 · 每小时更新")}>
+      subtitle={tr("ข้อมูลจากระบบเดิม (Lark) ผ่าน Dataverse — อ่านอย่างเดียว · อัปเดตอัตโนมัติทุก 15 นาที", "From the legacy system (Lark) via Dataverse — read only · refreshed every 15 min", "来自旧系统 (Lark) — 只读 · 每 15 分钟更新")}>
       <div className="p-5 space-y-3 text-sm">
         <p className="text-xs text-muted">{new Date(order.created_at).toLocaleDateString("th-TH", { dateStyle: "long" })}{order.status === "voided" ? ` · ${tr("คืนสินค้า", "Returned", "已退货")}` : ""}</p>
         <table className="w-full text-sm">

@@ -58,16 +58,20 @@ function AdminSalesPage() {
   // คำนวณตามค่าที่ "หน่วงไว้" — กดตัวกรอง/พิมพ์ค้นหาแล้วหน้าตอบสนองทันที ไม่ค้างระหว่างคำนวณบิลจำนวนมาก
   const dFilter = useDeferredValue(filter), dq = useDeferredValue(q), dSrc = useDeferredValue(src);
   const computing = dFilter !== filter || dq !== q || dSrc !== src;
-  const srcCount = useMemo(() => ({ pos: orders.filter((o) => o.source !== "lark").length, lark: orders.filter((o) => o.source === "lark").length }), [orders]);
-  const scoped = useMemo(() => {
-    const bySrc = dSrc === "all" ? orders : orders.filter((o) => (dSrc === "lark" ? o.source === "lark" : o.source !== "lark"));
-    if (data.live) return bySrc; // เซิร์ฟเวอร์ตัดตามสิทธิ์สาขาแล้ว
-    const ids = visibleBranchIds(employee, branches.map((b) => b.id));
-    return bySrc.filter((o) => ids.includes(o.branch_id));
-  }, [orders, employee, branches, data.live, dSrc]);
+  const visible = useMemo(() => {
+    if (data.live) return orders; // เซิร์ฟเวอร์ตัดตามสิทธิ์สาขาแล้ว
+    const ids = new Set(visibleBranchIds(employee, branches.map((b) => b.id)));
+    return orders.filter((o) => ids.has(o.branch_id));
+  }, [orders, employee, branches, data.live]);
+  const bySrc = (list: typeof orders) => (dSrc === "all" ? list : list.filter((o) => (dSrc === "lark" ? o.source === "lark" : o.source !== "lark")));
+  const scoped = useMemo(() => bySrc(visible), [visible, dSrc]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ตัวกรองครบทุกมิติ (แบรนด์/สาขา/จังหวัด/ประเภทร้าน/พนักงานขาย/แคชเชียร์/หมวด/SKU/ชำระ/ช่องทาง/สถานะ/ลูกค้า/เครื่อง/ธง)
-  const filtered = useMemo(() => applyOrderFilters(scoped, dFilter, { branches, products }), [scoped, dFilter, branches, products]);
+  // กรองครั้งเดียวทุกแหล่ง → นับป้าย POS/Lark ตามตัวกรองปัจจุบัน แล้วค่อยแยกแหล่ง (ไม่กรองซ้ำ)
+  const filteredAll = useMemo(() => applyOrderFilters(visible, dFilter, { branches, products }), [visible, dFilter, branches, products]);
+  const srcCount = useMemo(() => { let lark = 0; for (const o of filteredAll) if (o.source === "lark") lark++; return { pos: filteredAll.length - lark, lark }; }, [filteredAll]);
+  const hasLark = useMemo(() => orders.some((o) => o.source === "lark"), [orders]);
+  const filtered = useMemo(() => bySrc(filteredAll), [filteredAll, dSrc]); // eslint-disable-line react-hooks/exhaustive-deps
   const rows = useMemo(() => {
     const list = filtered;
     const term = dq.trim().toLowerCase();
@@ -187,7 +191,7 @@ function AdminSalesPage() {
           ...(can(employee, "report.employee_perf") ? [{ value: "staff" as Tab, label: <span className="inline-flex items-center gap-1.5"><Users size={14} />{L("ผลงานพนักงาน", "Staff performance", "员工业绩")}</span> }] : []),
         ]} />
         <div className="flex flex-wrap items-center gap-2">
-        {srcCount.lark ? (
+        {hasLark ? (
           <div className="inline-flex rounded-lg border border-line bg-surface p-0.5 text-xs" role="group" aria-label={L("แหล่งข้อมูล", "Source", "数据来源")}>
             {([["all", L("ทุกแหล่ง", "All sources", "全部来源"), srcCount.pos + srcCount.lark], ["pos", "POS", srcCount.pos], ["lark", "Lark", srcCount.lark]] as const).map(([v, label, n]) => (
               <button key={v} type="button" onClick={() => setSrc(v)} aria-pressed={src === v}
