@@ -16,6 +16,14 @@ const PAY: [RegExp, string][] = [[/บัตรเครดิต|credit|信用�
 const payMethod = (s: string | null) => { if (!s) return "other"; for (const [re, m] of PAY) if (re.test(s)) return m; return "other"; };
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
+/** ระบบเดิมบันทึกยอดอีเวนต์เป็นตัวเลขติดลบ (ตัดของออก) และติดสถานะ "returned" — ตั้งแต่ ต.ค. 2025 ติดลบทุกบรรทัด
+ *  → อีเวนต์: ใช้ค่าสัมบูรณ์ + ถือเป็นยอดขาย · หน้าร้าน: ใช้ตามต้นทาง (ไม่มี returned) */
+export function normalizeLegacyLine<T extends { channel: string; qty: number | null; amount: number | null; discount: number | null; vat: number | null; status: string | null }>(l: T): T {
+  if (l.channel !== "event") return l;
+  const a = (n: number | null) => (n == null ? n : Math.abs(Number(n)));
+  return { ...l, qty: a(l.qty), amount: a(l.amount), discount: a(l.discount), vat: a(l.vat), status: l.status === "returned" ? "normal" : l.status };
+}
+
 export async function legacyOrders(sb: SupabaseClient, fromIso: string, toIso: string, allowedBranches: string[] | null, opts: { max?: number } = {}) {
   const bkk = (iso: string) => new Date(new Date(iso).getTime() + 7 * 3600_000).toISOString().slice(0, 10);
   const from = bkk(fromIso), to = bkk(toIso);
@@ -29,7 +37,7 @@ export async function legacyOrders(sb: SupabaseClient, fromIso: string, toIso: s
     if (allowedBranches !== null) q = q.in("branch_id", allowedBranches.length ? allowedBranches : ["00000000-0000-0000-0000-000000000000"]);
     const r = await q;
     if (r.error) throw Error(`อ่านยอดขายระบบเดิมไม่สำเร็จ: ${r.error.message}`);
-    lines.push(...((r.data ?? []) as Line[]));
+    lines.push(...((r.data ?? []) as Line[]).map(normalizeLegacyLine));
     if ((r.data ?? []).length < 1000) break;
     if (lines.length >= max) { truncated = true; break; }
   }
