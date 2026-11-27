@@ -53,8 +53,9 @@ export function rangeToDates(range: RangeKey, prev?: { from: Date; to: Date }): 
       from.setDate(from.getDate() - 1); from.setHours(0, 0, 0, 0);
       const t = new Date(from); t.setHours(23, 59, 59, 999); return { from, to: t };
     }
-    case "7d": from.setDate(to.getDate() - 7); break;
-    case "30d": from.setDate(to.getDate() - 30); break;
+    // นับเต็มวันตั้งแต่ต้นวันแรก (ไม่ตัดกลางวัน — บิลระบบเดิมไม่มีเวลา ตั้งเป็นเที่ยงวัน)
+    case "7d": from.setDate(to.getDate() - 7); from.setHours(0, 0, 0, 0); break;
+    case "30d": from.setDate(to.getDate() - 30); from.setHours(0, 0, 0, 0); break;
     case "mtd": from.setDate(1); from.setHours(0, 0, 0, 0); break;
     case "ytd": from.setMonth(0, 1); from.setHours(0, 0, 0, 0); break;
     case "custom": return prev ?? { from, to };

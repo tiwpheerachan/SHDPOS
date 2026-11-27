@@ -23,6 +23,8 @@ export const PAYMENT_LABEL: Record<PaymentMethod, { th: string; en: string; zh: 
   store_credit: { th: "เครดิตร้าน", en: "Store credit", zh: "店铺积分" },
   installment: { th: "ผ่อนชำระ", en: "Installment", zh: "分期" },
   online_marketplace: { th: "มาร์เก็ตเพลส", en: "Marketplace", zh: "电商平台" },
+  online_payment: { th: "ชำระออนไลน์", en: "Online payment", zh: "线上支付" },
+  unspecified: { th: "ไม่ระบุ", en: "Not specified", zh: "未注明" },
   other: { th: "อื่นๆ", en: "Other", zh: "其他" },
 };
 export const paymentLabel = (m: string, l: Locale) =>

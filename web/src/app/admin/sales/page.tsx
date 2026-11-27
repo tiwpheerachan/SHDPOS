@@ -1,7 +1,7 @@
 "use client";
 import { OrderTraceButton } from "@/components/order-trace";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useDeferredValue, useEffect, useMemo, useState } from "react";
 import { OwSaleBadge, useOwSaleStatus } from "@/components/pos/ow-sale-badge";
 import { Download, Search, LayoutDashboard, Store, Tag, Users, ReceiptText, Loader2, AlertTriangle, Cloud, ChevronRight } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -55,23 +55,26 @@ function AdminSalesPage() {
 
   // แหล่งข้อมูล: POS (ระบบนี้) / Lark (ระบบเดิม ดึงจาก Dataverse)
   const [src, setSrc] = useState<"all" | "pos" | "lark">("all");
+  // คำนวณตามค่าที่ "หน่วงไว้" — กดตัวกรอง/พิมพ์ค้นหาแล้วหน้าตอบสนองทันที ไม่ค้างระหว่างคำนวณบิลจำนวนมาก
+  const dFilter = useDeferredValue(filter), dq = useDeferredValue(q), dSrc = useDeferredValue(src);
+  const computing = dFilter !== filter || dq !== q || dSrc !== src;
   const srcCount = useMemo(() => ({ pos: orders.filter((o) => o.source !== "lark").length, lark: orders.filter((o) => o.source === "lark").length }), [orders]);
   const scoped = useMemo(() => {
-    const bySrc = src === "all" ? orders : orders.filter((o) => (src === "lark" ? o.source === "lark" : o.source !== "lark"));
+    const bySrc = dSrc === "all" ? orders : orders.filter((o) => (dSrc === "lark" ? o.source === "lark" : o.source !== "lark"));
     if (data.live) return bySrc; // เซิร์ฟเวอร์ตัดตามสิทธิ์สาขาแล้ว
     const ids = visibleBranchIds(employee, branches.map((b) => b.id));
     return bySrc.filter((o) => ids.includes(o.branch_id));
-  }, [orders, employee, branches, data.live, src]);
+  }, [orders, employee, branches, data.live, dSrc]);
 
   // ตัวกรองครบทุกมิติ (แบรนด์/สาขา/จังหวัด/ประเภทร้าน/พนักงานขาย/แคชเชียร์/หมวด/SKU/ชำระ/ช่องทาง/สถานะ/ลูกค้า/เครื่อง/ธง)
-  const filtered = useMemo(() => applyOrderFilters(scoped, filter, { branches, products }), [scoped, filter, branches, products]);
+  const filtered = useMemo(() => applyOrderFilters(scoped, dFilter, { branches, products }), [scoped, dFilter, branches, products]);
   const rows = useMemo(() => {
     const list = filtered;
-    const term = q.trim().toLowerCase();
+    const term = dq.trim().toLowerCase();
     return term
       ? list.filter((o) => o.order_no.toLowerCase().includes(term) || (o.customer_name ?? "").toLowerCase().includes(term) || (o.customer_phone ?? "").includes(term) || o.items.some((i) => i.sku.toLowerCase().includes(term)))
       : list;
-  }, [filtered, q]);
+  }, [filtered, dq]);
 
   const totals = summarize(rows);
   const showCost = can(employee, "report.cost");
@@ -81,15 +84,15 @@ function AdminSalesPage() {
 
   // ยอดหักออก/ช่วงก่อนหน้า ให้ผ่านตัวกรองสาขา/แบรนด์/ช่องทางเดียวกับบิล
   const scopeBranch = useMemo(() => {
-    const ids = new Set<string>(filter.branchIds);
-    if (filter.brandIds.length) for (const b of branches) if (b.brand_id && filter.brandIds.includes(b.brand_id) && (!filter.branchIds.length || filter.branchIds.includes(b.id))) ids.add(b.id);
-    if (filter.brandIds.length && filter.branchIds.length) for (const id of [...ids]) { const b = branches.find((x) => x.id === id); if (b && !(b.brand_id && filter.brandIds.includes(b.brand_id))) ids.delete(id); }
+    const ids = new Set<string>(dFilter.branchIds);
+    if (dFilter.brandIds.length) for (const b of branches) if (b.brand_id && dFilter.brandIds.includes(b.brand_id) && (!dFilter.branchIds.length || dFilter.branchIds.includes(b.id))) ids.add(b.id);
+    if (dFilter.brandIds.length && dFilter.branchIds.length) for (const id of [...ids]) { const b = branches.find((x) => x.id === id); if (b && !(b.brand_id && dFilter.brandIds.includes(b.brand_id))) ids.delete(id); }
     // สาขาที่ไม่ผูกแบรนด์แต่ขายสินค้าแบรนด์นั้น (คลัง/ร้านรวมแบรนด์) — นับจากบิลที่ผ่านตัวกรองแล้ว
-    if (filter.brandIds.length) for (const o of filtered) if (!filter.branchIds.length || filter.branchIds.includes(o.branch_id)) ids.add(o.branch_id);
-    return ids.size || filter.brandIds.length ? ids : null;
-  }, [filter.branchIds, filter.brandIds, branches, filtered]);
+    if (dFilter.brandIds.length) for (const o of filtered) if (!dFilter.branchIds.length || dFilter.branchIds.includes(o.branch_id)) ids.add(o.branch_id);
+    return ids.size || dFilter.brandIds.length ? ids : null;
+  }, [dFilter.branchIds, dFilter.brandIds, branches, filtered]);
   const adjustments = useMemo(() => data.adjustments.filter((a) => !scopeBranch || scopeBranch.has(a.branch_id)), [data.adjustments, scopeBranch]);
-  const prevRows = useMemo(() => data.prev.filter((o) => (!scopeBranch || scopeBranch.has(o.branch_id)) && (!filter.channels.length || filter.channels.includes(o.channel))), [data.prev, scopeBranch, filter.channels]);
+  const prevRows = useMemo(() => data.prev.filter((o) => (!scopeBranch || scopeBranch.has(o.branch_id)) && (!dFilter.channels.length || dFilter.channels.includes(o.channel))), [data.prev, scopeBranch, dFilter.channels]);
 
   // ── มุมมอง/แชร์: สถานะรายงาน = ตัวกรอง + แท็บ (ช่วงสัมพัทธ์ เช่น 7 วัน คำนวณใหม่ทุกครั้งที่เปิด) ──
   const reportRef = useRef<HTMLDivElement>(null);
@@ -114,10 +117,12 @@ function AdminSalesPage() {
   useEffect(() => { void listCategories().then((c) => setCats(new Map(c.map((x) => [x.id, x.name_th])))); }, []);
   const brandName = useMemo(() => new Map(brands.map((b) => [b.id, b.name])), [brands]);
   const productCat = useMemo(() => new Map(products.map((p) => [p.id, p.category_id])), [products]);
-  const overview = useMemo(() => buildOverview({ orders: rows, adjustments, prev: prevRows, branches, employees, showCost, range: { from: filter.from, to: filter.to }, productCat, catName: cats, brandName }),
-    [rows, adjustments, prevRows, branches, employees, showCost, filter.from, filter.to, productCat, cats, brandName]);
+  // ภาพรวมคำนวณเฉพาะตอนเปิดแท็บภาพรวม (หรือตอนส่งออก/แชร์) — แท็บอื่นไม่เสียเวลา
+  const buildOv = () => buildOverview({ orders: rows, adjustments, prev: prevRows, branches, employees, showCost, range: { from: dFilter.from, to: dFilter.to }, productCat, catName: cats, brandName });
+  const overview = useMemo(() => tab !== "overview" ? null : buildOverview({ orders: rows, adjustments, prev: prevRows, branches, employees, showCost, range: { from: dFilter.from, to: dFilter.to }, productCat, catName: cats, brandName }),
+    [tab, rows, adjustments, prevRows, branches, employees, showCost, dFilter.from, dFilter.to, productCat, cats, brandName]); // eslint-disable-line react-hooks/exhaustive-deps
   const excelRows = () => {
-    const m = overview, k = m.kpi, R: { section: string; label: string; value: string | number }[] = [];
+    const m = overview ?? buildOv(), k = m.kpi, R: { section: string; label: string; value: string | number }[] = [];
     const add = (section: string, label: string, value: string | number) => R.push({ section, label, value });
     add(L("ตัวกรอง", "Filters", "筛选"), L("ช่วงวันที่", "Date range", "日期范围"), rangeLabel); if (filterSummary) add(L("ตัวกรอง", "Filters", "筛选"), L("เงื่อนไข", "Conditions", "条件"), filterSummary);
     add(L("สรุป", "Summary", "汇总"), L("ยอดขาย", "Sales", "销售额"), k.gross); add(L("สรุป", "Summary", "汇总"), L("คืนเงิน", "Refunds", "退款"), k.refunds); add(L("สรุป", "Summary", "汇总"), L("ใบลดหนี้ส่วนลด", "Discount credit notes", "折扣红字发票"), k.cn); add(L("สรุป", "Summary", "汇总"), L("ยอดสุทธิ", "Net sales", "净销售额"), k.net);
@@ -168,7 +173,7 @@ function AdminSalesPage() {
           <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t.common.search} className="pl-9 h-9" />
         </div>
         <ViewsMenu report="sales" current={currentState} onApply={applyState} />
-        <ShareMenu canPublic={can(employee, "report.share")} teamUrl={teamUrl} snapshot={() => ({ model: overview, meta: { range: rangeLabel, filters: filterSummary, generated_at: new Date().toISOString() } })} title={() => `${L("รายงานยอดขาย", "Sales report", "销售报表")} · ${rangeLabel}${filterSummary ? ` · ${filterSummary}` : ""}`} />
+        <ShareMenu canPublic={can(employee, "report.share")} teamUrl={teamUrl} snapshot={() => ({ model: overview ?? buildOv(), meta: { range: rangeLabel, filters: filterSummary, generated_at: new Date().toISOString() } })} title={() => `${L("รายงานยอดขาย", "Sales report", "销售报表")} · ${rangeLabel}${filterSummary ? ` · ${filterSummary}` : ""}`} />
         <DownloadMenu target={() => reportRef.current} filename={() => `sales-${tab}-${filter.from.toISOString().slice(0, 10)}_${filter.to.toISOString().slice(0, 10)}`}
           excel={excelRows} extra={[{ title: L("CSV รายการบิล", "Bills CSV", "单据列表 CSV"), sub: L(`${rows.length} บิลตามตัวกรอง`, `${rows.length} filtered bills`, `筛选后 ${rows.length} 张单据`), onClick: exportCsv }]} />
       </div>
@@ -193,7 +198,7 @@ function AdminSalesPage() {
           </div>
         ) : null}
         <span className="text-[11px] text-muted inline-flex items-center gap-1.5">
-          {data.loading ? <><Loader2 size={12} className="animate-spin" />{L("กำลังโหลดข้อมูล…", "Loading…", "加载中…")}</> : data.live
+          {data.loading ? <><Loader2 size={12} className="animate-spin" />{L("กำลังโหลดข้อมูล…", "Loading…", "加载中…")}</> : computing ? <><Loader2 size={12} className="animate-spin" />{L("กำลังคำนวณ…", "Updating…", "计算中…")}</> : data.live
             ? <><Cloud size={12} />{L(`ข้อมูลจริงจากระบบกลาง · ${formatInt(filtered.length)} จาก ${formatInt(scoped.length)} บิลในช่วงวันที่`, `Central data · ${filtered.length}/${scoped.length} bills`, "中央数据")}</>
             : L("โหมดสาธิต · ข้อมูลในเครื่อง", "Demo · local data", "演示数据")}
         </span>
@@ -204,7 +209,7 @@ function AdminSalesPage() {
 
       <div ref={reportRef} className="space-y-4">
       {tab === "bills" ? <SalesSheet orders={rows} branches={branches} brands={brands} employees={employees} products={products} catName={cats} showCost={showCost} owStatus={owStatus as never} onExportCsv={exportCsv} /> : null}
-      {tab === "overview" ? <OverviewView m={overview}
+      {tab === "overview" && overview ? <OverviewView m={overview}
         onDrill={(to, patch) => { if (to === "staff" && patch?.person) { const u = new URLSearchParams(sp.toString()); u.set("tab", "staff"); u.set("person", String(patch.person)); router.push(`/admin/sales?${u}`, { scroll: false }); } else setTab(to); }} /> : null}
 
       {tab === "branch" ? <BranchView orders={rows} branches={branches} brands={brands} showCost={showCost} L={L} locale={locale} onDrill={(id) => drill({ branchIds: [id] })} /> : null}

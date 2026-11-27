@@ -1,9 +1,10 @@
 // /api/admin/sales-data — บิลจริงจากระบบกลางสำหรับหน้ายอดขาย/ผลงานพนักงาน (แทนข้อมูลในเครื่อง)
 //   GET ?from=ISO&to=ISO → { orders: Order[], branches, brands, employees, truncated }
 //   สิทธิ์ sales.view · เห็นเฉพาะสาขาในขอบเขต · data_scope=own เห็นเฉพาะบิลตัวเอง · ต้นทุน/กำไรซ่อนถ้าไม่มี report.cost
+//   ยอดขายระบบเดิม (Lark) ส่งแบบบีบอัดใน legacy (หน้าเว็บกางเป็นบิลเอง — lib/legacy-expand) · ?legacy=0 ปิด
 //   ตัวกรองละเอียด (พนักงาน/หมวด/SKU/ชำระ/ช่องทาง/สถานะ ฯลฯ) คิดฝั่งหน้าเว็บด้วย applyOrderFilters (สูตรเดียวกับทุกหน้า)
 import { NextRequest, NextResponse } from "next/server";
-import { legacyOrders } from "@/lib/server/legacy-sales";
+import { legacyCompact, legacyDaily } from "@/lib/server/legacy-sales";
 import { SSO_COOKIE, readSession } from "@/lib/sso/session-cookie";
 import { resolveAuthz } from "@/lib/sso/grants";
 import { hasPerm } from "@/lib/sso/guard";
@@ -23,11 +24,17 @@ export async function GET(req: NextRequest) {
   const authz = await resolveAuthz(profile);
   if (!authz.allowed || !hasPerm(profile.email, authz, "sales.view")) return reply({ error: "ไม่มีสิทธิ์ดูยอดขาย" }, 403);
   const from = new Date(req.nextUrl.searchParams.get("from") ?? ""), to = new Date(req.nextUrl.searchParams.get("to") ?? "");
-  if (Number.isNaN(+from) || Number.isNaN(+to) || to < from || +to - +from > 400 * 86400_000) return reply({ error: "ช่วงวันที่ไม่ถูกต้อง (ไม่เกิน 400 วัน)" }, 400);
+  if (Number.isNaN(+from) || Number.isNaN(+to) || to < from || +to - +from > 1200 * 86400_000) return reply({ error: "ช่วงวันที่ไม่ถูกต้อง (ไม่เกิน 1,200 วัน)" }, 400);
   const sb = supabaseAdmin();
   const allowed = await visibleBranchIds(authz);
   const showCost = hasPerm(profile.email, authz, "report.cost");
   const own = authz.data_scope === "own" ? authz.employee_id : null;
+  // ยอดขายระบบเดิม (Lark): ยิงคู่ขนานกับการอ่านบิล POS — ร้านที่ยังไม่จับคู่/อีเวนต์ เห็นเฉพาะผู้ดูทั้งบริษัท · data_scope=own ไม่มี (ระบบเดิมไม่มีผู้ขาย)
+  const len = +to - +from, pFrom = new Date(+from - len), pTo = new Date(+from - 1);
+  const wantLegacy = req.nextUrl.searchParams.get("legacy") !== "0" && !own;
+  const soft = <T,>(p: Promise<T>) => p.catch((e) => { console.error("[sales-data:legacy]", e instanceof Error ? e.message : e); return null; });
+  const legacyP = wantLegacy ? soft(legacyCompact(sb, from.toISOString(), to.toISOString(), allowed)) : Promise.resolve(null);
+  const legacyPrevP = wantLegacy ? soft(legacyDaily(sb, pFrom.toISOString(), pTo.toISOString(), allowed)) : Promise.resolve(null);
 
   // บิลในช่วง (เวลาขายจริง = sale_occurred_at ถ้ามี) — ทีละหน้า
   const rows: Row[] = [];
@@ -58,19 +65,13 @@ export async function GET(req: NextRequest) {
     payments: (o.order_payments ?? []).map((p: Row) => ({ method: p.method, amount: +p.amount })),
   }));
 
-  // ยอดขายระบบเดิม (Lark) — ?legacy=0 ปิด · สิทธิ์ตามสาขาเดียวกัน (ร้านที่ยังไม่จับคู่/อีเวนต์ เห็นเฉพาะผู้ดูทั้งบริษัท)
-  let legacy: Awaited<ReturnType<typeof legacyOrders>> | null = null;
-  if (req.nextUrl.searchParams.get("legacy") !== "0" && !own) {
-    try { legacy = await legacyOrders(sb, from.toISOString(), to.toISOString(), allowed); }
-    catch (e) { console.error("[sales-data:legacy]", e instanceof Error ? e.message : e); }
-  }
-  if (legacy) orders.push(...(legacy.orders as unknown as typeof orders));
+  const legacy = await legacyP;
 
   let bq = sb.from("branches").select("id,code,name,name_th,brand_id,province,branch_type,is_active").eq("is_active", true).order("code");
   if (allowed !== null) bq = bq.in("id", allowed.length ? allowed : ["00000000-0000-0000-0000-000000000000"]);
-  const branches = [...((await bq).data ?? []).filter((b) => b.branch_type !== "warehouse"), ...((legacy?.pseudoBranches ?? []) as never[])];
+  const branches = ((await bq).data ?? []).filter((b) => b.branch_type !== "warehouse");
   // แบรนด์ = ของสาขา + ของสินค้าที่ขายจริง (สาขาคลัง/ร้านรวมหลายแบรนด์ไม่มี brand_id ที่สาขา)
-  const brandIds = [...new Set([...branches.map((b) => b.brand_id), ...orders.flatMap((o) => o.items.map((i: { brand_id: string | null }) => i.brand_id))].filter(Boolean))] as string[];
+  const brandIds = [...new Set([...branches.map((b) => b.brand_id), ...orders.flatMap((o) => o.items.map((i: { brand_id: string | null }) => i.brand_id)), ...(legacy?.skus ?? []).map((k) => k[3])].filter(Boolean))] as string[];
   const brands = brandIds.length ? ((await sb.from("brands").select("id,code,name,name_th,name_zh,logo_url").in("id", brandIds)).data ?? []) : [];
   // ตำแหน่งในผังองค์กร (ข้อมูลจริง ตามสาขาที่เห็นได้) — ใช้เทียบผลงานตามตำแหน่ง รวมคนที่ยังไม่มียอดขาย
   let posQ = sb.from("org_positions").select("branch_id,employee_id,title").limit(5000);
@@ -90,11 +91,10 @@ export async function GET(req: NextRequest) {
     ...(cns.data ?? []).map((c) => ({ branch_id: c.branch_id, kind: "credit_note", amount: +c.amount_total, at: c.issued_at })),
   ];
   // ช่วงก่อนหน้า (ยาวเท่ากัน) — แถวย่อสำหรับเทียบ % (หน้าเว็บกรองสาขา/แบรนด์/ช่องทางเหมือนช่วงปัจจุบัน)
-  const len = +to - +from, pFrom = new Date(+from - len), pTo = new Date(+from - 1);
   let pq = sb.from("orders").select("branch_id,grand_total,status,channel,created_at,sale_occurred_at,cashier_id,salesperson_id").gte("created_at", pFrom.toISOString()).lte("created_at", pTo.toISOString()).limit(20000);
   if (allowed !== null) pq = pq.in("branch_id", allowed.length ? allowed : ["00000000-0000-0000-0000-000000000000"]);
   if (own) pq = pq.or(`cashier_id.eq.${own},salesperson_id.eq.${own}`);
   const prev = ((await pq).data ?? []).map((o) => ({ branch_id: o.branch_id, grand_total: +o.grand_total, status: o.status, channel: o.channel, created_at: o.sale_occurred_at ?? o.created_at }));
-  return reply({ orders, branches, brands, employees, positions, truncated: truncated || !!legacy?.truncated, show_cost: showCost, adjustments, prev, prev_range: { from: pFrom, to: pTo },
-    legacy: legacy ? { lines: legacy.lines, skipped: legacy.skipped, overlapped: legacy.overlapped } : null });
+  return reply({ orders, branches, brands, employees, positions, truncated, show_cost: showCost, adjustments, prev, prev_range: { from: pFrom, to: pTo },
+    legacy, legacy_prev: await legacyPrevP });
 }

@@ -6,7 +6,7 @@ import { TrendingUp, TrendingDown, Minus, ArrowUpRight, Clock, Users, Store, Pac
 import type { Branch, Employee, Order } from "@/lib/types";
 import type { Adjustment, PrevOrder } from "@/lib/hooks/use-sales-data";
 import { formatTHB, formatInt } from "@/lib/money";
-import { isCountedSale, saleAt, bkkHour, bkkDay } from "@/lib/sales-basis";
+import { isCountedSale, saleAt, bkkHour, bkkDay, bkkWeekday } from "@/lib/sales-basis";
 import { OrderTraceDrawer } from "@/components/order-trace";
 import { useSession } from "@/lib/store/session";
 import { can } from "@/lib/permissions";
@@ -15,7 +15,7 @@ import { OwSaleBadge } from "@/components/pos/ow-sale-badge";
 import { Segmented } from "@/components/ui";
 import { tr } from "@/lib/i18n/tr";
 
-const PAY = (): Record<string, string> => ({ cash: tr("เงินสด", "Cash", "现金"), credit_card: tr("บัตรเครดิต", "Credit card", "信用卡"), debit_card: tr("บัตรเดบิต", "Debit card", "借记卡"), qr_promptpay: tr("พร้อมเพย์", "PromptPay", "PromptPay"), bank_transfer: tr("โอนเงิน", "Bank transfer", "银行转账"), edc: "EDC", installment: tr("ผ่อนชำระ", "Installment", "分期付款"), gift_card: tr("บัตรของขวัญ", "Gift card", "礼品卡"), store_credit: tr("เครดิตร้าน", "Store credit", "店铺余额"), online_marketplace: tr("มาร์เก็ตเพลส", "Marketplace", "电商平台"), other: tr("อื่น ๆ", "Other", "其他") });
+const PAY = (): Record<string, string> => ({ cash: tr("เงินสด", "Cash", "现金"), credit_card: tr("บัตรเครดิต", "Credit card", "信用卡"), debit_card: tr("บัตรเดบิต", "Debit card", "借记卡"), qr_promptpay: tr("พร้อมเพย์", "PromptPay", "PromptPay"), bank_transfer: tr("โอนเงิน", "Bank transfer", "银行转账"), edc: "EDC", installment: tr("ผ่อนชำระ", "Installment", "分期付款"), gift_card: tr("บัตรของขวัญ", "Gift card", "礼品卡"), store_credit: tr("เครดิตร้าน", "Store credit", "店铺余额"), online_marketplace: tr("มาร์เก็ตเพลส", "Marketplace", "电商平台"), online_payment: tr("ชำระออนไลน์", "Online payment", "线上支付"), unspecified: tr("ไม่ระบุ", "Not specified", "未注明"), other: tr("อื่น ๆ", "Other", "其他") });
 const CH = (): Record<string, string> => ({ offline: tr("หน้าร้าน", "In-store", "门店"), online_shopee: "Shopee", online_lazada: "Lazada", online_tiktok: "TikTok", online_website: tr("เว็บไซต์", "Website", "官网"), event: tr("อีเวนต์", "Event", "活动"), b2b: tr("ขายส่ง", "Wholesale", "批发"), other: tr("อื่น ๆ", "Other", "其他") });
 const DAYS = () => tr("อา|จ|อ|พ|พฤ|ศ|ส", "Sun|Mon|Tue|Wed|Thu|Fri|Sat", "日|一|二|三|四|五|六").split("|");
 const baht = (n: number) => formatTHB(n, false);
@@ -94,9 +94,9 @@ function Trend({ cur, prev, labels }: { cur: number[]; prev: number[]; labels: s
 export type OverviewModel = {
   kpi: { gross: number; net: number; bills: number; units: number; disc: number; gp: number; members: number; refunds: number; cn: number; voids: number; voidAmt: number; avg: number; pGross: number; pBills: number; pAvg: number; hasPrev: boolean; showCost: boolean };
   spark: number[];
-  trend: { cur: number[]; prev: number[]; labels: string[]; hourly: boolean };
+  trend: { cur: number[]; prev: number[]; labels: string[]; hourly: boolean; monthly?: boolean };
   pay: { label: string; value: number }[]; ch: { label: string; value: number }[];
-  heat: { g: number[][]; max: number; peak: { d: number; h: number; v: number }; hours: [number, number] };
+  heat: { noTimeLark?: boolean; g: number[][]; max: number; peak: { d: number; h: number; v: number }; hours: [number, number] };
   weekday: { label: string; cur: number; prev: number }[];
   basket: { label: string; value: number }[];
   categories: { label: string; value: number }[];
@@ -120,16 +120,29 @@ export function buildOverview({ orders, adjustments, prev, branches, employees, 
   const voids = orders.filter((o) => o.status === "voided");
   const pSold = prev.filter((o) => o.status === "completed" || o.status === "partially_refunded");
   const pGross = pSold.reduce((s, o) => s + o.grand_total, 0);
+  const pBills = pSold.reduce((s, o) => s + (o.n ?? 1), 0); // ระบบเดิมส่งช่วงก่อนเป็นยอดรวมรายวัน (n = จำนวนบิล)
+  // บิลระบบเดิม (Lark) ไม่มีเวลาขาย → ไม่เอาไปคิดรายชั่วโมง/แผนที่ความร้อน
+  const timed = sold.filter((o) => o.source !== "lark");
   const kpi = { gross, net: gross - refunds - cn, bills, units, disc, gp, members: sold.filter((o) => o.customer_id).length, refunds, cn, voids: voids.length,
-    voidAmt: voids.reduce((s, o) => s + o.grand_total, 0), avg: bills ? gross / bills : 0, pGross, pBills: pSold.length, pAvg: pSold.length ? pGross / pSold.length : 0, hasPrev: prev.length > 0, showCost };
+    voidAmt: voids.reduce((s, o) => s + o.grand_total, 0), avg: bills ? gross / bills : 0, pGross, pBills, pAvg: pBills ? pGross / pBills : 0, hasPrev: prev.length > 0, showCost };
 
   const spanDays = Math.max(1, Math.round((+range.to - +range.from) / 86400_000));
   let trend: OverviewModel["trend"];
   if (spanDays <= 2) {
     const cur = Array(24).fill(0), pv = Array(24).fill(0);
-    for (const o of sold) cur[bkkHour(saleAt(o))] += o.grand_total;
-    for (const o of pSold) pv[bkkHour(o.created_at)] += o.grand_total;
+    for (const o of timed) cur[bkkHour(saleAt(o))] += o.grand_total;
+    for (const o of pSold) if (o.source !== "lark") pv[bkkHour(o.created_at)] += o.grand_total;
     trend = { cur, prev: pv, labels: cur.map((_, h) => `${String(h).padStart(2, "0")}:00`), hourly: true };
+  } else if (spanDays > 120) {
+    // ช่วงยาว (เช่นย้อนหลังทั้งปี) → รายเดือน
+    const months: string[] = [];
+    for (let d = new Date(bkkDay(range.from.toISOString()).slice(0, 7) + "-01T00:00:00Z"); d.toISOString().slice(0, 7) <= bkkDay(range.to.toISOString()).slice(0, 7) && months.length < 60; d = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1))) months.push(d.toISOString().slice(0, 7));
+    const idx = new Map(months.map((m, i) => [m, i]));
+    const cur = Array(months.length).fill(0), pv = Array(months.length).fill(0);
+    for (const o of sold) { const i = idx.get(bkkDay(saleAt(o)).slice(0, 7)); if (i !== undefined) cur[i] += o.grand_total; }
+    const shift = +range.to - +range.from + 1;
+    for (const o of pSold) { const i = idx.get(bkkDay(new Date(+new Date(o.created_at) + shift).toISOString()).slice(0, 7)); if (i !== undefined) pv[i] += o.grand_total; }
+    trend = { cur, prev: pv, labels: months.map((m) => { const [y, mm] = m.split("-"); return `${+mm}/${y.slice(2)}`; }), hourly: false, monthly: true };
   } else {
     const days: string[] = [];
     for (let d = new Date(range.from); d <= range.to && days.length < 400; d = new Date(+d + 86400_000)) days.push(bkkDay(d.toISOString()));
@@ -144,14 +157,13 @@ export function buildOverview({ orders, adjustments, prev, branches, employees, 
   const pay = agg(sold.flatMap((o) => o.payments.map((p) => [PAY()[p.method] ?? p.method, p.amount] as [string, number])));
   const ch = agg(sold.map((o) => [CH()[o.channel] ?? o.channel, o.grand_total]));
   const g = Array.from({ length: 7 }, () => Array(24).fill(0));
-  const bkkDate = (iso: string) => new Date(new Date(iso).toLocaleString("en-US", { timeZone: "Asia/Bangkok" }));
-  for (const o of sold) { const t = bkkDate(saleAt(o)); g[t.getDay()][t.getHours()] += o.grand_total; }
+  for (const o of timed) g[bkkWeekday(saleAt(o))][bkkHour(saleAt(o))] += o.grand_total;
   let peak = { d: 0, h: 0, v: 0 }; g.forEach((row, d) => row.forEach((v, h) => { if (v > peak.v) peak = { d, h, v }; }));
   const hs = g.flatMap((row) => row.map((v, h) => (v > 0 ? h : -1))).filter((h) => h >= 0);
-  const heat = { g, max: Math.max(1, ...g.flat()), peak, hours: (hs.length ? [Math.min(8, ...hs), Math.max(21, ...hs)] : [8, 21]) as [number, number] };
+  const heat = { noTimeLark: timed.length < sold.length, g, max: Math.max(1, ...g.flat()), peak, hours: (hs.length ? [Math.min(8, ...hs), Math.max(21, ...hs)] : [8, 21]) as [number, number] };
   const wd = Array.from({ length: 7 }, (_, d) => ({ label: DAYS()[d], cur: 0, prev: 0 }));
-  for (const o of sold) wd[bkkDate(saleAt(o)).getDay()].cur += o.grand_total;
-  for (const o of pSold) wd[bkkDate(o.created_at).getDay()].prev += o.grand_total;
+  for (const o of sold) wd[bkkWeekday(saleAt(o))].cur += o.grand_total;
+  for (const o of pSold) wd[bkkWeekday(o.created_at)].prev += o.grand_total;
   const BUCKETS: [string, number][] = [["< 500", 500], ["500–1K", 1000], ["1K–3K", 3000], ["3K–5K", 5000], ["5K–10K", 10000], ["10K–20K", 20000], ["20K+", Infinity]];
   const basket = BUCKETS.map(([label]) => ({ label, value: 0 }));
   for (const o of sold) basket[BUCKETS.findIndex(([, lim]) => o.grand_total < lim)].value++;
@@ -267,7 +279,7 @@ export function OverviewView({ m, onDrill }: { m: OverviewModel; onDrill?: (tab:
       </div>
 
       <div className="grid lg:grid-cols-3 gap-4">
-        <Panel className="lg:col-span-2" title={m.trend.hourly ? tr("ยอดขายรายชั่วโมง", "Hourly sales", "每小时销售额") : tr("แนวโน้มยอดขายรายวัน", "Daily sales trend", "每日销售趋势")} icon={<TrendingUp size={14} className="text-brand" />}
+        <Panel className="lg:col-span-2" title={m.trend.hourly ? tr("ยอดขายรายชั่วโมง", "Hourly sales", "每小时销售额") : m.trend.monthly ? tr("แนวโน้มยอดขายรายเดือน", "Monthly sales trend", "每月销售趋势") : tr("แนวโน้มยอดขายรายวัน", "Daily sales trend", "每日销售趋势")} icon={<TrendingUp size={14} className="text-brand" />}
           action={<span className="text-[10.5px] text-muted inline-flex items-center gap-3"><span className="inline-flex items-center gap-1"><span className="w-3 h-0.5 bg-brand rounded" />{tr("ช่วงนี้", "This period", "本期")}</span><span className="inline-flex items-center gap-1"><span className="w-3 border-t border-dashed border-muted" />{tr("ช่วงก่อนหน้า", "Previous period", "上期")}</span></span>}>
           {k.bills ? <Trend cur={m.trend.cur} prev={m.trend.prev} labels={m.trend.labels} /> : <p className="text-xs text-muted py-10 text-center">{tr("ไม่มียอดขายในช่วงนี้", "No sales in this period", "此期间暂无销售")}</p>}
         </Panel>
@@ -283,7 +295,7 @@ export function OverviewView({ m, onDrill }: { m: OverviewModel; onDrill?: (tab:
 
       <div className="grid lg:grid-cols-3 gap-4">
         <Panel className="lg:col-span-2" title={tr("ช่วงเวลาขายดี (วัน × ชั่วโมง)", "Peak times (day × hour)", "销售高峰（日 × 时）")} icon={<Clock size={14} className="text-brand" />}
-          action={peak.v ? <span className="text-[10.5px] text-muted">{tr("พีค", "Peak", "高峰")} {DAYS()[peak.d]} {String(peak.h).padStart(2, "0")}:00 · {baht(peak.v)}</span> : null}>
+          action={<span className="text-[10.5px] text-muted">{peak.v ? <>{tr("พีค", "Peak", "高峰")} {DAYS()[peak.d]} {String(peak.h).padStart(2, "0")}:00 · {baht(peak.v)}</> : null}{m.heat.noTimeLark ? <>{peak.v ? " · " : ""}{tr("ไม่รวมบิล Lark (ระบบเดิมไม่มีเวลาขาย)", "Excludes Lark bills (no sale time)", "不含 Lark 单据（无销售时间）")}</> : null}</span>}>
           <div className="overflow-x-auto">
             <div className="grid gap-[3px] min-w-[420px]" style={{ gridTemplateColumns: `28px repeat(${hours[1] - hours[0] + 1}, minmax(0,1fr))` }}>
               <span />

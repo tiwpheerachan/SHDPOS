@@ -12,7 +12,9 @@ export type SaleChannel =
   | "online_website" | "event" | "b2b" | "other";
 export type PaymentMethod =
   | "cash" | "credit_card" | "debit_card" | "qr_promptpay" | "bank_transfer"
-  | "edc" | "gift_card" | "store_credit" | "installment" | "online_marketplace" | "other";
+  | "edc" | "gift_card" | "store_credit" | "installment" | "online_marketplace" | "other"
+  // เฉพาะยอดขายระบบเดิม (Lark): ชำระออนไลน์ · ไม่ระบุวิธีชำระ
+  | "online_payment" | "unspecified";
 export type TransferStatus =
   | "draft" | "pending_approval" | "approved" | "picking" | "packed" | "shipped"
   | "in_transit" | "received" | "partial_received" | "completed" | "cancelled" | "rejected";
