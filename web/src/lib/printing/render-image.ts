@@ -24,6 +24,43 @@ function qrImage(data: string, px: number): Promise<HTMLImageElement> {
 
 /** คืน PNG base64 (ไม่มี prefix data:) */
 export async function renderReceiptPng(b: EscPosBuilder, widthPx: number): Promise<string> {
+  return (await renderReceiptCanvas(b, widthPx)).toDataURL("image/png").split(",")[1];
+}
+
+/**
+ * ใบเสร็จเป็นคำสั่งพิมพ์รูป ESC/POS (GS v 0) — ใช้กับเครื่องพิมพ์ใบเสร็จทั่วไป (Gainscha/Xprinter/Epson ฯลฯ)
+ *   ภาษาไทยออกถูกแน่นอน ไม่ต้องพึ่งชุดตัวอักษรในเครื่องพิมพ์ · ตัดกระดาษท้ายใบ
+ */
+export async function renderReceiptRaster(b: EscPosBuilder, widthPx: number, opts: { cut?: boolean } = {}): Promise<Uint8Array> {
+  const c = await renderReceiptCanvas(b, widthPx);
+  const g = c.getContext("2d")!;
+  const { data } = g.getImageData(0, 0, c.width, c.height);
+  const bytesPerRow = Math.ceil(c.width / 8);
+  const out: number[] = [0x1b, 0x40]; // ESC @
+  const BAND = 128; // ส่งเป็นช่วง ๆ กันบัฟเฟอร์เครื่องพิมพ์เต็ม
+  for (let y0 = 0; y0 < c.height; y0 += BAND) {
+    const rows = Math.min(BAND, c.height - y0);
+    out.push(0x1d, 0x76, 0x30, 0x00, bytesPerRow & 0xff, bytesPerRow >> 8, rows & 0xff, rows >> 8);
+    for (let y = y0; y < y0 + rows; y++) {
+      for (let xb = 0; xb < bytesPerRow; xb++) {
+        let v = 0;
+        for (let bit = 0; bit < 8; bit++) {
+          const x = xb * 8 + bit;
+          if (x >= c.width) continue;
+          const i = (y * c.width + x) * 4;
+          const lum = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+          if (data[i + 3] > 0 && lum < 160) v |= 0x80 >> bit; // ดำ = จุดพิมพ์
+        }
+        out.push(v);
+      }
+    }
+  }
+  out.push(0x1b, 0x64, 0x04); // feed 4 บรรทัด
+  if (opts.cut !== false) out.push(0x1d, 0x56, 0x42, 0x00); // ตัดกระดาษ
+  return new Uint8Array(out);
+}
+
+async function renderReceiptCanvas(b: EscPosBuilder, widthPx: number): Promise<HTMLCanvasElement> {
   const cols = b.width;
   const family = (typeof document !== "undefined" && getComputedStyle(document.body).fontFamily) || "sans-serif";
   const base = Math.round((widthPx / cols) * 1.9); // 80มม./48คอลัมน์ ≈ 23px
@@ -104,5 +141,5 @@ export async function renderReceiptPng(b: EscPosBuilder, widthPx: number): Promi
       y += img.height + base;
     }
   }
-  return c.toDataURL("image/png").split(",")[1];
+  return c;
 }

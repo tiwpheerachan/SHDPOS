@@ -11,9 +11,11 @@
 // =====================================================================
 
 import { drawerKickBytes, EscPosBuilder } from "./escpos";
+import { tr } from "../i18n/tr";
 import { inShell, shellInfo, shellPrintImage } from "./shell";
+import { writeUsb } from "./webusb";
 
-export type PrintTransport = "bridge" | "webserial" | "browser" | "sunmi" | "none";
+export type PrintTransport = "bridge" | "usb" | "webserial" | "browser" | "sunmi" | "none";
 
 export interface PrinterConfig {
   transport: PrintTransport;
@@ -118,6 +120,31 @@ export async function printEscPos(cfg: PrinterConfig, builder: EscPosBuilder): P
       return { ok: false, transport: "sunmi", error: e instanceof Error ? e.message : "print failed" };
     }
   }
+  // ความกว้างกระดาษเป็นจุด: 80 มม. = 576 · 58 มม. = 384
+  const px = cfg.width <= 32 ? 384 : 576;
+
+  // USB ตรงจากเบราว์เซอร์ — ส่งใบเสร็จเป็นรูป (ภาษาไทยออกถูกทุกยี่ห้อ)
+  if (cfg.transport === "usb") {
+    try {
+      const { renderReceiptRaster } = await import("./render-image");
+      const r = await writeUsb(await renderReceiptRaster(builder, px));
+      return r.ok ? { ok: true, transport: "usb" } : { ok: false, transport: "usb", error: usbError(r.error) };
+    } catch (e) {
+      return { ok: false, transport: "usb", error: e instanceof Error ? e.message : "print failed" };
+    }
+  }
+
+  // พิมพ์ผ่านไดรเวอร์เครื่องพิมพ์ของคอม (หน้าต่างพิมพ์) — พิมพ์เฉพาะรูปใบเสร็จ ไม่ใช่ทั้งหน้า
+  if (cfg.transport === "browser") {
+    try {
+      const { renderReceiptPng } = await import("./render-image");
+      await printImageViaBrowser(await renderReceiptPng(builder, px), cfg.width <= 32 ? 58 : 80);
+      return { ok: true, transport: "browser" };
+    } catch (e) {
+      return { ok: false, transport: "browser", error: e instanceof Error ? e.message : "print failed" };
+    }
+  }
+
   const payloadB64 = builder.toBase64();
 
   if (cfg.transport === "bridge") {
@@ -135,16 +162,38 @@ export async function printEscPos(cfg: PrinterConfig, builder: EscPosBuilder): P
   }
 
   if (cfg.transport === "webserial") {
-    const ok = await writeSerial(builder.build());
+    const { renderReceiptRaster } = await import("./render-image");
+    const ok = await writeSerial(await renderReceiptRaster(builder, px));
     return ok ? { ok: true, transport: "webserial" } : { ok: false, transport: "webserial", error: "serial write failed" };
   }
 
-  if (cfg.transport === "browser") {
-    if (typeof window !== "undefined") window.print();
-    return { ok: true, transport: "browser" };
-  }
-
   return { ok: false, transport: "none", error: "no printer configured" };
+}
+
+function usbError(code?: string): string | undefined {
+  if (code === "usb_not_connected") return tr("ยังไม่ได้เชื่อมต่อเครื่องพิมพ์ USB — ไปที่ ตั้งค่า → เครื่องพิมพ์ → เชื่อมต่อ USB", "USB printer not connected — go to Settings → Printer → Connect USB", "未连接 USB 打印机 — 前往 设置 → 打印机 → 连接 USB");
+  return code;
+}
+
+/** พิมพ์รูปใบเสร็จผ่านหน้าต่างพิมพ์ของระบบ (iframe แยก — ไม่พิมพ์หน้าเว็บทั้งหน้า) */
+function printImageViaBrowser(pngB64: string, mm: 58 | 80): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (typeof document === "undefined") return reject(Error("no document"));
+    const f = document.createElement("iframe");
+    f.setAttribute("aria-hidden", "true");
+    f.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden";
+    document.body.appendChild(f);
+    const d = f.contentDocument!;
+    d.open();
+    d.write(`<!doctype html><html><head><meta charset="utf-8"><style>@page{size:${mm}mm auto;margin:0}html,body{margin:0;padding:0}img{width:${mm - 6}mm;display:block;margin:0 auto}</style></head><body><img src="data:image/png;base64,${pngB64}"></body></html>`);
+    d.close();
+    const img = d.querySelector("img")!;
+    const go = () => {
+      try { f.contentWindow!.focus(); f.contentWindow!.print(); resolve(); } catch (e) { reject(e); }
+      setTimeout(() => f.remove(), 60_000);
+    };
+    if (img.complete) go(); else { img.onload = go; img.onerror = () => { f.remove(); reject(Error("image load failed")); }; }
+  });
 }
 
 export async function openCashDrawer(cfg: PrinterConfig): Promise<PrintResult> {

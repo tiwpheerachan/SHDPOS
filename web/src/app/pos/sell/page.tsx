@@ -441,6 +441,13 @@ export default function SellPage() {
       setDeferredOpen(true);return;
     }
 
+    // สินค้ายังไม่ได้ตั้งราคา (0 บาท) → ห้ามออกบิล 0 บาท บอกให้ชัดว่าต้องทำอะไร
+    const unpriced=cart.lines.filter(l=>!l.is_gift&&l.kind==="goods"&&Number(l.unit_price)<=0);
+    if(unpriced.length){
+      toast.push({tone:"danger",title:L(`สินค้ายังไม่ได้ตั้งราคา ${unpriced.length} รายการ`,`${unpriced.length} item(s) have no price yet`,`${unpriced.length} 个商品尚未定价`),
+        body:unpriced.slice(0,4).map(l=>`• ${l.name}`).join("\n")+"\n"+L("ให้หัวหน้าแบรนด์ตั้งราคาที่ หลังบ้าน → สินค้าและราคา · หรือเปิด “ขายก่อน” เพื่อกรอกราคาขายจริงแล้วให้หัวหน้าตรวจ","Ask the brand lead to set a price in Back office → Products & prices, or turn on “Sell now” to enter the actual price for review","请品牌负责人在后台 → 商品与价格中定价，或开启“先售”填写实际售价供主管审核")});
+      return;
+    }
     if(isLiveMode()&&giftLoadError){toast.push({tone:"danger",title:L("กรุณาตรวจสิทธิ์ของแถมอีกครั้งก่อนรับชำระ", "Re-check gift eligibility before payment", "收款前请重新检查赠品资格")});return;}
     if (!employee || !branchId || checkoutPreparing || busy) return;
     // มีส่วนลดที่ตั้งไว้แต่ยังไม่ใช้ → ถามยืนยันก่อนรับเงิน (กันลืมให้ส่วนลดลูกค้า)

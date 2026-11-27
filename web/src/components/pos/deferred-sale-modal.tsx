@@ -78,7 +78,15 @@ export function DeferredSaleModal({
       },
     );
   }, [open]);
-  const change = (patch: any) => setForm((f: any) => ({ ...f, ...patch }));
+  const change = (patch: any) => { if (patch.reason) setReasonErr(false); setForm((f: any) => ({ ...f, ...patch })); };
+  // ปุ่มกดได้เสมอ — ถ้าข้อมูลไม่ครบให้บอกชัด ๆ ว่าขาดอะไร (เดิมปุ่มเทาเฉย ๆ ผู้ใช้นึกว่าระบบค้าง)
+  const [reasonErr, setReasonErr] = useState(false);
+  const reasonRef = useRef<HTMLTextAreaElement>(null);
+  function validate(): boolean {
+    if (total <= 0) { setError(L("ยอดขายเป็น 0 บาท — กรอกราคาขายจริงของแต่ละสินค้าก่อน", "Total is 0 — enter the actual price of each item first", "金额为 0 — 请先填写各商品实际售价")); return false; }
+    if (!form?.reason?.trim()) { setReasonErr(true); reasonRef.current?.focus(); return false; }
+    return true;
+  }
   const total = form
     ? round2(
         form.draft.items.reduce(
@@ -160,9 +168,9 @@ export function DeferredSaleModal({
                 <Button
                   size="sm"
                   variant="primary"
-                  disabled={busy || !form?.reason?.trim() || total <= 0}
+                  disabled={busy}
                   loading={busy}
-                  onClick={() => void create(true)}
+                  onClick={() => { if (validate()) void create(true); }}
                 >
                   {L("บันทึก / รับชำระ", "Save / Take payment", "保存 / 收款")}
                 </Button>
@@ -231,7 +239,7 @@ export function DeferredSaleModal({
               </div>
               <div className="rounded-xl bg-surface2 p-3 flex justify-between text-sm">
                 <span>
-                  {L("ยอดขายจริงหลังส่วนลด", "Actual total after discount", "折扣后实际销售额")} {formatTHB(form.draft.discount_total)}
+                  {L("ยอดขายจริง", "Actual total", "实际销售额")}{form.draft.discount_total > 0 ? <span className="text-muted"> · {L("ส่วนลด", "discount", "折扣")} {formatTHB(form.draft.discount_total)}</span> : null}
                 </span>
                 <strong>{formatTHB(total)}</strong>
               </div>
@@ -246,12 +254,16 @@ export function DeferredSaleModal({
               <label className="block text-xs">
                 {L("เหตุผลที่ต้องขายก่อน / ข้อมูลที่ยังขาด", "Reason / missing information", "先售原因 / 缺少的资料")}
                 <textarea
+                  ref={reasonRef}
+                  aria-invalid={reasonErr}
                   rows={3}
                   value={form.reason}
                   onChange={(e) => change({ reason: e.target.value })}
-                  className="mt-1 w-full rounded-xl border border-line bg-surface2 p-2 text-xs"
+                  className={`mt-1 w-full rounded-xl border bg-surface2 p-2 text-xs ${reasonErr ? "border-danger ring-2 ring-danger/20" : "border-line"}`}
                   placeholder={L("เช่น ลูกค้ารับสินค้าแล้ว แต่ SN ยังไม่เข้าระบบ / รอยืนยันราคา", "e.g. customer took the goods but SN not in system / price pending", "例如：客户已取货但 SN 未入系统 / 待确认价格")}
                 />
+                {reasonErr ? <span role="alert" className="block mt-1 text-[12px] font-medium text-danger">{L("กรุณากรอกเหตุผลก่อน แล้วกด “บันทึก / รับชำระ” อีกครั้ง", "Please enter a reason, then press “Save / Take payment” again", "请先填写原因，然后再次点击“保存 / 收款”")}</span>
+                  : <span className="block mt-1 text-[11px] text-muted">{L("* จำเป็นต้องกรอกก่อนรับชำระ", "* Required before taking payment", "* 收款前必填")}</span>}
               </label>
               <p className="text-xs text-muted">
                 {L("กันจำนวนในสาขาที่มีรายการสต๊อกไว้ระหว่างรอปิดบิล การปิดบิลภายหลังต้องผ่านการตรวจสต๊อกและ SN จริง ราคาต่างจากราคากลางต้องให้หัวหน้าที่มีสิทธิ์ตรวจ ไม่รองรับใช้แต้ม คูปอง หรือของแถมในโหมดนี้", "Stock is reserved at the branch while pending. Closing later requires real stock and SN checks. Prices differing from list must be reviewed by an authorised supervisor. Points, coupons and gifts are not supported in this mode.", "待结单期间将预留门店库存。之后结单需核对实际库存和 SN。与标准价不同的价格需由有权限的主管审核。此模式不支持积分、优惠券或赠品。")}

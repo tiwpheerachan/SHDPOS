@@ -10,7 +10,13 @@ import { useToast } from "@/components/toast-host";
 import { Button, Card, CardHeader, Input, Field, Select, Segmented, Badge } from "@/components/ui";
 import { LOCALES, LOCALE_LABEL } from "@/lib/i18n/dict";
 import { bridgeStatus, connectWebSerial, openCashDrawer, printEscPos, webSerialSupported, type PrintTransport } from "@/lib/printing/bridge";
-import { EscPosBuilder } from "@/lib/printing/escpos";
+import { buildReceipt } from "@/lib/printing/receipt";
+import { connectUsbPrinter, reconnectUsbPrinter, usbPrinterName, webUsbSupported } from "@/lib/printing/webusb";
+import { getBranch } from "@/lib/data/repo";
+import type { Branch, Order } from "@/lib/types";
+
+// ข้อมูลบริษัทบนใบเสร็จทดสอบ (เหมือนหน้าขาย)
+const COMPANY = { name_th: "บริษัท เอส เอช ดี เทคโนโลยี จำกัด", tax_id: "0000000000000", address: "กรุงเทพมหานคร", phone: "02-000-0000" };
 import { openDisplayWindow } from "@/lib/customer-display";
 import { isLiveMode } from "@/lib/supabase/client";
 import { resetLocalData } from "@/lib/data/repo";
@@ -25,7 +31,18 @@ export default function PosSettingsPage() {
   const [bridgeOk, setBridgeOk] = useState<boolean | null>(null);
   const [printers, setPrinters] = useState<string[]>([]);
   const [sunmi, setSunmi] = useState<ShellInfo | null>(null);
+  const [branch, setBranch] = useState<Branch | null>(null);
+  useEffect(() => { if (session.branchId) void getBranch(session.branchId).then((b) => setBranch(b ?? null)).catch(() => undefined); }, [session.branchId]);
   useEffect(() => { setSunmi(shellInfo()); }, []);
+  // เครื่องพิมพ์ USB ที่เคยอนุญาตแล้ว → ต่ออัตโนมัติ
+  const [usbName, setUsbName] = useState<string | null>(null), [testing, setTesting] = useState(false);
+  useEffect(() => { if (session.printer.transport === "usb") void reconnectUsbPrinter().then((ok) => setUsbName(ok ? usbPrinterName() : null)); }, [session.printer.transport]);
+  async function connectUsb() {
+    const r = await connectUsbPrinter();
+    setUsbName(r.ok ? r.name ?? usbPrinterName() : null);
+    toast.push(r.ok ? { tone: "ok", title: L("เชื่อมต่อเครื่องพิมพ์แล้ว", "Printer connected", "打印机已连接"), body: r.name }
+      : { tone: "warn", title: L("เชื่อมต่อไม่สำเร็จ", "Connection failed", "连接失败"), body: /NotFound|No device selected/i.test(r.error ?? "") ? L("ยังไม่ได้เลือกเครื่องพิมพ์", "No printer selected", "未选择打印机") : /Access denied|SecurityError|claim/i.test(r.error ?? "") ? L("เครื่องพิมพ์ถูกโปรแกรมอื่นใช้อยู่ (เช่นไดรเวอร์บน Windows) — ใช้โหมด Browser แทน", "The printer is held by another driver (e.g. on Windows) — use Browser mode instead", "打印机被其他驱动占用（如 Windows）— 请改用浏览器模式") : r.error });
+  }
 
   useEffect(() => {
     void bridgeStatus(session.printer).then((r) => {
@@ -35,17 +52,21 @@ export default function PosSettingsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.printer.bridgeUrl]);
 
+  /** พิมพ์ใบเสร็จตัวอย่างหน้าตาเหมือนของจริง (ไทย/ยอด/VAT/QR) — ไม่ได้สร้างบิลจริง */
   async function testPrint() {
-    const b = new EscPosBuilder(session.printer.width);
-    b.align("center").bold(true).double(true).line("SHD POS").double(false).bold(false);
-    b.line("ทดสอบการพิมพ์ / Test Print / 打印测试");
-    b.divider();
-    b.align("left").row("สินค้าทดสอบ", "1,234.00");
-    b.row("ภาษีมูลค่าเพิ่ม 7%", "80.73");
-    b.divider("=");
-    b.align("center").line(new Date().toLocaleString("th-TH")).feed(3).cut();
-    const res = await printEscPos(session.printer, b);
-    toast.push(res.ok ? { tone: "ok", title: t.settings.testPrint } : { tone: "danger", title: t.pos.printFailed, body: res.error ?? undefined });
+    // USB ยังไม่เชื่อม → ให้เลือกเครื่องก่อน (ต้องเรียกตอนกดปุ่มทันที)
+    if (session.printer.transport === "usb" && !usbPrinterName() && !(await reconnectUsbPrinter())) { await connectUsb(); if (!usbPrinterName()) return; }
+    setTesting(true);
+    try {
+      const now = new Date().toISOString();
+      const order = { order_no: "TEST-0001", created_at: now, customer_name: null, subtotal: 1490, discount_total: 100, grand_total: 1390, vat_amount: 90.93, change_amount: 10, is_offline_origin: false,
+        items: [{ name: L("สินค้าทดสอบ ภาษาไทย ๑๒๓", "Test product", "测试商品"), qty: 1, unit_price: 1290, line_total: 1290, discount_amount: 100, serials: ["SN-TEST-001"] }, { name: "Test item 2", qty: 2, unit_price: 100, line_total: 200, discount_amount: 0, serials: [] }],
+        payments: [{ method: "cash", amount: 1400 }] } as unknown as Order;
+      const b = buildReceipt({ order, branch: branch ?? undefined, cashier: session.employee ?? undefined, company: COMPANY, width: session.printer.width,
+        copyLabel: L("ทดสอบการพิมพ์ — ไม่ใช่ใบเสร็จจริง", "TEST PRINT — not a real receipt", "打印测试 — 非正式小票"), docUrl: typeof window !== "undefined" ? window.location.origin : null });
+      const res = await printEscPos(session.printer, b);
+      toast.push(res.ok ? { tone: "ok", title: L("ส่งงานพิมพ์แล้ว", "Sent to printer", "已发送打印"), body: L("ถ้ากระดาษไม่ออก ตรวจสายและไฟเครื่องพิมพ์", "If nothing prints, check the cable and power", "若未出纸，请检查连线与电源") } : { tone: "danger", title: t.pos.printFailed, body: res.error ?? undefined });
+    } finally { setTesting(false); }
   }
 
   async function testDrawer() {
@@ -101,10 +122,11 @@ export default function PosSettingsPage() {
               value={session.printer.transport}
               onChange={(v) => session.setPrinter({ transport: v as PrintTransport })}
               options={[
-                { value: "bridge" as PrintTransport, label: "Print Bridge" },
-                { value: "webserial" as PrintTransport, label: "WebSerial" },
-                { value: "browser" as PrintTransport, label: "Browser" },
                 ...(sunmi ? [{ value: "sunmi" as PrintTransport, label: "Sunmi" }] : []),
+                { value: "usb" as PrintTransport, label: L("USB (แนะนำ)", "USB (recommended)", "USB（推荐）") },
+                { value: "browser" as PrintTransport, label: L("ไดรเวอร์เครื่อง", "System driver", "系统驱动") },
+                { value: "bridge" as PrintTransport, label: "Print Bridge" },
+                { value: "webserial" as PrintTransport, label: "Serial" },
               ]}
             />
           </Field>
@@ -113,6 +135,26 @@ export default function PosSettingsPage() {
               {L(`เปิดผ่านแอป SHD POS บน Sunmi ${sunmi.model} — ใบเสร็จพิมพ์ด้วยเครื่องพิมพ์ในตัวอัตโนมัติ (${sunmi.paperWidthPx >= 576 ? "80" : "58"} มม.)`, `Running in the SHD POS app on Sunmi ${sunmi.model} — receipts print on the built-in printer (${sunmi.paperWidthPx >= 576 ? "80" : "58"} mm)`, `正在 Sunmi ${sunmi.model} 的 SHD POS 应用中运行 — 小票自动用内置打印机打印（${sunmi.paperWidthPx >= 576 ? "80" : "58"} 毫米）`)}
               {" · "}{sunmi.printer ? L("เครื่องพิมพ์พร้อม", "Printer ready", "打印机就绪") : L("ยังเชื่อมเครื่องพิมพ์ไม่ได้", "Printer not connected", "打印机未连接")}
               {" · "}{sunmi.secondScreen ? L("มีจอลูกค้า", "Customer display found", "已检测到客显屏") : L("ไม่พบจอลูกค้า", "No customer display", "未检测到客显屏")}
+            </p>
+          ) : null}
+
+          {session.printer.transport === "usb" ? (
+            <div className="rounded-xl border border-line bg-surface2 px-4 py-3 space-y-2">
+              <p className="text-xs text-muted">
+                {webUsbSupported()
+                  ? L("ต่อเครื่องพิมพ์ใบเสร็จ (Gainscha, Xprinter, Epson ฯลฯ) ด้วยสาย USB แล้วกด “เชื่อมต่อ USB” เลือกเครื่องครั้งเดียว — ครั้งต่อไปต่ออัตโนมัติ · พิมพ์ทันทีไม่มีหน้าต่างให้กด · ภาษาไทยออกถูก (ส่งเป็นรูป)", "Plug the receipt printer (Gainscha, Xprinter, Epson…) in via USB and press “Connect USB” once — it reconnects automatically · prints instantly with no dialog · Thai prints correctly (sent as an image)", "用 USB 连接小票打印机（Gainscha、Xprinter、Epson 等），点一次“连接 USB”选择设备 — 之后自动连接 · 无弹窗直接打印 · 泰文正确（以图片发送）")
+                  : L("เบราว์เซอร์นี้ไม่รองรับ USB — ใช้ Chrome หรือ Edge บนคอม หรือเลือก “ไดรเวอร์เครื่อง”", "This browser doesn't support USB — use Chrome or Edge on a computer, or choose “System driver”", "此浏览器不支持 USB — 请使用电脑版 Chrome/Edge，或选择“系统驱动”")}
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button variant="soft" disabled={!webUsbSupported()} onClick={() => void connectUsb()}><Usb size={15} /> {usbName ? L("เปลี่ยนเครื่องพิมพ์", "Change printer", "更换打印机") : L("เชื่อมต่อ USB", "Connect USB", "连接 USB")}</Button>
+                {usbName ? <Badge tone="ok"><span translate="no">{usbName}</span></Badge> : <span className="text-xs text-muted">{L("ยังไม่ได้เชื่อมต่อ", "Not connected", "未连接")}</span>}
+              </div>
+            </div>
+          ) : null}
+
+          {session.printer.transport === "browser" ? (
+            <p className="rounded-xl border border-line bg-surface2 px-4 py-3 text-xs text-muted">
+              {L("พิมพ์ผ่านไดรเวอร์ที่ลงไว้ในคอม (ลงไดรเวอร์ของเครื่องพิมพ์ก่อน แล้วตั้งเป็นเครื่องพิมพ์หลัก) — จะมีหน้าต่างพิมพ์ให้กดยืนยันทุกครั้ง · ตั้งขนาดกระดาษ 80 มม. และขอบ “ไม่มี”", "Prints through the computer's installed driver (install the printer driver and set it as default) — a print dialog appears each time · set paper to 80mm and margins to “None”", "通过电脑已安装的驱动打印（先安装打印机驱动并设为默认）— 每次会弹出打印对话框 · 纸张设为 80 毫米、边距“无”")}
             </p>
           ) : null}
 
@@ -159,21 +201,21 @@ export default function PosSettingsPage() {
                 <option value={32}>{L("58 มม. (32 คอลัมน์)", "58mm (32 columns)", "58 毫米（32 列）")}</option>
               </Select>
             </Field>
-            <Field label={L("ขา drawer kick", "Drawer kick pin", "钱箱触发引脚")}>
+            {session.printer.transport === "bridge" || session.printer.transport === "webserial" ? <Field label={L("ขา drawer kick", "Drawer kick pin", "钱箱触发引脚")}>
               <Select value={session.printer.drawerPin} onChange={(e) => session.setPrinter({ drawerPin: Number(e.target.value) as 0 | 1 })}>
                 <option value={0}>{L("Pin 2 (ปกติ)", "Pin 2 (default)", "Pin 2（默认）")}</option>
                 <option value={1}>Pin 5</option>
               </Select>
-            </Field>
+            </Field> : null}
           </div>
 
           <div className="flex gap-2">
-            <Button variant="ghost" className="flex-1" onClick={() => void testPrint()}>
-              <Printer size={15} /> {t.settings.testPrint}
+            <Button variant="primary" className="flex-1" loading={testing} onClick={() => void testPrint()}>
+              <Printer size={15} /> {L("ทดสอบพิมพ์ใบเสร็จ", "Print a test receipt", "打印测试小票")}
             </Button>
-            <Button variant="ghost" className="flex-1" onClick={() => void testDrawer()}>
+            {session.printer.transport === "bridge" || session.printer.transport === "webserial" ? <Button variant="ghost" className="flex-1" onClick={() => void testDrawer()}>
               <Inbox size={15} /> {t.settings.testDrawer}
-            </Button>
+            </Button> : null}
           </div>
         </div>
       </Card>
