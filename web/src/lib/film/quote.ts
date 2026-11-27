@@ -5,7 +5,9 @@
 //   ราคางานแบ่งลงบรรทัดม้วนตามสัดส่วนฟุต — ทุกบรรทัด ราคา × จำนวน ลงตัวพอดี (JST รับจำนวนเต็ม)
 // =====================================================================
 
-export type FilmRules = { one_series_per_car: boolean; full_car_only: boolean; mixed_shades: boolean; roll_width_ft: number; round_up_feet: boolean };
+export type FilmRules = { one_series_per_car: boolean; full_car_only: boolean; mixed_shades: boolean; roll_width_ft: number; round_up_feet: boolean;
+  /** หน่วยตัดสต๊อก: sqft = ตารางฟุต (ตามชีท) · ft = ฟุตความยาว (ตร.ฟุต ÷ ความกว้างม้วน) */
+  stock_unit?: "sqft" | "ft" };
 export type FilmSize = { code: string; name_th: string; name_en: string; name_zh: string; hint_th?: string | null; sort: number };
 export type FilmPosition = { code: string; name_th: string; name_en: string; name_zh: string; sort: number };
 export type FilmSeries = { code: string; name: string; tagline_th?: string | null; tagline_en?: string | null; tagline_zh?: string | null; sort: number; active: boolean };
@@ -21,7 +23,7 @@ export type FilmConfigData = {
 };
 export type FilmJob = { size: string; series: string; positions: { code: string; shade: number; series?: string }[] };
 export type FilmLine = { product_id: string; sku: string; qty: number; unit_price: number; label: string };
-export type FilmQuote = { price: number; label: string; feet: number; positions: { code: string; series: string; shade: number; model_code: string; feet: number }[]; lines: FilmLine[] };
+export type FilmQuote = { price: number; label: string; feet: number; sqft: number; unit: "sqft" | "ft"; positions: { code: string; series: string; shade: number; model_code: string; feet: number; sqft: number }[]; lines: FilmLine[] };
 
 export class FilmError extends Error {}
 export const priceKey = (series: string, size: string, pos: string) => `${series}|${size}|${pos}`;
@@ -48,7 +50,7 @@ export function quoteFilmJob(cfg: FilmConfigData, job: FilmJob, L: (th: string, 
     if (!allPos.includes(p.code)) throw new FilmError(L("ตำแหน่งไม่ถูกต้อง", "Invalid position", "位置无效"));
     const sqft = cfg.areas[job.size]?.[p.code];
     if (!sqft) throw new FilmError(L("ยังไม่ได้ตั้งพื้นที่ของตำแหน่งนี้", "Area not set for this position", "该位置未设置面积"));
-    return { code: p.code, series, shade: p.shade, model_code: sh.model_code, sh, feet: sqft / (R.roll_width_ft || 5) };
+    return { code: p.code, series, shade: p.shade, model_code: sh.model_code, sh, sqft, feet: sqft / (R.roll_width_ft || 5) };
   });
   if (R.one_series_per_car && new Set(used.map((u) => u.series)).size > 1) throw new FilmError(L("ต้องเป็นรุ่นฟิล์มเดียวทั้งคัน", "One film series per car", "整车需同一膜系列"));
   if (!R.mixed_shades && new Set(used.map((u) => u.shade)).size > 1) throw new FilmError(L("ต้องเป็นความเข้มเดียวทั้งคัน", "One shade per car", "整车需同一深度"));
@@ -68,12 +70,13 @@ export function quoteFilmJob(cfg: FilmConfigData, job: FilmJob, L: (th: string, 
   }
   price = r2(price);
 
-  // ตัดสต๊อกต่อม้วน (รวมทุกตำแหน่งที่ใช้ม้วนเดียวกัน)
+  // ตัดสต๊อกต่อม้วน (รวมทุกตำแหน่งที่ใช้ม้วนเดียวกัน) — หน่วยตามค่าตั้ง (ตร.ฟุต หรือ ฟุต)
+  const unit = R.stock_unit === "ft" ? "ft" : "sqft";
   const byRoll = new Map<string, { sh: FilmShade; feet: number }>();
   for (const u of used) {
     const k = u.sh.stock_product_id!;
     const cur = byRoll.get(k) ?? { sh: u.sh, feet: 0 };
-    cur.feet += u.feet;
+    cur.feet += unit === "sqft" ? u.sqft : u.feet; // "feet" = ปริมาณในหน่วยตัดสต๊อก
     byRoll.set(k, cur);
   }
   const rolls = [...byRoll.entries()].map(([pid, v]) => {
@@ -110,7 +113,8 @@ export function quoteFilmJob(cfg: FilmConfigData, job: FilmJob, L: (th: string, 
   });
   if (lines.some((l) => l.unit_price <= 0)) throw new FilmError(L("ราคางานต่ำเกินไปสำหรับจำนวนฟุต", "Job price too low for the footage", "价格相对用量过低"));
 
-  return { price, label, feet: r2(totalFeet), positions: used.map(({ code, series, shade, model_code, feet }) => ({ code, series, shade, model_code, feet: r2(feet) })), lines };
+  return { price, label, unit, feet: r2(used.reduce((s, u) => s + u.feet, 0)), sqft: r2(used.reduce((s, u) => s + u.sqft, 0)),
+    positions: used.map(({ code, series, shade, model_code, feet, sqft }) => ({ code, series, shade, model_code, feet: r2(feet), sqft: r2(sqft) })), lines };
 }
 
 /** ตรวจว่าบรรทัดที่เครื่องส่งมา ตรงกับที่คำนวณได้ทุกบรรทัด (ใช้ฝั่งเซิร์ฟเวอร์) */

@@ -965,9 +965,12 @@ export default function SellPage() {
             />
           </div>
           {filmRollIds.size ? (
-            <Button variant="soft" onClick={() => setFilmOpen(true)} title={L("งานติดฟิล์มรถ", "Car film job", "汽车贴膜")}>
-              <Car size={16} /><span className="hidden sm:inline">{L("งานติดฟิล์ม", "Film job", "贴膜")}</span>
-            </Button>
+            <button type="button" onClick={() => setFilmOpen(true)} title={L("งานติดฟิล์มรถยนต์", "Car window film job", "汽车贴膜")}
+              className="group shrink-0 h-10 pl-1.5 pr-3.5 rounded-xl inline-flex items-center gap-2 text-white font-semibold text-[13.5px] bg-gradient-to-r from-[#7950D8] via-[#6C63E6] to-[#4F8DF0] shadow-[0_6px_18px_-8px_rgba(121,80,216,.9)] hover:shadow-[0_8px_22px_-8px_rgba(121,80,216,1)] hover:brightness-110 active:scale-[.98] transition">
+              <span className="h-7 w-7 rounded-lg bg-white/20 grid place-items-center group-hover:rotate-[-6deg] transition-transform"><Car size={16} /></span>
+              <span className="hidden sm:inline">{L("งานติดฟิล์ม", "Film job", "贴膜")}</span>
+              <span className="hidden xl:inline text-[10.5px] font-medium px-1.5 py-0.5 rounded-md bg-white/20">Essential · Pro · Ultra</span>
+            </button>
           ) : null}
           <Button variant="ghost" onClick={() => setHoldOpen(true)} title={t.pos.holdList}>
             <PauseCircle size={16} />
@@ -1255,7 +1258,7 @@ export default function SellPage() {
 
                     <div className="flex items-center gap-2 mt-2">
                       {isCampaignGift || isFilm ? (
-                        <div className="h-8 px-3 flex items-center rounded-lg border border-line bg-surface2/50 text-sm font-medium tnum">×{l.qty}{isFilm ? <span className="ml-1 text-[11px] text-muted">{L("ฟุต", "ft", "英尺")}</span> : null}</div>
+                        <div className="h-8 px-3 flex items-center rounded-lg border border-line bg-surface2/50 text-sm font-medium tnum">×{l.qty}{isFilm ? <span className="ml-1 text-[11px] text-muted">{l.film_job?.unit === "ft" ? L("ฟุต", "ft", "英尺") : L("ตร.ฟุต", "sq ft", "平方英尺")}</span> : null}</div>
                       ) : (
                         <div className="flex items-center rounded-lg border border-line">
                           <button onClick={() => {
@@ -1534,9 +1537,9 @@ export default function SellPage() {
       />
 
       <FilmJobModal open={filmOpen} onClose={() => setFilmOpen(false)} branchId={branchId}
-        stockOf={(pid) => { const sl = stock.get(pid); return sl ? availableQty(sl) : null; }}
+        stockOf={(pid) => { const sl = stock.get(pid); return sl ? availableQty(sl) : isLiveMode() ? 0 : null; }} // ไม่มีแถวสต๊อก = ไม่มีของในสาขา
         onAdd={(job, quote) => {
-          cart.setFilmJob(job, quote.lines);
+          cart.setFilmJob({ ...job, unit: quote.unit }, quote.lines);
           setFilmOpen(false);
           toast.push({ tone: "ok", title: L("ใส่งานติดฟิล์มแล้ว", "Film job added", "已加入贴膜工单"), body: `${quote.label} · ${formatTHB(quote.price)}` });
         }} />

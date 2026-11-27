@@ -5,7 +5,7 @@ const eq = (a: unknown, b: unknown, m: string) => { if (JSON.stringify(a) !== JS
 const throws = (f: () => unknown, m: string) => { try { f(); } catch (e) { if (e instanceof FilmError) { n++; return; } throw e; } throw Error(`${m}: ต้อง error`); };
 const pos = ["FW", "RW", "FSW", "RSW"].map((code, i) => ({ code, name_th: code, name_en: code, name_zh: code, sort: i }));
 const cfg: FilmConfigData = {
-  rules: { one_series_per_car: true, full_car_only: true, mixed_shades: true, roll_width_ft: 5, round_up_feet: true },
+  rules: { one_series_per_car: true, full_car_only: true, mixed_shades: true, roll_width_ft: 5, round_up_feet: true, stock_unit: "ft" },
   sizes: [{ code: "S", name_th: "S", name_en: "S", name_zh: "S", sort: 0 }, { code: "L", name_th: "L", name_en: "L", name_zh: "L", sort: 1 }],
   positions: pos,
   areas: { S: { FW: 15, RW: 12.5, FSW: 10, RSW: 12.5 }, L: { FW: 17.5, RW: 15, FSW: 12.5, RSW: 20 } },
@@ -48,4 +48,11 @@ eq(q.lines[0].qty, 0.2, "เศษชิ้นเมื่อไม่ปัด"
 const good = quoteFilmJob(cfg, { size: "S", series: "E", positions: full(80) });
 eq(sameFilmLines(good.lines, good.lines), true, "บรรทัดตรง"); eq(sameFilmLines([{ ...good.lines[0], unit_price: 400 }], good.lines), false, "แก้ราคาที่เครื่อง = ไม่ผ่าน");
 eq(sameFilmLines([{ ...good.lines[0], qty: 5 }], good.lines), false, "แก้จำนวน = ไม่ผ่าน");
+// หน่วยตัดสต๊อก ตร.ฟุต (ตามชีท): S รอบคัน = 50 · ผสม: หน้า E40 15 · ที่เหลือ E80 12.5+10+12.5 = 35
+const sq = { ...cfg, rules: { ...cfg.rules, stock_unit: "sqft" as const } };
+q = quoteFilmJob(sq, { size: "S", series: "E", positions: full(80) });
+eq([q.unit, q.sqft, q.lines.map((l) => [l.qty, l.unit_price])], ["sqft", 50, [[50, 98]]], "ตร.ฟุต: S รอบคัน 50 × 98 = 4,900");
+q = quoteFilmJob(sq, { size: "S", series: "E", positions: full([40, 80, 60, 60]) });
+const bp = q.lines.reduce((m, l) => ({ ...m, [l.product_id]: (m[l.product_id] ?? 0) + l.qty }), {} as Record<string, number>);
+eq([bp.e35, bp.e5, bp.e15], [15, 13, 23], "ตร.ฟุต ปัดขึ้นต่อม้วน (12.5→13, 22.5→23)"); eq(sum(q), 4900, "ตร.ฟุต ราคารวมตรง");
 console.log(`PASS: ${n} film job checks (full car price, feet per size, mixed shades round-up, exact price split, rules, per-position, fractional units, tamper detection)`);

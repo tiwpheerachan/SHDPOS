@@ -15,6 +15,8 @@ import { resolveAuthz } from "@/lib/sso/grants";
 import { hasPerm } from "@/lib/sso/guard";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { loadFilmConfig } from "@/lib/server/film-config";
+import { visibleBranchIds } from "@/lib/sso/scope";
+import { branchBrandMap } from "@/lib/server/branch-brands";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -42,7 +44,19 @@ export async function GET(req: NextRequest) {
       // ม้วนฟิล์มที่ผูกได้: สินค้าของแบรนด์ฟิล์ม (หรือชื่อมี film)
       sb.from("products").select("id,sku,name_th,unit,is_active").or(`brand_id.eq.${cfg.brand_id ?? "00000000-0000-0000-0000-000000000000"},sku.ilike.%film%,name_th.ilike.%film%`).order("sku").limit(500),
     ]);
-    return reply({ ...cfg, cars: cars.data ?? [], rolls: rolls.data ?? [], can_edit: g.can });
+    // สาขาที่เกี่ยวข้อง = ขายแบรนด์ฟิล์ม หรือมีม้วนฟิล์มในสต๊อก (ในขอบเขตผู้ใช้)
+    const rollIds = cfg.shades.map((s) => s.stock_product_id).filter((x): x is string => !!x);
+    const scope = await visibleBranchIds(g.authz);
+    let sq = sb.from("stock_levels").select("branch_id,product_id,qty_on_hand").in("product_id", rollIds.length ? rollIds : ["00000000-0000-0000-0000-000000000000"]);
+    if (scope) sq = sq.in("branch_id", scope.length ? scope : ["00000000-0000-0000-0000-000000000000"]);
+    const [stock, off] = await Promise.all([sq, sb.from("film_branch_off").select("branch_id,series_code,shade")]);
+    const bm = await branchBrandMap(scope);
+    const withStock = new Set((stock.data ?? []).filter((r) => Number(r.qty_on_hand) > 0).map((r) => r.branch_id as string));
+    const ids = Object.keys(bm.map).filter((id) => withStock.has(id) || (cfg.brand_id && bm.map[id].includes(cfg.brand_id)));
+    const br = ids.length ? await sb.from("branches").select("id,code,name,name_th,is_active").in("id", ids).eq("is_active", true).order("code") : { data: [] };
+    return reply({ ...cfg, cars: cars.data ?? [], rolls: rolls.data ?? [], can_edit: g.can,
+      branches: br.data ?? [], branch_off: off.data ?? [],
+      branch_stock: (stock.data ?? []).map((r) => ({ branch_id: r.branch_id, product_id: r.product_id, qty: Number(r.qty_on_hand) })) });
   } catch (e) { return reply({ error: e instanceof Error ? e.message : "อ่านไม่สำเร็จ" }, 503); }
 }
 
@@ -59,7 +73,8 @@ export async function POST(req: NextRequest) {
     case "rules": {
       const width = num(b.roll_width_ft, 1, 20);
       if (width === null) return reply({ error: "ความกว้างม้วนไม่ถูกต้อง" }, 400);
-      r = await sb.from("film_config").update({ one_series_per_car: !!b.one_series_per_car, full_car_only: !!b.full_car_only, mixed_shades: !!b.mixed_shades, round_up_feet: !!b.round_up_feet, roll_width_ft: width, updated_at: new Date().toISOString() }).eq("id", 1);
+      r = await sb.from("film_config").update({ one_series_per_car: !!b.one_series_per_car, full_car_only: !!b.full_car_only, mixed_shades: !!b.mixed_shades, round_up_feet: !!b.round_up_feet, roll_width_ft: width,
+        stock_unit: b.stock_unit === "ft" ? "ft" : "sqft", updated_at: new Date().toISOString() }).eq("id", 1);
       break;
     }
     case "price": {
@@ -98,6 +113,33 @@ export async function POST(req: NextRequest) {
       if (typeof b.id === "string" && UUID.test(b.id)) r = await sb.from("film_car_models").update({ make, model, size_code: sz }).eq("id", b.id);
       else r = await sb.from("film_car_models").insert({ make, model, size_code: sz });
       if (r.error && /duplicate|unique/i.test(r.error.message)) return reply({ error: "มีรุ่นรถนี้อยู่แล้ว" }, 409);
+      break;
+    }
+    case "branch_toggle": {
+      // เปิด/ปิดรุ่น (shade 0) หรือความเข้มในสาขา
+      const bid = String(b.branch_id ?? ""), se = str(b.series_code, 4), shade = Number(b.shade ?? 0);
+      if (!UUID.test(bid) || !se || !Number.isInteger(shade) || shade < 0 || shade > 99) return reply({ error: "ข้อมูลไม่ถูกต้อง" }, 400);
+      const scope = await visibleBranchIds(g.authz);
+      if (scope && !scope.includes(bid)) return reply({ error: "สาขานี้อยู่นอกขอบเขตของคุณ" }, 403);
+      r = b.enabled === false
+        ? await sb.from("film_branch_off").upsert({ branch_id: bid, series_code: se, shade, updated_at: new Date().toISOString() }, { onConflict: "branch_id,series_code,shade" })
+        : await sb.from("film_branch_off").delete().match({ branch_id: bid, series_code: se, shade });
+      break;
+    }
+    case "branch_auto": {
+      // ตั้งตามสต๊อกจริง: เปิดความเข้มที่ม้วนมีของในสาขา ปิดที่ไม่มี (ไม่แตะการปิดทั้งรุ่น)
+      const bid = String(b.branch_id ?? "");
+      if (!UUID.test(bid)) return reply({ error: "ข้อมูลไม่ถูกต้อง" }, 400);
+      const scope = await visibleBranchIds(g.authz);
+      if (scope && !scope.includes(bid)) return reply({ error: "สาขานี้อยู่นอกขอบเขตของคุณ" }, 403);
+      const cfg = await loadFilmConfig(sb);
+      const ids = cfg.shades.map((s) => s.stock_product_id).filter((x): x is string => !!x);
+      const st = await sb.from("stock_levels").select("product_id,qty_on_hand").eq("branch_id", bid).in("product_id", ids.length ? ids : ["00000000-0000-0000-0000-000000000000"]);
+      const has = new Set((st.data ?? []).filter((x) => Number(x.qty_on_hand) > 0).map((x) => x.product_id as string));
+      const del = await sb.from("film_branch_off").delete().eq("branch_id", bid).neq("shade", 0);
+      if (del.error) return reply({ error: del.error.message }, 500);
+      const offRows = cfg.shades.filter((s) => !s.stock_product_id || !has.has(s.stock_product_id)).map((s) => ({ branch_id: bid, series_code: s.series_code, shade: s.shade }));
+      r = offRows.length ? await sb.from("film_branch_off").upsert(offRows, { onConflict: "branch_id,series_code,shade" }) : { error: null };
       break;
     }
     case "car_delete": {

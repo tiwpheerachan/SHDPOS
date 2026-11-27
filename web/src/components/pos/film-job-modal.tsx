@@ -38,7 +38,9 @@ export function FilmJobModal({ open, onClose, branchId, stockOf, onAdd }: {
     setErr("");
     loadPosFilmConfig(branchId).then((c) => {
       setCfg(c);
-      setSeries((s) => s || c.series.find((x) => x.active)?.code || "");
+      // รุ่นแรกที่เปิดขายในสาขานี้ (มีความเข้มที่เปิดอย่างน้อย 1)
+      const avail = c.series.filter((x) => x.active && c.shades.some((sh) => sh.series_code === x.code && sh.active));
+      setSeries((s) => (s && avail.some((x) => x.code === s) ? s : avail[0]?.code || ""));
       setPicked((p) => (Object.keys(p).length ? p : Object.fromEntries(c.positions.map((x) => [x.code, null]))));
     }).catch((e) => setErr(e instanceof Error ? e.message : String(e)));
   }, [open, branchId]);
@@ -65,6 +67,7 @@ export function FilmJobModal({ open, onClose, branchId, stockOf, onAdd }: {
   }, [cfg, JSON.stringify(job), L]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fullCarOnly = !!cfg?.rules.full_car_only;
+  const uLabel = cfg?.rules.stock_unit === "ft" ? L("ฟุต", "ft", "英尺") : L("ตร.ฟุต", "sq ft", "平方英尺");
   const setAll = (shade: number) => cfg && setPicked(Object.fromEntries(cfg.positions.map((p) => [p.code, shade])));
   const short = (result.quote?.lines ?? []).reduce((m, l) => m.set(l.product_id, (m.get(l.product_id) ?? 0) + l.qty), new Map<string, number>());
   const shortages = [...short.entries()].filter(([pid, need]) => { const have = stockOf(pid); return have != null && have < need; });
@@ -74,7 +77,7 @@ export function FilmJobModal({ open, onClose, branchId, stockOf, onAdd }: {
   return (
     <Modal open={open} onClose={onClose} size="xl" title={<span className="inline-flex items-center gap-2"><Car size={18} />{L("งานติดฟิล์มรถยนต์", "Car window film job", "汽车贴膜")}</span>}
       footer={<div className="flex items-center justify-between gap-3 w-full">
-        <span className="text-xs text-muted">{result.quote ? L(`ใช้ฟิล์มรวม ${result.quote.feet} ฟุต`, `${result.quote.feet} ft of film`, `共用膜 ${result.quote.feet} 英尺`) : ""}</span>
+        <span className="text-xs text-muted">{result.quote ? L(`ใช้ฟิล์มรวม ${result.quote.sqft} ตร.ฟุต (ยาว ${result.quote.feet} ฟุต)`, `${result.quote.sqft} sq ft of film (${result.quote.feet} ft long)`, `共用膜 ${result.quote.sqft} 平方英尺（长 ${result.quote.feet} 英尺）`) : ""}</span>
         <div className="flex gap-2">
           <Button variant="ghost" onClick={onClose}>{L("ยกเลิก", "Cancel", "取消")}</Button>
           <Button variant="primary" disabled={!result.quote || !job} onClick={() => { if (job && result.quote) { onAdd(job, result.quote); reset(); } }}>
@@ -122,7 +125,7 @@ export function FilmJobModal({ open, onClose, branchId, stockOf, onAdd }: {
             <section>
               <Step n={2} text={L("รุ่นฟิล์ม", "Film series", "膜系列")} hint={cfg.rules.one_series_per_car ? L("รุ่นเดียวทั้งคัน", "One series per car", "整车同系列") : undefined} />
               <div className="grid sm:grid-cols-3 gap-2">
-                {cfg.series.filter((s) => s.active).map((s) => {
+                {cfg.series.filter((s) => s.active && shadesOf(s.code).length).map((s) => {
                   const p = size ? cfg.prices[priceKey(s.code, size, "ALL")] : undefined;
                   return (
                     <button key={s.code} type="button" onClick={() => setSeries(s.code)}
@@ -184,12 +187,12 @@ export function FilmJobModal({ open, onClose, branchId, stockOf, onAdd }: {
                     return (
                       <div key={pid} className="flex items-center justify-between text-xs rounded-lg bg-surface px-2.5 py-1.5 border border-line">
                         <span translate="no"><b>{sh?.model_code}</b> <span className="text-muted">{sh?.sku}</span></span>
-                        <span className={`tnum ${have != null && have < need ? "text-danger font-semibold" : ""}`}>{need} {L("ฟุต", "ft", "英尺")}{have != null ? <span className="text-muted"> / {L("มี", "have", "有")} {have}</span> : null}</span>
+                        <span className={`tnum ${have != null && have < need ? "text-danger font-semibold" : ""}`}>{need} {uLabel}{have != null ? <span className="text-muted"> / {L("มี", "have", "有")} {have.toLocaleString()}</span> : null}</span>
                       </div>
                     );
                   })}
                 </div>
-                <p className="text-[11px] text-muted flex items-center gap-1"><Ruler size={12} />{result.quote.positions.map((p) => `${p.model_code} ${p.feet}${L("ฟุต", "ft", "英尺")}`).join(" · ")}</p>
+                <p className="text-[11px] text-muted flex items-center gap-1"><Ruler size={12} />{result.quote.positions.map((p) => `${p.model_code} ${result.quote!.unit === "ft" ? p.feet : p.sqft}`).join(" · ")} {uLabel}</p>
                 {shortages.length ? <p className="text-xs text-danger flex gap-1.5"><AlertTriangle size={14} className="shrink-0 mt-0.5" />{L("ม้วนฟิล์มในสาขาไม่พอ", "Not enough film in this branch", "本店膜卷不足")}</p> : null}
               </>
             )}

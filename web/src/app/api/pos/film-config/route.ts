@@ -15,7 +15,7 @@ export async function GET(req: NextRequest) {
     await posContext(req, "pos.sell", branch);
     const sb = supabaseAdmin();
     const [cfg, cars] = await Promise.all([
-      loadFilmConfig(sb),
+      loadFilmConfig(sb, branch),
       sb.from("film_car_models").select("make,model,size_code").order("make").order("model").limit(5000),
     ]);
     return NextResponse.json({ ...cfg, cars: cars.data ?? [] }, { headers: { "Cache-Control": "no-store" } });

@@ -69,7 +69,7 @@ export async function POST(req: NextRequest) {
         const job: FilmJob = { size: String(fj.size ?? ""), series: String(fj.series ?? ""),
           positions: (Array.isArray(fj.positions) ? fj.positions : []).slice(0, 8).map((p: any) => ({ code: String(p?.code ?? ""), shade: Number(p?.shade), series: p?.series ? String(p.series) : undefined })) };
         let fq;
-        try { fq = quoteFilmJob(await loadFilmConfig(sb), job); }
+        try { fq = quoteFilmJob(await loadFilmConfig(sb, body.branch_id), job); }
         catch (e) { throw new PosError(e instanceof FilmError ? e.message : "อ่านค่าตั้งงานติดฟิล์มไม่สำเร็จ", e instanceof FilmError ? 409 : 503); }
         if (!sameFilmLines(filmItems, fq.lines))
           throw new PosError("ราคาหรือจำนวนงานติดฟิล์มไม่ตรงกับค่าที่ตั้งไว้ (อาจมีการแก้ราคา) — ลบงานแล้วเปิดงานติดฟิล์มใหม่", 409);

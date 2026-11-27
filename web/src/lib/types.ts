@@ -199,7 +199,7 @@ export interface CartLine {
   vat_rate?: number;
   /** งานติดฟิล์มรถ: บรรทัดม้วนฟิล์มของงาน (ราคา/จำนวนมาจากตัวคำนวณงานฟิล์ม แก้ทีละบรรทัดไม่ได้) */
   film_job_id?: string | null;
-  film_job?: { size: string; series: string; positions: { code: string; shade: number; series?: string }[] } | null;
+  film_job?: { size: string; series: string; positions: { code: string; shade: number; series?: string }[]; unit?: "sqft" | "ft" } | null;
 }
 
 export interface LineCampaign {

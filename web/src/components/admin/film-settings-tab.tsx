@@ -4,15 +4,17 @@
 //   เงื่อนไขการขาย · ราคา (รอบคัน/รายตำแหน่ง) · ความเข้ม → ม้วนฟิล์ม · พื้นที่ต่อตำแหน่ง · รุ่นรถ → ขนาด
 // =====================================================================
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Car, Loader2, Lock, Plus, Trash2, Search, Layers, Ruler, BadgeDollarSign, ListChecks } from "lucide-react";
+import { Car, Loader2, Lock, Plus, Trash2, Search, Store, Wand2, Layers, Ruler, BadgeDollarSign, ListChecks } from "lucide-react";
 import { Button, Card, Input, Segmented, Select } from "@/components/ui";
 import { useToast } from "@/components/toast-host";
 import { useI18n } from "@/lib/i18n/provider";
 import { formatTHB } from "@/lib/money";
 import { priceKey, type FilmConfigData } from "@/lib/film/quote";
 
-type Data = FilmConfigData & { brand_id: string | null; can_edit: boolean; cars: { id: string; make: string; model: string; size_code: string }[]; rolls: { id: string; sku: string; name_th: string; unit: string; is_active: boolean }[] };
-type Section = "rules" | "prices" | "rolls" | "areas" | "cars";
+type Data = FilmConfigData & { brand_id: string | null; can_edit: boolean;
+  branches: { id: string; code: string; name: string; name_th: string | null }[]; branch_off: { branch_id: string; series_code: string; shade: number }[];
+  branch_stock: { branch_id: string; product_id: string; qty: number }[]; cars: { id: string; make: string; model: string; size_code: string }[]; rolls: { id: string; sku: string; name_th: string; unit: string; is_active: boolean }[] };
+type Section = "rules" | "prices" | "branches" | "rolls" | "areas" | "cars";
 
 export function FilmSettingsTab({ editMode }: { editMode: boolean }) {
   const { L, locale } = useI18n();
@@ -64,6 +66,7 @@ export function FilmSettingsTab({ editMode }: { editMode: boolean }) {
 
       <Segmented value={sec} onChange={setSec} options={[
         { value: "prices" as Section, label: <span className="inline-flex items-center gap-1.5"><BadgeDollarSign size={14} />{L("ราคา", "Prices", "价格")}</span> },
+        { value: "branches" as Section, label: <span className="inline-flex items-center gap-1.5"><Store size={14} />{L(`รายสาขา (${d.branches.length})`, `Branches (${d.branches.length})`, `门店 (${d.branches.length})`)}</span> },
         { value: "rules" as Section, label: <span className="inline-flex items-center gap-1.5"><ListChecks size={14} />{L("เงื่อนไขการขาย", "Rules", "销售规则")}</span> },
         { value: "rolls" as Section, label: <span className="inline-flex items-center gap-1.5"><Layers size={14} />{L("ความเข้ม → ม้วน", "Shades → rolls", "深度 → 膜卷")}</span> },
         { value: "areas" as Section, label: <span className="inline-flex items-center gap-1.5"><Ruler size={14} />{L("พื้นที่ต่อตำแหน่ง", "Areas", "面积")}</span> },
@@ -83,12 +86,20 @@ export function FilmSettingsTab({ editMode }: { editMode: boolean }) {
               <span><span className="block text-sm font-medium">{t}</span><span className="block text-xs text-muted">{hint}</span></span>
             </label>
           ))}
+          <div className="flex flex-wrap items-center gap-3 rounded-xl border border-line p-3 text-sm">
+            <span className="flex-1 min-w-[220px]"><span className="block font-medium">{L("หน่วยตัดสต๊อกม้วนฟิล์ม", "Film roll stock unit", "膜卷扣库存单位")}</span>
+              <span className="block text-xs text-muted">{L("ตามชีท “ยอดตัดสต๊อกทั้งคัน” = ตร.ฟุต (Size S รอบคัน 50) · ฟุตความยาว = 10 · ม้วน 60″×100ft = 500 ตร.ฟุต", "Sheet “stock deduction” is sq ft (Size S full car 50) · length = 10 ft · a 60″×100ft roll = 500 sq ft", "表格“扣库存”为平方英尺（S 全车 50）· 长度 10 英尺 · 60″×100ft 一卷 = 500 平方英尺")}</span></span>
+            <Segmented size="sm" value={d.rules.stock_unit === "ft" ? "ft" : "sqft"} onChange={(v) => { if (can) void post({ action: "rules", ...d.rules, stock_unit: v }, "rules", L("บันทึกแล้ว", "Saved", "已保存")); }}
+              options={[{ value: "sqft", label: L("ตร.ฟุต (ตามชีท)", "Sq ft (sheet)", "平方英尺（表格）") }, { value: "ft", label: L("ฟุตความยาว", "Length ft", "长度英尺") }]} />
+          </div>
           <label className="flex items-center gap-3 rounded-xl border border-line p-3 text-sm">
             <span className="flex-1"><span className="block font-medium">{L("ความกว้างม้วน (ฟุต)", "Roll width (ft)", "膜卷宽度（英尺）")}</span><span className="block text-xs text-muted">{L("60 นิ้ว = 5 ฟุต · ความยาวที่ใช้ = ตร.ฟุต ÷ ความกว้าง", "60 in = 5 ft · length used = sq ft ÷ width", "60 英寸 = 5 英尺 · 用量 = 面积 ÷ 宽度")}</span></span>
             <NumCell value={d.rules.roll_width_ft} disabled={!can} onSave={(v) => post({ action: "rules", ...d.rules, roll_width_ft: v }, "rules")} />
           </label>
         </Card>
       ) : null}
+
+      {sec === "branches" ? <BranchMatrix d={d} can={can} post={post} L={L} busy={busy} /> : null}
 
       {sec === "prices" ? <PricesGrid d={d} can={can} name={name} post={post} L={L} /> : null}
 
@@ -97,7 +108,7 @@ export function FilmSettingsTab({ editMode }: { editMode: boolean }) {
           <table className="w-full text-sm">
             <thead className="bg-surface2 text-[11px] text-muted"><tr>
               <th className="text-left font-medium px-4 py-2">{L("รุ่น", "Series", "系列")}</th><th className="text-left font-medium px-3 py-2">{L("ความเข้ม", "Shade", "深度")}</th>
-              <th className="text-left font-medium px-3 py-2">{L("ม้วนฟิล์มที่ตัดสต๊อก", "Roll deducted", "扣减膜卷")}</th><th className="text-right font-medium px-3 py-2">{L("1 ชิ้น = กี่ฟุต", "1 unit = ft", "1 件 = 英尺")}</th><th className="text-center font-medium px-3 py-2">{L("เปิดขาย", "Active", "启用")}</th>
+              <th className="text-left font-medium px-3 py-2">{L("ม้วนฟิล์มที่ตัดสต๊อก", "Roll deducted", "扣减膜卷")}</th><th className="text-right font-medium px-3 py-2">{d.rules.stock_unit === "ft" ? L("1 ชิ้น = กี่ฟุต", "1 unit = ft", "1 件 = 英尺") : L("1 ชิ้น = กี่ ตร.ฟุต", "1 unit = sq ft", "1 件 = 平方英尺")}</th><th className="text-center font-medium px-3 py-2">{L("เปิดขาย", "Active", "启用")}</th>
             </tr></thead>
             <tbody className="divide-y divide-line/60">
               {d.shades.map((s) => (
@@ -116,7 +127,7 @@ export function FilmSettingsTab({ editMode }: { editMode: boolean }) {
               ))}
             </tbody>
           </table>
-          <p className="px-4 py-3 text-[11.5px] text-muted border-t border-line/70">{L("หน่วยสต๊อกปกติ 1 ชิ้น = 1 ฟุต · ถ้าสต๊อกเก็บเป็นม้วนหรือแพ็ก ให้ใส่จำนวนฟุตต่อ 1 ชิ้น (เช่น 50 หรือ 100)", "Normally 1 unit = 1 ft · if stock is kept per roll/pack, enter feet per unit (e.g. 50 or 100)", "通常 1 件 = 1 英尺 · 若库存按卷/包计，请填每件英尺数（如 50、100）")}</p>
+          <p className="px-4 py-3 text-[11.5px] text-muted border-t border-line/70">{L("ปกติ 1 ชิ้น = 1 หน่วย (ตามหน่วยตัดสต๊อกในเงื่อนไขการขาย) · ถ้าสต๊อกเก็บเป็นม้วน ใส่ 500 (ม้วน 60″×100ft = 500 ตร.ฟุต)", "Normally 1 unit = 1 (per the stock unit in Rules) · if stock is kept per roll, enter 500 (60″×100ft = 500 sq ft)", "通常 1 件 = 1 单位（见规则中的扣库存单位）· 若按卷计，填 500（60″×100ft = 500 平方英尺）")}</p>
         </Card>
       ) : null}
 
@@ -146,6 +157,69 @@ export function FilmSettingsTab({ editMode }: { editMode: boolean }) {
 
       {sec === "cars" ? <CarsList d={d} can={can} name={name} post={post} L={L} busy={busy} /> : null}
     </div>
+  );
+}
+
+/** รายสาขา: เปิด/ปิดรุ่นและความเข้ม · ใต้แต่ละความเข้มแสดงสต๊อกม้วนของสาขานั้น · ตั้งตามสต๊อกได้ในคลิกเดียว */
+function BranchMatrix({ d, can, post, L, busy }: { d: Data; can: boolean; busy: string | null; post: (b: Record<string, unknown>, k: string, ok?: string) => Promise<boolean>; L: (a: string, b: string, c: string) => string }) {
+  const [q, setQ] = useState("");
+  const off = (bid: string, se: string, shade: number) => d.branch_off.some((o) => o.branch_id === bid && o.series_code === se && Number(o.shade) === shade);
+  const qty = (bid: string, pid: string | null) => (pid ? d.branch_stock.find((x) => x.branch_id === bid && x.product_id === pid)?.qty ?? 0 : 0);
+  const unit = d.rules.stock_unit === "ft" ? L("ฟุต", "ft", "英尺") : L("ตร.ฟุต", "sq ft", "平方英尺");
+  const list = d.branches.filter((b) => { const s = q.trim().toLowerCase(); return !s || `${b.code} ${b.name_th ?? ""} ${b.name}`.toLowerCase().includes(s); });
+  return (
+    <Card className="overflow-hidden">
+      <div className="px-4 py-3 flex flex-wrap items-center gap-2 border-b border-line/70">
+        <div className="relative flex-1 min-w-[200px]"><Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" /><Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={L("ค้นหาสาขา", "Search branch", "搜索门店")} className="pl-8 !h-9" /></div>
+        <p className="text-xs text-muted">{L(`กดชิปเพื่อเปิด/ปิด · ตัวเลขใต้ชิป = สต๊อกม้วนในสาขา (${unit}) · สาขาที่ปิดจะไม่เห็นรุ่น/ความเข้มนั้นที่หน้าร้าน`, `Tap chips to toggle · number = roll stock at branch (${unit}) · hidden at POS when off`, `点击切换 · 数字 = 门店膜卷库存（${unit}）· 关闭后前台不显示`)}</p>
+      </div>
+      <div className="overflow-auto max-h-[560px]">
+        <table className="w-full text-sm">
+          <thead className="bg-surface2 text-[11px] text-muted sticky top-0 z-10"><tr>
+            <th className="text-left font-medium px-4 py-2 min-w-[200px]">{L("สาขา", "Branch", "门店")}</th>
+            {d.series.map((s) => <th key={s.code} className="text-left font-medium px-3 py-2">{s.name}</th>)}
+            <th className="px-3 py-2" />
+          </tr></thead>
+          <tbody className="divide-y divide-line/60">
+            {list.map((b) => (
+              <tr key={b.id} className="align-top">
+                <td className="px-4 py-2.5"><span className="block font-medium" translate="no">{b.name_th || b.name}</span><span className="text-[11px] text-muted font-mono" translate="no">{b.code}</span></td>
+                {d.series.map((s) => {
+                  const seriesOff = off(b.id, s.code, 0);
+                  const shades = d.shades.filter((x) => x.series_code === s.code);
+                  return (
+                    <td key={s.code} className="px-3 py-2.5">
+                      <label className="flex items-center gap-1.5 text-[11.5px] mb-1.5">
+                        <input type="checkbox" checked={!seriesOff} disabled={!can || !!busy} onChange={(e) => void post({ action: "branch_toggle", branch_id: b.id, series_code: s.code, shade: 0, enabled: e.target.checked }, "branch")} className="accent-[rgb(var(--c-brand))]" />
+                        {seriesOff ? <span className="text-muted">{L("ปิดทั้งรุ่น", "Series off", "整系列关闭")}</span> : <span>{L("เปิดขาย", "On sale", "在售")}</span>}
+                      </label>
+                      <div className="flex flex-wrap gap-1">
+                        {shades.map((sh) => {
+                          const isOff = seriesOff || off(b.id, s.code, sh.shade);
+                          const have = qty(b.id, sh.stock_product_id);
+                          return (
+                            <button key={sh.shade} type="button" disabled={!can || seriesOff || !!busy}
+                              onClick={() => void post({ action: "branch_toggle", branch_id: b.id, series_code: s.code, shade: sh.shade, enabled: off(b.id, s.code, sh.shade) }, "branch")}
+                              className={`min-w-[58px] rounded-lg border px-2 py-1 text-center ${isOff ? "border-line text-muted line-through bg-surface2/60" : "border-brand/40 bg-brand/[0.07] text-ink"} disabled:cursor-not-allowed`}>
+                              <span className="block text-[12px] font-semibold tnum">{sh.shade}%</span>
+                              <span className={`block text-[10px] tnum ${have > 0 ? "text-ok" : "text-danger"}`}>{have.toLocaleString()}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </td>
+                  );
+                })}
+                <td className="px-3 py-2.5 text-right">
+                  {can ? <Button size="sm" variant="soft" disabled={!!busy} onClick={() => void post({ action: "branch_auto", branch_id: b.id }, "branch", L("ตั้งตามสต๊อกแล้ว", "Set from stock", "已按库存设置"))}><Wand2 size={13} />{L("ตั้งตามสต๊อก", "Match stock", "按库存设置")}</Button> : null}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {!list.length ? <p className="text-center text-xs text-muted py-8">{L("ไม่มีสาขาที่ขายแบรนด์ฟิล์มหรือมีม้วนฟิล์ม", "No branches sell the film brand or hold rolls", "没有销售该膜品牌或有膜卷的门店")}</p> : null}
+      </div>
+    </Card>
   );
 }
 
