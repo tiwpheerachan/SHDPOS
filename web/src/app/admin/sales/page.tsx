@@ -12,7 +12,7 @@ import { BrandView } from "@/components/admin/brand-view";
 import { OverviewView, buildOverview } from "@/components/admin/sales-dashboard";
 import { SalesSheet, SourceTag } from "@/components/admin/sales-sheet";
 import { ViewsMenu, ShareMenu, DownloadMenu, type ReportState } from "@/components/admin/report-actions";
-import { rangeToDates, type AdminFilter } from "@/components/admin/filters";
+import { rangeToDates, EMPTY_FILTER, type AdminFilter } from "@/components/admin/filters";
 import { listCategories } from "@/lib/data/repo";
 import { useRef } from "react";
 import { Segmented } from "@/components/ui";
@@ -105,6 +105,17 @@ function AdminSalesPage() {
     const f = st.filter as AdminFilter & { from: string; to: string };
     if (f) { const dates = f.range && f.range !== "custom" ? rangeToDates(f.range) : { from: new Date(f.from), to: new Date(f.to) }; setFilter({ ...f, ...dates } as AdminFilter); }
     if (st.tab) setTab(st.tab as Tab);
+  };
+  // มุมมองในตาราง (แท็บแบบ Lark) เก็บตัวกรองระดับหน้าด้วย — ช่วงสัมพัทธ์ (30 วัน/YTD ฯลฯ) เก็บแค่ชื่อช่วง ไม่เก็บวันที่ตายตัว
+  const sheetPageState = () => {
+    const { from: f, to: t, ...rest } = filter;
+    return { src, filter: filter.range === "custom" ? { ...rest, from: f.toISOString(), to: t.toISOString() } : rest };
+  };
+  const applySheetPage = (st: Record<string, unknown> | null) => {
+    if (!st) { setSrc("all"); setFilter({ ...filter, ...EMPTY_FILTER }); return; }
+    const f = st.filter as (AdminFilter & { from?: string; to?: string }) | undefined;
+    if (f) { const dates = f.range && f.range !== "custom" ? rangeToDates(f.range) : { from: new Date(f.from ?? filter.from), to: new Date(f.to ?? filter.to) }; setFilter({ ...EMPTY_FILTER, ...f, ...dates } as AdminFilter); }
+    setSrc((st.src as "all" | "pos" | "lark") ?? "all");
   };
   const teamUrl = () => { const u = new URL(window.location.href); u.searchParams.set("tab", tab); u.searchParams.set("s", btoa(unescape(encodeURIComponent(JSON.stringify(currentState()))))); u.searchParams.delete("person"); return u.href; };
   useEffect(() => { const raw = new URLSearchParams(window.location.search).get("s"); if (raw) { try { applyState(JSON.parse(decodeURIComponent(escape(atob(raw))))); } catch { /* ลิงก์เสีย */ } } }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -212,7 +223,7 @@ function AdminSalesPage() {
       {data.truncated ? <p className="rounded-xl bg-warn/10 text-[12.5px] px-4 py-2.5">{L("ช่วงวันที่นี้มีบิลมากกว่า 20,000 ใบ — แสดงเฉพาะล่าสุด ให้แคบช่วงวันที่ลงเพื่อดูครบ", "More than 20,000 bills — showing latest only; narrow the date range", "数据过多")}</p> : null}
 
       <div ref={reportRef} className="space-y-4">
-      {tab === "bills" ? <SalesSheet orders={rows} branches={branches} brands={brands} employees={employees} products={products} catName={cats} showCost={showCost} owStatus={owStatus as never} onExportCsv={exportCsv} /> : null}
+      {tab === "bills" ? <SalesSheet orders={rows} branches={branches} brands={brands} employees={employees} products={products} catName={cats} showCost={showCost} owStatus={owStatus as never} onExportCsv={exportCsv} pageState={sheetPageState} applyPageState={applySheetPage} /> : null}
       {tab === "overview" && overview ? <OverviewView m={overview}
         onDrill={(to, patch) => { if (to === "staff" && patch?.person) { const u = new URLSearchParams(sp.toString()); u.set("tab", "staff"); u.set("person", String(patch.person)); router.push(`/admin/sales?${u}`, { scroll: false }); } else setTab(to); }} /> : null}
 

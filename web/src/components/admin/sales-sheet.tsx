@@ -5,7 +5,7 @@
 //   • ตัวกรองรายคอลัมน์แบบชีท (ข้อความ / เลือกค่า / ช่วงตัวเลข / ช่วงวันที่) + เรียงลำดับทุกคอลัมน์ + แถวยอดรวม
 //   • กดทั้งแถว = เปิดที่มาของบิล (เหมือนเดิม) + ปุ่มเชื่อมโยงแยกท้ายแถว (เปิดบิล / คัดลอกลิงก์บิล)
 //   • ส่งออก Excel ตามคอลัมน์/ตัวกรองที่เห็น
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Filter, ArrowUp, ArrowDown, Columns3, X, Search, FileDown, ExternalLink, Link2, Check, Rows3, ReceiptText, RotateCcw } from "lucide-react";
 import type { Branch, Brand, Employee, Order, OrderItem, Product } from "@/lib/types";
@@ -21,7 +21,8 @@ import { useI18n } from "@/lib/i18n/provider";
 import { downloadExcel } from "@/lib/export";
 import { TagChip, PersonChip } from "@/components/admin/sheet-tags";
 import { useSalesFields, fieldText, fieldIcon, FieldCell, FieldEditor, type SalesField } from "@/components/admin/sales-custom-fields";
-import { Plus, Pencil } from "lucide-react";
+import { Plus, Pencil, Pin, PinOff } from "lucide-react";
+import { SheetViewTabs, type SheetViewState } from "@/components/admin/sheet-view-tabs";
 export { TagChip, PersonChip };
 
 type Mode = "bill" | "line";
@@ -36,15 +37,18 @@ const STATUS = (): Record<string, string> => ({ completed: tr("ขายแล�
 const STATUS_CLS: Record<string, string> = { completed: "bg-ok/12 text-ok", partially_refunded: "bg-warn/15 text-warn", refunded: "bg-warn/15 text-warn", voided: "bg-danger/10 text-danger" };
 const CHANNEL = (): Record<string, string> => ({ offline: tr("หน้าร้าน", "In-store", "门店"), online: tr("ออนไลน์", "Online", "线上"), line: "LINE", facebook: "Facebook", marketplace: tr("มาร์เก็ตเพลส", "Marketplace", "电商平台"), event: tr("อีเวนต์", "Event", "活动") });
 const baht = (n: number) => formatTHB(n, false);
-const bkk = (iso: string) => new Date(new Date(iso).toLocaleString("en-US", { timeZone: "Asia/Bangkok" }));
-const ymd = (iso: string) => { const d = bkk(iso); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
-const hm = (iso: string) => { const d = bkk(iso); return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
+// เวลาไทย (UTC+7) แบบคำนวณตรง — เร็วกว่า toLocaleString มาก (ตารางกรอง/เรียงหลายหมื่นแถว)
+const bkkIso = (iso: string) => new Date(new Date(iso).getTime() + 7 * 3600_000).toISOString();
+const ymd = (iso: string) => bkkIso(iso).slice(0, 10);
+const hm = (iso: string) => bkkIso(iso).slice(11, 16);
 const maskPhone = (p?: string | null) => (p ? p.replace(/\D/g, "").replace(/^(\d{3})\d+(\d{4})$/, "$1-xxx-$2") : "");
 const LS = "shdpos.salesSheet.v1";
 
-export function SalesSheet({ orders, branches, brands, employees, products, catName, showCost, owStatus, onExportCsv }: {
+export function SalesSheet({ orders, branches, brands, employees, products, catName, showCost, owStatus, onExportCsv, pageState, applyPageState }: {
   orders: Order[]; branches: Branch[]; brands: Brand[]; employees: Employee[]; products: Product[]; catName: Map<string, string>;
   showCost: boolean; owStatus: Record<string, { ow_status?: string } | undefined>; onExportCsv?: () => void;
+  /** ตัวกรองระดับหน้า (ช่วงวันที่/สาขา/แบรนด์/แหล่งข้อมูล) ให้มุมมองบันทึกรวมไปด้วย */
+  pageState?: () => SheetViewState; applyPageState?: (s: SheetViewState | null) => void;
 }) {
   const { locale } = useI18n(); // ภาษาเปลี่ยน → คำนวณป้ายใหม่
   const { employee } = useSession();
@@ -53,11 +57,15 @@ export function SalesSheet({ orders, branches, brands, employees, products, catN
   const [fieldEdit, setFieldEdit] = useState<{ rect: DOMRect; field?: SalesField } | null>(null);
 
   // ── ค่าที่จำในเครื่อง ──
-  const saved = useMemo(() => { try { return JSON.parse(localStorage.getItem(LS) ?? "{}") as { mode?: Mode; hidden?: Record<Mode, string[]>; per?: number }; } catch { return {}; } }, []);
+  const saved = useMemo(() => { try { return JSON.parse(localStorage.getItem(LS) ?? "{}") as { mode?: Mode; hidden?: Record<Mode, string[]>; per?: number; frozen?: number }; } catch { return {}; } }, []);
   const [mode, setMode] = useState<Mode>(saved.mode ?? "bill");
   const [hidden, setHidden] = useState<Record<Mode, string[]>>(saved.hidden ?? { bill: [], line: [] });
   const [per, setPer] = useState<number>(saved.per ?? 50);
-  useEffect(() => { try { localStorage.setItem(LS, JSON.stringify({ mode, hidden, per })); } catch { /* */ } }, [mode, hidden, per]);
+  // ตรึงคอลัมน์ซ้าย N คอลัมน์ (ไม่เลื่อนตามแนวนอน) — ค่าส่วนตัวของแต่ละคน
+  const [frozen, setFrozen] = useState<number>(saved.frozen ?? 1);
+  const viewActive = useRef(false);
+  // ค่าส่วนตัว (ตอนอยู่ "ตารางหลัก") จำในเครื่อง — ตอนเปิดมุมมองอยู่ไม่ทับค่าส่วนตัว
+  useEffect(() => { if (viewActive.current) return; try { localStorage.setItem(LS, JSON.stringify({ mode, hidden, per, frozen })); } catch { /* */ } }, [mode, hidden, per, frozen]);
   const [filters, setFilters] = useState<Record<string, ColFilter>>({});
   const [sort, setSort] = useState<{ id: string; dir: 1 | -1 }>({ id: "date", dir: -1 });
   const [page, setPage] = useState(0);
@@ -65,13 +73,38 @@ export function SalesSheet({ orders, branches, brands, employees, products, catN
   const [menu, setMenu] = useState<{ id: string; rect: DOMRect } | null>(null);
   const [colsOpen, setColsOpen] = useState(false);
   const [copied, setCopied] = useState("");
-  useEffect(() => { setFilters({}); setPage(0); setSort({ id: "date", dir: -1 }); }, [mode]);
+  const skipModeReset = useRef(false);
+  useEffect(() => { if (skipModeReset.current) { skipModeReset.current = false; return; } setFilters({}); setPage(0); setSort({ id: "date", dir: -1 }); }, [mode]);
+
+  // ── มุมมอง (แท็บ) ──
+  const captureView = (): SheetViewState => ({ mode, filters, sort, hidden: hidden[mode], frozen, page: pageState?.() ?? null });
+  const applyView = (st: SheetViewState | null) => {
+    setPage(0);
+    if (!st) { // ตารางหลัก = ค่าส่วนตัว + ไม่มีตัวกรอง
+      viewActive.current = false;
+      setFilters({}); setSort({ id: "date", dir: -1 });
+      try { const mine = JSON.parse(localStorage.getItem(LS) ?? "{}"); if (mine.hidden) setHidden(mine.hidden); setFrozen(mine.frozen ?? 1); } catch { /* */ }
+      applyPageState?.(null);
+      return;
+    }
+    viewActive.current = true;
+    const m = (st.mode === "line" ? "line" : "bill") as Mode;
+    if (m !== mode) { skipModeReset.current = true; setMode(m); }
+    setFilters((st.filters as Record<string, ColFilter>) ?? {});
+    setSort((st.sort as { id: string; dir: 1 | -1 }) ?? { id: "date", dir: -1 });
+    if (Array.isArray(st.hidden)) setHidden((h) => ({ ...h, [m]: st.hidden as string[] }));
+    if (typeof st.frozen === "number") setFrozen(st.frozen);
+    if (st.page) applyPageState?.(st.page as SheetViewState);
+  };
 
   // ── ข้อมูลอ้างอิง ──
   const ref = useMemo(() => {
     const br = new Map(branches.map((b) => [b.id, b])), bn = new Map(brands.map((b) => [b.id, b.name])), em = new Map(employees.map((e) => [e.id, e])), pr = new Map(products.map((p) => [p.id, p]));
     const name = (id?: string | null) => { const e = id ? em.get(id) : undefined; return e ? e.nickname || [e.first_name, e.last_name].filter(Boolean).join(" ") : ""; };
-    return { br, bn, pr, name };
+    // รูปโปรไฟล์ (จาก SSO/Lark) ตามชื่อที่แสดง — ใช้ทั้งในช่องและรายการตัวกรอง
+    const photoByName = new Map<string, string>();
+    for (const e of employees) { const n = name(e.id); if (n && e.photo_url) photoByName.set(n, e.photo_url); }
+    return { br, bn, pr, name, photoByName };
   }, [branches, brands, employees, products]);
 
   // ── คอลัมน์ ──
@@ -91,8 +124,10 @@ export function SalesSheet({ orders, branches, brands, employees, products, catN
       { id: "province", label: () => tr("จังหวัด", "Province", "省份"), kind: "enum", get: (r) => B(r)?.province ?? "" },
       { id: "store_type", label: () => tr("ประเภทร้าน", "Store type", "门店类型"), kind: "enum", get: (r) => B(r)?.branch_type ?? "" },
       { id: "channel", label: () => tr("ช่องทาง", "Channel", "渠道"), kind: "enum", get: (r) => CHANNEL()[r.o.channel] ?? r.o.channel },
-      { id: "sales", label: () => tr("พนักงานขาย", "Salesperson", "销售员"), kind: "enum", get: (r) => ref.name(r.it?.salesperson_id ?? r.o.salesperson_id ?? r.o.cashier_id), def: true },
-      { id: "cashier", label: () => tr("แคชเชียร์", "Cashier", "收银员"), kind: "enum", get: (r) => ref.name(r.o.cashier_id) },
+      { id: "sales", label: () => tr("พนักงานขาย", "Salesperson", "销售员"), kind: "enum", get: (r) => ref.name(r.it?.salesperson_id ?? r.o.salesperson_id ?? r.o.cashier_id), def: true,
+        show: (r) => { const n = ref.name(r.it?.salesperson_id ?? r.o.salesperson_id ?? r.o.cashier_id); return n ? <PersonChip name={n} photo={ref.photoByName.get(n)} /> : undefined; }, chip: (v) => <PersonChip name={v} photo={ref.photoByName.get(v)} /> },
+      { id: "cashier", label: () => tr("แคชเชียร์", "Cashier", "收银员"), kind: "enum", get: (r) => ref.name(r.o.cashier_id),
+        show: (r) => { const n = ref.name(r.o.cashier_id); return n ? <PersonChip name={n} photo={ref.photoByName.get(n)} /> : undefined; }, chip: (v) => <PersonChip name={v} photo={ref.photoByName.get(v)} /> },
       { id: "customer", label: () => tr("ลูกค้า", "Customer", "顾客"), kind: "text", get: (r) => r.o.customer_name ?? tr("ทั่วไป", "Walk-in", "散客"), def: true, noTr: true },
       { id: "phone", label: () => tr("เบอร์ลูกค้า", "Customer phone", "顾客电话"), kind: "text", get: (r) => maskPhone(r.o.customer_phone), noTr: true },
       { id: "member", label: () => tr("สมาชิก", "Member", "会员"), kind: "enum", get: (r) => (r.o.customer_id ? tr("สมาชิก", "Member", "会员") : tr("ทั่วไป", "Walk-in", "散客")) },
@@ -144,7 +179,7 @@ export function SalesSheet({ orders, branches, brands, employees, products, catN
     ];
     const base = mode === "bill" ? [...common, ...billCols] : [...common, ...lineCols];
     // ป้ายสีในรายการตัวกรอง = หน้าตาเดียวกับในตาราง
-    for (const c of base) if (c.kind === "enum" && !c.show) c.chip = c.id === "sales" || c.id === "cashier" ? (v) => <PersonChip name={v} /> : (v) => <TagChip value={v} />;
+    for (const c of base) if (c.kind === "enum" && !c.show && !c.chip) c.chip = (v) => <TagChip value={v} />;
     // คอลัมน์ที่เพิ่มเอง (ค่าต่อบิล — แสดงทั้งมุมมองต่อบิลและต่อรายการสินค้า)
     const custom: Col[] = cf.fields.map((f) => ({
       id: `cf:${f.id}`, label: () => f.name, custom: f, def: true,
@@ -219,6 +254,19 @@ export function SalesSheet({ orders, branches, brands, employees, products, catN
     if (o) setOpenBill(o);
   }, [orders]);
 
+  // ── ตรึงคอลัมน์: วัดความกว้างหัวคอลัมน์จริง → ตำแหน่ง left ของแต่ละคอลัมน์ที่ตรึง ──
+  const thRefs = useRef<(HTMLTableCellElement | null)[]>([]);
+  const [lefts, setLefts] = useState<number[]>([]);
+  const nFrozen = Math.min(frozen, visible.length);
+  useLayoutEffect(() => {
+    const out: number[] = []; let x = 0;
+    for (let i = 0; i < nFrozen; i++) { out.push(x); x += thRefs.current[i]?.offsetWidth ?? 0; }
+    setLefts((prev) => (prev.length === out.length && prev.every((v, i) => v === out[i]) ? prev : out));
+  });
+  const fz = (i: number, extra = "") => i < nFrozen
+    ? { className: `sticky ${extra} ${i === nFrozen - 1 ? "shadow-[2px_0_0_rgb(var(--c-line))]" : ""}`, style: { left: lefts[i] ?? 0 } }
+    : { className: "", style: undefined as React.CSSProperties | undefined };
+
   const fmt = (c: Col, r: Row) => {
     if (c.show) { const v = c.show(r); if (v !== undefined) return v; }
     const v = c.get(r);
@@ -226,13 +274,14 @@ export function SalesSheet({ orders, branches, brands, employees, products, catN
     if (c.kind === "num") return formatInt(Number(v ?? 0));
     if (v === "" || v == null || v === "—") return <span className="text-muted">—</span>;
     // ค่าแบบเลือก (dropdown) → ป้ายสีแบบ Lark · คน → ชิปรูปย่อ + ชื่อ
-    if (c.id === "sales" || c.id === "cashier") return <PersonChip name={String(v)} />;
     if (c.kind === "enum") return <TagChip value={String(v)} />;
     return String(v);
   };
 
   return (
     <div className="card overflow-hidden">
+      {/* แถบมุมมองแบบ Lark */}
+      <SheetViewTabs capture={captureView} apply={applyView} />
       {/* แถบเครื่องมือ */}
       <div className="flex flex-wrap items-center gap-2 px-4 py-3 border-b border-line">
         <Segmented<Mode> size="sm" value={mode} onChange={setMode} options={[
@@ -261,6 +310,12 @@ export function SalesSheet({ orders, branches, brands, employees, products, catN
               </div>
             ) : null}
           </div>
+          <label className="h-8 pl-2 pr-1 rounded-lg border border-line text-xs inline-flex items-center gap-1 hover:bg-surface2" title={tr("ตรึงคอลัมน์ด้านซ้ายไว้ไม่ให้เลื่อนตามแนวนอน (ตั้งได้ที่เมนูหัวคอลัมน์ด้วย)", "Freeze left columns so they don't scroll (also from a column's menu)", "冻结左侧列（也可在列菜单设置）")}>
+            <Pin size={12} />{tr("ตรึง", "Freeze", "冻结")}
+            <select value={nFrozen} onChange={(e) => setFrozen(Number(e.target.value))} className="h-6 bg-transparent text-xs outline-none">
+              {Array.from({ length: Math.min(8, visible.length) + 1 }, (_, n) => <option key={n} value={n}>{n === 0 ? tr("ไม่ตรึง", "None", "无") : tr(`${n} คอลัมน์`, `${n} col`, `${n} 列`)}</option>)}
+            </select>
+          </label>
           <button onClick={exportXls} className="h-8 px-2.5 rounded-lg border border-line text-xs inline-flex items-center gap-1.5 hover:bg-surface2"><FileDown size={13} />Excel</button>
           {onExportCsv ? <button onClick={onExportCsv} className="h-8 px-2 text-xs text-muted hover:text-ink">CSV</button> : null}
         </div>
@@ -283,8 +338,9 @@ export function SalesSheet({ orders, branches, brands, employees, products, catN
               {visible.map((c, i) => {
                 const f = filters[c.id]; const on = !!f && (f.text || f.values?.length || f.min != null || f.max != null || f.from || f.to);
                 const right = c.kind === "num" || c.kind === "money";
+                const z = fz(i, "z-20");
                 return (
-                  <th key={c.id} style={c.w ? { minWidth: c.w } : undefined} className={`font-medium text-[11px] text-muted border-b border-line bg-surface2 whitespace-nowrap ${i === 0 ? "pl-4 pr-2" : "px-2"} py-2 ${right ? "text-right" : "text-left"} ${i === 0 ? "sticky left-0 z-10" : ""}`}>
+                  <th key={c.id} ref={(el) => { thRefs.current[i] = el; }} style={{ ...(c.w ? { minWidth: c.w } : {}), ...z.style }} className={`font-medium text-[11px] text-muted border-b border-line bg-surface2 whitespace-nowrap ${i === 0 ? "pl-4 pr-2" : "px-2"} py-2 ${right ? "text-right" : "text-left"} ${z.className}`}>
                     <span className={`inline-flex items-center gap-0.5 ${right ? "flex-row-reverse" : ""}`}>
                       <button onClick={() => setSort({ id: c.id, dir: sort.id === c.id ? (sort.dir === 1 ? -1 : 1) : right ? -1 : 1 })} className="hover:text-ink inline-flex items-center gap-0.5">
                         {c.label()}{sort.id === c.id ? (sort.dir === 1 ? <ArrowUp size={11} /> : <ArrowDown size={11} />) : null}
@@ -315,12 +371,12 @@ export function SalesSheet({ orders, branches, brands, employees, products, catN
                   onKeyDown={(e) => { if (canTrace && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); setOpenBill(r.o); } }}
                   title={canTrace ? tr("กดตรงไหนของแถวก็ได้ เพื่อดูรายละเอียดและที่มาของบิล", "Click anywhere on the row to view bill details and trace", "点击行任意位置查看单据详情与来源") : undefined}
                   className={`group ${canTrace ? "cursor-pointer" : ""} ${active ? "bg-brand/[0.07]" : "hover:bg-brand/[0.04]"}`}>
-                  {visible.map((c, i) => (
-                    <td key={c.id} translate={c.noTr ? "no" : undefined}
-                      className={`border-b border-line/70 py-2 whitespace-nowrap max-w-[260px] truncate ${i === 0 ? "pl-4 pr-2 sticky left-0 bg-surface border-r border-line/50" : "px-2"} ${c.kind === "num" || c.kind === "money" ? "text-right tnum" : ""} ${c.id === "total" || c.id === "l_total" ? "font-semibold" : ""} ${r.o.status === "voided" && (c.id === "total" || c.id === "l_total") ? "line-through text-muted" : ""} ${c.id === "gp" || c.id === "l_gp" ? "text-ok" : ""}`}>
+                  {visible.map((c, i) => { const z = fz(i, `z-[5] ${active ? "bg-[rgb(var(--c-surface))]" : "bg-surface"}`); return (
+                    <td key={c.id} translate={c.noTr ? "no" : undefined} style={z.style}
+                      className={`border-b border-line/70 py-2 whitespace-nowrap max-w-[260px] truncate ${i === 0 ? "pl-4 pr-2" : "px-2"} ${z.className} ${c.kind === "num" || c.kind === "money" ? "text-right tnum" : ""} ${c.id === "total" || c.id === "l_total" ? "font-semibold" : ""} ${r.o.status === "voided" && (c.id === "total" || c.id === "l_total") ? "line-through text-muted" : ""} ${c.id === "gp" || c.id === "l_gp" ? "text-ok" : ""}`}>
                       {c.custom ? <FieldCell field={c.custom} value={cf.values[r.o.id]?.[c.custom.id]} editable={cf.canEdit} onSave={(v) => void cf.setValue(r.o.id, c.custom!, v)} /> : fmt(c, r)}
                     </td>
-                  ))}
+                  ); })}
                   {/* ปุ่มเชื่อมโยง — แยกให้เห็นชัด (กดทั้งแถวยังเปิดได้เหมือนเดิม) */}
                   <td className={`border-b border-l border-line/70 pr-3 pl-2 py-1.5 sticky right-0 ${active ? "bg-[rgb(var(--c-surface))]" : "bg-surface"}`} onClick={(e) => e.stopPropagation()}>
                     <span className="flex items-center justify-end gap-1">
@@ -335,13 +391,13 @@ export function SalesSheet({ orders, branches, brands, employees, products, catN
             })}
           </tbody>
           {shown.length ? (
-            <tfoot className="sticky bottom-0 bg-surface">
+            <tfoot className="sticky bottom-0 z-10 bg-surface">
               <tr>
-                {visible.map((c, i) => (
-                  <td key={c.id} className={`border-t-2 border-line py-2 font-semibold whitespace-nowrap bg-surface2 ${i === 0 ? "pl-4 pr-2 sticky left-0" : "px-2"} ${c.kind === "num" || c.kind === "money" ? "text-right tnum" : ""}`}>
+                {visible.map((c, i) => { const z = fz(i, "z-20"); return (
+                  <td key={c.id} style={z.style} className={`border-t-2 border-line py-2 font-semibold whitespace-nowrap bg-surface2 ${i === 0 ? "pl-4 pr-2" : "px-2"} ${z.className} ${c.kind === "num" || c.kind === "money" ? "text-right tnum" : ""}`}>
                     {i === 0 ? tr("รวม", "Total", "合计") : c.id in totals ? (c.kind === "money" ? baht(totals[c.id]) : formatInt(totals[c.id])) : ""}
                   </td>
-                ))}
+                ); })}
                 <td className="border-t-2 border-l border-line bg-surface2 sticky right-0" />
               </tr>
             </tfoot>
@@ -363,6 +419,7 @@ export function SalesSheet({ orders, branches, brands, employees, products, catN
         onDelete={fieldEdit.field ? async () => { await cf.deleteField(fieldEdit.field!.id); } : undefined} /> : null}
       {cf.error ? <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-[95] rounded-xl bg-danger text-white text-xs px-4 py-2.5 shadow-pop flex items-center gap-2">{tr("บันทึกไม่สำเร็จ", "Save failed", "保存失败")}: {cf.error}<button onClick={() => cf.setError("")} className="opacity-80 hover:opacity-100"><X size={13} /></button></div> : null}
       {menu ? <ColumnFilterMenu col={cols.find((c) => c.id === menu.id)!} rect={menu.rect} rows={rows} value={filters[menu.id]} onClose={() => setMenu(null)}
+        frozenUpTo={visible.findIndex((c) => c.id === menu.id) < nFrozen} onFreeze={(on) => { const i = visible.findIndex((c) => c.id === menu.id); setFrozen(on ? i + 1 : i); setMenu(null); }}
         onApply={(f) => { setF(menu.id, f); setMenu(null); }} onSort={(dir) => { setSort({ id: menu.id, dir }); setMenu(null); }} /> : null}
       {openBill && openBill.source !== "lark" ? <OrderTraceDrawer key={openBill.id} clientUuid={openBill.client_uuid} orderNo={openBill.order_no} onClose={() => setOpenBill(null)} /> : null}
       {openBill && openBill.source === "lark" ? <LarkBillDrawer order={openBill} onClose={() => setOpenBill(null)} /> : null}
@@ -371,8 +428,9 @@ export function SalesSheet({ orders, branches, brands, employees, products, catN
 }
 
 // ── เมนูกรองรายคอลัมน์ (แบบชีท) ──
-function ColumnFilterMenu({ col, rect, rows, value, onClose, onApply, onSort }: {
+function ColumnFilterMenu({ col, rect, rows, value, onClose, onApply, onSort, frozenUpTo, onFreeze }: {
   col: Col; rect: DOMRect; rows: Row[]; value?: ColFilter; onClose: () => void; onApply: (f: ColFilter | null) => void; onSort: (dir: 1 | -1) => void;
+  frozenUpTo?: boolean; onFreeze?: (on: boolean) => void;
 }) {
   const box = useRef<HTMLDivElement>(null);
   const [text, setText] = useState(value?.text ?? ""), [q, setQ] = useState("");
@@ -412,6 +470,11 @@ function ColumnFilterMenu({ col, rect, rows, value, onClose, onApply, onSort }: 
         <button onClick={() => onSort(1)} className="flex-1 h-8 rounded-lg border border-line inline-flex items-center justify-center gap-1 hover:bg-surface2"><ArrowUp size={12} />{numeric ? tr("น้อย → มาก", "Low → High", "小→大") : "A → Z"}</button>
         <button onClick={() => onSort(-1)} className="flex-1 h-8 rounded-lg border border-line inline-flex items-center justify-center gap-1 hover:bg-surface2"><ArrowDown size={12} />{numeric ? tr("มาก → น้อย", "High → Low", "大→小") : "Z → A"}</button>
       </div>
+      {onFreeze ? (
+        <button onClick={() => onFreeze(!frozenUpTo)} className="w-full h-8 rounded-lg border border-line inline-flex items-center justify-center gap-1.5 hover:bg-surface2">
+          {frozenUpTo ? <><PinOff size={12} />{tr("เลิกตรึงตั้งแต่คอลัมน์นี้", "Unfreeze from this column", "从此列取消冻结")}</> : <><Pin size={12} />{tr("ตรึงถึงคอลัมน์นี้ (ไม่เลื่อน)", "Freeze up to this column", "冻结至此列")}</>}
+        </button>
+      ) : null}
       {numeric ? (
         <div className="grid grid-cols-2 gap-2">
           <label className="space-y-1"><span className="text-muted">{tr("ตั้งแต่", "Min", "最小")}</span><input inputMode="decimal" value={min} onChange={(e) => setMin(e.target.value.replace(/[^\d.-]/g, ""))} className="w-full h-8 px-2 rounded-lg border border-line bg-surface tnum" /></label>

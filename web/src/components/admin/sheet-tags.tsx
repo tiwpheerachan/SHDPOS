@@ -25,12 +25,15 @@ export function TagChip({ value, tone, className = "" }: { value: string; tone?:
 
 const PERSON_TONES = ["#3370FF", "#7F3BF5", "#E43B95", "#2EA121", "#F5A623", "#14C0C6", "#5B65F5", "#D9795F"];
 /** คน — วงกลมตัวย่อ + ชื่อ (แบบช่องคนใน Lark) */
-export function PersonChip({ name }: { name: string }) {
+export function PersonChip({ name, photo }: { name: string; photo?: string | null }) {
   const w = name.replace(/[-–—(].*$/, "").trim().split(/\s+/).filter(Boolean);
   const ini = ((w[0]?.[0] ?? "?") + (w[1]?.[0] ?? "")).toUpperCase();
   return (
     <span className="inline-flex items-center gap-1.5 max-w-full h-[22px] pl-0.5 pr-2 rounded-full bg-[#EFF0F1] text-[#1F2329] text-[11.5px] align-middle" title={name}>
-      <span className="w-[18px] h-[18px] rounded-full grid place-items-center text-[9px] font-semibold text-white shrink-0" style={{ background: PERSON_TONES[tagHash(name) % PERSON_TONES.length] }}>{ini}</span>
+      {photo
+        // eslint-disable-next-line @next/next/no-img-element
+        ? <img src={photo} alt="" referrerPolicy="no-referrer" loading="lazy" className="w-[18px] h-[18px] rounded-full object-cover shrink-0 bg-[#E4E6EA]" />
+        : <span className="w-[18px] h-[18px] rounded-full grid place-items-center text-[9px] font-semibold text-white shrink-0" style={{ background: PERSON_TONES[tagHash(name) % PERSON_TONES.length] }}>{ini}</span>}
       <span className="truncate">{name}</span>
     </span>
   );

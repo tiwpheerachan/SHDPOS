@@ -41,7 +41,7 @@ type ArrayKey =
   | "categoryIds" | "skus" | "paymentMethods" | "channels" | "orderStatuses" | "customerTypes"
   | "posIds" | "flags";
 
-const EMPTY: Omit<AdminFilter, "range" | "from" | "to"> = {
+export const EMPTY_FILTER: Omit<AdminFilter, "range" | "from" | "to"> = {
   brandIds: [], branchIds: [], provinces: [], storeTypes: [], salespersonIds: [], cashierIds: [],
   categoryIds: [], skus: [], paymentMethods: [], channels: [], orderStatuses: [], customerTypes: [],
   posIds: [], flags: [],
@@ -217,7 +217,7 @@ export function FilterBar({
   };
   const clearAll = () => {
     const { from, to } = rangeToDates("30d");
-    onChange({ range: "30d", from, to, ...EMPTY });
+    onChange({ range: "30d", from, to, ...EMPTY_FILTER });
   };
 
   const activeCount = DIMS.reduce((s, d) => s + value[d.key].length, 0);
@@ -441,6 +441,6 @@ function SavedViewsModal({ open, onClose, userId, current, onLoad, L }: {
 
 export function useDefaultFilter(): [AdminFilter, (f: AdminFilter) => void] {
   const { from, to } = rangeToDates("30d");
-  const [filter, setFilter] = useState<AdminFilter>({ range: "30d", from, to, ...EMPTY });
+  const [filter, setFilter] = useState<AdminFilter>({ range: "30d", from, to, ...EMPTY_FILTER });
   return [filter, setFilter];
 }
