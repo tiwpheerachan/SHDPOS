@@ -285,17 +285,27 @@ export default function SellPage() {
   }, [products, branch, stock,deferredMode,branchBrandIds]);
 
   // งานติดฟิล์มรถ: โหลดค่าตั้ง → ม้วนฟิล์ม (ซ่อนจากหน้าขายสินค้า — ขายผ่านงานติดฟิล์มเท่านั้น) · ปุ่มแสดงเมื่อสาขาขายแบรนด์ฟิล์มหรือมีม้วนในสต๊อก
+  //   เซิร์ฟเวอร์ตัดสิน available ครั้งเดียว (ไม่ขึ้นกับสต๊อก/ของแถมที่โหลดไม่พร้อมกัน) · โหลดล้ม = ลองใหม่เอง · กลับมาที่หน้าต่าง = ตรวจใหม่
+  const [filmAvailable, setFilmAvailable] = useState(false);
   useEffect(() => {
-    if (!branchId || !isLiveMode()) { setFilmRollIds(new Set()); return; }
-    let alive = true;
-    loadPosFilmConfig(branchId).then((c) => {
-      if (!alive) return;
-      const ids = new Set(c.shades.map((x) => x.stock_product_id).filter((x): x is string => !!x));
-      const sells = !!c.brand_id && (branch?.brand_id === c.brand_id || !!branchBrandIds?.includes(c.brand_id));
-      setFilmRollIds(sells || [...ids].some((id) => stock.has(id)) ? ids : new Set());
-    }).catch(() => { if (alive) setFilmRollIds(new Set()); });
-    return () => { alive = false; };
-  }, [branchId, branch?.brand_id, branchBrandIds, stock]);
+    if (!branchId || !isLiveMode()) { setFilmRollIds(new Set()); setFilmAvailable(false); return; }
+    setFilmAvailable(false); // เปลี่ยนสาขา → ซ่อนจนรู้ผลของสาขาใหม่
+    let alive = true, timer: ReturnType<typeof setTimeout> | undefined, tries = 0;
+    const load = (force = false) => {
+      loadPosFilmConfig(branchId, force).then((c) => {
+        if (!alive) return;
+        setFilmRollIds(new Set(c.roll_ids ?? []));
+        setFilmAvailable(!!c.available);
+      }).catch(() => {
+        // ไม่ซ่อนปุ่มทันทีเมื่อโหลดล้มชั่วคราว — ลองใหม่ 3, 6, 12 … วินาที (สูงสุด 60)
+        if (alive) timer = setTimeout(() => load(true), Math.min(60_000, 3000 * 2 ** tries++));
+      });
+    };
+    load();
+    const onFocus = () => load(true);
+    window.addEventListener("focus", onFocus);
+    return () => { alive = false; if (timer) clearTimeout(timer); window.removeEventListener("focus", onFocus); };
+  }, [branchId]);
 
   // แบรนด์ที่มีสินค้าในสาขานี้ (แสดงชิปเมื่อมี ≥ 2 แบรนด์)
   const branchBrandList = useMemo(() => {
@@ -964,7 +974,7 @@ export default function SellPage() {
               className="pl-9"
             />
           </div>
-          {filmRollIds.size ? (
+          {filmAvailable ? (
             <button type="button" onClick={() => setFilmOpen(true)} title={L("งานติดฟิล์มรถยนต์", "Car window film job", "汽车贴膜")}
               className="group shrink-0 h-10 pl-1.5 pr-3.5 rounded-xl inline-flex items-center gap-2 text-white font-semibold text-[13.5px] bg-gradient-to-r from-[#7950D8] via-[#6C63E6] to-[#4F8DF0] shadow-[0_6px_18px_-8px_rgba(121,80,216,.9)] hover:shadow-[0_8px_22px_-8px_rgba(121,80,216,1)] hover:brightness-110 active:scale-[.98] transition">
               <span className="h-7 w-7 rounded-lg bg-white/20 grid place-items-center group-hover:rotate-[-6deg] transition-transform"><Car size={16} /></span>

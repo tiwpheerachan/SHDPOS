@@ -10,11 +10,12 @@ import { useI18n } from "@/lib/i18n/provider";
 import { formatTHB } from "@/lib/money";
 import { quoteFilmJob, FilmError, priceKey, type FilmConfigData, type FilmJob, type FilmQuote } from "@/lib/film/quote";
 
-type Cfg = FilmConfigData & { brand_id: string | null; cars: { make: string; model: string; size_code: string }[] };
+type Cfg = FilmConfigData & { brand_id: string | null; available: boolean; roll_ids: string[]; cars: { make: string; model: string; size_code: string }[] };
 let cache: { branch: string; at: number; cfg: Cfg } | null = null;
 
-export async function loadPosFilmConfig(branchId: string): Promise<Cfg> {
-  if (cache && cache.branch === branchId && Date.now() - cache.at < 5 * 60_000) return cache.cfg;
+/** force = ข้ามแคช (เปิดหน้าต่างงานทุกครั้ง → ได้ค่าตั้งล่าสุดของสาขา) */
+export async function loadPosFilmConfig(branchId: string, force = false): Promise<Cfg> {
+  if (!force && cache && cache.branch === branchId && Date.now() - cache.at < 60_000) return cache.cfg;
   const r = await fetch(`/api/pos/film-config?branch_id=${branchId}`, { cache: "no-store" });
   const j = await r.json();
   if (!r.ok) throw Error(j.error ?? `HTTP ${r.status}`);
@@ -36,7 +37,7 @@ export function FilmJobModal({ open, onClose, branchId, stockOf, onAdd }: {
   useEffect(() => {
     if (!open || !branchId) return;
     setErr("");
-    loadPosFilmConfig(branchId).then((c) => {
+    loadPosFilmConfig(branchId, true).then((c) => {
       setCfg(c);
       // รุ่นแรกที่เปิดขายในสาขานี้ (มีความเข้มที่เปิดอย่างน้อย 1)
       const avail = c.series.filter((x) => x.active && c.shades.some((sh) => sh.series_code === x.code && sh.active));
