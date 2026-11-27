@@ -50,6 +50,7 @@ export default function AdminDisplayPage() {
 
   async function save(body: Record<string, unknown>) {
     const r = await fetch("/api/admin/display-banners", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    try { localStorage.setItem("shdpos.banners-updated", String(Date.now())); } catch { /* หน้าขายในเครื่องนี้โหลดแบนเนอร์ใหม่ */ }
     const j = await r.json();
     if (!r.ok) { toast.push({ tone: "danger", title: L("บันทึกไม่สำเร็จ", "Save failed", "失败"), body: j.error }); return false; }
     return true;
@@ -77,6 +78,7 @@ export default function AdminDisplayPage() {
     if (!confirm(L("ลบแบนเนอร์นี้?", "Delete this banner?", "删除?"))) return;
     setBanners((list) => list.filter((x) => x.id !== b.id));
     await fetch(`/api/admin/display-banners?id=${b.id}`, { method: "DELETE" });
+    try { localStorage.setItem("shdpos.banners-updated", String(Date.now())); } catch { /* ignore */ }
   }
 
   async function move(b: Banner, dir: -1 | 1) {

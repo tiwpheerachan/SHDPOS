@@ -211,9 +211,14 @@ export default function SellPage() {
   // แบนเนอร์จอลูกค้า (ตามแบรนด์ของสาขา) — public read
   useEffect(() => {
     let alive = true;
-    void fetch(`/api/display-banners?brand=${branch?.brand_id ?? ""}`, { cache: "no-store" })
+    const load = () => void fetch(`/api/display-banners?brand=${branch?.brand_id ?? ""}`, { cache: "no-store" })
       .then((r) => r.json()).then((j) => { if (alive) setBanners(j.banners ?? []); }).catch(() => undefined);
-    return () => { alive = false; };
+    load();
+    // แก้แบนเนอร์จากหน้าตั้งค่า/หลังบ้านในเครื่องนี้ → โหลดใหม่ทันที · เครื่องอื่นได้ภายใน 5 นาที
+    const onStorage = (e: StorageEvent) => { if (e.key === "shdpos.banners-updated") load(); };
+    window.addEventListener("storage", onStorage);
+    const timer = setInterval(load, 5 * 60_000);
+    return () => { alive = false; window.removeEventListener("storage", onStorage); clearInterval(timer); };
   }, [branch?.brand_id]);
 
   // โหลดยอดกระเป๋าแบรนด์ของสาขา เมื่อผูกลูกค้า (แต้ม/เครดิตแยกตามแบรนด์)

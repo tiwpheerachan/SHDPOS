@@ -5,7 +5,10 @@
 //   DELETE ?id=   → ลบ
 // =====================================================================
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/sso/guard";
+import { requireAdmin, hasPerm } from "@/lib/sso/guard";
+import { SSO_COOKIE, readSession } from "@/lib/sso/session-cookie";
+import { resolveAuthz } from "@/lib/sso/grants";
+import { visibleBrandIds } from "@/lib/sso/scope";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
@@ -19,10 +22,26 @@ const EXT: Record<string, string> = {
 };
 const isUuid = (v: unknown): v is string => typeof v === "string" && /^[0-9a-f-]{36}$/i.test(v);
 
+/**
+ * ผู้จัดการระบบ (requireAdmin) = ทุกแบรนด์ + แบนเนอร์ทุกแบรนด์ (global)
+ * สิทธิ์ display.manage (เช่นหัวหน้าร้านจากหน้าร้าน) = เฉพาะแบรนด์ในขอบเขตของตัวเอง
+ */
+async function guard(req: NextRequest): Promise<{ full: boolean; brands: string[] | null } | null> {
+  if (await requireAdmin(req)) return { full: true, brands: null };
+  const profile = readSession(req.cookies.get(SSO_COOKIE)?.value);
+  if (!profile) return null;
+  const authz = await resolveAuthz(profile);
+  if (!hasPerm(profile.email, authz, "display.manage")) return null;
+  return { full: false, brands: visibleBrandIds(authz) };
+}
+const brandOk = (g: { full: boolean; brands: string[] | null }, brand: string | null) =>
+  g.full || (brand !== null && (g.brands === null || g.brands.includes(brand)));
+
 export async function GET(req: NextRequest) {
-  const ctx = await requireAdmin(req);
+  const ctx = await guard(req);
   if (!ctx) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   const brand = req.nextUrl.searchParams.get("brand");
+  if (!ctx.full && (!isUuid(brand) || !brandOk(ctx, brand))) return NextResponse.json({ error: "แบรนด์นี้อยู่นอกขอบเขตของคุณ" }, { status: 403 });
   const sb = supabaseAdmin();
   let q = sb.from("display_banners").select("*");
   q = brand ? q.or(`brand_id.eq.${brand},brand_id.is.null`) : q.is("brand_id", null);
@@ -32,11 +51,17 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const ctx = await requireAdmin(req);
+  const ctx = await guard(req);
   if (!ctx) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   const b = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   if (!b) return NextResponse.json({ error: "bad body" }, { status: 400 });
   const sb = supabaseAdmin();
+  // ขอบเขตแบรนด์: แบรนด์ใหม่ต้องอยู่ในขอบเขต · แก้ของเดิมต้องเป็นแบรนด์ในขอบเขต (global แก้ได้เฉพาะผู้จัดการระบบ)
+  if (!brandOk(ctx, isUuid(b.brand_id) ? b.brand_id : null)) return NextResponse.json({ error: "แบรนด์นี้อยู่นอกขอบเขตของคุณ" }, { status: 403 });
+  if (isUuid(b.id) && !ctx.full) {
+    const cur = await sb.from("display_banners").select("brand_id").eq("id", b.id).maybeSingle();
+    if (!cur.data || !brandOk(ctx, cur.data.brand_id)) return NextResponse.json({ error: "แบนเนอร์นี้อยู่นอกขอบเขตของคุณ" }, { status: 403 });
+  }
 
   // อัปโหลดสื่อถ้าส่ง data URL มา
   let mediaUrl = typeof b.media_url === "string" ? b.media_url : undefined;
@@ -81,10 +106,14 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const ctx = await requireAdmin(req);
+  const ctx = await guard(req);
   if (!ctx) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   const id = req.nextUrl.searchParams.get("id");
   if (!isUuid(id)) return NextResponse.json({ error: "id required" }, { status: 400 });
+  if (!ctx.full) {
+    const cur = await supabaseAdmin().from("display_banners").select("brand_id").eq("id", id).maybeSingle();
+    if (!cur.data || !brandOk(ctx, cur.data.brand_id)) return NextResponse.json({ error: "แบนเนอร์นี้อยู่นอกขอบเขตของคุณ" }, { status: 403 });
+  }
   const { error } = await supabaseAdmin().from("display_banners").delete().eq("id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });

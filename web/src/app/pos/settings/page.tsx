@@ -20,6 +20,7 @@ import { shellInfo, type ShellInfo } from "@/lib/printing/shell";
 import { openDisplayWindow } from "@/lib/customer-display";
 import { isLiveMode } from "@/lib/supabase/client";
 import { getBranch, resetLocalData } from "@/lib/data/repo";
+import { DisplaySettings } from "@/components/pos/display-settings";
 import { getSyncState } from "@/lib/offline/sync";
 import type { Branch, Employee, Order } from "@/lib/types";
 
@@ -141,7 +142,7 @@ export default function PosSettingsPage() {
   const browserName = typeof navigator === "undefined" ? "—" : /Edg\//.test(navigator.userAgent) ? "Edge" : /Chrome\//.test(navigator.userAgent) ? "Chrome" : /Safari\//.test(navigator.userAgent) ? "Safari" : /Firefox\//.test(navigator.userAgent) ? "Firefox" : "—";
 
   return (
-    <div className="p-4 sm:p-6 min-h-[calc(100dvh-56px)] flex flex-col gap-4">
+    <div className="p-4 sm:p-5 flex flex-col gap-4 lg:h-[calc(100vh-3.5rem-1px)] lg:overflow-hidden">
       {/* หัว */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
@@ -157,9 +158,9 @@ export default function PosSettingsPage() {
         </div>
       </div>
 
-      <div className="flex-1 grid lg:grid-cols-[300px_minmax(0,1fr)] gap-4 min-h-0">
+      <div className="flex-1 grid lg:grid-cols-[280px_minmax(0,1fr)] gap-4 min-h-0">
         {/* เมนูหมวด */}
-        <nav className="flex lg:flex-col gap-2 overflow-x-auto lg:overflow-visible lg:sticky lg:top-4 lg:self-start lg:h-[calc(100dvh-150px)]" aria-label={t.settings.title}>
+        <nav className="flex lg:flex-col gap-2 overflow-x-auto lg:overflow-hidden lg:min-h-0" aria-label={t.settings.title}>
           {sections.map((s) => {
             const on = s.id === section;
             return (
@@ -186,8 +187,8 @@ export default function PosSettingsPage() {
         </nav>
 
         {/* เนื้อหาหมวด */}
-        <Card className="min-h-0 flex flex-col overflow-hidden">
-          <div className="px-6 py-4 border-b border-line/70 flex items-center justify-between gap-3">
+        <Card className="min-h-0 lg:h-full flex flex-col overflow-hidden">
+          <div className="px-5 py-3.5 border-b border-line/70 flex items-center justify-between gap-3">
             <div>
               <h2 className="text-lg font-semibold">{cur.title}</h2>
               <p className="text-xs text-muted">
@@ -200,10 +201,10 @@ export default function PosSettingsPage() {
             {section === "data" ? <Badge tone={isLiveMode() ? "ok" : "warn"}>{isLiveMode() ? L("ระบบจริง", "Live", "正式") : L("สาธิต", "Demo", "演示")}</Badge> : null}
           </div>
 
-          <div className="flex-1 min-h-0 overflow-auto">
+          <div className="flex-1 min-h-0 overflow-auto lg:overflow-hidden">
             {section === "printer" ? (
-              <div className="grid xl:grid-cols-[minmax(0,1fr)_420px] h-full">
-                <div className="p-6 space-y-6 min-w-0">
+              <div className="grid xl:grid-cols-[minmax(0,1fr)_400px] h-full min-h-0">
+                <div className="p-5 space-y-4 min-w-0 min-h-0 lg:overflow-auto">
                   {/* 1) วิธีต่อ */}
                   <section>
                     <StepTitle n={1} text={L("วิธีต่อเครื่องพิมพ์", "How the printer connects", "打印机连接方式")} />
@@ -212,12 +213,12 @@ export default function PosSettingsPage() {
                         const on = transport === m.v;
                         return (
                           <button key={m.v} type="button" onClick={() => session.setPrinter({ transport: m.v })} aria-pressed={on}
-                            className={`relative text-left rounded-2xl border p-4 flex flex-col gap-2.5 transition-colors ${on ? "border-brand bg-brand/[0.06] ring-1 ring-brand/30" : "border-line hover:bg-surface2"}`}>
-                            {m.rec ? <span className="absolute top-3 right-3 text-[10px] px-1.5 py-0.5 rounded-full bg-ok/12 text-ok font-medium">{L("แนะนำ", "Recommended", "推荐")}</span> : null}
-                            <span className={`h-10 w-10 rounded-xl grid place-items-center ${on ? "bg-brand text-brandInk" : "bg-surface2 text-muted"}`}>{m.icon}</span>
+                            className={`relative text-left rounded-2xl border p-3 flex flex-col gap-2 transition-colors ${on ? "border-brand bg-brand/[0.06] ring-1 ring-brand/30" : "border-line hover:bg-surface2"}`}>
+                            {m.rec ? <span className="absolute top-2.5 right-2.5 text-[10px] px-1.5 py-0.5 rounded-full bg-ok/12 text-ok font-medium">{L("แนะนำ", "Recommended", "推荐")}</span> : null}
+                            <span className={`h-9 w-9 rounded-xl grid place-items-center ${on ? "bg-brand text-brandInk" : "bg-surface2 text-muted"}`}>{m.icon}</span>
                             <span>
-                              <span className="block text-[13.5px] font-semibold">{m.title}</span>
-                              <span className="block text-[11.5px] text-muted leading-snug mt-0.5">{m.desc}</span>
+                              <span className="block text-[13px] font-semibold">{m.title}</span>
+                              <span className="block text-[11px] text-muted leading-snug mt-0.5 line-clamp-2">{m.desc}</span>
                             </span>
                           </button>
                         );
@@ -228,7 +229,7 @@ export default function PosSettingsPage() {
                   {/* 2) เชื่อมต่อ */}
                   <section>
                     <StepTitle n={2} text={L("เชื่อมต่อ", "Connect", "连接")} />
-                    <div className={`rounded-2xl border p-5 space-y-3 ${printerState.ok ? "border-ok/30 bg-ok/[0.04]" : printerState.ok === false ? "border-warn/30 bg-warn/[0.04]" : "border-line"}`}>
+                    <div className={`rounded-2xl border p-4 space-y-2.5 ${printerState.ok ? "border-ok/30 bg-ok/[0.04]" : printerState.ok === false ? "border-warn/30 bg-warn/[0.04]" : "border-line"}`}>
                       <div className="flex flex-wrap items-center gap-3 justify-between">
                         <span className="inline-flex items-center gap-3 min-w-0">
                           <span className={`h-11 w-11 rounded-xl grid place-items-center shrink-0 ${printerState.ok ? "bg-ok/15 text-ok" : "bg-warn/15 text-warn"}`}><Printer size={20} /></span>
@@ -276,8 +277,8 @@ export default function PosSettingsPage() {
                   {/* 3) กระดาษ + ทดสอบ */}
                   <section>
                     <StepTitle n={3} text={L("กระดาษและทดสอบพิมพ์", "Paper & test print", "纸张与测试打印")} />
-                    <div className="rounded-2xl border border-line p-5 space-y-4">
-                      <div className="flex flex-wrap items-end gap-4">
+                    <div className="rounded-2xl border border-line p-4 space-y-3">
+                      <div className="flex flex-wrap items-end gap-3">
                         <Field label={L("ขนาดกระดาษ", "Paper width", "纸张宽度")}>
                           <Segmented value={String(session.printer.width)} onChange={(v) => session.setPrinter({ width: Number(v) })}
                             options={[{ value: "48", label: L("80 มม.", "80 mm", "80 毫米") }, { value: "32", label: L("58 มม.", "58 mm", "58 毫米") }]} />
@@ -292,10 +293,10 @@ export default function PosSettingsPage() {
                         ) : null}
                       </div>
                       <div className="flex flex-wrap gap-2">
-                        <Button variant="primary" className="flex-1 min-w-[240px] h-12 text-[15px]" loading={testing} onClick={() => void testPrint()}>
+                        <Button variant="primary" className="flex-1 min-w-[240px] h-11 text-[14.5px]" loading={testing} onClick={() => void testPrint()}>
                           <Printer size={17} /> {L("ทดสอบพิมพ์ใบเสร็จ", "Print a test receipt", "打印测试小票")}
                         </Button>
-                        {hasDrawer ? <Button variant="ghost" className="h-12" onClick={() => void testDrawer()}><Inbox size={16} /> {t.settings.testDrawer}</Button> : null}
+                        {hasDrawer ? <Button variant="ghost" className="h-11" onClick={() => void testDrawer()}><Inbox size={16} /> {t.settings.testDrawer}</Button> : null}
                       </div>
                       {lastTest ? (
                         <p className={`text-xs flex items-center gap-1.5 ${lastTest.ok ? "text-ok" : "text-danger"}`}>
@@ -325,15 +326,15 @@ export default function PosSettingsPage() {
                 </div>
 
                 {/* ตัวอย่างใบเสร็จ — สูงเต็มพื้นที่ */}
-                <aside className="border-t xl:border-t-0 xl:border-l border-line/70 bg-surface2/60 flex flex-col min-h-[420px]">
-                  <div className="px-5 pt-5 pb-3 flex items-center justify-between">
+                <aside className="border-t xl:border-t-0 xl:border-l border-line/70 bg-surface2/60 flex flex-col min-h-[420px] xl:min-h-0">
+                  <div className="px-5 pt-4 pb-3 flex items-center justify-between">
                     <div>
                       <h3 className="text-sm font-semibold">{L("ตัวอย่างใบเสร็จ", "Receipt preview", "小票预览")}</h3>
                       <p className="text-[11px] text-muted">{L("หน้าตาที่จะพิมพ์จริง", "Exactly what will print", "实际打印效果")}</p>
                     </div>
                     <Badge tone="neutral">{session.printer.width <= 32 ? "58" : "80"} {L("มม.", "mm", "毫米")}</Badge>
                   </div>
-                  <div className="flex-1 min-h-0 overflow-auto px-5 pb-5">
+                  <div className="flex-1 min-h-0 overflow-auto px-5 pb-5 [scrollbar-width:thin]">
                     {preview
                       // eslint-disable-next-line @next/next/no-img-element
                       ? <img src={`data:image/png;base64,${preview}`} alt={L("ตัวอย่างใบเสร็จ", "Receipt preview", "小票预览")} className={`mx-auto bg-white rounded-sm shadow-[0_8px_30px_-12px_rgba(0,0,0,.35)] ${session.printer.width <= 32 ? "w-[72%]" : "w-full"}`} />
@@ -343,40 +344,7 @@ export default function PosSettingsPage() {
               </div>
             ) : null}
 
-            {section === "display" ? (
-              <div className="p-6 grid xl:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] gap-6 items-start">
-                <div className="space-y-4">
-                  <div className="rounded-2xl border border-line p-5 space-y-3">
-                    <p className="text-sm leading-relaxed">
-                      {sunmi
-                        ? (sunmi.secondScreen ? L("จอที่สองของ Sunmi แสดงตะกร้า ยอด และ QR ให้ลูกค้าอัตโนมัติ ไม่ต้องตั้งค่าเพิ่ม", "The Sunmi second screen shows cart, total and QR automatically — nothing to set up", "Sunmi 副屏自动显示购物车、金额与二维码，无需设置") : L("ไม่พบจอที่สอง — ตรวจสายจอลูกค้าแล้วเปิดแอปใหม่", "No second screen found — check the customer display cable and restart the app", "未检测到副屏 — 请检查客显屏连线并重启应用"))
-                        : L("คอมที่ต่อ 2 จอ: กดเปิดจอลูกค้า แล้วลากหน้าต่างไปจอที่หันหาลูกค้า กด F11 ให้เต็มจอ", "Two-monitor computer: open the customer display, drag the window to the customer-facing screen and press F11 for full screen", "双屏电脑：打开客显屏窗口，拖到面向顾客的屏幕并按 F11 全屏")}
-                    </p>
-                    {!sunmi ? <Button variant="primary" className="h-11" onClick={openDisplayWindow}><Monitor size={16} /> {t.settings.openDisplay}</Button> : null}
-                  </div>
-                  <ul className="text-xs text-muted space-y-1.5 list-disc pl-5 leading-relaxed">
-                    <li>{L("แสดงรายการสินค้า ส่วนลด และยอดสุทธิทันทีที่สแกน", "Shows items, discounts and the total as you scan", "扫码即时显示商品、折扣与合计")}</li>
-                    <li>{L("ตอนชำระเงินแสดง QR พร้อมเพย์ให้ลูกค้าสแกน", "Shows the PromptPay QR at payment", "付款时显示 PromptPay 二维码")}</li>
-                    <li>{L("ตอนว่างหมุนแบนเนอร์ของแบรนด์ (ตั้งที่หลังบ้าน → จอลูกค้า)", "Rotates brand banners when idle (Back office → Customer display)", "空闲时轮播品牌横幅（后台 → 客显屏）")}</li>
-                  </ul>
-                </div>
-                {/* ภาพจำลองจอลูกค้า */}
-                <div className="rounded-[22px] border-[10px] border-ink/85 bg-surface shadow-card overflow-hidden aspect-[16/10]">
-                  <div className="h-full grid grid-cols-[1.4fr_1fr]">
-                    <div className="p-4 space-y-2">
-                      <p className="text-[10px] text-muted">{L("รายการของคุณ", "Your items", "您的商品")}</p>
-                      {[["Soundcore Life P3", "2", "990.00"], ["MOVA Z200", "1", "4,990.00"]].map(([n, q, p]) => (
-                        <div key={n} className="flex items-center gap-2 rounded-lg bg-surface2 px-2 py-1.5 text-[11px]"><span className="h-5 w-5 rounded bg-brand/15 text-brand grid place-items-center text-[9px]">{q}</span><span className="flex-1 truncate" translate="no">{n}</span><span className="tnum">{p}</span></div>
-                      ))}
-                    </div>
-                    <div className="bg-surface2 p-4 flex flex-col justify-end">
-                      <p className="text-[10px] text-muted">{L("ยอดสุทธิ", "Total", "应付")}</p>
-                      <p className="text-xl font-bold tnum">฿5,980.00</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ) : null}
+            {section === "display" ? <DisplaySettings L={L} branch={branch} sunmi={sunmi} /> : null}
 
             {section === "appearance" ? (
               <div className="p-6 space-y-8 max-w-4xl">

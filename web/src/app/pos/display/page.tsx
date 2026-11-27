@@ -16,7 +16,16 @@ export default function CustomerDisplayPage() {
   const L = useL();
   const [data, setData] = useState<DisplayPayload>(EMPTY_DISPLAY);
 
-  useEffect(() => subscribeDisplay(setData), []);
+  // ?preview=1 = ตัวอย่างในหน้าตั้งค่า: รับข้อมูลเฉพาะที่ฝังมา (window.__shdDisplay) ไม่ฟังหน้าขายจริง
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("preview") === "1") {
+      const w = window as unknown as { __shdDisplay?: (p: DisplayPayload) => void };
+      w.__shdDisplay = (p) => setData(p);
+      window.parent?.postMessage({ type: "shd-display-preview-ready" }, window.location.origin);
+      return () => { delete w.__shdDisplay; };
+    }
+    return subscribeDisplay(setData);
+  }, []);
 
   const Row = ({ label, value, tone }: { label: string; value: string; tone?: "danger" | "muted" }) => (
     <div className="flex justify-between text-base">
