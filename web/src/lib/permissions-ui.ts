@@ -15,7 +15,7 @@ export const PERM_GROUPS: { th: string; en: string; zh: string; keys: Permission
   { th: "การตลาด & ลูกค้า", en: "Marketing & customers", zh: "营销与客户", keys: ["customer.manage", "campaign.manage", "loyalty.manage", "display.manage"] },
   { th: "รายงาน & การเงิน", en: "Reports & finance", zh: "报表与财务", keys: ["report.employee_perf", "report.cost", "report.gross_profit", "report.discount", "finance.view", "period.close", "period.reopen", "report.share", "edc.manage", "edc.mdr_manage"] },
   { th: "แอดมิน", en: "Admin", zh: "管理", keys: ["admin.employee_manage", "admin.permission_manage", "admin.product_manage", "admin.branch_manage", "admin.settings", "integration.manage", "integration.reconcile", "audit.view"] },
-  { th: "ราคา & ค่าคอม", en: "Pricing & commission", zh: "价格与佣金", keys: ["price.list", "price.period", "commission.manage", "commission.view"] },
+  { th: "ราคา & ค่าคอม", en: "Pricing & commission", zh: "价格与佣金", keys: ["price.list", "price.period", "commission.manage", "commission.view", "film.manage"] },
   { th: "เอกสารภาษี", en: "Tax documents", zh: "税务单据", keys: ["tax.issue_full", "tax.credit_note"] },
 ];
 
@@ -76,6 +76,7 @@ export const PERM_LABEL: Record<PermissionKey, { th: string; en: string; zh: str
   "tax.issue_full": { th: "ออกใบกำกับเต็มรูป", en: "Issue full tax invoice", zh: "开具增值税专用发票" },
   "price.list": { th: "ตั้งราคาหลัก (List price)", en: "Set list price", zh: "设置标价" },
   "price.period": { th: "ตั้งราคาช่วงเวลา / ราคาประจำเดือน", en: "Set period prices", zh: "设置时段价格" },
+  "film.manage": { th: "ตั้งค่างานติดฟิล์มรถ (ราคา/ม้วน/รุ่นรถ/เงื่อนไข)", en: "Car film setup (prices/rolls/models/rules)", zh: "汽车贴膜设置（价格/膜卷/车型/规则）" },
   "commission.manage": { th: "ตั้งค่าคอมมิชชัน", en: "Manage commission rules", zh: "管理佣金规则" },
   "commission.view": { th: "ดูรายงานค่าคอม", en: "View commission report", zh: "查看佣金报表" },
   "tax.credit_note": { th: "ออกใบลดหนี้ (ลดราคา/คืนเงินหลังขาย)", en: "Issue credit note", zh: "开具红字发票" },

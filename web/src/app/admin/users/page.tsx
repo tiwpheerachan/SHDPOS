@@ -52,6 +52,7 @@ const PERM_LABEL: Record<string, { th: string; en: string; zh: string }> = {
   "tax.issue_full": { th: "ออกใบกำกับเต็มรูป", en: "Issue full tax invoice", zh: "开具增值税专用发票" },
   "price.list": { th: "ตั้งราคาหลัก", en: "Set list price", zh: "设置标价" },
   "price.period": { th: "ตั้งราคาช่วงเวลา", en: "Set period prices", zh: "设置时段价格" },
+  "film.manage": { th: "ตั้งค่างานติดฟิล์มรถ", en: "Car film setup", zh: "汽车贴膜设置" },
   "commission.manage": { th: "ตั้งค่าคอมมิชชัน", en: "Manage commission", zh: "管理佣金" },
   "commission.view": { th: "ดูรายงานค่าคอม", en: "View commission", zh: "查看佣金" },
   "tax.credit_note": { th: "ออกใบลดหนี้", en: "Issue credit note", zh: "开具红字发票" },

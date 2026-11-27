@@ -88,13 +88,17 @@ export function validateQuote(
       Math.round(qty * 1000) !== qty * 1000
     )
       throw new Error("จำนวนสินค้าไม่ถูกต้อง");
-    if (Number(product.price) <= 0)
+    // บรรทัดงานติดฟิล์ม: ราคามาจากตารางราคางานฟิล์ม (route ตรวจกับค่าที่ตั้งแล้ว ตั้งธง film_verified ฝั่งเซิร์ฟเวอร์เท่านั้น)
+    const film = i.film_verified === true;
+    if (!film && Number(product.price) <= 0)
       throw new Error(`ยังไม่มีราคาขายที่อนุมัติ: ${product.sku}`);
     const price = amount(i.unit_price, "ราคา");
-    if (price !== round2(Number(product.price)))
+    if (film ? price <= 0 : price !== round2(Number(product.price)))
       throw new Error(
         `ราคา ${product.sku} เปลี่ยนหรือยังไม่ได้รับอนุมัติ กรุณาโหลดราคาใหม่`,
       );
+    if (film && (Number(i.discount_amount || 0) > 0 || Number(i.discount_percent || 0) > 0))
+      throw new Error("งานติดฟิล์มให้ส่วนลดรายบรรทัดไม่ได้ (ใช้ส่วนลดท้ายบิล)");
     const gross = round2(price * qty);
     const percent = amount(i.discount_percent ?? 0, "ส่วนลด");
     const discount = amount(
@@ -130,7 +134,7 @@ export function validateQuote(
     return {
       product_id: product.id,
       sku: product.sku,
-      name: product.name_th,
+      name: film && typeof i.film_label === "string" ? `${i.film_label}`.slice(0, 200) : product.name_th,
       kind: product.kind === "service" ? "service" : "goods",
       qty,
       unit_price: price,

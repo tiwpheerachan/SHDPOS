@@ -7,7 +7,9 @@ import {
   Search, Plus, Minus, Trash2, Percent, Barcode, Inbox, PauseCircle, PlayCircle,
   UserRound, AlertTriangle, PackageX, Tag, UserPlus, Phone, ChevronRight, X, Star, Wallet, Ticket, Gift, Package, Maximize2, Minimize2, Store, Sparkles, CheckCircle2,
   Loader2,
+  Car,
 } from "lucide-react";
+import { FilmJobModal, loadPosFilmConfig } from "@/components/pos/film-job-modal";
 import { useI18n } from "@/lib/i18n/provider";
 import { useSession } from "@/lib/store/session";
 import { usePriceBook, priceEntry, priceOf, refreshPriceBook } from "@/lib/pricing/price-book";
@@ -76,6 +78,8 @@ export default function SellPage() {
 
   const [deferredMode,setDeferredMode]=useState(false);
   const [deferredOpen,setDeferredOpen]=useState(false);
+  const [filmOpen, setFilmOpen] = useState(false);
+  const [filmRollIds, setFilmRollIds] = useState<Set<string>>(new Set());
   const [payOpen, setPayOpen] = useState(false);
   const checkoutId = useRef<string | null>(null);
   const [checkoutPreparing, setCheckoutPreparing] = useState(false);
@@ -280,6 +284,19 @@ export default function SellPage() {
     });
   }, [products, branch, stock,deferredMode,branchBrandIds]);
 
+  // งานติดฟิล์มรถ: โหลดค่าตั้ง → ม้วนฟิล์ม (ซ่อนจากหน้าขายสินค้า — ขายผ่านงานติดฟิล์มเท่านั้น) · ปุ่มแสดงเมื่อสาขาขายแบรนด์ฟิล์มหรือมีม้วนในสต๊อก
+  useEffect(() => {
+    if (!branchId || !isLiveMode()) { setFilmRollIds(new Set()); return; }
+    let alive = true;
+    loadPosFilmConfig(branchId).then((c) => {
+      if (!alive) return;
+      const ids = new Set(c.shades.map((x) => x.stock_product_id).filter((x): x is string => !!x));
+      const sells = !!c.brand_id && (branch?.brand_id === c.brand_id || !!branchBrandIds?.includes(c.brand_id));
+      setFilmRollIds(sells || [...ids].some((id) => stock.has(id)) ? ids : new Set());
+    }).catch(() => { if (alive) setFilmRollIds(new Set()); });
+    return () => { alive = false; };
+  }, [branchId, branch?.brand_id, branchBrandIds, stock]);
+
   // แบรนด์ที่มีสินค้าในสาขานี้ (แสดงชิปเมื่อมี ≥ 2 แบรนด์)
   const branchBrandList = useMemo(() => {
     const ids = [...new Set(branchProducts.map((p) => p.brand_id).filter((x): x is string => !!x))];
@@ -291,6 +308,7 @@ export default function SellPage() {
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
     return branchProducts
+      .filter((p) => !filmRollIds.has(p.id))
       .filter((p) => (brandFilter === "all" ? true : p.brand_id === brandFilter))
       .filter((p) => (categoryId === "all" ? true : p.category_id === categoryId))
       .filter((p) => {
@@ -304,7 +322,7 @@ export default function SellPage() {
         );
       })
       .slice(0, 120);
-  }, [branchProducts, query, categoryId, brandFilter]);
+  }, [branchProducts, query, categoryId, brandFilter, filmRollIds]);
 
   // SKU ที่อยู่ในแคมเปญของแถม (ร่วมรายการ/ของแถม) → แสดงป้าย "โปร"
   const promoSkus = useMemo(() => {
@@ -442,6 +460,7 @@ export default function SellPage() {
     if(deferredMode){
       if(!isLiveMode()){toast.push({tone:"warn",title:L("โหมดขายก่อนต้องบันทึกบนเซิร์ฟเวอร์จริง", "Sell-now mode must be saved on the live server", "先售模式必须保存在正式服务器")});return;}
       if(checkoutId.current||localStorage.getItem(`shdpos.checkout:${employee?.id}:${branchId}`)){toast.push({tone:"warn",title:L("มี Checkout เดิมค้างอยู่", "A previous checkout is pending", "存在未完成的结账"),body:L("กรุณาตรวจหรือยกเลิกการจองเดิมในศูนย์ตรวจสอบก่อน เพื่อไม่ให้รับเงินซ้ำ", "Review or release the previous reservation in Checkout recovery first, to avoid double charging", "请先在核查中心检查或取消原预留，以免重复收款")});return;}
+      if(cart.lines.some(l=>l.film_job_id)){toast.push({tone:"warn",title:L("งานติดฟิล์มยังใช้กับ \"ขายก่อน\" ไม่ได้","Film jobs can't use deferred sale","贴膜工单暂不支持先卖"),body:L("ปิด “ขายก่อน” แล้วชำระตามปกติ","Turn off “Sell now” and pay normally","请关闭“先卖”后正常收款")});return;}
       if(cart.lines.some(l=>l.campaign)){toast.push({tone:"warn",title:L("โปรรายสินค้ายังใช้กับ \"ขายก่อน\" ไม่ได้","Item promotions can't be used with deferred sale","先卖模式暂不支持商品优惠"),body:L("ถอดโปรออกก่อน หรือขายแบบปกติ","Remove the promotion or sell normally","请先移除优惠")});return;}
       setDeferredOpen(true);return;
     }
@@ -479,7 +498,8 @@ export default function SellPage() {
         salesperson_id:cart.defaultSalespersonId ?? employee.id, customer_id:cart.customerId,
         customer_name:cart.customerName,customer_phone:cart.customerPhone,channel:session.channel,
         // โปรรายสินค้า: ส่งแค่รหัส — เซิร์ฟเวอร์คิดยอดเอง (discount_amount ที่ส่ง = ส่วนลดที่พนักงานกดเองเท่านั้น)
-        items:cart.lines.map(l=>({...l,discount_amount:l.discount_amount>0?l.discount_amount:0,line_campaign_code:l.campaign?.code??null})),
+        items:cart.lines.map(l=>({...l,discount_amount:l.discount_amount>0?l.discount_amount:0,line_campaign_code:l.campaign?.code??null,film:!!l.film_job_id})),
+        film_job:cart.lines.find(l=>l.film_job)?.film_job??null,
         subtotal:totals.subtotal,discount_total:round2(totals.discountTotal+totals.campaignLineTotal+totals.redeemAmount+totals.couponAmount),
         grand_total:totals.grandTotal,manual_discount_total:totals.discountTotal,reserve:reserveMode,redeem_points:cart.redeemPoints,coupon_code:cart.couponCode,
       };
@@ -527,7 +547,7 @@ export default function SellPage() {
       if(/โหลดราคาใหม่|reload prices|price/i.test(msg)&&isLiveMode()){
         await refreshPriceBook(true);
         let changed=0;
-        for(const l of useCart.getState().lines){ if(!l.product_id||l.is_gift)continue; const np=priceOf({id:l.product_id,price:l.list_price}); if(np!==l.unit_price){useCart.getState().setLinePrice(l.lineId,np);changed++;} }
+        for(const l of useCart.getState().lines){ if(!l.product_id||l.is_gift||l.film_job_id)continue; const np=priceOf({id:l.product_id,price:l.list_price}); if(np!==l.unit_price){useCart.getState().setLinePrice(l.lineId,np);changed++;} }
         if(changed){toast.push({tone:"warn",title:L(`ราคาเปลี่ยน — อัปเดต ${changed} รายการในตะกร้าแล้ว`,`Prices changed — updated ${changed} cart line(s)`,`价格已变动 — 已更新 ${changed} 项`),body:L("ตรวจยอดกับลูกค้าแล้วกดชำระอีกครั้ง","Confirm the total with the customer and pay again","请与顾客确认金额后再次结账")});setCheckoutPreparing(false);return;}
       }
       toast.push({tone:"danger",title:L("ยังไม่พร้อมรับชำระ","Checkout unavailable","暂时无法结账"),body:msg});
@@ -642,7 +662,8 @@ export default function SellPage() {
       const r = isLiveMode() ? await checkoutRequest("preview",uuidv4(),branchId!,{draft:{
         branch_id:branchId,channel:session.channel,customer_id:cart.customerId,
         // ส่งโปรรายสินค้าไปด้วย — คูปองทั้งบิลต้องคิดจากยอดหลังโปรรายสินค้า (เหมือนตอนชำระจริง)
-        items:cart.lines.map(l=>({...l,discount_amount:l.discount_amount>0?l.discount_amount:0,line_campaign_code:l.campaign?.code??null})),
+        items:cart.lines.map(l=>({...l,discount_amount:l.discount_amount>0?l.discount_amount:0,line_campaign_code:l.campaign?.code??null,film:!!l.film_job_id})),
+        film_job:cart.lines.find(l=>l.film_job)?.film_job??null,
         subtotal:totals.subtotal,manual_discount_total:totals.discountTotal,discount_total:totals.discountTotal,
         grand_total:totals.grandTotal,coupon_code:code,redeem_points:cart.redeemPoints,
       }}).then(result=>({valid:true,campaign_id:result.campaign_id,discount:Number(result.coupon_discount),name:code,reason:""})) : await validateCoupon(code, cart.customerId, totals.subtotal);
@@ -943,6 +964,11 @@ export default function SellPage() {
               className="pl-9"
             />
           </div>
+          {filmRollIds.size ? (
+            <Button variant="soft" onClick={() => setFilmOpen(true)} title={L("งานติดฟิล์มรถ", "Car film job", "汽车贴膜")}>
+              <Car size={16} /><span className="hidden sm:inline">{L("งานติดฟิล์ม", "Film job", "贴膜")}</span>
+            </Button>
+          ) : null}
           <Button variant="ghost" onClick={() => setHoldOpen(true)} title={t.pos.holdList}>
             <PauseCircle size={16} />
             {holds.length ? <span className="tnum text-xs">{holds.length}</span> : null}
@@ -1205,15 +1231,17 @@ export default function SellPage() {
                 const total = lineTotal(l);
                 const serialMissing = l.track_serial && l.serials.length !== l.qty;
                 const isCampaignGift = l.gift_source === "campaign";
+                const isFilm = !!l.film_job_id;
                 return (
                   <li key={l.lineId} className="px-4 py-3">
                     <div className="flex items-start gap-2">
                       <div className="w-11 h-11 rounded-lg border border-line bg-surface2 grid place-items-center overflow-hidden shrink-0">
-                        {l.image_url ? <img src={l.image_url} alt="" className="w-full h-full object-cover" loading="lazy" /> : <Package size={16} className="text-muted/50" />}
+                        {isFilm ? <Car size={17} className="text-brand" /> : l.image_url ? <img src={l.image_url} alt="" className="w-full h-full object-cover" loading="lazy" /> : <Package size={16} className="text-muted/50" />}
                       </div>
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium leading-snug line-clamp-2">
                           <span translate="no">{l.name}</span>
+                          {isFilm && <span className="ml-1.5 text-[9px] font-bold px-1.5 py-0.5 rounded bg-brand/12 text-brand align-middle">{L("งานติดฟิล์ม", "Film job", "贴膜")}</span>}
                           {l.is_gift && <span className="ml-1.5 text-[9px] font-bold px-1.5 py-0.5 rounded bg-ink text-surface align-middle inline-flex items-center gap-0.5"><Gift size={9} />{l.gift_source === "campaign" ? L("ของแถมแคมเปญ", "Campaign gift", "活动赠品") : L("ของแถม", "Gift", "赠品")}</span>}
                         </p>
                         <p className="text-[10px] font-mono text-muted mt-0.5" translate="no">{l.sku}</p>
@@ -1226,8 +1254,8 @@ export default function SellPage() {
                     </div>
 
                     <div className="flex items-center gap-2 mt-2">
-                      {isCampaignGift ? (
-                        <div className="h-8 px-3 flex items-center rounded-lg border border-line bg-surface2/50 text-sm font-medium tnum">×{l.qty}</div>
+                      {isCampaignGift || isFilm ? (
+                        <div className="h-8 px-3 flex items-center rounded-lg border border-line bg-surface2/50 text-sm font-medium tnum">×{l.qty}{isFilm ? <span className="ml-1 text-[11px] text-muted">{L("ฟุต", "ft", "英尺")}</span> : null}</div>
                       ) : (
                         <div className="flex items-center rounded-lg border border-line">
                           <button onClick={() => {
@@ -1247,7 +1275,7 @@ export default function SellPage() {
                       )}
 
                       {/* ของแถม: สลับเป็น/ออก (เฉพาะของแถมที่พนักงานทำเอง ไม่ใช่ของแคมเปญ) */}
-                      {!isCampaignGift && (
+                      {!isCampaignGift && !isFilm && (
                         <button
                           onClick={() => cart.toggleGift(l.lineId)}
                           title={l.is_gift ? L("ยกเลิกของแถม", "Remove gift", "取消赠品") : L("ทำเป็นของแถม (฿0)", "Make gift (฿0)", "设为赠品(฿0)")}
@@ -1259,7 +1287,7 @@ export default function SellPage() {
                         </button>
                       )}
 
-                      {!l.is_gift && (
+                      {!l.is_gift && !isFilm && (
                         <button
                           onClick={() => setLineDiscountId(l.lineId)}
                           className={`relative h-8 px-2 rounded-lg border text-[11px] font-medium ${
@@ -1292,7 +1320,7 @@ export default function SellPage() {
                       <p className="text-[10px] font-mono text-muted mt-1.5 truncate" translate="no">SN: {l.serials.join(", ")}</p>
                     ) : null}
                     {/* โปรรายสินค้า — ใช้แล้ว (ถอดได้) / มีโปรให้ใช้ (กดใช้ได้เลย) */}
-                    {!l.is_gift ? (() => {
+                    {!l.is_gift && !isFilm ? (() => {
                       if (l.campaign) return (
                         <div className="mt-1.5 flex items-center gap-1.5 rounded-lg bg-ok/8 border border-ok/25 px-2 py-1 text-[10.5px] text-ok">
                           <CheckCircle2 size={12} className="shrink-0" />
@@ -1504,6 +1532,14 @@ export default function SellPage() {
         initialAmount={cart.billDiscountAmount}
         onApply={(pct, amt, needs) => applyDiscount(null, pct, amt, needs)}
       />
+
+      <FilmJobModal open={filmOpen} onClose={() => setFilmOpen(false)} branchId={branchId}
+        stockOf={(pid) => { const sl = stock.get(pid); return sl ? availableQty(sl) : null; }}
+        onAdd={(job, quote) => {
+          cart.setFilmJob(job, quote.lines);
+          setFilmOpen(false);
+          toast.push({ tone: "ok", title: L("ใส่งานติดฟิล์มแล้ว", "Film job added", "已加入贴膜工单"), body: `${quote.label} · ${formatTHB(quote.price)}` });
+        }} />
 
       <SerialModal
         open={Boolean(serialLineId)}

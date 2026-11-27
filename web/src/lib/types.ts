@@ -197,6 +197,9 @@ export interface CartLine {
   /** ภาษีของสินค้า (ค่าเริ่มต้น รวม VAT 7%) — exclusive = ราคาก่อน VAT บวกเพิ่มตอนคิดเงิน */
   vat_mode?: "inclusive" | "exclusive" | "exempt";
   vat_rate?: number;
+  /** งานติดฟิล์มรถ: บรรทัดม้วนฟิล์มของงาน (ราคา/จำนวนมาจากตัวคำนวณงานฟิล์ม แก้ทีละบรรทัดไม่ได้) */
+  film_job_id?: string | null;
+  film_job?: { size: string; series: string; positions: { code: string; shade: number; series?: string }[] } | null;
 }
 
 export interface LineCampaign {

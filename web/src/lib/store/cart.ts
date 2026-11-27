@@ -12,8 +12,8 @@ import { tr } from "../i18n/tr";
 export function coalesceCartLines(lines: CartLine[]): CartLine[] {
   const result: CartLine[] = [];
   for (const line of lines) {
-    const existing = line.product_id && !line.is_gift && !line.gift_source && line.discount_amount === 0
-      ? result.find(l => l.product_id === line.product_id && !l.is_gift && !l.gift_source &&
+    const existing = line.product_id && !line.is_gift && !line.gift_source && !line.film_job_id && line.discount_amount === 0
+      ? result.find(l => l.product_id === line.product_id && !l.is_gift && !l.gift_source && !l.film_job_id &&
           l.kind === line.kind && l.unit_price === line.unit_price && l.list_price === line.list_price &&
           l.unit_cost === line.unit_cost && l.discount_amount === 0 && l.discount_percent === line.discount_percent &&
           l.track_serial === line.track_serial && l.salesperson_id === line.salesperson_id &&
@@ -47,6 +47,8 @@ interface CartState {
 
   addProduct: (p: Product, qty?: number) => void;
   addCustomLine: (line: Partial<CartLine> & { name: string; unit_price: number }) => void;
+  /** ใส่งานติดฟิล์ม (แทนงานเดิม — 1 บิล 1 งาน) */
+  setFilmJob: (job: NonNullable<CartLine["film_job"]>, lines: { product_id: string; sku: string; qty: number; unit_price: number; label: string }[], salespersonId?: string | null) => void;
   setQty: (lineId: string, qty: number) => void;
   removeLine: (lineId: string) => void;
   setLineDiscount: (lineId: string, percent: number, amount: number) => void;
@@ -101,7 +103,7 @@ export const useCart = create<CartState>((set, get) => ({
       if (!Number.isFinite(qty) || qty <= 0 || (p.track_serial && !Number.isInteger(qty))) return s;
       const lines = coalesceCartLines(s.lines);
       // SN belongs to each unit within the same sale row, not a separate row per click.
-      const existing = lines.find(l => l.product_id === p.id && !l.is_gift && !l.gift_source &&
+      const existing = lines.find(l => l.product_id === p.id && !l.is_gift && !l.gift_source && !l.film_job_id &&
         l.unit_price === p.price && l.list_price === p.price && l.unit_cost === p.cost &&
         l.track_serial === p.track_serial && l.salesperson_id === s.defaultSalespersonId &&
         !l.note && l.discount_percent === 0 && l.discount_amount === 0);
@@ -155,19 +157,37 @@ export const useCart = create<CartState>((set, get) => ({
       ],
     })),
 
+  setFilmJob: (job, lines, salespersonId) =>
+    set((s) => {
+      const id = nanoid();
+      const film: CartLine[] = lines.map((x) => ({
+        lineId: nanoid(), product_id: x.product_id, sku: x.sku, name: x.label, image_url: null, kind: "goods", qty: x.qty,
+        unit_price: x.unit_price, list_price: x.unit_price, discount_amount: 0, discount_percent: 0, unit_cost: 0,
+        track_serial: false, serials: [], salesperson_id: salespersonId ?? s.defaultSalespersonId, vat_mode: "inclusive", vat_rate: 7,
+        film_job_id: id, film_job: job,
+      }));
+      return { lines: [...s.lines.filter((l) => !l.film_job_id), ...film] };
+    }),
+
   setQty: (lineId, qty) =>
     set((s) => ({
-      lines: !Number.isFinite(qty) ? s.lines : qty <= 0
+      // บรรทัดงานติดฟิล์มแก้จำนวนไม่ได้ (ต้องเปิดงานใหม่) · ตั้ง 0 = ลบทั้งงาน
+      lines: s.lines.some((l) => l.lineId === lineId && l.film_job_id) ? (qty <= 0 ? s.lines.filter((l) => !l.film_job_id) : s.lines)
+        : !Number.isFinite(qty) ? s.lines : qty <= 0
         ? s.lines.filter((l) => l.lineId !== lineId)
         : s.lines.map(l => l.lineId === lineId && (!l.track_serial || (Number.isInteger(qty) && qty >= l.serials.length)) ? { ...l, qty } : l),
     })),
 
-  removeLine: (lineId) => set((s) => ({ lines: s.lines.filter((l) => l.lineId !== lineId) })),
+  // ลบบรรทัดงานติดฟิล์ม = ลบทั้งงาน (ราคาแบ่งลงหลายบรรทัด ลบบางบรรทัดไม่ได้)
+  removeLine: (lineId) => set((s) => {
+    const job = s.lines.find((l) => l.lineId === lineId)?.film_job_id;
+    return { lines: s.lines.filter((l) => (job ? l.film_job_id !== job : l.lineId !== lineId)) };
+  }),
 
   setLineDiscount: (lineId, percent, amount) =>
     set((s) => ({
       lines: s.lines.map((l) =>
-        l.lineId === lineId ? { ...l, discount_percent: percent, discount_amount: amount } : l
+        l.lineId === lineId && !l.film_job_id ? { ...l, discount_percent: percent, discount_amount: amount } : l
       ),
     })),
 
@@ -176,7 +196,7 @@ export const useCart = create<CartState>((set, get) => ({
 
   setLinePrice: (lineId, price) =>
     set((s) => ({
-      lines: s.lines.map((l) => (l.lineId === lineId ? { ...l, unit_price: round2(price) } : l)),
+      lines: s.lines.map((l) => (l.lineId === lineId && !l.film_job_id ? { ...l, unit_price: round2(price) } : l)),
     })),
 
   setLineSerials: (lineId, serials) =>
@@ -199,7 +219,7 @@ export const useCart = create<CartState>((set, get) => ({
   toggleGift: (lineId) =>
     set((s) => ({
       lines: s.lines.map((l) => {
-        if (l.lineId !== lineId) return l;
+        if (l.lineId !== lineId || l.film_job_id) return l;
         if (l.is_gift) {
           // คืนค่าเป็นสินค้าขายปกติ
           return { ...l, is_gift: false, gift_source: undefined, unit_price: l.list_price, discount_amount: 0, discount_percent: 0 };

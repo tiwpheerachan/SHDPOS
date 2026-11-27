@@ -17,7 +17,7 @@ export const PERMISSION_KEYS = [
   "admin.branch_manage", "admin.settings", "audit.view",
   "customer.manage", "tax.issue_full", "tax.credit_note",
   "finance.view", "period.close", "period.reopen", "report.share", "edc.manage", "edc.mdr_manage",
-  "price.list", "price.period", "commission.manage", "commission.view",
+  "price.list", "price.period", "commission.manage", "commission.view", "film.manage",
   // ── สิทธิ์เข้าฟีเจอร์ (เมนูหลังบ้าน) — กฎ: ทุกฟีเจอร์ใหม่ต้องมีคีย์ที่นี่ + PERM_GROUPS ใน permissions-ui.ts ──
   "dashboard.view", "work.view", "sales.view", "product.view", "document.view",
   "deferred_sale.manage", "approval.view",
@@ -136,6 +136,7 @@ export const ROLE_MATRIX: Record<EmployeeRole, Partial<Record<PermissionKey, Rul
     "report.share": { effect: "allow" },
   },
   brand_admin: {
+    "film.manage": { effect: "allow" },
     "price.list": { effect: "allow" },
     "price.period": { effect: "allow" },
     "commission.manage": { effect: "allow" },

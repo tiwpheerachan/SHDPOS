@@ -5,7 +5,7 @@
 //   • ค่าคอม: ผูกสินค้า/หมวด/แบรนด์ + ขั้นยอดขาย + สาขาที่มีสิทธิ์
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Package, Search, Tag, CalendarRange, Plus, Pencil, Pause, Play, X, Copy, ChevronLeft, ChevronRight, AlertTriangle, Coins, Store, Layers, Boxes, CheckCircle2, ShieldCheck, RefreshCw, Lock, Unlock, FileDown, FileUp, History, Warehouse } from "lucide-react";
+import { Package, Search, Tag, CalendarRange, Plus, Pencil, Pause, Play, X, Copy, ChevronLeft, ChevronRight, AlertTriangle, Coins, Store, Layers, Boxes, CheckCircle2, ShieldCheck, RefreshCw, Lock, Unlock, FileDown, FileUp, History, Warehouse, Car } from "lucide-react";
 import { BranchStockTab } from "@/components/admin/branch-stock-tab";
 import { ExportTemplateModal, ImportPricesModal, PriceHistoryTab, ProductPriceTimeline } from "@/components/admin/price-import";
 import { useI18n } from "@/lib/i18n/provider";
@@ -13,6 +13,7 @@ import { isLiveMode } from "@/lib/supabase/client";
 import { ProductsLegacy } from "@/components/admin/products-legacy";
 import { ProductReviewDrawer } from "@/components/admin/product-review-drawer";
 import { CommissionTab } from "@/components/admin/commission-tab";
+import { FilmSettingsTab } from "@/components/admin/film-settings-tab";
 import { Badge, Button, Drawer, EmptyState, Field, Input, Modal, Segmented, Select, Skeleton } from "@/components/ui";
 import { useToast } from "@/components/toast-host";
 import { formatTHB, formatInt } from "@/lib/money";
@@ -23,7 +24,7 @@ type P = { id: string; sku: string; name_th: string; name_en: string | null; bra
 type Ref = { id: string; name: string };
 type BranchRef = { id: string; code: string; name: string; name_th: string | null; brand_id: string | null };
 type Data = { products: P[]; brands: Ref[]; categories: Ref[]; branches: BranchRef[]; perms: { list: boolean; period: boolean; cost: boolean; review: boolean; commission: boolean; commission_view: boolean } };
-type Tab = "products" | "prices" | "stock" | "history" | "commission";
+type Tab = "products" | "prices" | "stock" | "history" | "commission" | "film";
 const baht = (n: number) => formatTHB(n, false);
 const pct = (list: number, price: number) => (list > 0 ? Math.round(((list - price) / list) * 1000) / 10 : 0);
 
@@ -97,6 +98,7 @@ function ProductsLive() {
         { value: "stock", label: <span className="inline-flex items-center gap-1.5"><Warehouse size={14} />{L("สต๊อกสาขา", "Branch stock", "门店库存")}</span> },
         { value: "history", label: <span className="inline-flex items-center gap-1.5"><History size={14} />{L("ประวัติราคา", "Price history", "价格历史")}</span> },
         ...(data?.perms.commission || data?.perms.commission_view ? [{ value: "commission" as Tab, label: <span className="inline-flex items-center gap-1.5"><Coins size={14} />{L("ค่าคอมมิชชัน", "Commission", "佣金")}</span> }] : []),
+        { value: "film" as Tab, label: <span className="inline-flex items-center gap-1.5"><Car size={14} />{L("งานติดฟิล์ม", "Car film", "汽车贴膜")}</span> },
       ]} />
 
       {editMode ? <p className="rounded-xl border border-warn/40 bg-warn/8 px-4 py-2.5 text-[12.5px] flex items-center gap-2"><Unlock size={14} className="text-warn shrink-0" />{L("โหมดแก้ไขเปิดอยู่ — การเปลี่ยนราคามีผลกับหน้าร้านทุกสาขาตามช่วงที่ตั้งทันที · ปิดสวิตช์เมื่อแก้เสร็จ", "Editing is on — price changes apply to POS immediately within their window · switch off when done", "编辑模式已开启 — 价格变更将按设定立即在门店生效 · 完成后请关闭")}</p>
@@ -106,6 +108,7 @@ function ProductsLive() {
       {view && tab === "products" ? <ProductsTab data={view} onRule={(ids, locked) => setRuleDraft({ scope: "sku", product_ids: ids, locked })} onReview={setReviewId} onListPrice={setListEdit} onHistory={setTimeline} /> : null}
       {view && tab === "prices" ? <PeriodTab data={view} onEdit={(r) => setRuleDraft({ ...r, locked: r.scope === "sku" && r.product_ids?.length === 1 })} onChanged={load} /> : null}
       {tab === "stock" ? <BranchStockTab /> : null}
+      {tab === "film" ? <FilmSettingsTab editMode={editMode} /> : null}
       {tab === "history" ? <PriceHistoryTab canEdit={!!perms && (perms.period || perms.list)} onChanged={() => void load()} /> : null}
       {view && tab === "commission" ? <CommissionTab products={view.products} brands={view.brands} categories={view.categories} branches={view.branches} canManage={view.perms.commission} /> : null}
 

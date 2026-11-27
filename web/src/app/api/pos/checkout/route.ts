@@ -3,6 +3,8 @@ import { legacyUuid } from "@/lib/server/legacy-ids";
 import { kickSaleOutbox } from "@/lib/server/ow-sales";
 import { owWarehouseOf } from "@/lib/server/ow-branch";
 import { withEffectivePrices } from "@/lib/server/effective-prices";
+import { loadFilmConfig } from "@/lib/server/film-config";
+import { quoteFilmJob, sameFilmLines, FilmError, type FilmJob } from "@/lib/film/quote";
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import {
@@ -58,6 +60,21 @@ export async function POST(req: NextRequest) {
       if (error) throw new PosError("อ่านแคตตาล็อกกลางไม่สำเร็จ", 503);
       // ราคาที่ใช้ขาย = ราคาช่วงเวลา (ถ้ามี) ทับราคาหลัก — ตัวคิดเดียวกับหน้าร้าน (0081)
       const priced = await withEffectivePrices(sb, body.branch_id, data ?? []).catch(() => { throw new PosError("อ่านราคาขายไม่สำเร็จ", 503); });
+      // งานติดฟิล์ม: เครื่องส่ง draft.film_job + บรรทัดม้วนที่ติดธง film — เซิร์ฟเวอร์คำนวณใหม่จากค่าที่ตั้งไว้ ต้องตรงทุกบรรทัด
+      for (const i of draft.items) if (i && typeof i === "object") delete i.film_verified; // ห้ามเครื่องส่งธงยืนยันมาเอง
+      const filmItems = draft.items.filter((i: any) => i?.film === true && !i.is_gift);
+      if (filmItems.length || draft.film_job) {
+        if (!draft.film_job || !filmItems.length) throw new PosError("ข้อมูลงานติดฟิล์มไม่ครบ กรุณาเปิดงานติดฟิล์มใหม่", 409);
+        const fj = object(draft.film_job);
+        const job: FilmJob = { size: String(fj.size ?? ""), series: String(fj.series ?? ""),
+          positions: (Array.isArray(fj.positions) ? fj.positions : []).slice(0, 8).map((p: any) => ({ code: String(p?.code ?? ""), shade: Number(p?.shade), series: p?.series ? String(p.series) : undefined })) };
+        let fq;
+        try { fq = quoteFilmJob(await loadFilmConfig(sb), job); }
+        catch (e) { throw new PosError(e instanceof FilmError ? e.message : "อ่านค่าตั้งงานติดฟิล์มไม่สำเร็จ", e instanceof FilmError ? 409 : 503); }
+        if (!sameFilmLines(filmItems, fq.lines))
+          throw new PosError("ราคาหรือจำนวนงานติดฟิล์มไม่ตรงกับค่าที่ตั้งไว้ (อาจมีการแก้ราคา) — ลบงานแล้วเปิดงานติดฟิล์มใหม่", 409);
+        for (const i of filmItems) { i.film_verified = true; i.film_label = fq.label; i.discount_amount = 0; i.discount_percent = 0; }
+      }
       const gifts=draft.items.filter((i:any)=>i.is_gift);
       if(gifts.some((i:any)=>i.gift_source!=="campaign"))throw new PosError("ของแถมที่เพิ่มเองต้องผ่านการอนุมัติส่วนกลางก่อน",409);
       const manual=draft.manual_discount_total ?? ((!draft.coupon_code&&!draft.redeem_points)?draft.discount_total:NaN);
