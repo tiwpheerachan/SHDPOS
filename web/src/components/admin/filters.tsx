@@ -1,4 +1,5 @@
 "use client";
+import { tr } from "@/lib/i18n/tr";
 
 import { useCatalogProducts } from "@/lib/hooks/use-catalog-products";
 
@@ -11,7 +12,9 @@ import type { Branch, Brand, Category, Employee, Product, Terminal } from "@/lib
 import { visibleBranchIds } from "@/lib/permissions";
 import { Segmented, Button, Modal, Input } from "@/components/ui";
 
-export type RangeKey = "today" | "yesterday" | "7d" | "30d" | "mtd" | "ytd" | "custom";
+export type RangeKey = "today" | "yesterday" | "7d" | "30d" | "mtd" | "ytd" | "all" | "custom";
+/** ข้อมูลแรกสุดในระบบ (ยอดขายระบบเดิม Lark เริ่ม ม.ค. 2024) — ปุ่ม "ทั้งหมด" */
+export const DATA_START = new Date(2024, 0, 1);
 
 export interface AdminFilter {
   range: RangeKey;
@@ -58,6 +61,7 @@ export function rangeToDates(range: RangeKey, prev?: { from: Date; to: Date }): 
     case "30d": from.setDate(to.getDate() - 30); from.setHours(0, 0, 0, 0); break;
     case "mtd": from.setDate(1); from.setHours(0, 0, 0, 0); break;
     case "ytd": from.setMonth(0, 1); from.setHours(0, 0, 0, 0); break;
+    case "all": return { from: new Date(DATA_START), to };
     case "custom": return prev ?? { from, to };
   }
   return { from, to };
@@ -226,6 +230,7 @@ export function FilterBar({
     { value: "30d", label: "30D" },
     { value: "mtd", label: "MTD" },
     { value: "ytd", label: "YTD" },
+    { value: "all", label: tr("ทั้งหมด", "All time", "全部") },
   ];
 
   return (
