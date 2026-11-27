@@ -14,7 +14,7 @@ export const PERM_GROUPS: { th: string; en: string; zh: string; keys: Permission
   { th: "กะ & เงินสด", en: "Shift & cash", zh: "班次与现金", keys: ["shift.open", "shift.close", "shift.force_close", "cash.adjust"] },
   { th: "การตลาด & ลูกค้า", en: "Marketing & customers", zh: "营销与客户", keys: ["customer.manage", "campaign.manage", "loyalty.manage", "display.manage"] },
   { th: "รายงาน & การเงิน", en: "Reports & finance", zh: "报表与财务", keys: ["report.employee_perf", "report.cost", "report.gross_profit", "report.discount", "finance.view", "period.close", "period.reopen", "report.share", "edc.manage", "edc.mdr_manage"] },
-  { th: "แอดมิน", en: "Admin", zh: "管理", keys: ["admin.employee_manage", "admin.permission_manage", "admin.product_manage", "admin.branch_manage", "admin.settings", "integration.manage", "integration.reconcile", "audit.view", "presence.view"] },
+  { th: "แอดมิน", en: "Admin", zh: "管理", keys: ["admin.employee_manage", "admin.permission_manage", "admin.product_manage", "admin.branch_manage", "admin.settings", "integration.manage", "integration.reconcile", "audit.view", "presence.view", "sales.annotate"] },
   { th: "ราคา & ค่าคอม", en: "Pricing & commission", zh: "价格与佣金", keys: ["price.list", "price.period", "commission.manage", "commission.view", "film.manage"] },
   { th: "เอกสารภาษี", en: "Tax documents", zh: "税务单据", keys: ["tax.issue_full", "tax.credit_note"] },
 ];
@@ -73,6 +73,7 @@ export const PERM_LABEL: Record<PermissionKey, { th: string; en: string; zh: str
   "admin.settings": { th: "ตั้งค่าระบบ", en: "System settings", zh: "系统设置" },
   "audit.view": { th: "ดู audit log", en: "View audit log", zh: "查看审计日志" },
   "presence.view": { th: "ดูว่าใครออนไลน์อยู่หน้าไหน", en: "See who's online & where", zh: "查看在线成员及所在页面" },
+  "sales.annotate": { th: "เพิ่มคอลัมน์/กรอกข้อมูลในตารางยอดขาย", en: "Add columns & fill data in sales sheet", zh: "在销售表中添加列/填写数据" },
   "customer.manage": { th: "จัดการลูกค้า", en: "Manage customers", zh: "管理客户" },
   "tax.issue_full": { th: "ออกใบกำกับเต็มรูป", en: "Issue full tax invoice", zh: "开具增值税专用发票" },
   "price.list": { th: "ตั้งราคาหลัก (List price)", en: "Set list price", zh: "设置标价" },

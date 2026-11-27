@@ -19,11 +19,16 @@ import { Segmented, Drawer } from "@/components/ui";
 import { tr } from "@/lib/i18n/tr";
 import { useI18n } from "@/lib/i18n/provider";
 import { downloadExcel } from "@/lib/export";
+import { TagChip, PersonChip } from "@/components/admin/sheet-tags";
+import { useSalesFields, fieldText, fieldIcon, FieldCell, FieldEditor, type SalesField } from "@/components/admin/sales-custom-fields";
+import { Plus, Pencil } from "lucide-react";
+export { TagChip, PersonChip };
 
 type Mode = "bill" | "line";
 type Kind = "text" | "enum" | "num" | "money" | "date";
 type Row = { o: Order; it?: OrderItem; key: string };
-type Col = { id: string; label: () => string; kind: Kind; get: (r: Row) => string | number | null; show?: (r: Row) => React.ReactNode; sum?: boolean; def?: boolean; noTr?: boolean; w?: string };
+type Col = { id: string; label: () => string; kind: Kind; get: (r: Row) => string | number | null; show?: (r: Row) => React.ReactNode; sum?: boolean; def?: boolean; noTr?: boolean; w?: string;
+  /** คอลัมน์ที่ผู้ใช้เพิ่มเอง (แก้ค่าในช่องได้) */ custom?: SalesField; /** หน้าตาค่าในรายการตัวกรอง (ป้ายสีเดียวกับในตาราง) */ chip?: (v: string) => React.ReactNode };
 type ColFilter = { text?: string; values?: string[]; min?: number | null; max?: number | null; from?: string; to?: string };
 
 const PAY = (): Record<string, string> => ({ cash: tr("เงินสด", "Cash", "现金"), credit_card: tr("บัตรเครดิต", "Credit card", "信用卡"), debit_card: tr("บัตรเดบิต", "Debit card", "借记卡"), qr_promptpay: tr("พร้อมเพย์", "PromptPay", "PromptPay"), bank_transfer: tr("โอนเงิน", "Bank transfer", "银行转账"), edc: "EDC", installment: tr("ผ่อนชำระ", "Installment", "分期付款"), gift_card: tr("บัตรของขวัญ", "Gift card", "礼品卡"), store_credit: tr("เครดิตร้าน", "Store credit", "店铺余额"), online_marketplace: tr("มาร์เก็ตเพลส", "Marketplace", "电商平台"), online_payment: tr("ชำระออนไลน์", "Online payment", "线上支付"), unspecified: tr("ไม่ระบุ", "Not specified", "未注明"), other: tr("อื่น ๆ", "Other", "其他") });
@@ -44,6 +49,8 @@ export function SalesSheet({ orders, branches, brands, employees, products, catN
   const { locale } = useI18n(); // ภาษาเปลี่ยน → คำนวณป้ายใหม่
   const { employee } = useSession();
   const canTrace = !employee || can(employee, "sales.trace");
+  const cf = useSalesFields();
+  const [fieldEdit, setFieldEdit] = useState<{ rect: DOMRect; field?: SalesField } | null>(null);
 
   // ── ค่าที่จำในเครื่อง ──
   const saved = useMemo(() => { try { return JSON.parse(localStorage.getItem(LS) ?? "{}") as { mode?: Mode; hidden?: Record<Mode, string[]>; per?: number }; } catch { return {}; } }, []);
@@ -135,8 +142,18 @@ export function SalesSheet({ orders, branches, brands, employees, products, catN
         { id: "l_gp", label: () => tr("กำไรขั้นต้น", "Gross profit", "毛利"), kind: "money" as Kind, get: (r: Row) => r.it!.gross_profit, sum: true, def: true },
       ] : []),
     ];
-    return mode === "bill" ? [...common, ...billCols] : [...common, ...lineCols];
-  }, [mode, ref, catName, showCost, owStatus, locale]); // eslint-disable-line react-hooks/exhaustive-deps
+    const base = mode === "bill" ? [...common, ...billCols] : [...common, ...lineCols];
+    // ป้ายสีในรายการตัวกรอง = หน้าตาเดียวกับในตาราง
+    for (const c of base) if (c.kind === "enum" && !c.show) c.chip = c.id === "sales" || c.id === "cashier" ? (v) => <PersonChip name={v} /> : (v) => <TagChip value={v} />;
+    // คอลัมน์ที่เพิ่มเอง (ค่าต่อบิล — แสดงทั้งมุมมองต่อบิลและต่อรายการสินค้า)
+    const custom: Col[] = cf.fields.map((f) => ({
+      id: `cf:${f.id}`, label: () => f.name, custom: f, def: true,
+      kind: f.type === "number" ? "num" : f.type === "date" ? "date" : f.type === "text" ? "text" : "enum",
+      get: (r) => fieldText(f, cf.values[r.o.id]?.[f.id]),
+      chip: f.type === "select" ? (v) => { const o = f.options.find((x) => x.label === v); return <TagChip value={v} tone={o?.color} />; } : undefined,
+    }));
+    return [...base, ...custom];
+  }, [mode, ref, catName, showCost, owStatus, locale, cf.fields, cf.values]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const isShown = (c: Col) => (hidden[mode].length ? !hidden[mode].includes(c.id) : c.def !== false && !!c.def);
   const visible = cols.filter(isShown);
@@ -272,13 +289,21 @@ export function SalesSheet({ orders, branches, brands, employees, products, catN
                       <button onClick={() => setSort({ id: c.id, dir: sort.id === c.id ? (sort.dir === 1 ? -1 : 1) : right ? -1 : 1 })} className="hover:text-ink inline-flex items-center gap-0.5">
                         {c.label()}{sort.id === c.id ? (sort.dir === 1 ? <ArrowUp size={11} /> : <ArrowDown size={11} />) : null}
                       </button>
+                      {c.custom ? (() => { const I = fieldIcon(c.custom.type); return <I size={11} className="opacity-60 shrink-0" />; })() : null}
+                      {c.custom && cf.canEdit ? <button aria-label={tr("แก้ไขคอลัมน์", "Edit column", "编辑列")} title={tr("แก้ไขคอลัมน์", "Edit column", "编辑列")} onClick={(e) => setFieldEdit({ rect: (e.currentTarget as HTMLElement).getBoundingClientRect(), field: c.custom })}
+                        className="h-5 w-5 grid place-items-center rounded opacity-50 hover:opacity-100 hover:bg-surface2"><Pencil size={10} /></button> : null}
                       <button aria-label={tr("กรองคอลัมน์", "Filter column", "筛选列")} onClick={(e) => setMenu({ id: c.id, rect: (e.currentTarget as HTMLElement).getBoundingClientRect() })}
                         className={`h-5 w-5 grid place-items-center rounded ${on ? "text-brand bg-brand/10" : "opacity-50 hover:opacity-100 hover:bg-surface2"}`}><Filter size={10.5} /></button>
                     </span>
                   </th>
                 );
               })}
-              <th className="border-b border-l border-line bg-surface2 w-[72px] sticky right-0 z-10" />
+              <th className="border-b border-l border-line bg-surface2 w-[72px] sticky right-0 z-10 px-2">
+                {cf.ready && cf.canEdit ? (
+                  <button onClick={(e) => setFieldEdit({ rect: (e.currentTarget as HTMLElement).getBoundingClientRect() })} title={tr("เพิ่มคอลัมน์ของคุณเอง (กรอกข้อมูลได้แบบ Excel)", "Add your own column (editable like Excel)", "添加自定义列（可像 Excel 一样编辑）")}
+                    className="h-7 w-full rounded-lg border border-dashed border-line text-muted hover:text-brand hover:border-brand/50 inline-flex items-center justify-center gap-1 text-[11px]"><Plus size={12} />{tr("คอลัมน์", "Column", "列")}</button>
+                ) : null}
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -293,7 +318,7 @@ export function SalesSheet({ orders, branches, brands, employees, products, catN
                   {visible.map((c, i) => (
                     <td key={c.id} translate={c.noTr ? "no" : undefined}
                       className={`border-b border-line/70 py-2 whitespace-nowrap max-w-[260px] truncate ${i === 0 ? "pl-4 pr-2 sticky left-0 bg-surface border-r border-line/50" : "px-2"} ${c.kind === "num" || c.kind === "money" ? "text-right tnum" : ""} ${c.id === "total" || c.id === "l_total" ? "font-semibold" : ""} ${r.o.status === "voided" && (c.id === "total" || c.id === "l_total") ? "line-through text-muted" : ""} ${c.id === "gp" || c.id === "l_gp" ? "text-ok" : ""}`}>
-                      {fmt(c, r)}
+                      {c.custom ? <FieldCell field={c.custom} value={cf.values[r.o.id]?.[c.custom.id]} editable={cf.canEdit} onSave={(v) => void cf.setValue(r.o.id, c.custom!, v)} /> : fmt(c, r)}
                     </td>
                   ))}
                   {/* ปุ่มเชื่อมโยง — แยกให้เห็นชัด (กดทั้งแถวยังเปิดได้เหมือนเดิม) */}
@@ -333,6 +358,10 @@ export function SalesSheet({ orders, branches, brands, employees, products, catN
         <span className="flex gap-1"><button disabled={cur === 0} onClick={() => setPage(cur - 1)} className="h-7 px-2.5 rounded-lg border border-line disabled:opacity-40">{tr("ก่อนหน้า", "Prev", "上一页")}</button><button disabled={cur >= pages - 1} onClick={() => setPage(cur + 1)} className="h-7 px-2.5 rounded-lg border border-line disabled:opacity-40">{tr("ถัดไป", "Next", "下一页")}</button></span>
       </div>
 
+      {fieldEdit ? <FieldEditor rect={fieldEdit.rect} field={fieldEdit.field} onClose={() => setFieldEdit(null)}
+        onSave={async (f) => { if (fieldEdit.field) await cf.updateField(fieldEdit.field.id, { name: f.name, options: f.options }); else await cf.createField(f); }}
+        onDelete={fieldEdit.field ? async () => { await cf.deleteField(fieldEdit.field!.id); } : undefined} /> : null}
+      {cf.error ? <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-[95] rounded-xl bg-danger text-white text-xs px-4 py-2.5 shadow-pop flex items-center gap-2">{tr("บันทึกไม่สำเร็จ", "Save failed", "保存失败")}: {cf.error}<button onClick={() => cf.setError("")} className="opacity-80 hover:opacity-100"><X size={13} /></button></div> : null}
       {menu ? <ColumnFilterMenu col={cols.find((c) => c.id === menu.id)!} rect={menu.rect} rows={rows} value={filters[menu.id]} onClose={() => setMenu(null)}
         onApply={(f) => { setF(menu.id, f); setMenu(null); }} onSort={(dir) => { setSort({ id: menu.id, dir }); setMenu(null); }} /> : null}
       {openBill && openBill.source !== "lark" ? <OrderTraceDrawer key={openBill.id} clientUuid={openBill.client_uuid} orderNo={openBill.order_no} onClose={() => setOpenBill(null)} /> : null}
@@ -404,7 +433,7 @@ function ColumnFilterMenu({ col, rect, rows, value, onClose, onApply, onSort }: 
                 {list.map(([v, n]) => (
                   <label key={v} className="flex items-center gap-2 px-2 py-1.5 hover:bg-surface2 cursor-pointer">
                     <input type="checkbox" checked={picked.has(v)} onChange={(e) => { const s = new Set(picked); if (e.target.checked) s.add(v); else s.delete(v); setPicked(s); }} className="accent-[rgb(var(--c-brand))]" />
-                    <span className="flex-1 truncate">{v || <span className="text-muted">({tr("ว่าง", "blank", "空")})</span>}</span><span className="text-muted tnum">{formatInt(n)}</span>
+                    <span className="flex-1 min-w-0 truncate">{v ? (col.chip ? col.chip(v) : v) : <span className="text-muted">({tr("ว่าง", "blank", "空")})</span>}</span><span className="text-muted tnum">{formatInt(n)}</span>
                   </label>
                 ))}
               </div>
@@ -447,33 +476,5 @@ function LarkBillDrawer({ order, onClose }: { order: Order; onClose: () => void 
         <div className="flex justify-between font-semibold border-t border-line pt-2"><span>{tr("ยอดสุทธิ", "Net total", "合计")}</span><span className="tnum">{formatTHB(order.grand_total)}</span></div>
       </div>
     </Drawer>
-  );
-}
-
-// ── ป้ายสีแบบ Lark (สีพาสเทลคงที่ตามค่า) ──
-const TAG_TONES = [
-  "bg-[#E1EAFF] text-[#245BDB] dark:bg-[#1E2C4D] dark:text-[#9DB8FF]",
-  "bg-[#D9F5E8] text-[#1F7A4F] dark:bg-[#183528] dark:text-[#8FDDB6]",
-  "bg-[#FFF0D9] text-[#A35F00] dark:bg-[#3A2C14] dark:text-[#F3C27A]",
-  "bg-[#FDE2E2] text-[#C2352E] dark:bg-[#3D1F1F] dark:text-[#F6A5A0]",
-  "bg-[#EDE3FF] text-[#6B3FD1] dark:bg-[#2B2142] dark:text-[#C6AEFF]",
-  "bg-[#D7F4F7] text-[#0E7C86] dark:bg-[#15353A] dark:text-[#84D9E1]",
-  "bg-[#FFE3F1] text-[#B4307A] dark:bg-[#3C1B2D] dark:text-[#F4A3CD]",
-  "bg-[#EEF1D2] text-[#5F6B12] dark:bg-[#2C3015] dark:text-[#CED78A]",
-  "bg-[#E8EAED] text-[#4A5160] dark:bg-[#2A2D33] dark:text-[#B9BEC8]",
-];
-const hashOf = (v: string) => [...v].reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) >>> 0, 7);
-export function TagChip({ value }: { value: string }) {
-  return <span className={`inline-flex items-center max-w-full h-[22px] px-2 rounded-md text-[11.5px] font-medium truncate align-middle ${TAG_TONES[hashOf(value) % TAG_TONES.length]}`} title={value}>{value}</span>;
-}
-const PERSON_TONES = ["#5B8DEF", "#9B6EE8", "#E8789B", "#3FB27F", "#F0A23B", "#34A9C8", "#7C83FD", "#D9795F"];
-export function PersonChip({ name }: { name: string }) {
-  const w = name.replace(/[-–—(].*$/, "").trim().split(/\s+/).filter(Boolean);
-  const ini = ((w[0]?.[0] ?? "?") + (w[1]?.[0] ?? "")).toUpperCase();
-  return (
-    <span className="inline-flex items-center gap-1.5 max-w-full h-[22px] pl-0.5 pr-2 rounded-full bg-surface2 text-[11.5px] align-middle" title={name}>
-      <span className="w-[18px] h-[18px] rounded-full grid place-items-center text-[9px] font-semibold text-white shrink-0" style={{ background: PERSON_TONES[hashOf(name) % PERSON_TONES.length] }}>{ini}</span>
-      <span className="truncate">{name}</span>
-    </span>
   );
 }

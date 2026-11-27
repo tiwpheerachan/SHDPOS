@@ -22,7 +22,7 @@ export const PERMISSION_KEYS = [
   "dashboard.view", "work.view", "sales.view", "product.view", "document.view",
   "deferred_sale.manage", "approval.view",
   "campaign.manage", "display.manage", "integration.manage", "integration.reconcile",
-  "loyalty.manage", "sales.trace", "presence.view",
+  "loyalty.manage", "sales.trace", "presence.view", "sales.annotate",
 ] as const;
 
 export type PermissionKey = (typeof PERMISSION_KEYS)[number];
@@ -131,6 +131,7 @@ export const ROLE_MATRIX: Record<EmployeeRole, Partial<Record<PermissionKey, Rul
     "customer.manage": { effect: "allow" },
     "audit.view": { effect: "allow" },
     "presence.view": { effect: "allow" },
+    "sales.annotate": { effect: "allow" },
     "tax.issue_full": { effect: "allow" },
     "finance.view": { effect: "allow" },
     "period.close": { effect: "allow" },
@@ -172,6 +173,7 @@ export const ROLE_MATRIX: Record<EmployeeRole, Partial<Record<PermissionKey, Rul
     "admin.permission_manage": { effect: "allow" },
     "audit.view": { effect: "allow" },
     "presence.view": { effect: "allow" },
+    "sales.annotate": { effect: "allow" },
     "finance.view": { effect: "allow" },
     "period.close": { effect: "allow" },
     "report.share": { effect: "allow" },
@@ -196,6 +198,7 @@ export const ROLE_MATRIX: Record<EmployeeRole, Partial<Record<PermissionKey, Rul
     "report.gross_profit": { effect: "allow" },
     "audit.view": { effect: "allow" },
     "presence.view": { effect: "allow" },
+    "sales.annotate": { effect: "allow" },
     "finance.view": { effect: "allow" },
     "integration.reconcile": { effect: "allow" },
     "report.discount": { effect: "allow" },

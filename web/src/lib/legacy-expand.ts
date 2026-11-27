@@ -6,7 +6,7 @@ import type { Branch, Order } from "@/lib/types";
 import { tr } from "@/lib/i18n/tr";
 
 /** [branch | "lark:<place_key>", "YYYY-MM-DD", bill_no, returned 0|1, event 0|1, [[sku_i, qty, unit, disc, amount, pay_i]]] */
-export type LegacyBill = [string, string, string, 0 | 1, 0 | 1, [number, number | null, number | null, number | null, number | null, number][]];
+export type LegacyBill = [string, string, string, 0 | 1, 0 | 1, [number, number | null, number | null, number | null, number | null, number][], string?];
 export type LegacyCompact = { skus: [string, string | null, string | null, string | null][]; pays: string[]; places: Record<string, [string | null, boolean]>; bills: LegacyBill[] };
 /** ช่วงก่อนหน้า: [branch, date, event 0|1, bills, amount] */
 export type LegacyDaily = [string, string, 0 | 1, number, number][];
@@ -22,7 +22,7 @@ export function expandLegacy(c: LegacyCompact): { orders: Order[]; pseudoBranche
   const pseudo = new Map<string, Branch>();
   const orders: Order[] = new Array(c.bills.length);
   for (let b = 0; b < c.bills.length; b++) {
-    const [rawBr, date, billNo, ret, ev, lines] = c.bills[b];
+    const [rawBr, date, billNo, ret, ev, lines, placeKey] = c.bills[b];
     const br = rawBr || "lark:unknown";
     if (br.startsWith("lark:") && !pseudo.has(br)) {
       const pl = c.places[br.slice(5)];
@@ -42,7 +42,8 @@ export function expandLegacy(c: LegacyCompact): { orders: Order[]; pseudoBranche
         line_total: a, unit_cost: 0, cost_total: 0, gross_profit: 0, serials: [], salesperson_id: null, returned_qty: ret ? q : 0, is_gift: false, brand_id: s?.[3] ?? null };
     });
     total = r2(total); disc = r2(disc);
-    const id = `lark:${br}|${date}|${billNo}|${ret}`;
+    // รหัสบิลคงที่ = ร้านในระบบเดิม (ไม่ใช่สาขาที่จับคู่ — แก้การจับคู่แล้วค่าที่กรอกไว้ยังผูกบิลเดิม)
+    const id = `lark:${placeKey ?? br}|${date}|${billNo}|${ret}`;
     orders[b] = {
       id, client_uuid: id, order_no: billNo, branch_id: br, terminal_id: null, shift_id: null, cashier_id: null, salesperson_id: null, customer_id: null, customer_name: null, customer_phone: null,
       status: ret ? "voided" : "completed", channel: ev ? "event" : "offline",
