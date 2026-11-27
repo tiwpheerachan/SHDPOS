@@ -160,66 +160,147 @@ export function FilmSettingsTab({ editMode }: { editMode: boolean }) {
   );
 }
 
-/** รายสาขา: เปิด/ปิดรุ่นและความเข้ม · ใต้แต่ละความเข้มแสดงสต๊อกม้วนของสาขานั้น · ตั้งตามสต๊อกได้ในคลิกเดียว */
+/** สีประจำรุ่น (Essential เขียว · Pro ม่วง · Ultra ทอง) */
+const SERIES_TONE: Record<string, { bar: string; chip: string; text: string; soft: string; dot: string }> = {
+  E: { bar: "bg-emerald-500", chip: "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300", text: "text-emerald-700 dark:text-emerald-300", soft: "bg-emerald-500/[0.06] border-emerald-500/25", dot: "bg-emerald-500" },
+  P: { bar: "bg-violet-500", chip: "bg-violet-500/12 text-violet-700 dark:text-violet-300", text: "text-violet-700 dark:text-violet-300", soft: "bg-violet-500/[0.06] border-violet-500/25", dot: "bg-violet-500" },
+  U: { bar: "bg-amber-500", chip: "bg-amber-500/15 text-amber-700 dark:text-amber-300", text: "text-amber-700 dark:text-amber-300", soft: "bg-amber-500/[0.07] border-amber-500/30", dot: "bg-amber-500" },
+};
+const toneOf = (code: string) => SERIES_TONE[code] ?? SERIES_TONE.E;
+type BranchState = "full" | "partial" | "off" | "nostock";
+
+/** รายสาขา: การ์ดต่อสาขา · สีตามรุ่น · สถานะชัด (เปิด+มีม้วน / เปิดแต่ไม่มีม้วน / ปิด) · ปุ่มลัด */
 function BranchMatrix({ d, can, post, L, busy }: { d: Data; can: boolean; busy: string | null; post: (b: Record<string, unknown>, k: string, ok?: string) => Promise<boolean>; L: (a: string, b: string, c: string) => string }) {
-  const [q, setQ] = useState("");
+  const [q, setQ] = useState(""), [filter, setFilter] = useState<"all" | BranchState>("all");
   const off = (bid: string, se: string, shade: number) => d.branch_off.some((o) => o.branch_id === bid && o.series_code === se && Number(o.shade) === shade);
   const qty = (bid: string, pid: string | null) => (pid ? d.branch_stock.find((x) => x.branch_id === bid && x.product_id === pid)?.qty ?? 0 : 0);
   const unit = d.rules.stock_unit === "ft" ? L("ฟุต", "ft", "英尺") : L("ตร.ฟุต", "sq ft", "平方英尺");
-  const list = d.branches.filter((b) => { const s = q.trim().toLowerCase(); return !s || `${b.code} ${b.name_th ?? ""} ${b.name}`.toLowerCase().includes(s); });
+  const rollSize = d.rules.stock_unit === "ft" ? 100 : 500; // 1 ม้วน 60″×100ft
+  const activeShades = d.shades.filter((s) => s.active);
+
+  // สรุปต่อสาขา
+  const info = useMemo(() => d.branches.map((b) => {
+    const cells = activeShades.map((sh) => ({ sh, on: !off(b.id, sh.series_code, 0) && !off(b.id, sh.series_code, sh.shade), have: qty(b.id, sh.stock_product_id) }));
+    const on = cells.filter((c) => c.on), onWithStock = on.filter((c) => c.have > 0), noStockOn = on.filter((c) => c.have <= 0);
+    const state: BranchState = !on.length ? "off" : !onWithStock.length ? "nostock" : on.length === cells.length ? "full" : "partial";
+    const stockTotal = cells.reduce((n, c) => n + Math.max(0, c.have), 0);
+    return { b, state, on: on.length, total: cells.length, noStockOn: noStockOn.length, stockTotal };
+  }), [d.branches, d.branch_off, d.branch_stock, d.shades]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const counts = { full: 0, partial: 0, off: 0, nostock: 0 } as Record<BranchState, number>;
+  info.forEach((x) => counts[x.state]++);
+  const META: Record<BranchState, { label: string; pill: string; ring: string; hint: string }> = {
+    full: { label: L("เปิดขายครบ", "All on", "全部开放"), pill: "bg-ok/12 text-ok", ring: "border-ok/30", hint: L("ทุกรุ่นทุกความเข้มเปิดขาย", "Every series & shade on", "全部系列与深度开放") },
+    partial: { label: L("เปิดบางส่วน", "Partly on", "部分开放"), pill: "bg-brand/12 text-brand", ring: "border-brand/30", hint: L("ปิดบางรุ่น/บางความเข้ม", "Some series/shades off", "部分关闭") },
+    nostock: { label: L("เปิดแต่ไม่มีม้วน", "On, no rolls", "开放但无膜卷"), pill: "bg-warn/15 text-warn", ring: "border-warn/40", hint: L("หน้าร้านเห็นแต่ตัดสต๊อกไม่ได้ — ตั้งตามสต๊อกหรือเติมม้วน", "Visible at POS but no stock — match stock or restock", "前台可见但无库存") },
+    off: { label: L("ปิดทั้งหมด", "All off", "全部关闭"), pill: "bg-surface2 text-muted", ring: "border-line", hint: L("หน้าร้านไม่เห็นปุ่มงานติดฟิล์ม", "Film job hidden at POS", "前台不显示贴膜") },
+  };
+  const s = q.trim().toLowerCase();
+  const list = info.filter((x) => (filter === "all" || x.state === filter) && (!s || `${x.b.code} ${x.b.name_th ?? ""} ${x.b.name}`.toLowerCase().includes(s)));
+
   return (
-    <Card className="overflow-hidden">
-      <div className="px-4 py-3 flex flex-wrap items-center gap-2 border-b border-line/70">
-        <div className="relative flex-1 min-w-[200px]"><Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" /><Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={L("ค้นหาสาขา", "Search branch", "搜索门店")} className="pl-8 !h-9" /></div>
-        <p className="text-xs text-muted">{L(`กดชิปเพื่อเปิด/ปิด · ตัวเลขใต้ชิป = สต๊อกม้วนในสาขา (${unit}) · สาขาที่ปิดจะไม่เห็นรุ่น/ความเข้มนั้นที่หน้าร้าน`, `Tap chips to toggle · number = roll stock at branch (${unit}) · hidden at POS when off`, `点击切换 · 数字 = 门店膜卷库存（${unit}）· 关闭后前台不显示`)}</p>
+    <div className="space-y-3">
+      {/* สรุป + ตัวกรอง */}
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-2">
+        <button type="button" onClick={() => setFilter("all")} className={`rounded-2xl border p-3 text-left transition ${filter === "all" ? "border-ink/40 bg-surface shadow-card" : "border-line bg-surface/70 hover:bg-surface"}`}>
+          <p className="text-[11px] text-muted">{L("สาขาทั้งหมด", "All branches", "全部门店")}</p><p className="text-2xl font-bold tnum">{info.length}</p>
+        </button>
+        {(["full", "partial", "nostock", "off"] as BranchState[]).map((k) => (
+          <button key={k} type="button" onClick={() => setFilter(filter === k ? "all" : k)} title={META[k].hint}
+            className={`rounded-2xl border p-3 text-left transition ${filter === k ? `${META[k].ring} bg-surface shadow-card ring-1 ring-current/10` : "border-line bg-surface/70 hover:bg-surface"}`}>
+            <span className={`inline-block text-[11px] font-medium px-2 py-0.5 rounded-full ${META[k].pill}`}>{META[k].label}</span>
+            <p className="text-2xl font-bold tnum mt-1">{counts[k]}</p>
+          </button>
+        ))}
       </div>
-      <div className="overflow-auto max-h-[560px]">
-        <table className="w-full text-sm">
-          <thead className="bg-surface2 text-[11px] text-muted sticky top-0 z-10"><tr>
-            <th className="text-left font-medium px-4 py-2 min-w-[200px]">{L("สาขา", "Branch", "门店")}</th>
-            {d.series.map((s) => <th key={s.code} className="text-left font-medium px-3 py-2">{s.name}</th>)}
-            <th className="px-3 py-2" />
-          </tr></thead>
-          <tbody className="divide-y divide-line/60">
-            {list.map((b) => (
-              <tr key={b.id} className="align-top">
-                <td className="px-4 py-2.5"><span className="block font-medium" translate="no">{b.name_th || b.name}</span><span className="text-[11px] text-muted font-mono" translate="no">{b.code}</span></td>
-                {d.series.map((s) => {
-                  const seriesOff = off(b.id, s.code, 0);
-                  const shades = d.shades.filter((x) => x.series_code === s.code);
-                  return (
-                    <td key={s.code} className="px-3 py-2.5">
-                      <label className="flex items-center gap-1.5 text-[11.5px] mb-1.5">
-                        <input type="checkbox" checked={!seriesOff} disabled={!can || !!busy} onChange={(e) => void post({ action: "branch_toggle", branch_id: b.id, series_code: s.code, shade: 0, enabled: e.target.checked }, "branch")} className="accent-[rgb(var(--c-brand))]" />
-                        {seriesOff ? <span className="text-muted">{L("ปิดทั้งรุ่น", "Series off", "整系列关闭")}</span> : <span>{L("เปิดขาย", "On sale", "在售")}</span>}
-                      </label>
-                      <div className="flex flex-wrap gap-1">
-                        {shades.map((sh) => {
-                          const isOff = seriesOff || off(b.id, s.code, sh.shade);
-                          const have = qty(b.id, sh.stock_product_id);
-                          return (
-                            <button key={sh.shade} type="button" disabled={!can || seriesOff || !!busy}
-                              onClick={() => void post({ action: "branch_toggle", branch_id: b.id, series_code: s.code, shade: sh.shade, enabled: off(b.id, s.code, sh.shade) }, "branch")}
-                              className={`min-w-[58px] rounded-lg border px-2 py-1 text-center ${isOff ? "border-line text-muted line-through bg-surface2/60" : "border-brand/40 bg-brand/[0.07] text-ink"} disabled:cursor-not-allowed`}>
-                              <span className="block text-[12px] font-semibold tnum">{sh.shade}%</span>
-                              <span className={`block text-[10px] tnum ${have > 0 ? "text-ok" : "text-danger"}`}>{have.toLocaleString()}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </td>
-                  );
-                })}
-                <td className="px-3 py-2.5 text-right">
-                  {can ? <Button size="sm" variant="soft" disabled={!!busy} onClick={() => void post({ action: "branch_auto", branch_id: b.id }, "branch", L("ตั้งตามสต๊อกแล้ว", "Set from stock", "已按库存设置"))}><Wand2 size={13} />{L("ตั้งตามสต๊อก", "Match stock", "按库存设置")}</Button> : null}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {!list.length ? <p className="text-center text-xs text-muted py-8">{L("ไม่มีสาขาที่ขายแบรนด์ฟิล์มหรือมีม้วนฟิล์ม", "No branches sell the film brand or hold rolls", "没有销售该膜品牌或有膜卷的门店")}</p> : null}
+
+      <Card className="p-3 flex flex-wrap items-center gap-3">
+        <div className="relative flex-1 min-w-[220px]"><Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" /><Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={L("ค้นหาสาขา", "Search branch", "搜索门店")} className="pl-8 !h-9" /></div>
+        <div className="flex flex-wrap items-center gap-3 text-[11px] text-muted">
+          {d.series.map((se) => <span key={se.code} className="inline-flex items-center gap-1.5"><span className={`h-2.5 w-2.5 rounded-full ${toneOf(se.code).dot}`} />{se.name}</span>)}
+          <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-4 rounded bg-warn/30 border border-warn/50" />{L("เปิดแต่ไม่มีม้วน", "On, no stock", "开放无库存")}</span>
+          <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-4 rounded bg-surface2 border border-line" />{L("ปิด", "Off", "关闭")}</span>
+        </div>
+      </Card>
+
+      {!can ? <p className="text-xs text-muted flex items-center gap-1.5 px-1"><Lock size={12} />{L("ติ๊ก “เปิดโหมดแก้ไข” ด้านบนเพื่อเปิด/ปิดรายสาขา", "Tick “Enable editing” above to change", "勾选上方“开启编辑”后可修改")}</p> : null}
+
+      <div className="grid xl:grid-cols-2 gap-3">
+        {list.map(({ b, state, on, total, stockTotal }) => (
+          <Card key={b.id} className={`overflow-hidden border ${META[state].ring}`}>
+            {/* หัวการ์ด */}
+            <div className="px-4 py-3 flex flex-wrap items-center gap-3 border-b border-line/60">
+              <span className="h-10 w-10 rounded-xl bg-brand/10 text-brand grid place-items-center shrink-0"><Store size={18} /></span>
+              <div className="min-w-0 flex-1">
+                <p className="font-semibold truncate" translate="no">{b.name_th || b.name}</p>
+                <p className="text-[11px] text-muted"><span className="font-mono" translate="no">{b.code}</span> · {L("ม้วนรวม", "Rolls", "膜卷合计")} <b className="tnum text-ink">{stockTotal.toLocaleString()}</b> {unit}</p>
+              </div>
+              <span className={`text-[11px] font-semibold px-2.5 py-1 rounded-full ${META[state].pill}`}>{META[state].label} · {on}/{total}</span>
+            </div>
+            {/* รายรุ่น */}
+            <div className="p-3 space-y-2">
+              {d.series.map((se) => {
+                const tone = toneOf(se.code);
+                const seriesOff = off(b.id, se.code, 0);
+                const shades = d.shades.filter((x) => x.series_code === se.code && x.active);
+                return (
+                  <div key={se.code} className={`relative rounded-xl border pl-4 pr-3 py-2.5 flex flex-wrap items-center gap-3 ${seriesOff ? "border-line bg-surface2/40" : tone.soft}`}>
+                    <span className={`absolute left-0 top-2 bottom-2 w-1.5 rounded-full ${seriesOff ? "bg-line" : tone.bar}`} />
+                    <div className="w-[118px] shrink-0">
+                      <p className={`text-[13px] font-semibold ${seriesOff ? "text-muted" : tone.text}`}>{se.name}</p>
+                      <Switch on={!seriesOff} disabled={!can || !!busy} label={seriesOff ? L("ปิดทั้งรุ่น", "Off", "关闭") : L("เปิดขาย", "On", "开放")}
+                        onChange={(v) => void post({ action: "branch_toggle", branch_id: b.id, series_code: se.code, shade: 0, enabled: v }, "branch")} />
+                    </div>
+                    <div className="flex flex-wrap gap-1.5 flex-1">
+                      {shades.map((sh) => {
+                        const isOff = seriesOff || off(b.id, se.code, sh.shade);
+                        const have = qty(b.id, sh.stock_product_id);
+                        const noStock = !isOff && have <= 0;
+                        const pct = Math.max(0, Math.min(100, (have / rollSize) * 100));
+                        return (
+                          <button key={sh.shade} type="button" disabled={!can || seriesOff || !!busy}
+                            title={`${sh.model_code} · ${sh.sku ?? ""} · ${have.toLocaleString()} ${unit}`}
+                            onClick={() => void post({ action: "branch_toggle", branch_id: b.id, series_code: se.code, shade: sh.shade, enabled: off(b.id, se.code, sh.shade) }, "branch")}
+                            className={`w-[84px] rounded-xl border px-2 py-1.5 text-left transition disabled:cursor-not-allowed ${isOff ? "border-line bg-surface2/70 opacity-60" : noStock ? "border-warn/50 bg-warn/[0.08]" : "border-ok/40 bg-surface hover:shadow-card"}`}>
+                            <span className="flex items-center justify-between">
+                              <span className={`text-[13px] font-bold tnum ${isOff ? "line-through text-muted" : ""}`}>{sh.shade}%</span>
+                              {/* แถบสีจำลองความเข้มฟิล์ม */}
+                              <span className="h-3.5 w-6 rounded-[4px] border border-black/10" style={{ background: `rgba(17,24,39,${Math.min(0.92, sh.shade / 100 + 0.05)})` }} />
+                            </span>
+                            <span className={`block text-[10.5px] tnum mt-0.5 ${isOff ? "text-muted" : noStock ? "text-warn font-semibold" : "text-ok font-semibold"}`}>
+                              {isOff ? L("ปิด", "off", "关") : noStock ? L("ไม่มีม้วน", "no roll", "无卷") : `${have.toLocaleString()} ${unit}`}
+                            </span>
+                            <span className="block h-1 rounded-full bg-line/70 mt-1 overflow-hidden"><span className={`block h-full ${isOff ? "bg-muted/40" : noStock ? "bg-warn" : "bg-ok"}`} style={{ width: `${isOff ? 0 : noStock ? 100 : Math.max(6, pct)}%` }} /></span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            {/* ปุ่มลัด */}
+            {can ? (
+              <div className="px-3 pb-3 flex flex-wrap gap-2">
+                <Button size="sm" variant="soft" disabled={!!busy} onClick={() => void post({ action: "branch_auto", branch_id: b.id }, "branch", L("ตั้งตามสต๊อกแล้ว", "Matched to stock", "已按库存设置"))}><Wand2 size={13} />{L("ตั้งตามสต๊อก", "Match stock", "按库存设置")}</Button>
+                <Button size="sm" variant="ghost" disabled={!!busy || state === "full"} onClick={() => void post({ action: "branch_all", branch_id: b.id, enabled: true }, "branch", L("เปิดทั้งหมดแล้ว", "All on", "已全部开放"))}>{L("เปิดทั้งหมด", "All on", "全部开放")}</Button>
+                <Button size="sm" variant="ghost" disabled={!!busy || state === "off"} onClick={() => void post({ action: "branch_all", branch_id: b.id, enabled: false }, "branch", L("ปิดทั้งหมดแล้ว", "All off", "已全部关闭"))}>{L("ปิดทั้งหมด", "All off", "全部关闭")}</Button>
+              </div>
+            ) : null}
+          </Card>
+        ))}
       </div>
-    </Card>
+      {!list.length ? <Card className="p-10 text-center text-sm text-muted">{info.length ? L("ไม่มีสาขาตามตัวกรอง", "No branches match", "没有符合的门店") : L("ไม่มีสาขาที่ขายแบรนด์ฟิล์มหรือมีม้วนฟิล์ม", "No branches sell the film brand or hold rolls", "没有销售该膜品牌或有膜卷的门店")}</Card> : null}
+    </div>
+  );
+}
+
+function Switch({ on, onChange, disabled, label }: { on: boolean; onChange: (v: boolean) => void; disabled?: boolean; label: string }) {
+  return (
+    <button type="button" role="switch" aria-checked={on} disabled={disabled} onClick={() => onChange(!on)} className="mt-1 inline-flex items-center gap-1.5 text-[11px] disabled:cursor-not-allowed disabled:opacity-70">
+      <span className={`relative h-4 w-7 rounded-full transition-colors ${on ? "bg-ok" : "bg-line"}`}><span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-all ${on ? "left-3.5" : "left-0.5"}`} /></span>
+      <span className={on ? "text-ink" : "text-muted"}>{label}</span>
+    </button>
   );
 }
 

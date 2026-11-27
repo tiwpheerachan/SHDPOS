@@ -126,6 +126,20 @@ export async function POST(req: NextRequest) {
         : await sb.from("film_branch_off").delete().match({ branch_id: bid, series_code: se, shade });
       break;
     }
+    case "branch_all": {
+      // เปิดทั้งหมด (ลบการปิดทุกแถวของสาขา) / ปิดทั้งหมด (ปิดทุกรุ่น)
+      const bid = String(b.branch_id ?? "");
+      if (!UUID.test(bid)) return reply({ error: "ข้อมูลไม่ถูกต้อง" }, 400);
+      const scope = await visibleBranchIds(g.authz);
+      if (scope && !scope.includes(bid)) return reply({ error: "สาขานี้อยู่นอกขอบเขตของคุณ" }, 403);
+      const del = await sb.from("film_branch_off").delete().eq("branch_id", bid);
+      if (del.error) return reply({ error: del.error.message }, 500);
+      if (b.enabled === false) {
+        const se = await sb.from("film_series").select("code");
+        r = await sb.from("film_branch_off").upsert((se.data ?? []).map((x) => ({ branch_id: bid, series_code: x.code, shade: 0 })), { onConflict: "branch_id,series_code,shade" });
+      }
+      break;
+    }
     case "branch_auto": {
       // ตั้งตามสต๊อกจริง: เปิดความเข้มที่ม้วนมีของในสาขา ปิดที่ไม่มี (ไม่แตะการปิดทั้งรุ่น)
       const bid = String(b.branch_id ?? "");
