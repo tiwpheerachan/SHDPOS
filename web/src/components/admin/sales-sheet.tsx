@@ -35,7 +35,8 @@ type ColFilter = { text?: string; values?: string[]; min?: number | null; max?: 
 const PAY = (): Record<string, string> => ({ cash: tr("เงินสด", "Cash", "现金"), credit_card: tr("บัตรเครดิต", "Credit card", "信用卡"), debit_card: tr("บัตรเดบิต", "Debit card", "借记卡"), qr_promptpay: tr("พร้อมเพย์", "PromptPay", "PromptPay"), bank_transfer: tr("โอนเงิน", "Bank transfer", "银行转账"), edc: "EDC", installment: tr("ผ่อนชำระ", "Installment", "分期付款"), gift_card: tr("บัตรของขวัญ", "Gift card", "礼品卡"), store_credit: tr("เครดิตร้าน", "Store credit", "店铺余额"), online_marketplace: tr("มาร์เก็ตเพลส", "Marketplace", "电商平台"), online_payment: tr("ชำระออนไลน์", "Online payment", "线上支付"), unspecified: tr("ไม่ระบุ", "Not specified", "未注明"), other: tr("อื่น ๆ", "Other", "其他") });
 const STATUS = (): Record<string, string> => ({ completed: tr("ขายแล้ว", "Sold", "已售"), partially_refunded: tr("คืนบางส่วน", "Partly refunded", "部分退款"), refunded: tr("คืนครบ", "Refunded", "全额退款"), voided: tr("ยกเลิก", "Voided", "已作废") });
 const STATUS_CLS: Record<string, string> = { completed: "bg-ok/12 text-ok", partially_refunded: "bg-warn/15 text-warn", refunded: "bg-warn/15 text-warn", voided: "bg-danger/10 text-danger" };
-const CHANNEL = (): Record<string, string> => ({ offline: tr("หน้าร้าน", "In-store", "门店"), online: tr("ออนไลน์", "Online", "线上"), line: "LINE", facebook: "Facebook", marketplace: tr("มาร์เก็ตเพลส", "Marketplace", "电商平台"), event: tr("อีเวนต์", "Event", "活动") });
+const CHANNEL = (): Record<string, string> => ({ offline: tr("หน้าร้าน", "In-store", "门店"), online: tr("ออนไลน์", "Online", "线上"), line: "LINE", facebook: "Facebook", marketplace: tr("มาร์เก็ตเพลส", "Marketplace", "电商平台"), event: tr("อีเวนต์", "Event", "活动"),
+  online_shopee: "Shopee", online_lazada: "Lazada", online_tiktok: "TikTok", online_website: tr("เว็บไซต์", "Website", "官网"), b2b: tr("ขายส่ง", "Wholesale", "批发"), other: tr("อื่น ๆ", "Other", "其他") });
 const baht = (n: number) => formatTHB(n, false);
 // เวลาไทย (UTC+7) แบบคำนวณตรง — เร็วกว่า toLocaleString มาก (ตารางกรอง/เรียงหลายหมื่นแถว)
 const bkkIso = (iso: string) => new Date(new Date(iso).getTime() + 7 * 3600_000).toISOString();
@@ -144,6 +145,11 @@ export function SalesSheet({ orders, branches, brands, employees, products, catN
       { id: "vat", label: () => "VAT", kind: "money", get: (r) => r.o.vat_amount, sum: true },
       { id: "total", label: () => tr("ยอดสุทธิ", "Net total", "净额"), kind: "money", get: (r) => r.o.grand_total, sum: true, def: true },
       { id: "payment", label: () => tr("วิธีชำระ", "Payment", "付款方式"), kind: "enum", get: (r) => pay(r.o), def: true },
+      // จากระบบเดิม (Lark) — ข้อความตามที่พิมพ์
+      { id: "sale_type", label: () => tr("ประเภทการขาย", "Sale type", "销售类型"), kind: "enum", get: (r) => [...new Set(r.o.items.map((i) => i.sale_type).filter(Boolean))].join(" + ") },
+      { id: "order_source", label: () => tr("ช่องทางออเดอร์", "Order source", "订单来源"), kind: "enum", get: (r) => r.o.order_source ?? "", noTr: true },
+      { id: "edc_bank", label: () => tr("เครื่อง EDC (ธนาคาร)", "EDC bank", "刷卡机银行"), kind: "enum", get: (r) => [...new Set(r.o.payments.map((p) => p.acquirer_bank).filter(Boolean))].join(", "), noTr: true },
+      { id: "payment_bank", label: () => tr("ธนาคารรับเงิน", "Bank received", "收款银行"), kind: "enum", get: (r) => r.o.payment_bank ?? "", noTr: true },
       { id: "pay_ref", label: () => tr("เลขอ้างอิงชำระ", "Payment ref.", "付款参考号"), kind: "text", get: (r) => r.o.payments.map((p) => [p.card_brand, p.card_last4 && `•${p.card_last4}`, p.approval_code, p.reference_no].filter(Boolean).join(" ")).filter(Boolean).join(" | "), noTr: true },
       { id: "sn", label: () => "SN", kind: "text", get: (r) => goods(r.o).flatMap((i) => i.serials ?? []).join(", "), noTr: true },
       { id: "status", label: () => tr("สถานะ", "Status", "状态"), kind: "enum", get: (r) => STATUS()[r.o.status] ?? r.o.status, def: true,
@@ -170,6 +176,8 @@ export function SalesSheet({ orders, branches, brands, employees, products, catN
       { id: "l_sn", label: () => "SN", kind: "text", get: (r) => (r.it!.serials ?? []).join(", "), def: true, noTr: true },
       { id: "returned", label: () => tr("คืนแล้ว", "Returned", "已退"), kind: "num", get: (r) => r.it!.returned_qty ?? 0, sum: true },
       { id: "payment", label: () => tr("วิธีชำระ (บิล)", "Payment (bill)", "付款方式（单据）"), kind: "enum", get: (r) => pay(r.o) },
+      { id: "l_sale_type", label: () => tr("ประเภทการขาย", "Sale type", "销售类型"), kind: "enum", get: (r) => r.it!.sale_type ?? "", def: true },
+      { id: "l_order_source", label: () => tr("ช่องทางออเดอร์", "Order source", "订单来源"), kind: "enum", get: (r) => r.o.order_source ?? "", noTr: true },
       { id: "status", label: () => tr("สถานะบิล", "Bill status", "单据状态"), kind: "enum", get: (r) => STATUS()[r.o.status] ?? r.o.status, def: true,
         show: (r) => <span className={`inline-block px-1.5 py-0.5 rounded-md text-[10.5px] font-medium ${STATUS_CLS[r.o.status] ?? "bg-surface2 text-muted"}`}>{STATUS()[r.o.status] ?? r.o.status}</span> },
       ...(showCost ? [

@@ -15,7 +15,9 @@ type Month = { ym: string; lines: number; bills: number; amount: number; unmappe
 type Place = { place_key: string; dv_place_id: string | null; place_name: string | null; channel: string; brand_ids: string[]; branch_id: string | null; matched_by: "none" | "auto" | "manual"; score: number | null; lines: number; last_sale: string | null };
 type Branch = { id: string; code: string; name: string; name_th: string | null; branch_type: string; pos_go_live_date: string | null };
 type Run = { id: number; kind: string; date_from: string; date_to: string; fetched: number; upserted: number; removed: number; status: string; error: string | null; started_at: string; finished_at: string | null };
-type Data = { ready: boolean; months: Month[]; places: Place[]; branches: Branch[]; runs: Run[] };
+type Person = { name_key: string; sample_name: string; employee_id: string | null; matched_by: "none" | "auto" | "manual"; lines: number; last_sale: string | null };
+type Emp = { id: string; employee_code: string | null; first_name: string | null; last_name: string | null; nickname: string | null; photo_url: string | null };
+type Data = { ready: boolean; months: Month[]; places: Place[]; branches: Branch[]; runs: Run[]; people: Person[]; employees: Emp[] };
 
 const FIRST = "2024-01"; // ข้อมูลระบบเดิมเริ่ม ม.ค. 2024
 const monthsBetween = (a: string, b: string) => { const out: string[] = []; let [y, m] = a.split("-").map(Number); const [by, bm] = b.split("-").map(Number); while (y < by || (y === by && m <= bm)) { out.push(`${y}-${String(m).padStart(2, "0")}`); m++; if (m > 12) { m = 1; y++; } } return out; };
@@ -156,6 +158,14 @@ export default function DataversePage() {
         </table>
       </Card>
 
+      {/* พนักงานขาย (ชื่อพิมพ์เองใน Lark) → พนักงานในระบบ */}
+      <PeopleMap d={d} busy={busy} onMap={async (p, eid) => {
+        setBusy(p.name_key);
+        try { await post({ action: "person_map", name_key: p.name_key, employee_id: eid }); await load(); }
+        catch (x) { toast.push({ tone: "danger", title: L("บันทึกไม่สำเร็จ", "Save failed", "保存失败"), body: x instanceof Error ? x.message : String(x) }); }
+        finally { setBusy(null); }
+      }} />
+
       {/* วันเริ่มใช้ POS */}
       <Card className="overflow-auto">
         <div className="px-4 py-3 border-b border-line">
@@ -203,5 +213,53 @@ export default function DataversePage() {
         </table>
       </Card>
     </div>
+  );
+}
+
+function PeopleMap({ d, busy, onMap }: { d: Data; busy: string | null; onMap: (p: Person, eid: string | null) => void }) {
+  const { L } = useI18n();
+  const [q, setQ] = useState(""), [only, setOnly] = useState<"all" | "none">("all");
+  const empName = (e: Emp) => [e.nickname ? `${e.nickname} ·` : "", e.first_name, e.last_name].filter(Boolean).join(" ");
+  const list = d.people.filter((p) => (only === "none" ? !p.employee_id : true) && (!q || p.sample_name.toLowerCase().includes(q.toLowerCase())));
+  const matched = d.people.filter((p) => p.employee_id).length;
+  return (
+    <Card className="overflow-auto">
+      <div className="px-4 py-3 border-b border-line flex flex-wrap items-center gap-2">
+        <div className="flex-1 min-w-[240px]">
+          <p className="text-sm font-semibold">{L("พนักงานขายใน Lark → พนักงานในระบบ", "Lark salespeople → our staff", "Lark 销售员 → 本系统员工")}</p>
+          <p className="text-xs text-muted">{L(`ระบบเดิมส่งมาเป็นชื่อที่พิมพ์เอง — จับคู่อัตโนมัติเมื่อชัดเจน 1 คน (ชื่อเล่น/ชื่อ/ชื่ออีเมล) แก้เองได้ · ที่ยังไม่จับคู่ยังแสดงชื่อตาม Lark ในหน้ายอดขาย · จับคู่แล้ว ${matched}/${d.people.length} ชื่อ`, `Free-text names from Lark — auto-matched when unambiguous, editable · unmatched names still show as typed · matched ${matched}/${d.people.length}`, `旧系统为手填姓名 — 唯一时自动匹配，可手动修改 · 已匹配 ${matched}/${d.people.length}`)}</p>
+        </div>
+        <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={L("ค้นหาชื่อ", "Search name", "搜索姓名")} className="!h-8 w-44 text-xs" />
+        <Select value={only} onChange={(e) => setOnly(e.target.value as "all" | "none")} className="!h-8 text-xs w-40">
+          <option value="all">{L("ทุกชื่อ", "All names", "全部")}</option>
+          <option value="none">{L("เฉพาะที่ยังไม่จับคู่", "Unmatched only", "仅未匹配")}</option>
+        </Select>
+      </div>
+      <table className="w-full text-sm">
+        <thead className="text-[11px] text-muted"><tr className="border-b border-line">
+          <th className="text-left font-medium px-4 py-2">{L("ชื่อใน Lark", "Name in Lark", "Lark 中姓名")}</th><th className="text-right font-medium px-3 py-2">{L("บรรทัด", "Lines", "行")}</th>
+          <th className="text-left font-medium px-3 py-2">{L("ขายล่าสุด", "Last sale", "最近销售")}</th><th className="text-left font-medium px-3 py-2 min-w-[260px]">{L("พนักงานในระบบ", "Our staff", "本系统员工")}</th>
+          <th className="text-left font-medium px-3 py-2">{L("จับคู่โดย", "Matched by", "匹配方式")}</th>
+        </tr></thead>
+        <tbody>
+          {list.slice(0, 300).map((p) => (
+            <tr key={p.name_key} className="border-b border-line/60">
+              <td className="px-4 py-2" translate="no">{p.sample_name}</td>
+              <td className="px-3 py-2 text-right tnum">{formatInt(p.lines)}</td>
+              <td className="px-3 py-2 text-xs tnum">{p.last_sale ?? "—"}</td>
+              <td className="px-3 py-2">
+                <Select value={p.employee_id ?? ""} disabled={busy === p.name_key} className="!h-8 text-xs" onChange={(e) => onMap(p, e.target.value || null)}>
+                  <option value="">{L("— ยังไม่จับคู่ (แสดงชื่อตาม Lark) —", "— Not matched (show Lark name) —", "— 未匹配（显示 Lark 名称）—")}</option>
+                  {d.employees.map((e) => <option key={e.id} value={e.id}>{empName(e)}{e.employee_code ? ` (${e.employee_code})` : ""}</option>)}
+                </Select>
+              </td>
+              <td className="px-3 py-2 text-xs">{p.matched_by === "manual" ? L("แก้เอง", "Manual", "手动") : p.matched_by === "auto" ? L("อัตโนมัติ", "Auto", "自动") : <span className="text-muted">—</span>}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {!list.length ? <p className="text-center text-sm text-muted py-8">{L("ยังไม่มีชื่อพนักงานขาย — กดดึงข้อมูลใหม่", "No salesperson names yet — refresh data", "暂无销售员 — 请刷新数据")}</p> : null}
+      {list.length > 300 ? <p className="text-center text-xs text-muted py-2">{L("แสดง 300 ชื่อแรก — ค้นหาเพื่อดูเพิ่ม", "Showing first 300 — search to narrow", "显示前 300 个 — 请搜索")}</p> : null}
+    </Card>
   );
 }

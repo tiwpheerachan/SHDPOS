@@ -2,12 +2,30 @@
 // กางยอดขายระบบเดิม (Lark) แบบบีบอัดจากเซิร์ฟเวอร์ → Order (source "lark") ให้หน้ายอดขายใช้สูตรเดียวกับบิล POS
 //   ระบบเดิมไม่มีเวลาขาย → ตั้งเที่ยงวันเวลาไทย (หน้าเว็บไม่เอาไปคิดรายชั่วโมง) · คืนสินค้า = บิลยกเลิก
 // =====================================================================
-import type { Branch, Order } from "@/lib/types";
+import type { Branch, Employee, Order } from "@/lib/types";
 import { tr } from "@/lib/i18n/tr";
 
 /** [branch | "lark:<place_key>", "YYYY-MM-DD", bill_no, returned 0|1, event 0|1, [[sku_i, qty, unit, disc, amount, pay_i]]] */
-export type LegacyBill = [string, string, string, 0 | 1, 0 | 1, [number, number | null, number | null, number | null, number | null, number][], string?];
-export type LegacyCompact = { skus: [string, string | null, string | null, string | null][]; pays: string[]; places: Record<string, [string | null, boolean]>; bills: LegacyBill[] };
+export type LegacyBill = [string, string, string, 0 | 1, 0 | 1, [number, number | null, number | null, number | null, number | null, number, number?, number?][], string?, (string | null)?, (string | null)?, (string | null)?];
+export type LegacyCompact = { skus: [string, string | null, string | null, string | null][]; pays: string[]; places: Record<string, [string | null, boolean]>; bills: LegacyBill[];
+  /** พนักงานขาย: [key, ชื่อตามที่พิมพ์, employee_id ที่จับคู่แล้ว | null] */ persons?: [string, string, string | null][]; stypes?: string[] };
+
+/** ช่องทางออเดอร์ที่พิมพ์ใน Lark → ช่องทางของระบบ (อีเวนต์คงเป็นอีเวนต์) */
+export function legacyChannel(src: string | null | undefined, event: boolean): Order["channel"] {
+  if (event) return "event";
+  const s = (src ?? "").toLowerCase();
+  if (/shopee|spe\b/.test(s)) return "online_shopee";
+  if (/lazada|lzd/.test(s)) return "online_lazada";
+  if (/tiktok|tt\b/.test(s)) return "online_tiktok";
+  if (/website|web/.test(s)) return "online_website";
+  if (/motor ?show|expo|event|งาน/.test(s)) return "event";
+  return "offline";
+}
+const lineKind = (t: string | null | undefined) => (!t ? "goods" : /ค่าเดินทาง|上门/.test(t) ? "travel" : /บริการ|安装|服务/.test(t) ? "service" : "goods");
+/** "ขายสินค้า商品销售" → "ขายสินค้า" (ตัดภาษาจีนท้ายข้อความ) */
+export const cleanSaleType = (t: string | null | undefined) => (t ? t.replace(/[\u4e00-\u9fff]+/g, "").trim() || t : null);
+/** id พนักงานขายสมมุติของชื่อที่ยังไม่จับคู่ (แสดงชื่อตาม Lark ได้ทุกหน้า) */
+export const larkPersonId = (key: string) => `larkp:${key}`;
 /** ช่วงก่อนหน้า: [branch, date, event 0|1, bills, amount] */
 export type LegacyDaily = [string, string, 0 | 1, number, number][];
 
@@ -17,12 +35,14 @@ const NO_SKU = () => tr("ไม่ระบุสินค้า (ระบบ�
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const num = (n: number | null | undefined) => Number(n) || 0;
 
-export function expandLegacy(c: LegacyCompact): { orders: Order[]; pseudoBranches: Branch[] } {
+export function expandLegacy(c: LegacyCompact): { orders: Order[]; pseudoBranches: Branch[]; pseudoEmployees: Employee[] } {
+  const persons = (c.persons ?? []).map(([key, name, eid]) => ({ id: eid ?? larkPersonId(key), name, matched: !!eid }));
+  const stypes = (c.stypes ?? []).map(cleanSaleType);
   const pay = c.pays.map(legacyPayMethod);
   const pseudo = new Map<string, Branch>();
   const orders: Order[] = new Array(c.bills.length);
   for (let b = 0; b < c.bills.length; b++) {
-    const [rawBr, date, billNo, ret, ev, lines, placeKey] = c.bills[b];
+    const [rawBr, date, billNo, ret, ev, lines, placeKey, osrc, edc, pbank] = c.bills[b];
     const br = rawBr || "lark:unknown";
     if (br.startsWith("lark:") && !pseudo.has(br)) {
       const pl = c.places[br.slice(5)];
@@ -31,28 +51,34 @@ export function expandLegacy(c: LegacyCompact): { orders: Order[]; pseudoBranche
     }
     let total = 0, disc = 0;
     const pays = new Map<string, number>();
-    const items = lines.map(([si, qty, unit, d, amt, pi], k) => {
+    const items = lines.map(([si, qty, unit, d, amt, pi, pei, sti], k) => {
       const s = c.skus[si];
       const q = num(qty) || 1, a = num(amt), dd = num(d);
       total += a; disc += dd;
       const m = pay[pi] ?? "other"; pays.set(m, (pays.get(m) ?? 0) + a);
+      const person = pei != null && pei >= 0 ? persons[pei] : undefined;
+      const stype = sti != null && sti >= 0 ? stypes[sti] : null;
       // ระบบเดิมไม่ส่งรหัส/ชื่อสินค้ามา (key "?") → ระบุชัดว่าไม่ทราบสินค้า
       const unknown = !s || s[0] === "?";
-      return { id: `${billNo}:${k}`, product_id: s?.[2] ?? null, sku: unknown ? "" : s[0], name: unknown ? NO_SKU() : s[1] ?? s[0], kind: "goods", qty: q, unit_price: num(unit) || r2(a / q), discount_amount: dd,
-        line_total: a, unit_cost: 0, cost_total: 0, gross_profit: 0, serials: [], salesperson_id: null, returned_qty: ret ? q : 0, is_gift: false, brand_id: s?.[3] ?? null };
+      return { id: `${billNo}:${k}`, product_id: s?.[2] ?? null, sku: unknown ? "" : s[0], name: unknown ? NO_SKU() : s[1] ?? s[0], qty: q, unit_price: num(unit) || r2(a / q), discount_amount: dd,
+        line_total: a, unit_cost: 0, cost_total: 0, gross_profit: 0, serials: [], salesperson_id: person?.id ?? null, returned_qty: ret ? q : 0, is_gift: false, brand_id: s?.[3] ?? null,
+        kind: lineKind(stype), sale_type: stype };
     });
     total = r2(total); disc = r2(disc);
     // รหัสบิลคงที่ = ร้านในระบบเดิม (ไม่ใช่สาขาที่จับคู่ — แก้การจับคู่แล้วค่าที่กรอกไว้ยังผูกบิลเดิม)
     const id = `lark:${placeKey ?? br}|${date}|${billNo}|${ret}`;
     orders[b] = {
-      id, client_uuid: id, order_no: billNo, branch_id: br, terminal_id: null, shift_id: null, cashier_id: null, salesperson_id: null, customer_id: null, customer_name: null, customer_phone: null,
-      status: ret ? "voided" : "completed", channel: ev ? "event" : "offline",
+      id, client_uuid: id, order_no: billNo, branch_id: br, terminal_id: null, shift_id: null, cashier_id: null, customer_id: null, customer_name: null, customer_phone: null,
+      status: ret ? "voided" : "completed", channel: legacyChannel(osrc, !!ev), order_source: osrc ?? null, payment_bank: pbank ?? null,
+      salesperson_id: items.find((i) => i.salesperson_id)?.salesperson_id ?? null,
       subtotal: r2(total + disc), discount_total: disc, vat_amount: r2((total * 7) / 107), grand_total: total, paid_total: total, change_amount: 0, cost_total: 0, gross_profit: 0,
       created_at: `${date}T05:00:00.000Z`, void_reason: ret ? "คืนสินค้า (ระบบเดิม Lark)" : null, is_offline_origin: false, synced: true, source: "lark",
-      items, payments: [...pays.entries()].filter(([, a]) => a > 0).map(([method, amount]) => ({ method, amount: r2(amount) })),
+      items, payments: [...pays.entries()].filter(([, a]) => a > 0).map(([method, amount]) => ({ method, amount: r2(amount), ...(edc ? { acquirer_bank: edc } : {}) })),
     } as unknown as Order;
   }
-  return { orders, pseudoBranches: [...pseudo.values()] };
+  // พนักงานที่ยังไม่อยู่ในระบบ → พนักงานสมมุติ (ชื่อตาม Lark) ให้คอลัมน์/ผลงานพนักงานแสดงได้
+  const pseudoEmployees = persons.filter((p) => !p.matched).map((p) => ({ id: p.id, employee_code: "LARK", first_name: p.name, last_name: "", nickname: p.name, role: "staff", home_branch_id: null, photo_url: null, status: "active", source: "lark" } as unknown as Employee));
+  return { orders, pseudoBranches: [...pseudo.values()], pseudoEmployees };
 }
 
 /** ช่วงก่อนหน้า → แถวย่อ (น้ำหนัก n = จำนวนบิล) */

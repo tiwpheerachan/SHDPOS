@@ -78,7 +78,7 @@ export async function GET(req: NextRequest) {
   if (allowed !== null) posQ = posQ.in("branch_id", allowed.length ? allowed : ["00000000-0000-0000-0000-000000000000"]);
   if (own) posQ = posQ.eq("employee_id", own);
   const positions = ((await posQ).data ?? []).filter((r) => r.title);
-  const people = [...new Set([...orders.flatMap((o) => [o.cashier_id, o.salesperson_id, ...o.items.map((i: Row) => i.salesperson_id)]), ...positions.map((r) => r.employee_id)].filter(Boolean))] as string[];
+  const people = [...new Set([...orders.flatMap((o) => [o.cashier_id, o.salesperson_id, ...o.items.map((i: Row) => i.salesperson_id)]), ...positions.map((r) => r.employee_id), ...(legacy?.persons ?? []).map((p) => p[2])].filter(Boolean))] as string[];
   const employees = people.length ? ((await sb.from("employees").select("id,employee_code,first_name,last_name,nickname,role,home_branch_id,photo_url,status").in("id", people.slice(0, 1000))).data ?? []) : [];
   // ยอดหักออก (ลงตามวันที่เกิด): คืนเงินจากรับคืน · ยกเลิกบิล · ใบลดหนี้ส่วนลด → ยอดสุทธิ
   const scopeIn = <T extends { in: (c: string, v: string[]) => T }>(q: T) => (allowed !== null ? q.in("branch_id", allowed.length ? allowed : ["00000000-0000-0000-0000-000000000000"]) : q);

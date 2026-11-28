@@ -29,9 +29,9 @@ async function loadLive(from: Date, to: Date): Promise<Loaded> {
   const r = await fetch(`/api/admin/sales-data?from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}`, { cache: "no-store" });
   const j = await r.json();
   if (!r.ok) throw Error(j.error);
-  const lk = j.legacy ? expandLegacy(j.legacy as LegacyCompact) : { orders: [], pseudoBranches: [] };
+  const lk = j.legacy ? expandLegacy(j.legacy as LegacyCompact) : { orders: [], pseudoBranches: [], pseudoEmployees: [] };
   const lp = j.legacy_prev ? expandLegacyDaily(j.legacy_prev as LegacyDaily) : [];
-  return { orders: [...j.orders, ...lk.orders], branches: [...j.branches, ...lk.pseudoBranches], brands: j.brands, employees: j.employees, positions: j.positions ?? [],
+  return { orders: [...j.orders, ...lk.orders], branches: [...j.branches, ...lk.pseudoBranches], brands: j.brands, employees: [...j.employees, ...lk.pseudoEmployees], positions: j.positions ?? [],
     adjustments: j.adjustments ?? [], prev: [...(j.prev ?? []), ...lp], truncated: j.truncated, from: +from, to: +to, at: Date.now() };
 }
 

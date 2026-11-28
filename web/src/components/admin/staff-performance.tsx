@@ -1,4 +1,5 @@
 "use client";
+import { tr } from "@/lib/i18n/tr";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Clock, ChevronRight, Crown, Users, LayoutDashboard, Table as TableIcon, Network, Briefcase, TrendingUp, Receipt, Award, BadgeCheck } from "lucide-react";
@@ -77,7 +78,8 @@ export function StaffPerformance({ filtered, employees, branches, brands, initia
     return b ? (locale === "th" ? b.name_th ?? b.name : b.name) : "—";
   };
   const empPhoto = (id: string) => employees.find((x) => x.id === id)?.photo_url ?? null;
-  const empRole = (id: string) => { const e = employees.find((x) => x.id === id); return e ? ROLE_LABEL[e.role][locale] : ""; };
+  // พนักงานขายจากระบบเดิม (ยังไม่จับคู่กับพนักงานในระบบ) id ขึ้นต้น larkp:
+  const empRole = (id: string) => { if (id.startsWith("larkp:")) return tr("พนักงานขาย (Lark)", "Salesperson (Lark)", "销售员 (Lark)"); const e = employees.find((x) => x.id === id); return e ? ROLE_LABEL[e.role]?.[locale] ?? "" : ""; };
 
   // กราฟรวม + รายบุคคล
   const overallSeries = useMemo(() => salesSeries(filtered, gran), [filtered, gran]);

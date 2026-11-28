@@ -3,6 +3,7 @@
 //   GET  → สถานะ (ตั้งค่า key แล้วไหม) · สรุปรายเดือน · การจับคู่ร้าน · วันเริ่มใช้ POS ของสาขา · ประวัติการดึง
 //   POST { action: "sync", month: "YYYY-MM" }                 ดึงทีละเดือน (หน้าเว็บวนเดือนให้ตอนดึงย้อนหลัง)
 //        { action: "map", place_key, branch_id|null }          จับคู่ร้านเอง (ทับการจับอัตโนมัติ) + อัปเดตบรรทัดเดิม
+//        { action: "person_map", name_key, employee_id|null } จับคู่ชื่อพนักงานขายใน Lark → พนักงานในระบบ (แก้เอง)
 //        { action: "go_live", branch_id, date|null }           วันเริ่มใช้ POS (ตั้งแต่วันนั้นนับยอดจาก POS)
 // =====================================================================
 import { NextRequest, NextResponse } from "next/server";
@@ -28,15 +29,17 @@ async function guard(req: NextRequest) {
 export async function GET(req: NextRequest) {
   if (!(await guard(req))) return reply({ error: "ไม่มีสิทธิ์" }, 403);
   const sb = supabaseAdmin();
-  const [months, places, branches, runs] = await Promise.all([
+  const [months, places, branches, runs, people, emps] = await Promise.all([
     sb.from("legacy_sales_monthly").select("*").order("ym", { ascending: false }),
     sb.from("dv_place_map").select("place_key,dv_place_id,place_name,channel,brand_ids,branch_id,matched_by,score,lines,last_sale").order("lines", { ascending: false }).limit(500),
     sb.from("branches").select("id,code,name,name_th,branch_type,pos_go_live_date,is_active").eq("is_active", true).order("code"),
     sb.from("legacy_sync_runs").select("*").order("id", { ascending: false }).limit(20),
+    sb.from("dv_salesperson_map").select("name_key,sample_name,employee_id,matched_by,lines,last_sale").order("lines", { ascending: false }).limit(2000),
+    sb.from("employees").select("id,employee_code,first_name,last_name,nickname,photo_url").eq("status", "active").order("first_name").limit(2000),
   ]);
-  const err = [months, places, branches, runs].find((r) => r.error);
+  const err = [months, places, branches, runs, people, emps].find((r) => r.error);
   if (err?.error) return reply({ error: err.error.message }, 503);
-  return reply({ ready: dataverseReady(), months: months.data ?? [], places: places.data ?? [], branches: branches.data ?? [], runs: runs.data ?? [] });
+  return reply({ ready: dataverseReady(), months: months.data ?? [], places: places.data ?? [], branches: branches.data ?? [], runs: runs.data ?? [], people: people.data ?? [], employees: emps.data ?? [] });
 }
 
 export async function POST(req: NextRequest) {
@@ -61,6 +64,14 @@ export async function POST(req: NextRequest) {
     if (r.error) return reply({ error: r.error.message }, 500);
     const u = await sb.from("legacy_sales_lines").update({ branch_id: bid }).eq("place_key", key); // บรรทัดที่ดึงมาแล้วเปลี่ยนตาม
     if (u.error) return reply({ error: u.error.message }, 500);
+    return reply({ ok: true });
+  }
+  if (b.action === "person_map") {
+    const key = String(b.name_key ?? "");
+    const eid = b.employee_id === null || b.employee_id === "" ? null : String(b.employee_id);
+    if (!key || (eid !== null && !UUID.test(eid))) return reply({ error: "ข้อมูลไม่ถูกต้อง" }, 400);
+    const r = await sb.from("dv_salesperson_map").update({ employee_id: eid, matched_by: "manual", updated_at: new Date().toISOString() }).eq("name_key", key);
+    if (r.error) return reply({ error: r.error.message }, 500);
     return reply({ ok: true });
   }
   if (b.action === "go_live") {

@@ -387,6 +387,9 @@ export interface Order {
   server_order_no?: string | null;
   /** แหล่งข้อมูล: pos = ขายในระบบนี้ · lark = ระบบเดิม (ดึงจาก Dataverse) */
   source?: "pos" | "lark";
+  /** ระบบเดิม: ช่องทางออเดอร์ตามที่พิมพ์ (offline / online-shopee / …) · ธนาคารที่รับเงิน */
+  order_source?: string | null;
+  payment_bank?: string | null;
 }
 
 export interface OrderItem {
@@ -411,6 +414,8 @@ export interface OrderItem {
   gift_source?: "campaign" | "bundle" | "manual";
   gift_campaign_id?: string | null;
   gift_of_sku?: string | null;
+  /** ประเภทการขายตามระบบเดิม (Lark) เช่น ขายสินค้า / บริการติดตั้ง */
+  sale_type?: string | null;
 }
 
 export interface Shift {

@@ -16,7 +16,27 @@ type DvLine = {
   qty: number | null; unit_price_thb: number | null; discount_thb: number | null; sales_amount_thb: number | null; vat_amount_thb: number | null;
   payment_method: string | null; status: string | null; is_sellout: boolean | null; is_demo: boolean | null;
   is_sku_unmapped: boolean | null; is_place_unmapped: boolean | null; source: string | null; updated_at: string | null;
+  // เพิ่ม 2026-11-27 (ข้อความตามที่พิมพ์ใน Feishu)
+  salesperson_name?: string | null; sale_type?: string | null; order_source?: string | null; payment_bank?: string | null; edc_bank?: string | null;
 };
+
+/** ชื่อพนักงานขาย → key (ตรงกับ SQL legacy_person_key) */
+export const personKey = (s: string | null | undefined) => (s ?? "").replace(/\s+/g, " ").trim().toLowerCase() || null;
+type Emp = { id: string; first_name: string | null; last_name: string | null; nickname: string | null; email: string | null };
+/** จับคู่ชื่อที่พิมพ์ใน Lark → พนักงานในระบบ เฉพาะเมื่อชัดเจน 1 คน (ชื่อเล่น · ชื่อ · ชื่อ+นามสกุล · ชื่ออีเมล) */
+export function matchPerson(name: string, emps: Emp[]): string | null {
+  const k = personKey(name);
+  if (!k) return null;
+  const hits = new Set<string>();
+  for (const e of emps) {
+    const local = (e.email ?? "").split("@")[0].toLowerCase();
+    // ชื่อในระบบมักเป็น "Tiw - Pheerachan (ตำแหน่ง)" → แยกเป็นชื่อเล่น/ชื่อจริงด้วย
+    const parts = [e.nickname, e.first_name].flatMap((x) => (x ?? "").replace(/\(.*?\)/g, "").split(/\s+-\s+|–|—/)).map((x) => x.trim());
+    const cands = [e.nickname, e.first_name, [e.first_name, e.last_name].filter(Boolean).join(" "), local, local.split(/[._-]/)[0], ...parts].map(personKey).filter(Boolean);
+    if (cands.includes(k)) hits.add(e.id);
+  }
+  return hits.size === 1 ? [...hits][0] : null;
+}
 
 /** เรียก API พร้อมลองใหม่เมื่อโดนจำกัดอัตรา (429) หรือฝั่งเขาล้ม (5xx) — log เฉพาะ request_id */
 export async function dvGet<T>(path: string, params: Record<string, string | number | undefined>): Promise<{ data: T[]; next: string | null; requestId?: string }> {
@@ -139,6 +159,7 @@ export async function syncLegacyRange(sb: SupabaseClient, from: string, to: stri
         category_l1: l.category_l1, category_l2: l.category_l2, category_l3: l.category_l3,
         qty: l.qty, unit_price: l.unit_price_thb, discount: l.discount_thb, amount: l.sales_amount_thb ?? 0, vat: l.vat_amount_thb,
         payment_method: l.payment_method, status: l.status, is_sellout: l.is_sellout, is_demo: l.is_demo,
+        salesperson_name: l.salesperson_name ?? null, sale_type: l.sale_type ?? null, order_source: l.order_source ?? null, payment_bank: l.payment_bank ?? null, edc_bank: l.edc_bank ?? null,
         is_sku_unmapped: l.is_sku_unmapped, is_place_unmapped: l.is_place_unmapped, dv_source: l.source, dv_updated_at: l.updated_at, synced_at: now,
       };
     });
@@ -147,6 +168,28 @@ export async function syncLegacyRange(sb: SupabaseClient, from: string, to: stri
       const r = await sb.from("legacy_sales_lines").upsert(rows.slice(i, i + 500), { onConflict: "line_id" });
       if (r.error) throw Error(`บันทึกยอดขายไม่สำเร็จ: ${r.error.message}`);
       upserted += Math.min(500, rows.length - i);
+    }
+
+    // 4.5) พนักงานขาย (ชื่อพิมพ์เอง) → ตารางจับคู่ · จับอัตโนมัติเฉพาะที่ชัดเจน ไม่ทับที่แก้มือ
+    const people = new Map<string, { name: string; lines: number; last: string }>();
+    for (const l of lines) { const k = personKey(l.salesperson_name); if (!k) continue; const p = people.get(k) ?? { name: l.salesperson_name!.trim(), lines: 0, last: l.sale_date }; p.lines++; if (l.sale_date > p.last) p.last = l.sale_date; people.set(k, p); }
+    if (people.size) {
+      const [emps, cur] = await Promise.all([
+        readAll<Emp>((a, b) => sb.from("employees").select("id,first_name,last_name,nickname,email").range(a, b)),
+        readAll<{ name_key: string; matched_by: string; employee_id: string | null; lines: number; last_sale: string | null }>((a, b) => sb.from("dv_salesperson_map").select("name_key,matched_by,employee_id,lines,last_sale").range(a, b)),
+      ]);
+      const curBy = new Map(cur.map((c) => [c.name_key, c]));
+      const rowsP = [...people.entries()].map(([k, p]) => {
+        const c = curBy.get(k);
+        const manual = c?.matched_by === "manual";
+        const auto = manual ? null : matchPerson(p.name, emps);
+        return { name_key: k, sample_name: p.name, employee_id: manual ? c!.employee_id : auto, matched_by: manual ? "manual" : auto ? "auto" : "none",
+          lines: Math.max(p.lines, c?.lines ?? 0), last_sale: c?.last_sale && c.last_sale > p.last ? c.last_sale : p.last, updated_at: new Date().toISOString() };
+      });
+      for (let i = 0; i < rowsP.length; i += 500) {
+        const r = await sb.from("dv_salesperson_map").upsert(rowsP.slice(i, i + 500), { onConflict: "name_key" });
+        if (r.error) throw Error(`บันทึกการจับคู่พนักงานไม่สำเร็จ: ${r.error.message}`);
+      }
     }
 
     // 5) ช่วงนี้ต้นทางไม่มีแล้ว (ถูกลบ/แก้ในระบบเดิม) → ลบออกให้ตรงกัน
@@ -158,6 +201,7 @@ export async function syncLegacyRange(sb: SupabaseClient, from: string, to: stri
       if (r.error) throw Error(r.error.message);
     }
 
+    if (people.size) await sb.rpc("legacy_refresh_person_counts");
     if (runId) await sb.from("legacy_sync_runs").update({ status: "ok", fetched: lines.length, upserted, removed: gone.length, finished_at: new Date().toISOString() }).eq("id", runId);
     return { fetched: lines.length, upserted, removed: gone.length, places: placeRows.length };
   } catch (e) {
