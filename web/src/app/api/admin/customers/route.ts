@@ -68,6 +68,11 @@ export async function GET(req: NextRequest) {
       sb.from("brands").select("id,name,name_th"),
       sb.from("brand_wallets").select("brand_id,points,store_credit,tier").eq("customer_id", id),
     ]);
+    // บิลจากระบบเดิม (Lark) ของลูกค้าคนนี้ — รวมในประวัติ/สถิติ/แยกแบรนด์-สาขา
+    const legacyRes = await sb.rpc("legacy_customer_bills", { p_customer: id });
+    type LBill = { place_key: string | null; sale_date: string; bill_no: string; branch_id: string | null; place_name: string | null; ev: boolean; ret: boolean; total: number;
+      items: { sku: string | null; name: string | null; qty: number; line_total: number; brand_id: string | null; product_id: string | null }[] };
+    const legacyBills = ((legacyRes.data ?? []) as LBill[]).filter((b) => (vBranch ? !!b.branch_id && vBranch.includes(b.branch_id) : true));
     if (cErr) return NextResponse.json({ error: cErr.message }, { status: 500 });
     if (oErr) return NextResponse.json({ error: oErr.message }, { status: 500 });
     if (!customer) return NextResponse.json({ error: "not found" }, { status: 404 });
@@ -104,8 +109,27 @@ export async function GET(req: NextRequest) {
           g.spend += Number(it.line_total ?? 0);
         }
       }
-      return { ...o, branch_name: brMap[o.branch_id]?.name ?? "—", brand_names: brandNames };
+      return { ...o, branch_name: brMap[o.branch_id]?.name ?? "—", brand_names: brandNames, source: "pos" as const };
     });
+    for (const b of legacyBills) {
+      const brandIds = [...new Set(b.items.map((i) => i.brand_id).filter(Boolean) as string[])];
+      const branchName = b.branch_id ? brMap[b.branch_id]?.name ?? b.place_name ?? "—" : b.place_name ?? "—";
+      if (!b.ret) {
+        const key = b.branch_id ?? `lark:${b.place_key ?? ""}`;
+        const bb = (byBranch[key] ??= { name: branchName, spend: 0, orders: 0 });
+        bb.spend += Number(b.total ?? 0); bb.orders += 1;
+        for (const it of b.items) { if (!it.brand_id) continue; const g = (byBrand[it.brand_id] ??= { name: bdMap[it.brand_id]?.name ?? "—", spend: 0, orders: 0 }); g.spend += Number(it.line_total ?? 0); }
+      }
+      enrichedOrders.push({
+        id: `lark:${b.place_key ?? ""}|${b.sale_date}|${b.bill_no}`, order_no: b.bill_no, created_at: `${b.sale_date}T05:00:00.000Z`, branch_id: b.branch_id ?? "", grand_total: Number(b.total ?? 0),
+        status: b.ret ? "voided" : "completed", channel: b.ev ? "event" : "offline",
+        order_items: b.items.map((i) => ({ sku: i.sku ?? "", name: i.name ?? "ไม่ระบุสินค้า (ระบบเดิมไม่ส่งรหัส)", qty: Number(i.qty ?? 0), unit_price: Number(i.qty) ? Number(i.line_total) / Number(i.qty) : 0, line_total: Number(i.line_total ?? 0), product_id: i.product_id ?? "", products: { brand_id: i.brand_id ?? undefined } })),
+        branch_name: branchName, brand_names: brandIds.map((bid) => bdMap[bid]?.name ?? "—"), source: "lark" as const,
+      } as never);
+    }
+    enrichedOrders.sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+    // นับแบรนด์ต่อบิล (บิลละครั้งต่อแบรนด์)
+    for (const o of enrichedOrders) if (o.status !== "voided") for (const bid of new Set(((o.order_items ?? []) as Array<{ products?: { brand_id?: string } | null }>).map((i) => i.products?.brand_id).filter(Boolean) as string[])) if (byBrand[bid]) byBrand[bid].orders += 1;
 
     const valid = enrichedOrders.filter((o) => o.status !== "voided");
     const spend = valid.reduce((s, o) => s + Number(o.grand_total ?? 0), 0);
@@ -191,13 +215,15 @@ export async function GET(req: NextRequest) {
   let allowedIds: string[] | null = null;
   if (vBranch !== null) {
     if (vBranch.length === 0) return NextResponse.json({ customers: [] });
-    const [{ data: ords }, { data: regs }] = await Promise.all([
+    const [{ data: ords }, { data: regs }, { data: lk }] = await Promise.all([
       sb.from("orders").select("customer_id").in("branch_id", vBranch).not("customer_id", "is", null).limit(10000),
       sb.from("customers").select("id").in("first_branch_id", vBranch),
+      sb.from("legacy_sales_lines").select("customer_id").in("branch_id", vBranch).not("customer_id", "is", null).limit(50000),
     ]);
     const set = new Set<string>();
     for (const o of ords ?? []) if (o.customer_id) set.add(o.customer_id as string);
     for (const r of regs ?? []) set.add(r.id as string);
+    for (const l of lk ?? []) if (l.customer_id) set.add(l.customer_id as string);
     allowedIds = [...set];
     if (allowedIds.length === 0) return NextResponse.json({ customers: [] });
   }
@@ -206,13 +232,15 @@ export async function GET(req: NextRequest) {
   const intersect = (a: string[] | null, b: string[]) => (a === null ? b : a.filter((x) => b.includes(x)));
   const fBranch = req.nextUrl.searchParams.get("branch_id");
   if (fBranch) {
-    const [{ data: ords }, { data: regs }] = await Promise.all([
+    const [{ data: ords }, { data: regs }, { data: lk }] = await Promise.all([
       sb.from("orders").select("customer_id").eq("branch_id", fBranch).not("customer_id", "is", null).limit(10000),
       sb.from("customers").select("id").eq("first_branch_id", fBranch),
+      sb.from("legacy_sales_lines").select("customer_id").eq("branch_id", fBranch).not("customer_id", "is", null).limit(50000),
     ]);
     const set = new Set<string>();
     for (const o of ords ?? []) if (o.customer_id) set.add(o.customer_id as string);
     for (const r of regs ?? []) set.add(r.id as string);
+    for (const l of lk ?? []) if (l.customer_id) set.add(l.customer_id as string);
     allowedIds = intersect(allowedIds, [...set]);
   }
   const fBrand = req.nextUrl.searchParams.get("brand_id");
@@ -220,6 +248,8 @@ export async function GET(req: NextRequest) {
     const { data: its } = await sb.from("order_items").select("order_id, products!inner(brand_id)").eq("products.brand_id", fBrand).limit(20000);
     const orderIds = [...new Set((its ?? []).map((i) => i.order_id as string).filter(Boolean))];
     const set = new Set<string>();
+    const { data: lk } = await sb.from("legacy_sales_lines").select("customer_id").eq("brand_id", fBrand).not("customer_id", "is", null).limit(50000);
+    for (const l of lk ?? []) if (l.customer_id) set.add(l.customer_id as string);
     if (orderIds.length) {
       const { data: os } = await sb.from("orders").select("customer_id").in("id", orderIds).not("customer_id", "is", null);
       for (const o of os ?? []) if (o.customer_id) set.add(o.customer_id as string);
@@ -239,12 +269,24 @@ export async function GET(req: NextRequest) {
 
   const ids = (customers ?? []).map((c) => c.id);
   const stats: Record<string, OrderStat> = {};
+  const brandsOf: Record<string, Set<string>> = {};
   if (ids.length) {
-    const { data: orows } = await sb
-      .from("orders")
-      .select("customer_id,grand_total,created_at,status")
-      .in("customer_id", ids)
-      .neq("status", "voided");
+    const [{ data: orows }, { data: legacyStats }, { data: brandList }] = await Promise.all([
+      sb.from("orders").select("customer_id,grand_total,created_at,status,order_items(products(brand_id))").in("customer_id", ids).neq("status", "voided"),
+      sb.rpc("legacy_customer_stats", { p_ids: ids }),
+      sb.from("brands").select("id,name"),
+    ]);
+    const bname = new Map((brandList ?? []).map((b) => [b.id as string, b.name as string]));
+    // ระบบเดิม (Lark): บิล/ยอด/ครั้งแรก-ล่าสุด/แบรนด์ (ไม่จำกัดสาขาในรายชื่อ — โปรไฟล์จำกัดตามสาขาแล้ว)
+    for (const [cid, v] of Object.entries((legacyStats ?? {}) as Record<string, { count: number; spend: number; first: string; last: string; brand_ids: string[] }>)) {
+      const s = (stats[cid] ??= { count: 0, spend: 0, last: null, first: null });
+      s.count += Number(v.count); s.spend += Number(v.spend);
+      const last = `${v.last}T05:00:00.000Z`, first = `${v.first}T05:00:00.000Z`;
+      if (!s.last || last > s.last) s.last = last;
+      if (!s.first || first < s.first) s.first = first;
+      for (const bid of v.brand_ids ?? []) { const n = bname.get(bid); if (n) (brandsOf[cid] ??= new Set()).add(n); }
+    }
+    for (const o of (orows ?? []) as Array<{ customer_id: string; order_items?: Array<{ products?: { brand_id?: string } | null }> }>) for (const it of o.order_items ?? []) { const n = it.products?.brand_id ? bname.get(it.products.brand_id) : undefined; if (n) (brandsOf[o.customer_id] ??= new Set()).add(n); }
     for (const o of orows ?? []) {
       const k = o.customer_id as string;
       const s = (stats[k] ??= { count: 0, spend: 0, last: null, first: null });
@@ -273,6 +315,8 @@ export async function GET(req: NextRequest) {
       last: s.last,
       recencyDays,
       segment: segmentOf(s.count, s.spend, recencyDays),
+      source: c.source,
+      brands: [...(brandsOf[c.id] ?? [])].sort(),
     };
   });
 

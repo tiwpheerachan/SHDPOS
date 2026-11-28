@@ -1,5 +1,5 @@
 // จับคู่ชื่อร้าน Dataverse → สาขาเรา (ชื่อจริงจากระบบเดิม)
-import { matchBranch, matchPerson, personKey } from "../src/lib/server/dataverse";
+import { matchBranch, matchPerson, personKey, customerOf } from "../src/lib/server/dataverse";
 import { legacyChannel, cleanSaleType } from "../src/lib/legacy-expand";
 let n = 0;
 const eq = (a: unknown, b: unknown, m: string) => { if (JSON.stringify(a) !== JSON.stringify(b)) throw Error(`${m}: ได้ ${JSON.stringify(a)} ต้องการ ${JSON.stringify(b)}`); n++; };
@@ -24,6 +24,11 @@ const E = [
 eq(matchPerson("nattasak", E), "e1", "ชื่ออีเมล"); eq(matchPerson("  Nattasak ", E), "e1", "ตัวพิมพ์/ช่องว่าง"); eq(matchPerson("ปาริชาติ", E), "e4", "ชื่อไทย");
 eq(matchPerson("som", E), null, "ชื่อเล่นซ้ำ 2 คน = ไม่จับมั่ว"); eq(matchPerson("somchai", E), "e2", "ชื่ออีเมลส่วนแรก"); eq(matchPerson("ใครก็ไม่รู้", E), null, "ไม่มีในระบบ");
 eq(matchPerson("pheerachan", [{ id: "t", first_name: "Tiw - Pheerachan (Senior Full Stack AI Engineer)", last_name: null, nickname: null, email: null }]), "t", "รูปแบบ ชื่อเล่น - ชื่อ (ตำแหน่ง)");
+// ลูกค้า: รับชื่อฟิลด์หลายแบบ (Dataverse ยังไม่ประกาศชื่อจริง)
+const L0 = {} as Parameters<typeof customerOf>[0];
+eq(customerOf({ ...L0, customer_name: " สมชาย ", customer_phone: "081-234-5678" }), { name: "สมชาย", phone: "081-234-5678", email: null }, "ฟิลด์ customer_*");
+eq(customerOf({ ...L0, customer: { name: "A", phone: "0812345678", email: "a@x.co" } }), { name: "A", phone: "0812345678", email: "a@x.co" }, "ฟิลด์ customer{}");
+eq(customerOf({ ...L0, phone: " ", email: "b@x.co" }), { name: null, phone: null, email: "b@x.co" }, "ค่าว่าง = null");
 eq(personKey("  Kan  Chaporn "), "kan chaporn", "key ปกติ"); eq(personKey(""), null, "ว่าง");
 eq(legacyChannel("online-shopee", false), "online_shopee", "Shopee"); eq(legacyChannel("LZD", false), "online_lazada", "Lazada"); eq(legacyChannel("TikTok", false), "online_tiktok", "TikTok");
 eq(legacyChannel("online-website", false), "online_website", "เว็บไซต์"); eq(legacyChannel("offline", false), "offline", "หน้าร้าน"); eq(legacyChannel("online-shopee", true), "event", "อีเวนต์คงเป็นอีเวนต์");

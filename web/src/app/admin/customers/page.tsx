@@ -1,4 +1,6 @@
 "use client";
+import { SourceTag } from "@/components/admin/sales-sheet";
+import { TagChip } from "@/components/admin/sheet-tags";
 
 // =====================================================================
 // Admin → ลูกค้า (CRM)
@@ -39,6 +41,9 @@ interface Row {
   last: string | null;
   recencyDays: number | null;
   segment: Segment;
+  /** แหล่งที่มา (lark = นำเข้าจากระบบเดิม) · แบรนด์ที่เคยซื้อ (POS + Lark) */
+  source?: string | null;
+  brands?: string[];
 }
 
 interface DupeMember {
@@ -51,7 +56,7 @@ interface OrderItemRow { sku: string; name: string; qty: number; unit_price: num
 interface OrderRow {
   id: string; order_no: string; created_at: string; branch_id: string;
   grand_total: number; status: string; channel: string; order_items: OrderItemRow[];
-  branch_name?: string; brand_names?: string[];
+  branch_name?: string; brand_names?: string[]; source?: "pos" | "lark";
 }
 interface ScopeStat { name: string; spend: number; orders: number }
 interface LedgerRow {
@@ -430,6 +435,8 @@ export default function AdminCustomersPage() {
                 { key: "member_code", label: L("รหัสสมาชิก", "Member", "会员码") },
                 { key: "tier", label: L("ระดับ", "Tier", "等级") },
                 { key: "segment", label: L("กลุ่ม", "Segment", "分组") },
+                { key: "brands", label: L("แบรนด์ที่เคยซื้อ", "Brands bought", "购买过的品牌"), map: (r) => (r.brands ?? []).join(", ") },
+                { key: "source", label: L("ที่มา", "Source", "来源"), map: (r) => (r.source === "lark" ? "Lark" : r.source ?? "") },
                 { key: "orders", label: L("จำนวนออเดอร์", "Orders", "订单数") },
                 { key: "spend", label: L("ยอดซื้อสะสม", "Total spend", "累计消费"), map: (r) => r.spend.toLocaleString("th-TH", { maximumFractionDigits: 0 }) },
                 { key: "last", label: L("ซื้อล่าสุด", "Last order", "最近购买"), map: (r) => r.last ?? "-" },
@@ -541,6 +548,12 @@ export default function AdminCustomersPage() {
                       <div className="min-w-0">
                         <div className="font-semibold text-sm truncate max-w-[220px]">{c.name}</div>
                         {c.member_code && <div className="text-[11px] text-muted font-mono">{c.member_code}</div>}
+                        {c.brands?.length || c.source === "lark" ? (
+                          <div className="flex flex-wrap gap-1 mt-0.5">
+                            {c.source === "lark" ? <SourceTag source="lark" /> : null}
+                            {(c.brands ?? []).slice(0, 4).map((b) => <TagChip key={b} value={b} className="!h-[18px] !text-[10px] !px-1.5" />)}
+                          </div>
+                        ) : null}
                       </div>
                     </div>
                   </Td>
@@ -691,8 +704,9 @@ export default function AdminCustomersPage() {
                   {detail.orders.map((o) => (
                     <li key={o.id} className="rounded-xl border border-line overflow-hidden">
                       <div className="flex items-center gap-2 px-3 py-2 bg-surface2/50 flex-wrap">
+                        {o.source === "lark" ? <SourceTag source="lark" /> : null}
                         <span className="font-mono text-xs font-semibold">{o.order_no}</span>
-                        <OrderTraceButton orderNo={o.order_no} className="h-7 w-7 inline-flex items-center justify-center rounded-lg text-muted hover:text-brand hover:bg-brand/10" label="" />
+                        {o.source === "lark" ? null : <OrderTraceButton orderNo={o.order_no} className="h-7 w-7 inline-flex items-center justify-center rounded-lg text-muted hover:text-brand hover:bg-brand/10" label="" />}
                         {o.status === "voided" && <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface2 text-danger border border-line">{L("ยกเลิก", "Voided", "已作废")}</span>}
                         <span className="text-[11px] text-muted inline-flex items-center gap-1"><MapPin size={10} />{o.branch_name ?? branchName(o.branch_id)}</span>
                         {(o.brand_names ?? []).map((bn) => (

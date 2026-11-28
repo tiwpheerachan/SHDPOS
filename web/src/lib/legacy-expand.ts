@@ -6,7 +6,7 @@ import type { Branch, Employee, Order } from "@/lib/types";
 import { tr } from "@/lib/i18n/tr";
 
 /** [branch | "lark:<place_key>", "YYYY-MM-DD", bill_no, returned 0|1, event 0|1, [[sku_i, qty, unit, disc, amount, pay_i]]] */
-export type LegacyBill = [string, string, string, 0 | 1, 0 | 1, [number, number | null, number | null, number | null, number | null, number, number?, number?][], string?, (string | null)?, (string | null)?, (string | null)?];
+export type LegacyBill = [string, string, string, 0 | 1, 0 | 1, [number, number | null, number | null, number | null, number | null, number, number?, number?][], string?, (string | null)?, (string | null)?, (string | null)?, (string | null)?, (string | null)?, (string | null)?];
 export type LegacyCompact = { skus: [string, string | null, string | null, string | null][]; pays: string[]; places: Record<string, [string | null, boolean]>; bills: LegacyBill[];
   /** พนักงานขาย: [key, ชื่อตามที่พิมพ์, employee_id ที่จับคู่แล้ว | null] */ persons?: [string, string, string | null][]; stypes?: string[] };
 
@@ -42,7 +42,7 @@ export function expandLegacy(c: LegacyCompact): { orders: Order[]; pseudoBranche
   const pseudo = new Map<string, Branch>();
   const orders: Order[] = new Array(c.bills.length);
   for (let b = 0; b < c.bills.length; b++) {
-    const [rawBr, date, billNo, ret, ev, lines, placeKey, osrc, edc, pbank] = c.bills[b];
+    const [rawBr, date, billNo, ret, ev, lines, placeKey, osrc, edc, pbank, cid, cname, cphone] = c.bills[b];
     const br = rawBr || "lark:unknown";
     if (br.startsWith("lark:") && !pseudo.has(br)) {
       const pl = c.places[br.slice(5)];
@@ -68,7 +68,7 @@ export function expandLegacy(c: LegacyCompact): { orders: Order[]; pseudoBranche
     // รหัสบิลคงที่ = ร้านในระบบเดิม (ไม่ใช่สาขาที่จับคู่ — แก้การจับคู่แล้วค่าที่กรอกไว้ยังผูกบิลเดิม)
     const id = `lark:${placeKey ?? br}|${date}|${billNo}|${ret}`;
     orders[b] = {
-      id, client_uuid: id, order_no: billNo, branch_id: br, terminal_id: null, shift_id: null, cashier_id: null, customer_id: null, customer_name: null, customer_phone: null,
+      id, client_uuid: id, order_no: billNo, branch_id: br, terminal_id: null, shift_id: null, cashier_id: null, customer_id: cid ?? null, customer_name: cname ?? null, customer_phone: cphone ?? null,
       status: ret ? "voided" : "completed", channel: legacyChannel(osrc, !!ev), order_source: osrc ?? null, payment_bank: pbank ?? null,
       salesperson_id: items.find((i) => i.salesperson_id)?.salesperson_id ?? null,
       subtotal: r2(total + disc), discount_total: disc, vat_amount: r2((total * 7) / 107), grand_total: total, paid_total: total, change_amount: 0, cost_total: 0, gross_profit: 0,

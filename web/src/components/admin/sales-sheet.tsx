@@ -129,7 +129,12 @@ export function SalesSheet({ orders, branches, brands, employees, products, catN
         show: (r) => { const n = ref.name(r.it?.salesperson_id ?? r.o.salesperson_id ?? r.o.cashier_id); return n ? <PersonChip name={n} photo={ref.photoByName.get(n)} /> : undefined; }, chip: (v) => <PersonChip name={v} photo={ref.photoByName.get(v)} /> },
       { id: "cashier", label: () => tr("แคชเชียร์", "Cashier", "收银员"), kind: "enum", get: (r) => ref.name(r.o.cashier_id),
         show: (r) => { const n = ref.name(r.o.cashier_id); return n ? <PersonChip name={n} photo={ref.photoByName.get(n)} /> : undefined; }, chip: (v) => <PersonChip name={v} photo={ref.photoByName.get(v)} /> },
-      { id: "customer", label: () => tr("ลูกค้า", "Customer", "顾客"), kind: "text", get: (r) => r.o.customer_name ?? tr("ทั่วไป", "Walk-in", "散客"), def: true, noTr: true },
+      { id: "customer", label: () => tr("ลูกค้า", "Customer", "顾客"), kind: "text", get: (r) => r.o.customer_name ?? tr("ทั่วไป", "Walk-in", "散客"), def: true, noTr: true,
+        // ลูกค้าที่มีประวัติในระบบ → ชื่อ + เบอร์ (ซ่อนกลาง) กดเปิดประวัติการซื้อทั้งหมด (POS + Lark)
+        show: (r) => r.o.customer_id ? (
+          <a href={`/admin/customers?id=${encodeURIComponent(r.o.customer_id)}`} onClick={(e) => e.stopPropagation()} className="inline-flex items-center gap-1.5 hover:text-brand" title={tr("เปิดประวัติการซื้อของลูกค้า", "Open customer purchase history", "打开顾客购买记录")}>
+            <PersonChip name={r.o.customer_name ?? tr("ลูกค้า", "Customer", "顾客")} />{r.o.customer_phone ? <span className="text-muted tnum">{maskPhone(r.o.customer_phone)}</span> : null}
+          </a>) : undefined },
       { id: "phone", label: () => tr("เบอร์ลูกค้า", "Customer phone", "顾客电话"), kind: "text", get: (r) => maskPhone(r.o.customer_phone), noTr: true },
       { id: "member", label: () => tr("สมาชิก", "Member", "会员"), kind: "enum", get: (r) => (r.o.customer_id ? tr("สมาชิก", "Member", "会员") : tr("ทั่วไป", "Walk-in", "散客")) },
     ];

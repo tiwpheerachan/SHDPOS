@@ -18,7 +18,20 @@ type DvLine = {
   is_sku_unmapped: boolean | null; is_place_unmapped: boolean | null; source: string | null; updated_at: string | null;
   // เพิ่ม 2026-11-27 (ข้อความตามที่พิมพ์ใน Feishu)
   salesperson_name?: string | null; sale_type?: string | null; order_source?: string | null; payment_bank?: string | null; edc_bank?: string | null;
+  // ลูกค้า (scope commerce.offline_sales.pii — รออนุมัติ) · ชื่อฟิลด์ยังไม่ประกาศ จึงรับหลายแบบ
+  customer_name?: string | null; customer_phone?: string | null; customer_email?: string | null;
+  customer?: { name?: string | null; phone?: string | null; email?: string | null } | null; phone?: string | null; email?: string | null;
 };
+
+/** ชื่อ/เบอร์/อีเมลลูกค้าจากบรรทัด (รองรับชื่อฟิลด์หลายแบบ) — ไม่ log ค่า */
+export function customerOf(l: DvLine): { name: string | null; phone: string | null; email: string | null } {
+  const t = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim().slice(0, 200) : null);
+  return {
+    name: t(l.customer_name) ?? t(l.customer?.name),
+    phone: t(l.customer_phone) ?? t(l.customer?.phone) ?? t(l.phone),
+    email: t(l.customer_email) ?? t(l.customer?.email) ?? t(l.email),
+  };
+}
 
 /** ชื่อพนักงานขาย → key (ตรงกับ SQL legacy_person_key) */
 export const personKey = (s: string | null | undefined) => (s ?? "").replace(/\s+/g, " ").trim().toLowerCase() || null;
@@ -159,6 +172,7 @@ export async function syncLegacyRange(sb: SupabaseClient, from: string, to: stri
         category_l1: l.category_l1, category_l2: l.category_l2, category_l3: l.category_l3,
         qty: l.qty, unit_price: l.unit_price_thb, discount: l.discount_thb, amount: l.sales_amount_thb ?? 0, vat: l.vat_amount_thb,
         payment_method: l.payment_method, status: l.status, is_sellout: l.is_sellout, is_demo: l.is_demo,
+        ...(() => { const c = customerOf(l); return c.name || c.phone || c.email ? { customer_name: c.name, customer_phone: c.phone, customer_email: c.email } : {}; })(),
         salesperson_name: l.salesperson_name ?? null, sale_type: l.sale_type ?? null, order_source: l.order_source ?? null, payment_bank: l.payment_bank ?? null, edc_bank: l.edc_bank ?? null,
         is_sku_unmapped: l.is_sku_unmapped, is_place_unmapped: l.is_place_unmapped, dv_source: l.source, dv_updated_at: l.updated_at, synced_at: now,
       };
@@ -202,8 +216,15 @@ export async function syncLegacyRange(sb: SupabaseClient, from: string, to: stri
     }
 
     if (people.size) await sb.rpc("legacy_refresh_person_counts");
+    // ลูกค้า: สร้าง/รวมด้วยเบอร์โทร (ไม่มีเบอร์ใช้อีเมล) แล้วผูกบรรทัด — ทำเมื่อ Dataverse ส่งข้อมูลลูกค้ามาแล้ว
+    let customers: { new_customers: number; linked_lines: number } | null = null;
+    if (rows.some((r) => "customer_phone" in r || "customer_email" in r)) {
+      const r = await sb.rpc("legacy_link_customers", { p_from: from, p_to: to });
+      if (r.error) throw Error(`ผูกลูกค้าไม่สำเร็จ: ${r.error.message}`);
+      customers = r.data as typeof customers;
+    }
     if (runId) await sb.from("legacy_sync_runs").update({ status: "ok", fetched: lines.length, upserted, removed: gone.length, finished_at: new Date().toISOString() }).eq("id", runId);
-    return { fetched: lines.length, upserted, removed: gone.length, places: placeRows.length };
+    return { fetched: lines.length, upserted, removed: gone.length, places: placeRows.length, customers };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     if (runId) await sb.from("legacy_sync_runs").update({ status: "error", error: msg.slice(0, 500), finished_at: new Date().toISOString() }).eq("id", runId);
