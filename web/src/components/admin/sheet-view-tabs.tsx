@@ -136,7 +136,7 @@ export function SheetViewTabs({ capture, apply, snapshot }: { capture: () => She
             <Item icon={<Save size={13} />} label={tr("บันทึกตัวกรอง/คอลัมน์ตอนนี้ลงมุมมองนี้", "Save current setup to this view", "将当前设置保存到此视图")} onClick={() => { setMenu(null); void update(v, { state: capture() }); }} />
           </> : <p className="px-2.5 py-1.5 text-[11px] text-muted">{tr(`แชร์โดย ${v.owner} — แก้ไม่ได้ ทำสำเนาไปแก้ได้`, `Shared by ${v.owner} — duplicate to edit`, `由 ${v.owner} 共享 — 复制后可编辑`)}</p>}
           <Item icon={<Share2 size={13} />} label={v.mine ? tr("แชร์ · ใครเห็นได้บ้าง · ลิงก์", "Share · who can see · link", "共享 · 可见人员 · 链接") : tr("ใครเห็นมุมมองนี้ได้บ้าง", "Who can see this view", "谁能看到此视图")} onClick={() => { setMenu(null); setSharing(v.id); }} />
-          <Item icon={<LayoutDashboard size={13} />} label={tr("สร้างแดชบอร์ดด้วย AI จากมุมมองนี้", "Build an AI dashboard from this view", "用 AI 基于此视图生成仪表盘")} onClick={() => { setMenu(null); router.push(`/admin/insights?view=${encodeURIComponent(v.id)}`); }} />
+          <Item icon={<LayoutDashboard size={13} />} label={tr("สร้างแดชบอร์ดด้วย AI จากมุมมองนี้", "Build an AI dashboard from this view", "用 AI 基于此视图生成仪表盘")} onClick={() => { setMenu(null); router.push(`/admin/insights/studio?view=${encodeURIComponent(v.id)}`); }} />
           <Item icon={<Copy size={13} />} label={tr("ทำสำเนา", "Duplicate", "复制")} onClick={() => { setMenu(null); void create(v); }} />
           {v.mine ? <Item danger icon={<Trash2 size={13} />} label={tr("ลบมุมมอง", "Delete view", "删除视图")} onClick={() => { setMenu(null); void remove(v); }} /> : null}
         </Pop>;

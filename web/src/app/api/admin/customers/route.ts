@@ -264,7 +264,8 @@ export async function GET(req: NextRequest) {
     cq = cq.or(`name.ilike.%${safe}%,phone.ilike.%${safe}%,member_code.ilike.%${safe}%,email.ilike.%${safe}%`);
   }
   if (allowedIds) cq = cq.in("id", allowedIds);
-  const { data: customers, error } = await cq.order("created_at", { ascending: false }).limit(80);
+  // ?all=1 → รายชื่อสูงสุด 5,000 (สำหรับวิเคราะห์ใน AI Studio) · ปกติ 80 รายล่าสุด
+  const { data: customers, error } = await cq.order("created_at", { ascending: false }).limit(req.nextUrl.searchParams.get("all") ? 5000 : 80);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   const ids = (customers ?? []).map((c) => c.id);

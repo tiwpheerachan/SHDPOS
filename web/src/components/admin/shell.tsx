@@ -240,7 +240,8 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
     }),
   })).filter((g) => g.items.length);
   const flat = groups.flatMap((g) => g.items.flatMap((e) => (isHub(e) ? e.children : [e])));
-  const currentItem = flat.find((n) => n.href === pathname);
+  // หน้าย่อย (เช่น /admin/insights/studio) ใช้ชื่อเมนูแม่ที่ยาวที่สุดที่ตรงต้นทาง
+  const currentItem = flat.find((n) => n.href === pathname) ?? [...flat].filter((n) => n.href !== "/admin" && pathname.startsWith(`${n.href}/`)).sort((a, b) => b.href.length - a.href.length)[0];
   const currentKey = currentItem?.key ?? "dashboard";
   const currentHub = groups.flatMap((g) => g.items).find((e): e is NavHub => isHub(e) && e.children.some((c) => c.href === pathname)) ?? null;
   const currentSection = groups.find((g) => g.items.some((e) => (isHub(e) ? e.children.some((c) => c.href === pathname) : e.href === pathname)))?.section ?? "overview";

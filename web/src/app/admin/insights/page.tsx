@@ -350,7 +350,8 @@ export default function AdminInsightsPage() {
       <style>{"@keyframes shd-typ{0%,80%,100%{opacity:.25;transform:translateY(0)}40%{opacity:1;transform:translateY(-2px)}}"}</style>
       <div className="shrink-0 flex flex-wrap items-center justify-between gap-3 mb-3">
         <div>
-          <h1 className="text-xl font-bold flex items-center gap-2"><Wand2 size={20} className="text-brand" />{L("ผู้ช่วย AI · สนทนา & แดชบอร์ด", "AI · Chat & dashboard", "AI 对话与仪表盘")}</h1>
+          <h1 className="text-xl font-bold flex items-center gap-2"><Wand2 size={20} className="text-brand" />{L("ผู้ช่วย AI · สนทนา & แดชบอร์ด", "AI · Chat & dashboard", "AI 对话与仪表盘")}
+            <a href="/admin/insights/studio" className="ml-2 inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-brand text-brandInk text-xs font-medium">AI Studio <span className="text-[10px] px-1 rounded bg-white/25">{L("ใหม่", "New", "新")}</span></a></h1>
           <p className="text-sm text-muted">{L("แชตด้านขวา · แดชบอร์ดด้านซ้าย (ลากแบ่งปรับขนาด) · ดาวน์โหลด Excel / แชร์ลิงก์ได้", "Chat right · dashboard left (drag to resize) · export Excel / share link", "右侧对话 · 左侧仪表盘（拖动调整）· 导出 Excel / 分享")}</p>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">

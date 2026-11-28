@@ -405,7 +405,7 @@ export default function AdminCustomersPage() {
       {/* ── หัวเรื่อง + แท็บย่อย + ปุ่ม (แถวเดียว) ── */}
       <header className="flex flex-wrap items-center gap-x-4 gap-y-2.5">
         <div className="min-w-0">
-          <h1 className="text-xl font-semibold flex items-center gap-2"><Contact size={19} className="text-muted" /> {L("ลูกค้า", "Customers", "客户")}</h1>
+          <h1 className="text-xl font-semibold flex items-center gap-2"><Contact size={19} className="text-muted" /> {L("ลูกค้า", "Customers", "客户")}<a href="/admin/insights/studio?source=customers" title={L("ให้ AI ออกแบบแดชบอร์ดจากข้อมูลนี้", "Build an AI dashboard from this data", "用 AI 基于此数据生成仪表盘")} className="ml-2 font-normal inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-brand/40 text-brand text-xs font-medium hover:bg-brand/5"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72"/><path d="m14 7 3 3"/></svg>{L("วิเคราะห์ด้วย AI", "Analyze with AI", "AI 分析")}</a></h1>
           <p className="text-xs text-muted mt-0.5">{L("ฐานข้อมูลลูกค้า + ประวัติการซื้อรวมทุกสาขา + งานติดตาม", "Customer database, cross-branch history and follow-ups", "客户数据库与跟进")}</p>
         </div>
         <div className="flex rounded-2xl bg-surface/65 border border-line/70 p-1 gap-0.5 overflow-x-auto max-w-full">

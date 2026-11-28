@@ -165,7 +165,7 @@ export default function AdminInventoryPage() {
     <div className="p-4 sm:p-6 space-y-4">
       {/* ── หัวแถวเดียว ── */}
       <header className="flex flex-wrap items-center gap-x-3 gap-y-2.5">
-        <h1 className="text-xl font-semibold flex items-center gap-2 whitespace-nowrap"><Boxes size={19} className="text-muted" />{L("สต๊อกสินค้า", "Stock", "库存")}</h1>
+        <h1 className="text-xl font-semibold flex items-center gap-2 whitespace-nowrap"><Boxes size={19} className="text-muted" />{L("สต๊อกสินค้า", "Stock", "库存")}<a href="/admin/insights/studio?source=stock" title={L("ให้ AI ออกแบบแดชบอร์ดจากข้อมูลนี้", "Build an AI dashboard from this data", "用 AI 基于此数据生成仪表盘")} className="ml-2 font-normal inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-brand/40 text-brand text-xs font-medium hover:bg-brand/5"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72"/><path d="m14 7 3 3"/></svg>{L("วิเคราะห์ด้วย AI", "Analyze with AI", "AI 分析")}</a></h1>
         <Seg value={scope} onChange={setScope} options={[["byBranch", L("รายสาขา", "By branch", "按门店")], ["crossBranch", L("ค้นหาข้ามสาขา", "Across branches", "跨店查询")]]} />
         {scope === "byBranch" ? (
           <Seg value={view} onChange={setView} options={[["all", L("ทั้งหมด", "All", "全部")], ["low", `${L("ใกล้หมด", "Low", "低库存")} ${kpi.low}`], ["out", `${L("สินค้าหมด", "Out", "缺货")} ${kpi.out}`]]} />
