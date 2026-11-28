@@ -7,11 +7,15 @@
 // =====================================================================
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Table2, Plus, MoreHorizontal, Pencil, Users, Lock, Save, Copy, Trash2, ChevronDown, Check, History } from "lucide-react";
+import { Table2, Plus, MoreHorizontal, Pencil, Users, Lock, Save, Copy, Trash2, ChevronDown, Check, History, Share2, LayoutDashboard, Globe } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { ShareViewDialog } from "@/components/admin/share-view-dialog";
 import { tr } from "@/lib/i18n/tr";
 
 export type SheetViewState = Record<string, unknown>;
-type View = { id: string; name: string; state: SheetViewState; shared: boolean; mine: boolean; owner: string; updated_at: string };
+type Person = { id: string; name: string; photo: string | null };
+type View = { id: string; name: string; state: SheetViewState; shared: boolean; mine: boolean; owner: string; updated_at: string;
+  owner_person?: Person | null; shared_with?: Person[]; link?: { token?: string; expires_at?: string | null; views?: number; active?: boolean } | null };
 const REPORT = "sales_sheet";
 const LS_ACTIVE = "shdpos.sheetView.active", LS_RECENT = "shdpos.sheetView.recent", LS_ORDER = "shdpos.sheetView.order";
 const read = <T,>(k: string, d: T): T => { try { const v = localStorage.getItem(k); return v ? (JSON.parse(v) as T) : d; } catch { return d; } };
@@ -26,7 +30,10 @@ async function api(method: "POST" | "DELETE", body?: unknown, id?: string) {
 }
 
 export function SheetViewTabs({ capture, apply }: { capture: () => SheetViewState; apply: (s: SheetViewState | null) => void }) {
+  const router = useRouter();
   const [views, setViews] = useState<View[] | null>(null);
+  const [canLink, setCanLink] = useState(false);
+  const [sharing, setSharing] = useState<string | null>(null);
   const [active, setActive] = useState<string>(() => (typeof window === "undefined" ? "" : read(LS_ACTIVE, "")));
   const [recent, setRecent] = useState<Record<string, number>>(() => (typeof window === "undefined" ? {} : read(LS_RECENT, {})));
   const [order, setOrder] = useState<string[]>(() => (typeof window === "undefined" ? [] : read(LS_ORDER, [])));
@@ -38,7 +45,7 @@ export function SheetViewTabs({ capture, apply }: { capture: () => SheetViewStat
   const applied = useRef(false);
 
   const load = useCallback(async () => {
-    try { const r = await fetch(`/api/admin/report-views?report=${REPORT}`, { cache: "no-store" }); const j = await r.json(); setViews(r.ok ? j.views : []); }
+    try { const r = await fetch(`/api/admin/report-views?report=${REPORT}`, { cache: "no-store" }); const j = await r.json(); setViews(r.ok ? j.views : []); setCanLink(!!j.can_link); }
     catch { setViews([]); }
   }, []);
   useEffect(() => { void load(); }, [load]);
@@ -76,8 +83,8 @@ export function SheetViewTabs({ capture, apply }: { capture: () => SheetViewStat
       if (base) apply(base.state);
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
   }
-  async function update(v: View, patch: Partial<Pick<View, "name" | "shared" | "state">>) {
-    try { await api("POST", { id: v.id, name: patch.name ?? v.name, shared: patch.shared ?? v.shared, state: patch.state ?? v.state }); await load(); }
+  async function update(v: View, patch: Partial<Pick<View, "name" | "shared" | "state">> & { shared_with?: string[] }) {
+    try { await api("POST", { id: v.id, name: patch.name ?? v.name, shared: patch.shared ?? v.shared, state: patch.state ?? v.state, ...(patch.shared_with ? { shared_with: patch.shared_with } : {}) }); await load(); }
     catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
   }
   async function remove(v: View) {
@@ -98,7 +105,7 @@ export function SheetViewTabs({ capture, apply }: { capture: () => SheetViewStat
               className="h-7 w-36 px-1.5 rounded-md border-2 border-brand bg-surface text-[12.5px] outline-none" />
           ) : (
             <button onClick={() => open(v.id)} className="inline-flex items-center gap-1.5" title={v.mine ? tr("ดับเบิลคลิกเพื่อเปลี่ยนชื่อ", "Double-click to rename", "双击重命名") : tr(`แชร์โดย ${v.owner}`, `Shared by ${v.owner}`, `由 ${v.owner} 共享`)}>
-              {v.shared ? <Users size={12} className={active === v.id ? "text-brand" : ""} /> : <Table2 size={13} />}
+              {v.link ? <Globe size={12} className={active === v.id ? "text-brand" : ""} /> : v.shared || v.shared_with?.length ? <Users size={12} className={active === v.id ? "text-brand" : ""} /> : <Table2 size={13} />}
               <span className="max-w-[180px] truncate" translate="no">{v.name}</span>
               {active === v.id && dirty ? <span className="w-1.5 h-1.5 rounded-full bg-warn" title={tr("มีการเปลี่ยนแปลงที่ยังไม่บันทึก", "Unsaved changes", "有未保存的更改")} /> : null}
             </button>
@@ -127,8 +134,9 @@ export function SheetViewTabs({ capture, apply }: { capture: () => SheetViewStat
           {v.mine ? <>
             <Item icon={<Pencil size={13} />} label={tr("เปลี่ยนชื่อ", "Rename", "重命名")} onClick={() => { setMenu(null); setRenaming(v.id); }} />
             <Item icon={<Save size={13} />} label={tr("บันทึกตัวกรอง/คอลัมน์ตอนนี้ลงมุมมองนี้", "Save current setup to this view", "将当前设置保存到此视图")} onClick={() => { setMenu(null); void update(v, { state: capture() }); }} />
-            <Item icon={v.shared ? <Lock size={13} /> : <Users size={13} />} label={v.shared ? tr("เลิกแชร์ (เห็นเฉพาะฉัน)", "Make private", "设为私有") : tr("แชร์ให้ทีมเห็น", "Share with team", "与团队共享")} onClick={() => { setMenu(null); void update(v, { shared: !v.shared }); }} />
           </> : <p className="px-2.5 py-1.5 text-[11px] text-muted">{tr(`แชร์โดย ${v.owner} — แก้ไม่ได้ ทำสำเนาไปแก้ได้`, `Shared by ${v.owner} — duplicate to edit`, `由 ${v.owner} 共享 — 复制后可编辑`)}</p>}
+          <Item icon={<Share2 size={13} />} label={v.mine ? tr("แชร์ · ใครเห็นได้บ้าง · ลิงก์", "Share · who can see · link", "共享 · 可见人员 · 链接") : tr("ใครเห็นมุมมองนี้ได้บ้าง", "Who can see this view", "谁能看到此视图")} onClick={() => { setMenu(null); setSharing(v.id); }} />
+          <Item icon={<LayoutDashboard size={13} />} label={tr("สร้างแดชบอร์ดด้วย AI จากมุมมองนี้", "Build an AI dashboard from this view", "用 AI 基于此视图生成仪表盘")} onClick={() => { setMenu(null); router.push(`/admin/insights?view=${encodeURIComponent(v.id)}`); }} />
           <Item icon={<Copy size={13} />} label={tr("ทำสำเนา", "Duplicate", "复制")} onClick={() => { setMenu(null); void create(v); }} />
           {v.mine ? <Item danger icon={<Trash2 size={13} />} label={tr("ลบมุมมอง", "Delete view", "删除视图")} onClick={() => { setMenu(null); void remove(v); }} /> : null}
         </Pop>;
@@ -148,6 +156,8 @@ export function SheetViewTabs({ capture, apply }: { capture: () => SheetViewStat
         </Pop>
       ) : null}
       {err ? <span className="mb-1.5 text-[11px] text-danger shrink-0" onClick={() => setErr("")}>{err}</span> : null}
+      {sharing ? (() => { const v = sorted.find((x) => x.id === sharing); return v ? <ShareViewDialog view={v} canLink={canLink} onClose={() => setSharing(null)} onChanged={load}
+        onSave={(patch) => update(v, patch)} /> : null; })() : null}
     </div>
   );
 }

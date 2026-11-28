@@ -28,6 +28,19 @@ import { analyzeStock, type StockRow } from "@/lib/ai/stock";
 import { StockDrawer } from "@/components/admin/stock-drawer";
 import { dashboardShareUrl, dashboardFromHash } from "@/lib/ai/share";
 import { exportExcel } from "@/lib/ai/export-excel";
+import { useSalesData } from "@/lib/hooks/use-sales-data";
+import { applySheetView } from "@/components/admin/sales-sheet";
+import { applyOrderFilters } from "@/lib/analytics";
+import { rangeToDates, EMPTY_FILTER, type AdminFilter } from "@/components/admin/filters";
+import { Table2 } from "lucide-react";
+
+// มุมมองตารางยอดขาย → ช่วงวันที่ (ช่วงสัมพัทธ์คำนวณใหม่ทุกครั้ง)
+type SheetView = { id: string; name: string; state: { page?: { filter?: Partial<AdminFilter> & { from?: string; to?: string }; src?: "all" | "pos" | "lark" } } & Record<string, unknown> };
+const viewRange = (v: SheetView) => {
+  const f = v.state.page?.filter;
+  if (f?.range && f.range !== "custom") return rangeToDates(f.range);
+  return f?.from && f?.to ? { from: new Date(f.from), to: new Date(f.to) } : rangeToDates("30d");
+};
 
 const uid = () => Math.random().toString(36).slice(2, 9);
 const METRICS: Metric[] = ["sales", "qty", "gp", "gp_pct", "orders", "aov", "discount", "discount_pct"];
@@ -93,6 +106,35 @@ export default function AdminInsightsPage() {
   const [dragOverId, setDragOverId] = useState<string | null>(null);
   const L = (th: string, en: string, zh: string) => (locale === "th" ? th : locale === "zh" ? zh : en);
 
+  // ── แดชบอร์ดจากมุมมองตารางยอดขาย (?view=<id>) — ข้อมูลสดตามตัวกรองของมุมมอง (POS + Lark) ──
+  const [srcView, setSrcView] = useState<SheetView | null>(null);
+  const [srcErr, setSrcErr] = useState("");
+  const askedRef = useRef(false);
+  const dashParam = useRef<string | null>(null);
+  useEffect(() => {
+    const u = new URLSearchParams(window.location.search); const id = u.get("view"); dashParam.current = u.get("dash");
+    if (!id) return;
+    void fetch("/api/admin/report-views?report=sales_sheet", { cache: "no-store" }).then((r) => r.json()).then((j) => {
+      const v = (j.views ?? []).find((x: SheetView) => x.id === id);
+      if (v) setSrcView(v); else setSrcErr(L("ไม่พบมุมมองนี้ หรือคุณไม่มีสิทธิ์เห็น", "View not found or not shared with you", "未找到此视图或无权查看"));
+    }).catch(() => setSrcErr(L("โหลดมุมมองไม่สำเร็จ", "Failed to load view", "加载视图失败")));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const srcRange = useMemo(() => (srcView ? viewRange(srcView) : { from: new Date(0), to: new Date(0) }), [srcView]);
+  const sales = useSalesData(srcRange, { enabled: !!srcView });
+  const viewOrders = useMemo(() => {
+    if (!srcView || sales.loading) return null;
+    const page = srcView.state.page ?? {};
+    let list = sales.orders;
+    if (page.src === "lark") list = list.filter((o) => o.source === "lark"); else if (page.src === "pos") list = list.filter((o) => o.source !== "lark");
+    list = applyOrderFilters(list, { ...EMPTY_FILTER, ...(page.filter ?? {}), range: "custom", from: srcRange.from, to: srcRange.to } as AdminFilter, { branches: sales.branches, products: [] });
+    return applySheetView(list, srcView.state, { branches: sales.branches, brands: sales.brands, employees: sales.employees });
+  }, [srcView, sales.loading, sales.orders, sales.branches, sales.brands, sales.employees, srcRange]);
+  useEffect(() => {
+    if (!viewOrders || !srcView) return;
+    setOrders(viewOrders); setEmployees(sales.employees);
+    setFilter({ ...filter, ...EMPTY_FILTER, range: "custom", from: srcRange.from, to: srcRange.to });
+  }, [viewOrders]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── undo/redo: บันทึก snapshot ของ view ทุกครั้งที่เปลี่ยน ──
   useEffect(() => {
     if (!view) return;
@@ -107,7 +149,7 @@ export default function AdminInsightsPage() {
   const canUndo = hist.i > 0, canRedo = hist.i >= 0 && hist.i < hist.len - 1;
 
   useEffect(() => {
-    void listOrders().then(setOrders); void listEmployees().then(setEmployees); setSaved(listViews()); setTasks(listTasks());
+    if (!new URLSearchParams(window.location.search).get("view")) { void listOrders().then(setOrders); void listEmployees().then(setEmployees); } setSaved(listViews()); setTasks(listTasks());
     void listProducts().then(setProducts); void stockAll().then(setStock);
     try { const s = localStorage.getItem("shdpos.ai.split"); if (s) setLeftPct(Math.max(42, Math.min(75, Number(s)))); } catch { /* ignore */ }
     const shared = dashboardFromHash(typeof window !== "undefined" ? window.location.hash : "");
@@ -129,13 +171,16 @@ export default function AdminInsightsPage() {
   }, [leftPct]);
 
   const scoped = useMemo(() => {
+    if (srcView) return orders; // จากมุมมอง: เซิร์ฟเวอร์ตัดตามสิทธิ์สาขาแล้ว (รวมร้าน/อีเวนต์ระบบเดิม)
     const ids = visibleBranchIds(employee, branches.map((b) => b.id));
     return orders.filter((o) => ids.includes(o.branch_id));
-  }, [orders, employee, branches]);
-  const ctx: Ctx = useMemo(() => ({ branches, employees, brands: brands.map((b) => ({ id: b.id, name: b.name })) }), [branches, employees, brands]);
+  }, [orders, employee, branches, srcView]);
+  const ctxBranches = srcView ? sales.branches : branches;
+  const ctxBrands = srcView ? sales.brands : brands;
+  const ctx: Ctx = useMemo(() => ({ branches: ctxBranches, employees, brands: ctxBrands.map((b) => ({ id: b.id, name: b.name })) }), [ctxBranches, employees, ctxBrands]);
   // เจาะลึก: กรองออเดอร์ตาม drill breadcrumb (ทั้งแดชบอร์ด + บทวิเคราะห์)
   const drilled = useMemo(() => applyDrills(scoped, drills, ctx), [scoped, drills, ctx]);
-  const rows = useMemo(() => filterOrders(drilled, { ...filter, branches }), [drilled, filter, branches]);
+  const rows = useMemo(() => filterOrders(drilled, { ...filter, branches: ctxBranches }), [drilled, filter, ctxBranches]);
   // fact pack: ตัวเลขจริง (ปัจจุบัน vs ช่วงก่อน) ให้ AI วิเคราะห์ + โชว์ delta
   const facts = useMemo(() => buildFactPack(drilled, ctx, { from: filter.from, to: filter.to }, locale), [drilled, ctx, filter.from, filter.to, locale]);
   const kpiDelta = (m: Metric): number | null => {
@@ -205,6 +250,18 @@ export default function AdminInsightsPage() {
     setThinking(false);
   }
 
+  // เปิดจากมุมมอง: ให้ AI ออกแบบแดชบอร์ดอัตโนมัติครั้งแรก (หรือเปิดแดชบอร์ดที่บันทึกไว้จากมุมมองนี้)
+  useEffect(() => {
+    if (!srcView || !viewOrders || askedRef.current || orders !== viewOrders) return;
+    askedRef.current = true;
+    const savedDash = dashParam.current ? listViews().find((v) => v.id === dashParam.current) : null;
+    if (savedDash) { setView(savedDash); setMessages([{ role: "assistant", text: L(`เปิดแดชบอร์ด “${savedDash.name}” ด้วยข้อมูลสดจากมุมมอง “${srcView.name}”`, `Opened “${savedDash.name}” with live data from view “${srcView.name}”`, `已用视图“${srcView.name}”的实时数据打开“${savedDash.name}”`) }]); return; }
+    void onAsk(L(
+      `ออกแบบแดชบอร์ดที่เหมาะที่สุดจากข้อมูลมุมมอง “${srcView.name}” (${viewOrders.length} บิล): KPI หลัก, แนวโน้มยอดขาย, แยกตามสาขา/แบรนด์/พนักงาน/ช่องทาง/สินค้าขายดี ตามที่ข้อมูลน่าสนใจ`,
+      `Design the best dashboard from view “${srcView.name}” (${viewOrders.length} bills): key KPIs, sales trend, and the most insightful breakdowns (branch/brand/staff/channel/top products)`,
+      `基于视图“${srcView.name}”（${viewOrders.length} 单）设计最佳仪表盘：核心 KPI、销售趋势及最有价值的拆分`));
+  }, [srcView, viewOrders, orders]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const mutate = (fn: (ws: Widget[]) => Widget[]) => setView((v) => (v ? { ...v, widgets: fn(v.widgets) } : v));
   const patchWidget = (id: string, p: Partial<Widget>) => mutate((ws) => ws.map((w) => (w.id === id ? normalize({ ...w, ...p }) : w)));
   const removeWidget = (id: string) => { mutate((ws) => ws.filter((w) => w.id !== id)); if (editId === id) setEditId(null); };
@@ -244,10 +301,11 @@ export default function AdminInsightsPage() {
     if (!view) return;
     const name = window.prompt(L("ตั้งชื่อมุมมอง", "Name this view", "命名视图"), view.name);
     if (!name) return;
-    const v = { ...view, name, id: view.id || uid(), createdAt: new Date().toISOString() };
+    const v = { ...view, name, id: view.id || uid(), createdAt: new Date().toISOString(), sourceViewId: srcView?.id ?? view.sourceViewId };
     setView(v); setSaved(saveView(v));
   }
-  function recall(v: View) { setView(v); setSource(null); setEditId(null); setMessages([{ role: "assistant", text: L(`เปิดมุมมอง “${v.name}” ให้แล้ว`, `Opened “${v.name}”`, `已打开“${v.name}”`), suggestions: localSuggestions(v, locale) }]); }
+  function recall(v: View) {
+    if (v.sourceViewId && v.sourceViewId !== srcView?.id) { window.location.href = `/admin/insights?view=${encodeURIComponent(v.sourceViewId)}&dash=${encodeURIComponent(v.id)}`; return; } setView(v); setSource(null); setEditId(null); setMessages([{ role: "assistant", text: L(`เปิดมุมมอง “${v.name}” ให้แล้ว`, `Opened “${v.name}”`, `已打开“${v.name}”`), suggestions: localSuggestions(v, locale) }]); }
   function reset() { setMessages([]); setView(null); setSource(null); setEditId(null); setPrompt(""); setDrills([]); histRef.current = []; hiRef.current = -1; setHist({ i: -1, len: 0 }); if (typeof window !== "undefined" && window.location.hash) history.replaceState(null, "", window.location.pathname); }
 
   function onShare() {
@@ -319,7 +377,19 @@ export default function AdminInsightsPage() {
         </div>
       </div>
 
-      <div className="shrink-0"><FilterBar value={filter} onChange={setFilter} branches={branches} brands={brands} /></div>
+      {srcView || srcErr ? (
+        <div className="shrink-0 mb-2 flex flex-wrap items-center gap-2 rounded-xl border border-brand/30 bg-brand/[0.05] px-3 py-2 text-xs">
+          <Table2 size={14} className="text-brand" />
+          {srcErr ? <span className="text-danger">{srcErr}</span> : <>
+            <span>{L("ข้อมูลจากมุมมองตาราง", "Data from sheet view", "数据来自表格视图")} <b translate="no">“{srcView!.name}”</b></span>
+            <span className="text-muted">{sales.loading || !viewOrders ? L("กำลังโหลดข้อมูล…", "Loading…", "加载中…") : L(`${viewOrders.length.toLocaleString()} บิล · ข้อมูลสด POS + Lark`, `${viewOrders.length.toLocaleString()} bills · live POS + Lark`, `${viewOrders.length.toLocaleString()} 单 · 实时 POS + Lark`)}</span>
+          </>}
+          <span className="flex-1" />
+          <a href="/admin/sales?tab=bills" className="text-brand hover:underline">{L("กลับไปตาราง", "Back to sheet", "返回表格")}</a>
+          <a href="/admin/insights" className="text-muted hover:text-ink">{L("ออกจากโหมดมุมมอง", "Exit view mode", "退出视图模式")}</a>
+        </div>
+      ) : null}
+      <div className="shrink-0"><FilterBar value={filter} onChange={setFilter} branches={ctxBranches} brands={ctxBrands} /></div>
 
       <div ref={contRef} className="flex flex-col lg:flex-row gap-4 mt-4 lg:flex-1 lg:min-h-0" style={{ ["--lw" as string]: `${leftPct}%` }}>
         {/* ── ซ้าย: แดชบอร์ด (ปรับขนาดได้ · เลื่อนในกรอบตัวเอง) ── */}
@@ -343,9 +413,9 @@ export default function AdminInsightsPage() {
 
               <p className="text-[11px] text-muted -mt-1">
                 {L(
-                  `ขอบเขต ${facts.scope.branchesInScope} สาขา (มีขาย ${facts.scope.branchesWithSales}) · เทียบ ${facts.period.days} วันก่อนหน้า · ล่าสุด ${facts.scope.latestOrder ? new Date(facts.scope.latestOrder).toLocaleString("th-TH", { dateStyle: "short", timeStyle: "short" }) : "—"} · เฉพาะข้อมูลที่ซิงก์ในเครื่อง`,
-                  `Scope ${facts.scope.branchesInScope} branches (${facts.scope.branchesWithSales} selling) · vs ${facts.period.days}d prior · latest ${facts.scope.latestOrder ? new Date(facts.scope.latestOrder).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" }) : "—"} · local synced data only`,
-                  `范围 ${facts.scope.branchesInScope} 门店 · 对比前 ${facts.period.days} 天 · 仅本地同步数据`,
+                  `ขอบเขต ${facts.scope.branchesInScope} สาขา (มีขาย ${facts.scope.branchesWithSales}) · เทียบ ${facts.period.days} วันก่อนหน้า · ล่าสุด ${facts.scope.latestOrder ? new Date(facts.scope.latestOrder).toLocaleString("th-TH", { dateStyle: "short", timeStyle: "short" }) : "—"} · ${srcView ? "ข้อมูลสดจากมุมมอง (POS + Lark)" : "เฉพาะข้อมูลที่ซิงก์ในเครื่อง"}`,
+                  `Scope ${facts.scope.branchesInScope} branches (${facts.scope.branchesWithSales} selling) · vs ${facts.period.days}d prior · latest ${facts.scope.latestOrder ? new Date(facts.scope.latestOrder).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" }) : "—"} · ${srcView ? "live data from the view (POS + Lark)" : "local synced data only"}`,
+                  `范围 ${facts.scope.branchesInScope} 门店 · 对比前 ${facts.period.days} 天 · ${srcView ? "视图实时数据 (POS + Lark)" : "仅本地同步数据"}`,
                 )}
               </p>
 

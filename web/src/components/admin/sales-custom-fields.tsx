@@ -30,20 +30,21 @@ async function post(body: unknown) {
   return j;
 }
 
-export function useSalesFields() {
+export function useSalesFields(enabled = true) {
   const [fields, setFields] = useState<SalesField[]>([]);
   const [values, setValues] = useState<Values>({});
   const [canEdit, setCanEdit] = useState(false);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState("");
   const load = useCallback(async () => {
+    if (!enabled) return;
     try {
       const r = await fetch("/api/admin/sales-fields", { cache: "no-store" });
       if (!r.ok) { setReady(false); return; } // โหมดสาธิต/ไม่มีสิทธิ์ → ซ่อนฟีเจอร์
       const j = await r.json();
       setFields(j.fields ?? []); setValues(j.values ?? {}); setCanEdit(!!j.can_edit); setReady(true);
     } catch { setReady(false); }
-  }, []);
+  }, [enabled]);
   useEffect(() => { void load(); }, [load]);
 
   const setValue = useCallback(async (orderKey: string, field: SalesField, value: unknown) => {

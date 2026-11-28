@@ -42,7 +42,8 @@ export type PrevOrder = { branch_id: string; grand_total: number; status: string
 export type OrgPosition = { branch_id: string; employee_id: string; title: string };
 export type SalesData = { orders: Order[]; branches: Branch[]; brands: Brand[]; employees: Employee[]; positions: OrgPosition[] | null; adjustments: Adjustment[]; prev: PrevOrder[]; loading: boolean; error: string; truncated: boolean; live: boolean };
 
-export function useSalesData(range: { from: Date; to: Date }): SalesData {
+export function useSalesData(range: { from: Date; to: Date }, opts: { enabled?: boolean } = {}): SalesData {
+  const enabled = opts.enabled !== false;
   const live = typeof window !== "undefined" && isLiveMode();
   const scope = useAdminScope();
   const [state, setState] = useState<Omit<SalesData, "live">>({ orders: [], branches: [], brands: [], employees: [], positions: null, adjustments: [], prev: [], loading: true, error: "", truncated: false });
@@ -56,6 +57,7 @@ export function useSalesData(range: { from: Date; to: Date }): SalesData {
   }, [live]);
   useEffect(() => {
     let alive = true;
+    if (!enabled) return () => { alive = false; };
     const cached = live ? fromCache(range.from, range.to) : null;
     const fresh = !!cached?.exact && Date.now() - cached.at < FRESH_MS - 5_000;
     if (cached) setState({ ...cached, loading: !fresh, error: "" });
@@ -74,6 +76,6 @@ export function useSalesData(range: { from: Date; to: Date }): SalesData {
       } catch (e) { if (alive) setState((s) => ({ ...s, loading: false, error: e instanceof Error ? e.message : tr("โหลดไม่สำเร็จ", "Failed to load", "加载失败") })); }
     })();
     return () => { alive = false; };
-  }, [key, live, tick]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [key, live, tick, enabled]); // eslint-disable-line react-hooks/exhaustive-deps
   return useMemo(() => live ? { ...state, live } : { ...state, branches: scope.branches, brands: scope.brands, live }, [state, live, scope.branches, scope.brands]);
 }

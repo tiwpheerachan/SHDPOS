@@ -86,6 +86,8 @@ export interface View {
   prompt: string;
   widgets: Widget[];
   createdAt: string;
+  /** สร้างจากมุมมองตารางยอดขาย (เปิดใหม่ = ดึงข้อมูลสดตามมุมมองนั้น) */
+  sourceViewId?: string;
 }
 
 export interface Ctx { branches: Branch[]; employees: Employee[]; brands: { id: string; name: string }[] }

@@ -45,71 +45,18 @@ const hm = (iso: string) => bkkIso(iso).slice(11, 16);
 const maskPhone = (p?: string | null) => (p ? p.replace(/\D/g, "").replace(/^(\d{3})\d+(\d{4})$/, "$1-xxx-$2") : "");
 const LS = "shdpos.salesSheet.v1";
 
-export function SalesSheet({ orders, branches, brands, employees, products, catName, showCost, owStatus, onExportCsv, pageState, applyPageState }: {
-  orders: Order[]; branches: Branch[]; brands: Brand[]; employees: Employee[]; products: Product[]; catName: Map<string, string>;
-  showCost: boolean; owStatus: Record<string, { ow_status?: string } | undefined>; onExportCsv?: () => void;
-  /** ตัวกรองระดับหน้า (ช่วงวันที่/สาขา/แบรนด์/แหล่งข้อมูล) ให้มุมมองบันทึกรวมไปด้วย */
-  pageState?: () => SheetViewState; applyPageState?: (s: SheetViewState | null) => void;
-}) {
-  const { locale } = useI18n(); // ภาษาเปลี่ยน → คำนวณป้ายใหม่
-  const { employee } = useSession();
-  const canTrace = !employee || can(employee, "sales.trace");
-  const cf = useSalesFields();
-  const [fieldEdit, setFieldEdit] = useState<{ rect: DOMRect; field?: SalesField } | null>(null);
+function buildRef(branches: Branch[], brands: Brand[], employees: Employee[], products: Product[]) {
+  const br = new Map(branches.map((b) => [b.id, b])), bn = new Map(brands.map((b) => [b.id, b.name])), em = new Map(employees.map((e) => [e.id, e])), pr = new Map(products.map((p) => [p.id, p]));
+  const name = (id?: string | null) => { const e = id ? em.get(id) : undefined; return e ? e.nickname || [e.first_name, e.last_name].filter(Boolean).join(" ") : ""; };
+  // รูปโปรไฟล์ (จาก SSO/Lark) ตามชื่อที่แสดง — ใช้ทั้งในช่องและรายการตัวกรอง
+  const photoByName = new Map<string, string>();
+  for (const e of employees) { const n = name(e.id); if (n && e.photo_url) photoByName.set(n, e.photo_url); }
+  return { br, bn, pr, name, photoByName };
+}
+type Ref = ReturnType<typeof buildRef>;
 
-  // ── ค่าที่จำในเครื่อง ──
-  const saved = useMemo(() => { try { return JSON.parse(localStorage.getItem(LS) ?? "{}") as { mode?: Mode; hidden?: Record<Mode, string[]>; per?: number; frozen?: number }; } catch { return {}; } }, []);
-  const [mode, setMode] = useState<Mode>(saved.mode ?? "bill");
-  const [hidden, setHidden] = useState<Record<Mode, string[]>>(saved.hidden ?? { bill: [], line: [] });
-  const [per, setPer] = useState<number>(saved.per ?? 50);
-  // ตรึงคอลัมน์ซ้าย N คอลัมน์ (ไม่เลื่อนตามแนวนอน) — ค่าส่วนตัวของแต่ละคน
-  const [frozen, setFrozen] = useState<number>(saved.frozen ?? 1);
-  const viewActive = useRef(false);
-  // ค่าส่วนตัว (ตอนอยู่ "ตารางหลัก") จำในเครื่อง — ตอนเปิดมุมมองอยู่ไม่ทับค่าส่วนตัว
-  useEffect(() => { if (viewActive.current) return; try { localStorage.setItem(LS, JSON.stringify({ mode, hidden, per, frozen })); } catch { /* */ } }, [mode, hidden, per, frozen]);
-  const [filters, setFilters] = useState<Record<string, ColFilter>>({});
-  const [sort, setSort] = useState<{ id: string; dir: 1 | -1 }>({ id: "date", dir: -1 });
-  const [page, setPage] = useState(0);
-  const [openBill, setOpenBill] = useState<Order | null>(null);
-  const [menu, setMenu] = useState<{ id: string; rect: DOMRect } | null>(null);
-  const [colsOpen, setColsOpen] = useState(false);
-  const [copied, setCopied] = useState("");
-  const skipModeReset = useRef(false);
-  useEffect(() => { if (skipModeReset.current) { skipModeReset.current = false; return; } setFilters({}); setPage(0); setSort({ id: "date", dir: -1 }); }, [mode]);
-
-  // ── มุมมอง (แท็บ) ──
-  const captureView = (): SheetViewState => ({ mode, filters, sort, hidden: hidden[mode], frozen, page: pageState?.() ?? null });
-  const applyView = (st: SheetViewState | null) => {
-    setPage(0);
-    if (!st) { // ตารางหลัก = ค่าส่วนตัว + ไม่มีตัวกรอง
-      viewActive.current = false;
-      setFilters({}); setSort({ id: "date", dir: -1 });
-      try { const mine = JSON.parse(localStorage.getItem(LS) ?? "{}"); if (mine.hidden) setHidden(mine.hidden); setFrozen(mine.frozen ?? 1); } catch { /* */ }
-      applyPageState?.(null);
-      return;
-    }
-    viewActive.current = true;
-    const m = (st.mode === "line" ? "line" : "bill") as Mode;
-    if (m !== mode) { skipModeReset.current = true; setMode(m); }
-    setFilters((st.filters as Record<string, ColFilter>) ?? {});
-    setSort((st.sort as { id: string; dir: 1 | -1 }) ?? { id: "date", dir: -1 });
-    if (Array.isArray(st.hidden)) setHidden((h) => ({ ...h, [m]: st.hidden as string[] }));
-    if (typeof st.frozen === "number") setFrozen(st.frozen);
-    if (st.page) applyPageState?.(st.page as SheetViewState);
-  };
-
-  // ── ข้อมูลอ้างอิง ──
-  const ref = useMemo(() => {
-    const br = new Map(branches.map((b) => [b.id, b])), bn = new Map(brands.map((b) => [b.id, b.name])), em = new Map(employees.map((e) => [e.id, e])), pr = new Map(products.map((p) => [p.id, p]));
-    const name = (id?: string | null) => { const e = id ? em.get(id) : undefined; return e ? e.nickname || [e.first_name, e.last_name].filter(Boolean).join(" ") : ""; };
-    // รูปโปรไฟล์ (จาก SSO/Lark) ตามชื่อที่แสดง — ใช้ทั้งในช่องและรายการตัวกรอง
-    const photoByName = new Map<string, string>();
-    for (const e of employees) { const n = name(e.id); if (n && e.photo_url) photoByName.set(n, e.photo_url); }
-    return { br, bn, pr, name, photoByName };
-  }, [branches, brands, employees, products]);
-
-  // ── คอลัมน์ ──
-  const cols = useMemo<Col[]>(() => {
+function buildCols(mode: Mode, ref: Ref, catName: Map<string, string>, showCost: boolean, owStatus: Record<string, { ow_status?: string } | undefined>,
+  cfFields: SalesField[], cfValues: Record<string, Record<string, unknown>>): Col[] {
     const B = (r: Row) => ref.br.get(r.o.branch_id);
     const goods = (o: Order) => o.items.filter((i) => !i.is_gift);
     const pay = (o: Order) => [...new Set(o.payments.map((p) => PAY()[p.method] ?? p.method))].join(" + ");
@@ -194,28 +141,16 @@ export function SalesSheet({ orders, branches, brands, employees, products, catN
     // ป้ายสีในรายการตัวกรอง = หน้าตาเดียวกับในตาราง
     for (const c of base) if (c.kind === "enum" && !c.show && !c.chip) c.chip = (v) => <TagChip value={v} />;
     // คอลัมน์ที่เพิ่มเอง (ค่าต่อบิล — แสดงทั้งมุมมองต่อบิลและต่อรายการสินค้า)
-    const custom: Col[] = cf.fields.map((f) => ({
+    const custom: Col[] = cfFields.map((f) => ({
       id: `cf:${f.id}`, label: () => f.name, custom: f, def: true,
       kind: f.type === "number" ? "num" : f.type === "date" ? "date" : f.type === "text" ? "text" : "enum",
-      get: (r) => fieldText(f, cf.values[r.o.id]?.[f.id]),
+      get: (r) => fieldText(f, cfValues[r.o.id]?.[f.id]),
       chip: f.type === "select" ? (v) => { const o = f.options.find((x) => x.label === v); return <TagChip value={v} tone={o?.color} />; } : undefined,
     }));
     return [...base, ...custom];
-  }, [mode, ref, catName, showCost, owStatus, locale, cf.fields, cf.values]); // eslint-disable-line react-hooks/exhaustive-deps
+}
 
-  const isShown = (c: Col) => (hidden[mode].length ? !hidden[mode].includes(c.id) : c.def !== false && !!c.def);
-  const visible = cols.filter(isShown);
-  // ครั้งแรก: ใช้ค่าเริ่มต้น (def) · เมื่อผู้ใช้ปรับ จะเก็บเป็นรายการที่ซ่อน
-  function toggleCol(id: string) {
-    const curHidden = hidden[mode].length ? hidden[mode] : cols.filter((c) => !c.def).map((c) => c.id);
-    const next = curHidden.includes(id) ? curHidden.filter((x) => x !== id) : [...curHidden, id];
-    setHidden({ ...hidden, [mode]: next.length ? next : ["__none__"] });
-  }
-
-  // ── แถว + ตัวกรอง + เรียง ──
-  const rows = useMemo<Row[]>(() => mode === "bill" ? orders.map((o) => ({ o, key: o.id }))
-    : orders.flatMap((o) => o.items.map((it, i) => ({ o, it, key: `${o.id}:${it.id ?? i}` }))), [orders, mode]);
-  const filtered = useMemo(() => {
+function filterRows(rows: Row[], filters: Record<string, ColFilter>, cols: Col[]): Row[] {
     const act = Object.entries(filters).filter(([, f]) => f && (f.text || f.values?.length || f.min != null || f.max != null || f.from || f.to));
     let out = rows;
     for (const [id, f] of act) {
@@ -231,6 +166,100 @@ export function SalesSheet({ orders, branches, brands, employees, products, catN
         return true;
       });
     }
+    return out;
+}
+const toRows = (orders: Order[], mode: Mode): Row[] => mode === "bill" ? orders.map((o) => ({ o, key: o.id }))
+  : orders.flatMap((o) => o.items.map((it, i) => ({ o, it, key: `${o.id}:${it.id ?? i}` })));
+
+/** ใช้ตัวกรองคอลัมน์ของมุมมองตาราง (สูตรเดียวกับในตาราง) → บิลที่ตรง — ใช้สร้างแดชบอร์ดจากมุมมอง */
+export function applySheetView(orders: Order[], state: SheetViewState | null | undefined, deps: { branches: Branch[]; brands: Brand[]; employees: Employee[]; products?: Product[] }): Order[] {
+  const filters = (state?.filters ?? {}) as Record<string, ColFilter>;
+  if (!Object.keys(filters).length) return orders;
+  const mode: Mode = state?.mode === "line" ? "line" : "bill";
+  const cols = buildCols(mode, buildRef(deps.branches, deps.brands, deps.employees, deps.products ?? []), new Map(), false, {}, [], {});
+  const seen = new Set<string>(), out: Order[] = [];
+  for (const r of filterRows(toRows(orders, mode), filters, cols)) if (!seen.has(r.o.id)) { seen.add(r.o.id); out.push(r.o); }
+  return out;
+}
+
+export function SalesSheet({ orders, branches, brands, employees, products, catName, showCost, owStatus, onExportCsv, pageState, applyPageState, readOnly, initialView }: {
+  orders: Order[]; branches: Branch[]; brands: Brand[]; employees: Employee[]; products: Product[]; catName: Map<string, string>;
+  showCost: boolean; owStatus: Record<string, { ow_status?: string } | undefined>; onExportCsv?: () => void;
+  /** ตัวกรองระดับหน้า (ช่วงวันที่/สาขา/แบรนด์/แหล่งข้อมูล) ให้มุมมองบันทึกรวมไปด้วย */
+  pageState?: () => SheetViewState; applyPageState?: (s: SheetViewState | null) => void;
+  /** ลิงก์สาธารณะ: อ่านอย่างเดียว (ไม่มีแท็บมุมมอง/เพิ่มคอลัมน์/เปิดบิล) + มุมมองที่ล็อกไว้ */
+  readOnly?: boolean; initialView?: SheetViewState | null;
+}) {
+  const { locale } = useI18n(); // ภาษาเปลี่ยน → คำนวณป้ายใหม่
+  const { employee } = useSession();
+  const canTrace = !readOnly && (!employee || can(employee, "sales.trace"));
+  const cf = useSalesFields(!readOnly);
+  const [fieldEdit, setFieldEdit] = useState<{ rect: DOMRect; field?: SalesField } | null>(null);
+
+  // ── ค่าที่จำในเครื่อง ──
+  const saved = useMemo(() => { try { return JSON.parse(localStorage.getItem(LS) ?? "{}") as { mode?: Mode; hidden?: Record<Mode, string[]>; per?: number; frozen?: number }; } catch { return {}; } }, []);
+  const [mode, setMode] = useState<Mode>(saved.mode ?? "bill");
+  const [hidden, setHidden] = useState<Record<Mode, string[]>>(saved.hidden ?? { bill: [], line: [] });
+  const [per, setPer] = useState<number>(saved.per ?? 50);
+  // ตรึงคอลัมน์ซ้าย N คอลัมน์ (ไม่เลื่อนตามแนวนอน) — ค่าส่วนตัวของแต่ละคน
+  const [frozen, setFrozen] = useState<number>(saved.frozen ?? 1);
+  const viewActive = useRef(false);
+  // ค่าส่วนตัว (ตอนอยู่ "ตารางหลัก") จำในเครื่อง — ตอนเปิดมุมมองอยู่ไม่ทับค่าส่วนตัว
+  useEffect(() => { if (viewActive.current) return; try { localStorage.setItem(LS, JSON.stringify({ mode, hidden, per, frozen })); } catch { /* */ } }, [mode, hidden, per, frozen]);
+  const [filters, setFilters] = useState<Record<string, ColFilter>>({});
+  const [sort, setSort] = useState<{ id: string; dir: 1 | -1 }>({ id: "date", dir: -1 });
+  const [page, setPage] = useState(0);
+  const [openBill, setOpenBill] = useState<Order | null>(null);
+  const [menu, setMenu] = useState<{ id: string; rect: DOMRect } | null>(null);
+  const [colsOpen, setColsOpen] = useState(false);
+  const [copied, setCopied] = useState("");
+  const skipModeReset = useRef(false);
+  useEffect(() => { if (skipModeReset.current) { skipModeReset.current = false; return; } setFilters({}); setPage(0); setSort({ id: "date", dir: -1 }); }, [mode]);
+
+  // ลิงก์สาธารณะ: ใช้มุมมองที่ล็อกไว้ครั้งเดียวตอนเปิด
+  const initApplied = useRef(false);
+  useEffect(() => { if (initialView && !initApplied.current) { initApplied.current = true; applyView(initialView); } }); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── มุมมอง (แท็บ) ──
+  const captureView = (): SheetViewState => ({ mode, filters, sort, hidden: hidden[mode], frozen, page: pageState?.() ?? null });
+  const applyView = (st: SheetViewState | null) => {
+    setPage(0);
+    if (!st) { // ตารางหลัก = ค่าส่วนตัว + ไม่มีตัวกรอง
+      viewActive.current = false;
+      setFilters({}); setSort({ id: "date", dir: -1 });
+      try { const mine = JSON.parse(localStorage.getItem(LS) ?? "{}"); if (mine.hidden) setHidden(mine.hidden); setFrozen(mine.frozen ?? 1); } catch { /* */ }
+      applyPageState?.(null);
+      return;
+    }
+    viewActive.current = true;
+    const m = (st.mode === "line" ? "line" : "bill") as Mode;
+    if (m !== mode) { skipModeReset.current = true; setMode(m); }
+    setFilters((st.filters as Record<string, ColFilter>) ?? {});
+    setSort((st.sort as { id: string; dir: 1 | -1 }) ?? { id: "date", dir: -1 });
+    if (Array.isArray(st.hidden)) setHidden((h) => ({ ...h, [m]: st.hidden as string[] }));
+    if (typeof st.frozen === "number") setFrozen(st.frozen);
+    if (st.page) applyPageState?.(st.page as SheetViewState);
+  };
+
+  // ── ข้อมูลอ้างอิง ──
+  const ref = useMemo(() => buildRef(branches, brands, employees, products), [branches, brands, employees, products]);
+
+  // ── คอลัมน์ ──
+  const cols = useMemo<Col[]>(() => buildCols(mode, ref, catName, showCost, owStatus, cf.fields, cf.values), [mode, ref, catName, showCost, owStatus, locale, cf.fields, cf.values]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const isShown = (c: Col) => (hidden[mode].length ? !hidden[mode].includes(c.id) : c.def !== false && !!c.def);
+  const visible = cols.filter(isShown);
+  // ครั้งแรก: ใช้ค่าเริ่มต้น (def) · เมื่อผู้ใช้ปรับ จะเก็บเป็นรายการที่ซ่อน
+  function toggleCol(id: string) {
+    const curHidden = hidden[mode].length ? hidden[mode] : cols.filter((c) => !c.def).map((c) => c.id);
+    const next = curHidden.includes(id) ? curHidden.filter((x) => x !== id) : [...curHidden, id];
+    setHidden({ ...hidden, [mode]: next.length ? next : ["__none__"] });
+  }
+
+  // ── แถว + ตัวกรอง + เรียง ──
+  const rows = useMemo<Row[]>(() => toRows(orders, mode), [orders, mode]);
+  const filtered = useMemo(() => {
+    let out = filterRows(rows, filters, cols);
     const c = cols.find((x) => x.id === sort.id);
     if (c) {
       const num = c.kind === "num" || c.kind === "money";
@@ -294,7 +323,7 @@ export function SalesSheet({ orders, branches, brands, employees, products, catN
   return (
     <div className="card overflow-hidden">
       {/* แถบมุมมองแบบ Lark */}
-      <SheetViewTabs capture={captureView} apply={applyView} />
+      {readOnly ? null : <SheetViewTabs capture={captureView} apply={applyView} />}
       {/* แถบเครื่องมือ */}
       <div className="flex flex-wrap items-center gap-2 px-4 py-3 border-b border-line">
         <Segmented<Mode> size="sm" value={mode} onChange={setMode} options={[
@@ -367,12 +396,12 @@ export function SalesSheet({ orders, branches, brands, employees, products, catN
                   </th>
                 );
               })}
-              <th className="border-b border-l border-line bg-surface2 w-[72px] sticky right-0 z-10 px-2">
+              {readOnly ? null : <th className="border-b border-l border-line bg-surface2 w-[72px] sticky right-0 z-10 px-2">
                 {cf.ready && cf.canEdit ? (
                   <button onClick={(e) => setFieldEdit({ rect: (e.currentTarget as HTMLElement).getBoundingClientRect() })} title={tr("เพิ่มคอลัมน์ของคุณเอง (กรอกข้อมูลได้แบบ Excel)", "Add your own column (editable like Excel)", "添加自定义列（可像 Excel 一样编辑）")}
                     className="h-7 w-full rounded-lg border border-dashed border-line text-muted hover:text-brand hover:border-brand/50 inline-flex items-center justify-center gap-1 text-[11px]"><Plus size={12} />{tr("คอลัมน์", "Column", "列")}</button>
                 ) : null}
-              </th>
+              </th>}
             </tr>
           </thead>
           <tbody>
@@ -390,15 +419,15 @@ export function SalesSheet({ orders, branches, brands, employees, products, catN
                       {c.custom ? <FieldCell field={c.custom} value={cf.values[r.o.id]?.[c.custom.id]} editable={cf.canEdit} onSave={(v) => void cf.setValue(r.o.id, c.custom!, v)} /> : fmt(c, r)}
                     </td>
                   ); })}
-                  {/* ปุ่มเชื่อมโยง — แยกให้เห็นชัด (กดทั้งแถวยังเปิดได้เหมือนเดิม) */}
-                  <td className={`border-b border-l border-line/70 pr-3 pl-2 py-1.5 sticky right-0 ${active ? "bg-[rgb(var(--c-surface))]" : "bg-surface"}`} onClick={(e) => e.stopPropagation()}>
+                  {/* ปุ่มเชื่อมโยง — แยกให้เห็นชัด (กดทั้งแถวยังเปิดได้เหมือนเดิม) · ลิงก์สาธารณะไม่มี */}
+                  {readOnly ? null : <td className={`border-b border-l border-line/70 pr-3 pl-2 py-1.5 sticky right-0 ${active ? "bg-[rgb(var(--c-surface))]" : "bg-surface"}`} onClick={(e) => e.stopPropagation()}>
                     <span className="flex items-center justify-end gap-1">
                       {canTrace ? <button onClick={() => setOpenBill(r.o)} title={tr("เปิดบิลและที่มาของบิล", "Open bill & trace", "打开单据与来源")} aria-label={tr("เปิดบิล", "Open bill", "打开单据")}
                         className="h-7 w-7 grid place-items-center rounded-lg border border-line text-muted hover:text-brand hover:border-brand/50 hover:bg-brand/5"><ExternalLink size={13} /></button> : null}
                       <button onClick={() => void copyLink(r.o)} title={tr("คัดลอกลิงก์บิลนี้", "Copy link to this bill", "复制单据链接")} aria-label={tr("คัดลอกลิงก์", "Copy link", "复制链接")}
                         className="h-7 w-7 grid place-items-center rounded-lg border border-line text-muted hover:text-brand hover:border-brand/50">{copied === r.o.id ? <Check size={13} className="text-ok" /> : <Link2 size={13} />}</button>
                     </span>
-                  </td>
+                  </td>}
                 </tr>
               );
             })}
@@ -411,7 +440,7 @@ export function SalesSheet({ orders, branches, brands, employees, products, catN
                     {i === 0 ? tr("รวม", "Total", "合计") : c.id in totals ? (c.kind === "money" ? baht(totals[c.id]) : formatInt(totals[c.id])) : ""}
                   </td>
                 ); })}
-                <td className="border-t-2 border-l border-line bg-surface2 sticky right-0" />
+                {readOnly ? null : <td className="border-t-2 border-l border-line bg-surface2 sticky right-0" />}
               </tr>
             </tfoot>
           ) : null}
