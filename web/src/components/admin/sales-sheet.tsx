@@ -197,21 +197,32 @@ export function SalesSheet({ orders, branches, brands, employees, products, catN
   const [fieldEdit, setFieldEdit] = useState<{ rect: DOMRect; field?: SalesField } | null>(null);
 
   // ── ค่าที่จำในเครื่อง ──
-  const saved = useMemo(() => { try { return JSON.parse(localStorage.getItem(LS) ?? "{}") as { mode?: Mode; hidden?: Record<Mode, string[]>; per?: number; frozen?: number }; } catch { return {}; } }, []);
+  const saved = useMemo(() => { try { return JSON.parse(localStorage.getItem(LS) ?? "{}") as { mode?: Mode; hidden?: Record<Mode, string[]>; per?: number; frozen?: number; pinned?: string[] }; } catch { return {}; } }, []);
   const [mode, setMode] = useState<Mode>(saved.mode ?? "bill");
   const [hidden, setHidden] = useState<Record<Mode, string[]>>(saved.hidden ?? { bill: [], line: [] });
   const [per, setPer] = useState<number>(saved.per ?? 50);
   // ตรึงคอลัมน์ซ้าย N คอลัมน์ (ไม่เลื่อนตามแนวนอน) — ค่าส่วนตัวของแต่ละคน
-  const [frozen, setFrozen] = useState<number>(saved.frozen ?? 1);
+  // ตรึงคอลัมน์ที่เลือกเอง (ย้ายไปซ้ายสุดตามลำดับที่ตรึง) · ค่าเก่าแบบ "N คอลัมน์แรก" แปลงอัตโนมัติ
+  const [pinned, setPinned] = useState<string[] | null>(saved.pinned ?? (saved.frozen != null ? null : ["date"]));
+  const [legacyN, setLegacyN] = useState<number | null>(saved.pinned ? null : saved.frozen ?? null);
   const viewActive = useRef(false);
   // ค่าส่วนตัว (ตอนอยู่ "ตารางหลัก") จำในเครื่อง — ตอนเปิดมุมมองอยู่ไม่ทับค่าส่วนตัว
-  useEffect(() => { if (viewActive.current) return; try { localStorage.setItem(LS, JSON.stringify({ mode, hidden, per, frozen })); } catch { /* */ } }, [mode, hidden, per, frozen]);
+  useEffect(() => { if (viewActive.current) return; try { localStorage.setItem(LS, JSON.stringify({ mode, hidden, per, pinned: pinned ?? undefined })); } catch { /* */ } }, [mode, hidden, per, pinned]);
   const [filters, setFilters] = useState<Record<string, ColFilter>>({});
   const [sort, setSort] = useState<{ id: string; dir: 1 | -1 }>({ id: "date", dir: -1 });
   const [page, setPage] = useState(0);
   const [openBill, setOpenBill] = useState<Order | null>(null);
   const [menu, setMenu] = useState<{ id: string; rect: DOMRect } | null>(null);
   const [colsOpen, setColsOpen] = useState(false);
+  const [pinOpen, setPinOpen] = useState(false);
+  const pinBox = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!pinOpen) return;
+    const h = (e: MouseEvent) => { if (!pinBox.current?.contains(e.target as Node)) setPinOpen(false); };
+    const k = (e: KeyboardEvent) => { if (e.key === "Escape") setPinOpen(false); };
+    document.addEventListener("mousedown", h); document.addEventListener("keydown", k);
+    return () => { document.removeEventListener("mousedown", h); document.removeEventListener("keydown", k); };
+  }, [pinOpen]);
   const [copied, setCopied] = useState("");
   const skipModeReset = useRef(false);
   useEffect(() => { if (skipModeReset.current) { skipModeReset.current = false; return; } setFilters({}); setPage(0); setSort({ id: "date", dir: -1 }); }, [mode]);
@@ -221,13 +232,13 @@ export function SalesSheet({ orders, branches, brands, employees, products, catN
   useEffect(() => { if (initialView && !initApplied.current) { initApplied.current = true; applyView(initialView); } }); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── มุมมอง (แท็บ) ──
-  const captureView = (): SheetViewState => ({ mode, filters, sort, hidden: hidden[mode], frozen, page: pageState?.() ?? null });
+  const captureView = (): SheetViewState => ({ mode, filters, sort, hidden: hidden[mode], pinned: pins, page: pageState?.() ?? null });
   const applyView = (st: SheetViewState | null) => {
     setPage(0);
     if (!st) { // ตารางหลัก = ค่าส่วนตัว + ไม่มีตัวกรอง
       viewActive.current = false;
       setFilters({}); setSort({ id: "date", dir: -1 });
-      try { const mine = JSON.parse(localStorage.getItem(LS) ?? "{}"); if (mine.hidden) setHidden(mine.hidden); setFrozen(mine.frozen ?? 1); } catch { /* */ }
+      try { const mine = JSON.parse(localStorage.getItem(LS) ?? "{}"); if (mine.hidden) setHidden(mine.hidden); if (Array.isArray(mine.pinned)) { setPinned(mine.pinned); setLegacyN(null); } else { setPinned(null); setLegacyN(mine.frozen ?? 1); } } catch { /* */ }
       applyPageState?.(null);
       return;
     }
@@ -237,7 +248,7 @@ export function SalesSheet({ orders, branches, brands, employees, products, catN
     setFilters((st.filters as Record<string, ColFilter>) ?? {});
     setSort((st.sort as { id: string; dir: 1 | -1 }) ?? { id: "date", dir: -1 });
     if (Array.isArray(st.hidden)) setHidden((h) => ({ ...h, [m]: st.hidden as string[] }));
-    if (typeof st.frozen === "number") setFrozen(st.frozen);
+    if (Array.isArray(st.pinned)) { setPinned(st.pinned as string[]); setLegacyN(null); } else if (typeof st.frozen === "number") { setPinned(null); setLegacyN(st.frozen); }
     if (st.page) applyPageState?.(st.page as SheetViewState);
   };
 
@@ -248,7 +259,11 @@ export function SalesSheet({ orders, branches, brands, employees, products, catN
   const cols = useMemo<Col[]>(() => buildCols(mode, ref, catName, showCost, owStatus, cf.fields, cf.values), [mode, ref, catName, showCost, owStatus, locale, cf.fields, cf.values]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const isShown = (c: Col) => (hidden[mode].length ? !hidden[mode].includes(c.id) : c.def !== false && !!c.def);
-  const visible = cols.filter(isShown);
+  const shownCols = cols.filter(isShown);
+  // ค่าเก่า "ตรึง N คอลัมน์แรก" → รายชื่อคอลัมน์
+  const pins = pinned ?? shownCols.slice(0, legacyN ?? 1).map((c) => c.id);
+  const visible = [...pins.map((id) => shownCols.find((c) => c.id === id)).filter((c): c is Col => !!c), ...shownCols.filter((c) => !pins.includes(c.id))];
+  const togglePin = (id: string) => { setLegacyN(null); setPinned(pins.includes(id) ? pins.filter((x) => x !== id) : [...pins, id]); };
   // ครั้งแรก: ใช้ค่าเริ่มต้น (def) · เมื่อผู้ใช้ปรับ จะเก็บเป็นรายการที่ซ่อน
   function toggleCol(id: string) {
     const curHidden = hidden[mode].length ? hidden[mode] : cols.filter((c) => !c.def).map((c) => c.id);
@@ -299,7 +314,7 @@ export function SalesSheet({ orders, branches, brands, employees, products, catN
   // ── ตรึงคอลัมน์: วัดความกว้างหัวคอลัมน์จริง → ตำแหน่ง left ของแต่ละคอลัมน์ที่ตรึง ──
   const thRefs = useRef<(HTMLTableCellElement | null)[]>([]);
   const [lefts, setLefts] = useState<number[]>([]);
-  const nFrozen = Math.min(frozen, visible.length);
+  const nFrozen = visible.filter((c) => pins.includes(c.id)).length;
   useLayoutEffect(() => {
     const out: number[] = []; let x = 0;
     for (let i = 0; i < nFrozen; i++) { out.push(x); x += thRefs.current[i]?.offsetWidth ?? 0; }
@@ -323,7 +338,13 @@ export function SalesSheet({ orders, branches, brands, employees, products, catN
   return (
     <div className="card overflow-hidden">
       {/* แถบมุมมองแบบ Lark */}
-      {readOnly ? null : <SheetViewTabs capture={captureView} apply={applyView} />}
+      {readOnly ? null : <SheetViewTabs capture={captureView} apply={applyView} snapshot={() => {
+        // ภาพนิ่งของสิ่งที่ตารางแสดงอยู่ตอนนี้ (บิลไม่ซ้ำ + สาขา/แบรนด์/พนักงานที่ใช้)
+        const seen = new Set<string>(); const os: Order[] = [];
+        for (const r of filtered) if (!seen.has(r.o.id)) { seen.add(r.o.id); os.push(r.o); }
+        const bIds = new Set(os.map((o) => o.branch_id)), eIds = new Set(os.flatMap((o) => [o.salesperson_id, o.cashier_id, ...o.items.map((i) => i.salesperson_id)]));
+        return { orders: os, branches: branches.filter((b) => bIds.has(b.id)), brands, employees: employees.filter((e) => eIds.has(e.id)), state: captureView() };
+      }} />}
       {/* แถบเครื่องมือ */}
       <div className="flex flex-wrap items-center gap-2 px-4 py-3 border-b border-line">
         <Segmented<Mode> size="sm" value={mode} onChange={setMode} options={[
@@ -352,12 +373,26 @@ export function SalesSheet({ orders, branches, brands, employees, products, catN
               </div>
             ) : null}
           </div>
-          <label className="h-8 pl-2 pr-1 rounded-lg border border-line text-xs inline-flex items-center gap-1 hover:bg-surface2" title={tr("ตรึงคอลัมน์ด้านซ้ายไว้ไม่ให้เลื่อนตามแนวนอน (ตั้งได้ที่เมนูหัวคอลัมน์ด้วย)", "Freeze left columns so they don't scroll (also from a column's menu)", "冻结左侧列（也可在列菜单设置）")}>
-            <Pin size={12} />{tr("ตรึง", "Freeze", "冻结")}
-            <select value={nFrozen} onChange={(e) => setFrozen(Number(e.target.value))} className="h-6 bg-transparent text-xs outline-none">
-              {Array.from({ length: Math.min(8, visible.length) + 1 }, (_, n) => <option key={n} value={n}>{n === 0 ? tr("ไม่ตรึง", "None", "无") : tr(`${n} คอลัมน์`, `${n} col`, `${n} 列`)}</option>)}
-            </select>
-          </label>
+          <div className="relative" ref={pinBox}>
+            <button onClick={() => setPinOpen((v) => !v)} title={tr("เลือกคอลัมน์ที่ไม่ให้เลื่อนตามแนวนอน (ตั้งที่เมนูหัวคอลัมน์ได้ด้วย)", "Choose columns that stay put when scrolling (also from a column's menu)", "选择横向滚动时固定的列")}
+              className={`h-8 px-2.5 rounded-lg border text-xs inline-flex items-center gap-1.5 hover:bg-surface2 ${nFrozen ? "border-brand/40 text-brand" : "border-line"}`}>
+              <Pin size={12} />{nFrozen ? tr(`ตรึง ${nFrozen} คอลัมน์`, `${nFrozen} frozen`, `冻结 ${nFrozen} 列`) : tr("ตรึงคอลัมน์", "Freeze", "冻结列")}
+            </button>
+            {pinOpen ? (
+              <div className="absolute right-0 mt-1 w-64 max-h-[60vh] overflow-auto bg-surface border border-line rounded-xl shadow-pop p-2 z-40">
+                <div className="flex items-center justify-between px-1 pb-1.5">
+                  <span className="text-[11px] font-semibold text-muted">{tr("ตรึงคอลัมน์ไหนบ้าง (ย้ายไปซ้ายสุด)", "Columns to freeze (moved left)", "冻结哪些列（移到最左）")}</span>
+                  <button onClick={() => { setLegacyN(null); setPinned([]); }} className="text-[11px] text-muted hover:text-ink">{tr("ไม่ตรึง", "None", "无")}</button>
+                </div>
+                {shownCols.map((c) => (
+                  <label key={c.id} className="flex items-center gap-2 px-1.5 py-1 rounded-lg hover:bg-surface2 text-xs cursor-pointer">
+                    <input type="checkbox" checked={pins.includes(c.id)} onChange={() => togglePin(c.id)} className="accent-[rgb(var(--c-brand))]" />{c.label()}
+                    {pins.includes(c.id) ? <span className="ml-auto text-[10px] text-muted tnum">#{pins.indexOf(c.id) + 1}</span> : null}
+                  </label>
+                ))}
+              </div>
+            ) : null}
+          </div>
           <button onClick={exportXls} className="h-8 px-2.5 rounded-lg border border-line text-xs inline-flex items-center gap-1.5 hover:bg-surface2"><FileDown size={13} />Excel</button>
           {onExportCsv ? <button onClick={onExportCsv} className="h-8 px-2 text-xs text-muted hover:text-ink">CSV</button> : null}
         </div>
@@ -461,7 +496,7 @@ export function SalesSheet({ orders, branches, brands, employees, products, catN
         onDelete={fieldEdit.field ? async () => { await cf.deleteField(fieldEdit.field!.id); } : undefined} /> : null}
       {cf.error ? <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-[95] rounded-xl bg-danger text-white text-xs px-4 py-2.5 shadow-pop flex items-center gap-2">{tr("บันทึกไม่สำเร็จ", "Save failed", "保存失败")}: {cf.error}<button onClick={() => cf.setError("")} className="opacity-80 hover:opacity-100"><X size={13} /></button></div> : null}
       {menu ? <ColumnFilterMenu col={cols.find((c) => c.id === menu.id)!} rect={menu.rect} rows={rows} value={filters[menu.id]} onClose={() => setMenu(null)}
-        frozenUpTo={visible.findIndex((c) => c.id === menu.id) < nFrozen} onFreeze={(on) => { const i = visible.findIndex((c) => c.id === menu.id); setFrozen(on ? i + 1 : i); setMenu(null); }}
+        frozenUpTo={pins.includes(menu.id)} onFreeze={() => { togglePin(menu.id); setMenu(null); }}
         onApply={(f) => { setF(menu.id, f); setMenu(null); }} onSort={(dir) => { setSort({ id: menu.id, dir }); setMenu(null); }} /> : null}
       {openBill && openBill.source !== "lark" ? <OrderTraceDrawer key={openBill.id} clientUuid={openBill.client_uuid} orderNo={openBill.order_no} onClose={() => setOpenBill(null)} /> : null}
       {openBill && openBill.source === "lark" ? <LarkBillDrawer order={openBill} onClose={() => setOpenBill(null)} /> : null}
@@ -514,7 +549,7 @@ function ColumnFilterMenu({ col, rect, rows, value, onClose, onApply, onSort, fr
       </div>
       {onFreeze ? (
         <button onClick={() => onFreeze(!frozenUpTo)} className="w-full h-8 rounded-lg border border-line inline-flex items-center justify-center gap-1.5 hover:bg-surface2">
-          {frozenUpTo ? <><PinOff size={12} />{tr("เลิกตรึงตั้งแต่คอลัมน์นี้", "Unfreeze from this column", "从此列取消冻结")}</> : <><Pin size={12} />{tr("ตรึงถึงคอลัมน์นี้ (ไม่เลื่อน)", "Freeze up to this column", "冻结至此列")}</>}
+          {frozenUpTo ? <><PinOff size={12} />{tr("เลิกตรึงคอลัมน์นี้", "Unfreeze this column", "取消冻结此列")}</> : <><Pin size={12} />{tr("ตรึงคอลัมน์นี้ (ไม่เลื่อน)", "Freeze this column", "冻结此列")}</>}
         </button>
       ) : null}
       {numeric ? (

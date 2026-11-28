@@ -29,7 +29,7 @@ async function api(method: "POST" | "DELETE", body?: unknown, id?: string) {
   return j;
 }
 
-export function SheetViewTabs({ capture, apply }: { capture: () => SheetViewState; apply: (s: SheetViewState | null) => void }) {
+export function SheetViewTabs({ capture, apply, snapshot }: { capture: () => SheetViewState; apply: (s: SheetViewState | null) => void; snapshot?: () => Record<string, unknown> }) {
   const router = useRouter();
   const [views, setViews] = useState<View[] | null>(null);
   const [canLink, setCanLink] = useState(false);
@@ -156,7 +156,7 @@ export function SheetViewTabs({ capture, apply }: { capture: () => SheetViewStat
         </Pop>
       ) : null}
       {err ? <span className="mb-1.5 text-[11px] text-danger shrink-0" onClick={() => setErr("")}>{err}</span> : null}
-      {sharing ? (() => { const v = sorted.find((x) => x.id === sharing); return v ? <ShareViewDialog view={v} canLink={canLink} onClose={() => setSharing(null)} onChanged={load}
+      {sharing ? (() => { const v = sorted.find((x) => x.id === sharing); return v ? <ShareViewDialog view={v} canLink={canLink} onClose={() => setSharing(null)} onChanged={load} snapshot={active === v.id ? snapshot : undefined}
         onSave={(patch) => update(v, patch)} /> : null; })() : null}
     </div>
   );

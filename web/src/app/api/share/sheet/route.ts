@@ -17,10 +17,16 @@ export async function GET(req: NextRequest) {
   const token = req.nextUrl.searchParams.get("token") ?? "";
   if (!/^[A-Za-z0-9_-]{20,64}$/.test(token)) return reply({ error: "ลิงก์ไม่ถูกต้อง" }, 404);
   const sb = supabaseAdmin();
-  const v = await sb.from("pos_report_views").select("id,name,state,owner_id,link_expires_at,link_branches,link_views").eq("link_token", token).maybeSingle();
+  const v = await sb.from("pos_report_views").select("id,name,state,owner_id,link_expires_at,link_branches,link_views,link_mode,link_snapshot,link_snapshot_at").eq("link_token", token).maybeSingle();
   if (!v.data) return reply({ error: "ลิงก์นี้ถูกยกเลิกหรือไม่มีอยู่" }, 404);
   if (v.data.link_expires_at && new Date(v.data.link_expires_at) < new Date()) return reply({ error: "ลิงก์นี้หมดอายุแล้ว" }, 410);
 
+  // ภาพนิ่ง: ส่งข้อมูล+มุมมอง ณ เวลาที่สร้างลิงก์ (ไม่เปลี่ยนตามข้อมูลใหม่/การแก้มุมมอง)
+  if (v.data.link_mode === "snapshot" && v.data.link_snapshot) {
+    const snap = v.data.link_snapshot as { state?: unknown };
+    void sb.from("pos_report_views").update({ link_views: (v.data.link_views ?? 0) + 1 }).eq("id", v.data.id).then(() => null);
+    return reply({ view: { name: v.data.name, state: snap.state ?? v.data.state }, mode: "snapshot", snapshot_at: v.data.link_snapshot_at, snapshot: v.data.link_snapshot });
+  }
   const state = (v.data.state ?? {}) as { page?: { filter?: Record<string, unknown>; src?: string }; filters?: Record<string, { values?: string[] }> };
   const pf = (state.page?.filter ?? {}) as { range?: string; from?: string; to?: string; branchIds?: string[]; brandIds?: string[] };
   const { from, to } = rangeDates(pf.range, pf.from, pf.to);
@@ -38,7 +44,7 @@ export async function GET(req: NextRequest) {
   try {
     const data = await loadSalesData(sb, { from, to, allowed, showCost: false, own: null, legacy: state.page?.src !== "pos", publicView: true });
     void sb.from("pos_report_views").update({ link_views: (v.data.link_views ?? 0) + 1 }).eq("id", v.data.id).then(() => null);
-    return reply({ view: { name: v.data.name, state: v.data.state }, range: { from, to }, data });
+    return reply({ view: { name: v.data.name, state: v.data.state }, mode: "live", range: { from, to }, data });
   } catch (e) {
     return reply({ error: e instanceof Error ? e.message : "อ่านข้อมูลไม่สำเร็จ" }, 503);
   }

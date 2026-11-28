@@ -10,10 +10,10 @@ import { PersonChip } from "@/components/admin/sheet-tags";
 
 type Person = { id: string; name: string; photo: string | null };
 type V = { id: string; name: string; shared: boolean; mine: boolean; owner: string; owner_person?: Person | null; shared_with?: Person[];
-  link?: { token?: string; expires_at?: string | null; views?: number; active?: boolean } | null };
+  link?: { token?: string; expires_at?: string | null; views?: number; active?: boolean; mode?: "live" | "snapshot"; snapshot_at?: string | null } | null };
 
-export function ShareViewDialog({ view, canLink, onClose, onSave, onChanged }: {
-  view: V; canLink: boolean; onClose: () => void;
+export function ShareViewDialog({ view, canLink, onClose, onSave, onChanged, snapshot }: {
+  view: V; canLink: boolean; onClose: () => void; snapshot?: () => Record<string, unknown>;
   onSave: (patch: { shared?: boolean; shared_with?: string[] }) => Promise<void>; onChanged: () => Promise<void> | void;
 }) {
   const [mode, setMode] = useState<"private" | "team">(view.shared ? "team" : "private");
@@ -22,6 +22,7 @@ export function ShareViewDialog({ view, canLink, onClose, onSave, onChanged }: {
   const [q, setQ] = useState(""), [busy, setBusy] = useState(false), [err, setErr] = useState(""), [copied, setCopied] = useState(false);
   const [days, setDays] = useState<number | null>(30);
   const [link, setLink] = useState(view.link ?? null);
+  const [linkMode, setLinkMode] = useState<"live" | "snapshot">(view.link?.mode ?? "live");
   useEffect(() => { if (view.mine) void fetch("/api/admin/report-views?people=1", { cache: "no-store" }).then((r) => r.json()).then((j) => setPeople(j.people ?? [])).catch(() => setPeople([])); }, [view.mine]);
   useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); }; document.addEventListener("keydown", k); return () => document.removeEventListener("keydown", k); }, [onClose]);
 
@@ -37,7 +38,9 @@ export function ShareViewDialog({ view, canLink, onClose, onSave, onChanged }: {
   async function linkAction(action: "link" | "unlink") {
     setBusy(true); setErr("");
     try {
-      const r = await fetch("/api/admin/report-views", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, id: view.id, days }) });
+      const snap = action === "link" && linkMode === "snapshot" ? snapshot?.() : undefined;
+      if (action === "link" && linkMode === "snapshot" && !snap) throw Error(tr("เปิดแท็บมุมมองนี้ก่อน แล้วค่อยสร้างภาพนิ่ง", "Open this view's tab first to take a snapshot", "请先打开此视图再创建快照"));
+      const r = await fetch("/api/admin/report-views", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, id: view.id, days, mode: linkMode, snapshot: snap }) });
       const j = await r.json(); if (!r.ok) throw Error(j.error);
       setLink(j.link ? { ...j.link, views: 0 } : null); await onChanged();
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
@@ -114,16 +117,28 @@ export function ShareViewDialog({ view, canLink, onClose, onSave, onChanged }: {
                         <button onClick={() => { void navigator.clipboard.writeText(url).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); }); }} className="h-9 px-3 rounded-xl border border-line inline-flex items-center gap-1.5 text-xs hover:bg-surface2">{copied ? <Check size={13} className="text-ok" /> : <Copy size={13} />}{tr("คัดลอก", "Copy", "复制")}</button>
                       </div>
                       <div className="flex items-center justify-between text-[11.5px] text-muted">
-                        <span>{tr("หมดอายุ", "Expires", "到期")} {when(link.expires_at)} · {tr("เปิดแล้ว", "opened", "已打开")} {link.views ?? 0} {tr("ครั้ง", "times", "次")}</span>
+                        <span>{link.mode === "snapshot" ? tr(`ภาพนิ่ง ณ ${new Date(link.snapshot_at ?? "").toLocaleString("th-TH", { dateStyle: "short", timeStyle: "short" })}`, `Snapshot of ${new Date(link.snapshot_at ?? "").toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" })}`, "快照") : tr("ข้อมูลสด", "Live", "实时")} · {tr("หมดอายุ", "Expires", "到期")} {when(link.expires_at)} · {tr("เปิดแล้ว", "opened", "已打开")} {link.views ?? 0} {tr("ครั้ง", "times", "次")}</span>
                         <button onClick={() => void linkAction("unlink")} disabled={busy} className="inline-flex items-center gap-1 text-danger hover:underline"><Link2Off size={12} />{tr("ยกเลิกลิงก์", "Revoke link", "撤销链接")}</button>
                       </div>
                     </div>
                   ) : (
+                    <div className="space-y-2">
+                    <div className="grid grid-cols-2 gap-2">
+                      <button onClick={() => setLinkMode("live")} className={`rounded-xl border px-3 py-2 text-left ${linkMode === "live" ? "border-brand bg-brand/[0.06]" : "border-line hover:bg-surface2"}`}>
+                        <span className="block font-medium text-[12.5px]">{tr("ข้อมูลสด", "Live data", "实时数据")}</span>
+                        <span className="block text-[11px] text-muted">{tr("อัปเดตตลอด + เปลี่ยนตามที่แก้มุมมอง", "Always current + follows view edits", "始终最新 + 跟随视图修改")}</span>
+                      </button>
+                      <button onClick={() => setLinkMode("snapshot")} disabled={!snapshot} className={`rounded-xl border px-3 py-2 text-left disabled:opacity-50 ${linkMode === "snapshot" ? "border-brand bg-brand/[0.06]" : "border-line hover:bg-surface2"}`}>
+                        <span className="block font-medium text-[12.5px]">{tr("ภาพนิ่ง ณ ตอนนี้", "Snapshot now", "当前快照")}</span>
+                        <span className="block text-[11px] text-muted">{snapshot ? tr("ข้อมูลและมุมมองคงที่ ไม่เปลี่ยน", "Data and view frozen", "数据与视图固定") : tr("เปิดแท็บนี้ก่อนจึงทำภาพนิ่งได้", "Open this tab first", "请先打开此标签")}</span>
+                      </button>
+                    </div>
                     <div className="flex items-center gap-2">
                       <select value={days ?? 0} onChange={(e) => setDays(Number(e.target.value) || null)} className="h-9 rounded-xl border border-line bg-surface px-2 text-xs">
                         {[[7, tr("7 วัน", "7 days", "7 天")], [30, tr("30 วัน", "30 days", "30 天")], [90, tr("90 วัน", "90 days", "90 天")], [0, tr("ไม่หมดอายุ", "No expiry", "永不过期")]].map(([v, l]) => <option key={String(v)} value={v as number}>{l as string}</option>)}
                       </select>
                       <button onClick={() => void linkAction("link")} disabled={busy} className="h-9 px-4 rounded-xl border border-brand text-brand font-medium inline-flex items-center gap-1.5 hover:bg-brand/5">{busy ? <Loader2 size={13} className="animate-spin" /> : <Globe size={13} />}{tr("สร้างลิงก์", "Create link", "创建链接")}</button>
+                    </div>
                     </div>
                   )}
               </section>
